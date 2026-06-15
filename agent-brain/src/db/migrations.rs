@@ -76,6 +76,12 @@ pub fn run(conn: &Connection) -> rusqlite::Result<()> {
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS query_embeddings (
+            query_hash TEXT PRIMARY KEY,
+            embedding BLOB NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
         "#,
     )?;
 

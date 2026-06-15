@@ -1,8 +1,10 @@
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, OnceLock};
 
 use agent_brain::cache::{fingerprint_open_files, fingerprint_query, CacheKey, TurnCache};
 use agent_brain::config::Config;
+use agent_brain::db::RouteLatencyStats;
 use agent_brain::db::store::{content_hash, looks_like_secret, BrainStore};
 use agent_brain::embed::Embedder;
 use agent_brain::engine::Engine;
@@ -21,6 +23,8 @@ fn test_config(dir: &TempDir) -> Config {
         auto_capture_enabled: true,
         session_ingest_enabled: false,
         session_max_age_days: 90,
+        prewarm_on_bootstrap: false,
+        embedding_cache_enabled: true,
     }
 }
 
@@ -172,6 +176,8 @@ fn truncates_context_to_token_budget() {
         embedder: embedder.clone(),
         cache: Arc::new(TurnCache::new(8, 60)),
         auto_capture_enabled: true,
+        route_latency: Arc::new(RouteLatencyStats::new(32)),
+        warmed: Arc::new(AtomicBool::new(false)),
     };
 
     let resp = engine
@@ -218,6 +224,8 @@ fn route_task_respects_max_tokens() {
         embedder: embedder.clone(),
         cache: Arc::new(TurnCache::new(8, 60)),
         auto_capture_enabled: true,
+        route_latency: Arc::new(RouteLatencyStats::new(32)),
+        warmed: Arc::new(AtomicBool::new(false)),
     };
 
     let resp = engine
@@ -285,6 +293,8 @@ fn dedupes_duplicate_skill_names_in_route_task() {
         embedder: embedder.clone(),
         cache: Arc::new(TurnCache::new(8, 60)),
         auto_capture_enabled: true,
+        route_latency: Arc::new(RouteLatencyStats::new(32)),
+        warmed: Arc::new(AtomicBool::new(false)),
     };
 
     let resp = engine
@@ -316,6 +326,29 @@ fn dedupes_duplicate_skill_names_in_route_task() {
             .path
             .contains("/packages/ecc/skills/react-patterns/")
     );
+}
+
+#[test]
+fn query_embedding_cache_survives_reopen() {
+    let dir = TempDir::new().unwrap();
+    let config = test_config(&dir);
+    config.ensure_dirs().unwrap();
+    let emb = dummy_embedding();
+    let hash = content_hash("persisted routing query");
+
+    {
+        let store = BrainStore::open(&config.db_path).unwrap();
+        store.put_query_embedding(&hash, &emb).unwrap();
+        let cached = store.get_query_embedding(&hash).unwrap().expect("cached");
+        assert_eq!(cached.len(), emb.len());
+    }
+
+    let store = BrainStore::open(&config.db_path).unwrap();
+    let cached = store
+        .get_query_embedding(&hash)
+        .unwrap()
+        .expect("survives reopen");
+    assert_eq!(cached.len(), emb.len());
 }
 
 #[test]

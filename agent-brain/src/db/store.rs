@@ -1,3 +1,4 @@
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -9,9 +10,45 @@ use crate::db::migrations;
 use crate::embed::cosine;
 use crate::types::{ItemType, ScoredItem};
 
+const BM25_ITEMS_TOP: usize = 150;
+const BM25_FACTS_TOP: usize = 40;
+const MIN_CANDIDATES: usize = 50;
+const FALLBACK_RECENT: usize = 80;
+const QUERY_EMBEDDING_CACHE_MAX: usize = 500;
+
+struct SearchIndexCache {
+    version: u64,
+    indexed: Vec<CachedRow>,
+    indexed_by_id: HashMap<String, usize>,
+    memories: Vec<CachedRow>,
+    memories_by_id: HashMap<String, usize>,
+}
+
+#[derive(Clone)]
+struct CachedRow {
+    id: String,
+    item_type: String,
+    topic: String,
+    text: String,
+    source_path: String,
+    scope: String,
+    scope_key: Option<String>,
+    embedding: Option<Vec<f32>>,
+    updated_at: i64,
+}
+
+struct SearchSnapshot {
+    version: u64,
+    indexed: Vec<CachedRow>,
+    indexed_by_id: HashMap<String, usize>,
+    memories: Vec<CachedRow>,
+    memories_by_id: HashMap<String, usize>,
+}
+
 pub struct BrainStore {
     conn: Arc<Mutex<Connection>>,
     pub index_version: Arc<Mutex<u64>>,
+    search_cache: Mutex<Option<SearchIndexCache>>,
 }
 
 impl BrainStore {
@@ -33,6 +70,115 @@ impl BrainStore {
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             index_version: Arc::new(Mutex::new(index_version)),
+            search_cache: Mutex::new(None),
+        })
+    }
+
+    fn invalidate_search_cache(&self) {
+        if let Ok(mut guard) = self.search_cache.lock() {
+            *guard = None;
+        }
+    }
+
+    fn search_cache_snapshot(&self) -> Result<SearchSnapshot> {
+        let version = self.get_index_version();
+        if let Ok(guard) = self.search_cache.lock() {
+            if let Some(cache) = guard.as_ref() {
+                if cache.version == version {
+                    return Ok(SearchSnapshot {
+                        version,
+                        indexed: cache.indexed.clone(),
+                        indexed_by_id: cache.indexed_by_id.clone(),
+                        memories: cache.memories.clone(),
+                        memories_by_id: cache.memories_by_id.clone(),
+                    });
+                }
+            }
+        }
+
+        let indexed = self.load_indexed_rows()?;
+        let memories = self.load_memory_rows()?;
+        let indexed_by_id: HashMap<String, usize> = indexed
+            .iter()
+            .enumerate()
+            .map(|(i, row)| (row.id.clone(), i))
+            .collect();
+        let memories_by_id: HashMap<String, usize> = memories
+            .iter()
+            .enumerate()
+            .map(|(i, row)| (row.id.clone(), i))
+            .collect();
+        if let Ok(mut guard) = self.search_cache.lock() {
+            *guard = Some(SearchIndexCache {
+                version,
+                indexed: indexed.clone(),
+                indexed_by_id: indexed_by_id.clone(),
+                memories: memories.clone(),
+                memories_by_id: memories_by_id.clone(),
+            });
+        }
+        Ok(SearchSnapshot {
+            version,
+            indexed,
+            indexed_by_id,
+            memories,
+            memories_by_id,
+        })
+    }
+
+    pub fn prewarm_search_cache(&self) -> Result<()> {
+        let _ = self.search_cache_snapshot()?;
+        Ok(())
+    }
+
+    fn load_indexed_rows(&self) -> Result<Vec<CachedRow>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT id, item_type, topic, text, source_path, scope, scope_key, embedding, updated_at
+                   FROM indexed_items"#,
+            )?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok(CachedRow {
+                        id: row.get(0)?,
+                        item_type: row.get(1)?,
+                        topic: row.get(2)?,
+                        text: row.get(3)?,
+                        source_path: row.get(4)?,
+                        scope: row.get(5)?,
+                        scope_key: row.get(6)?,
+                        embedding: row.get::<_, Option<Vec<u8>>>(7)?.map(|b| bytes_to_f32(&b)),
+                        updated_at: row.get(8)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
+    fn load_memory_rows(&self) -> Result<Vec<CachedRow>> {
+        self.with_conn(|conn| {
+            let now = chrono::Utc::now().timestamp_millis();
+            let mut stmt = conn.prepare(
+                r#"SELECT id, topic, fact, scope, scope_key, updated_at
+                   FROM facts WHERE superseded_by IS NULL AND (expires_at IS NULL OR expires_at > ?1)"#,
+            )?;
+            let rows = stmt
+                .query_map(params![now], |row| {
+                    Ok(CachedRow {
+                        id: row.get(0)?,
+                        item_type: "memory".into(),
+                        topic: row.get(1)?,
+                        text: row.get(2)?,
+                        source_path: String::new(),
+                        scope: row.get(3)?,
+                        scope_key: row.get(4)?,
+                        embedding: None,
+                        updated_at: row.get(5)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
         })
     }
 
@@ -50,6 +196,7 @@ impl BrainStore {
             .lock()
             .map_err(|e| anyhow::anyhow!("{e}"))?;
         *ver += 1;
+        self.invalidate_search_cache();
         self.with_conn(|conn| {
             conn.execute(
                 "INSERT OR REPLACE INTO meta (key, value) VALUES ('index_version', ?1)",
@@ -149,19 +296,88 @@ impl BrainStore {
         })
     }
 
-    pub fn bm25_search(&self, query: &str, limit: usize) -> Result<Vec<(String, f64)>> {
+    pub fn bm25_search_items(&self, query: &str, limit: usize) -> Result<Vec<(String, f64)>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT rowid, bm25(items_fts) as score FROM items_fts WHERE items_fts MATCH ?1 ORDER BY score LIMIT ?2",
+                r#"SELECT i.id, bm25(items_fts) AS score
+                   FROM items_fts
+                   JOIN indexed_items i ON i.rowid = items_fts.rowid
+                   WHERE items_fts MATCH ?1
+                   ORDER BY score
+                   LIMIT ?2"#,
             )?;
             let q = sanitize_fts_query(query);
             let rows = stmt
                 .query_map(params![q, limit as i64], |row| {
-                    let rowid: i64 = row.get(0)?;
-                    Ok((rowid.to_string(), row.get::<_, f64>(1)?))
+                    Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(rows)
+        })
+    }
+
+    pub fn bm25_search_facts(&self, query: &str, limit: usize) -> Result<Vec<(String, f64)>> {
+        self.with_conn(|conn| {
+            let now = chrono::Utc::now().timestamp_millis();
+            let mut stmt = conn.prepare(
+                r#"SELECT f.id, bm25(facts_fts) AS score
+                   FROM facts_fts
+                   JOIN facts f ON f.rowid = facts_fts.rowid
+                   WHERE facts_fts MATCH ?1
+                     AND f.superseded_by IS NULL
+                     AND (f.expires_at IS NULL OR f.expires_at > ?2)
+                   ORDER BY score
+                   LIMIT ?3"#,
+            )?;
+            let q = sanitize_fts_query(query);
+            let rows = stmt
+                .query_map(params![q, now, limit as i64], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
+    #[allow(dead_code)]
+    pub fn bm25_search(&self, query: &str, limit: usize) -> Result<Vec<(String, f64)>> {
+        self.bm25_search_items(query, limit)
+    }
+
+    pub fn get_query_embedding(&self, query_hash: &str) -> Result<Option<Vec<f32>>> {
+        self.with_conn(|conn| {
+            let blob: Option<Vec<u8>> = conn
+                .query_row(
+                    "SELECT embedding FROM query_embeddings WHERE query_hash = ?1",
+                    params![query_hash],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            Ok(blob.map(|b| bytes_to_f32(&b)))
+        })
+    }
+
+    pub fn put_query_embedding(&self, query_hash: &str, embedding: &[f32]) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let blob: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO query_embeddings (query_hash, embedding, updated_at) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(query_hash) DO UPDATE SET embedding = excluded.embedding, updated_at = excluded.updated_at",
+                params![query_hash, blob, now],
+            )?;
+            let count: i64 =
+                conn.query_row("SELECT COUNT(*) FROM query_embeddings", [], |r| r.get(0))?;
+            if count as usize > QUERY_EMBEDDING_CACHE_MAX {
+                let excess = count as usize - QUERY_EMBEDDING_CACHE_MAX;
+                conn.execute(
+                    "DELETE FROM query_embeddings WHERE query_hash IN (
+                        SELECT query_hash FROM query_embeddings ORDER BY updated_at ASC LIMIT ?1
+                    )",
+                    params![excess as i64],
+                )?;
+            }
+            Ok(())
         })
     }
 
@@ -324,22 +540,66 @@ impl BrainStore {
         repo_root: Option<&str>,
         tags: &[String],
         boost_agents: bool,
-    ) -> Result<Vec<ScoredItem>> {
-        let rows = self.load_searchable_items()?;
-        let bm25 = self.bm25_search(query, 50).unwrap_or_default();
+    ) -> Result<(Vec<ScoredItem>, usize, usize)> {
+        let snapshot = self.search_cache_snapshot()?;
+        let index_total = snapshot.indexed.len() + snapshot.memories.len();
+
+        let item_bm25 = self.bm25_search_items(query, BM25_ITEMS_TOP).unwrap_or_default();
+        let fact_bm25 = self.bm25_search_facts(query, BM25_FACTS_TOP).unwrap_or_default();
+
         let mut bm25_map = std::collections::HashMap::new();
         let mut bm25_max = 0.0f64;
-        for (id, score) in bm25 {
+        for (id, score) in item_bm25.iter().chain(fact_bm25.iter()) {
             bm25_max = bm25_max.max(score.abs());
-            bm25_map.insert(id, score);
+            bm25_map.insert(id.clone(), *score);
         }
 
-        let mut scored = Vec::new();
-        for row in rows {
+        let mut candidate_ids: HashSet<String> =
+            item_bm25.into_iter().map(|(id, _)| id).collect();
+        let memory_ids: HashSet<String> = fact_bm25.into_iter().map(|(id, _)| id).collect();
+
+        let mut candidates: Vec<&CachedRow> = Vec::new();
+        for id in &candidate_ids {
+            if let Some(&idx) = snapshot.indexed_by_id.get(id) {
+                candidates.push(&snapshot.indexed[idx]);
+            }
+        }
+        for id in &memory_ids {
+            if let Some(&idx) = snapshot.memories_by_id.get(id) {
+                candidates.push(&snapshot.memories[idx]);
+            }
+        }
+
+        if candidates.len() < MIN_CANDIDATES {
+            let mut recent: Vec<&CachedRow> = snapshot.indexed.iter().collect();
+            recent.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+            for row in recent.into_iter().take(FALLBACK_RECENT) {
+                if candidate_ids.insert(row.id.clone()) {
+                    candidates.push(row);
+                }
+                if candidates.len() >= MIN_CANDIDATES {
+                    break;
+                }
+            }
+        }
+
+        // Include memories for convention matching; cap scan when many session imports exist.
+        const MAX_EXTRA_MEMORIES: usize = 50;
+        let mut included_ids: HashSet<String> = candidates.iter().map(|r| r.id.clone()).collect();
+        let mut extra_memories: Vec<&CachedRow> = snapshot.memories.iter().collect();
+        extra_memories.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        for row in extra_memories.into_iter().take(MAX_EXTRA_MEMORIES) {
+            if included_ids.insert(row.id.clone()) {
+                candidates.push(row);
+            }
+        }
+
+        let candidate_count = candidates.len();
+        let mut scored = Vec::with_capacity(candidate_count);
+        for row in candidates {
             let item_type = ItemType::parse(&row.item_type).unwrap_or(ItemType::Rule);
-            let cosine_sim = if let Some(blob) = &row.embedding {
-                let emb = bytes_to_f32(blob);
-                cosine(query_embedding, &emb)
+            let cosine_sim = if let Some(emb) = &row.embedding {
+                cosine(query_embedding, emb)
             } else {
                 0.0
             };
@@ -371,22 +631,22 @@ impl BrainStore {
             }
 
             scored.push(ScoredItem {
-                id: row.id,
+                id: row.id.clone(),
                 item_type,
-                topic: row.topic,
-                text: row.text,
+                topic: row.topic.clone(),
+                text: row.text.clone(),
                 source_path: if row.source_path.is_empty() {
                     None
                 } else {
-                    Some(row.source_path)
+                    Some(row.source_path.clone())
                 },
-                scope: row.scope,
+                scope: row.scope.clone(),
                 score,
             });
         }
 
         scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
-        Ok(scored)
+        Ok((scored, candidate_count, index_total))
     }
 }
 

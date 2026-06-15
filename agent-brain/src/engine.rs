@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -8,7 +9,8 @@ use uuid::Uuid;
 
 use crate::cache::{fingerprint_open_files, fingerprint_query, CacheKey, TurnCache};
 use crate::config::Config;
-use crate::db::store::BrainStore;
+use crate::db::store::{content_hash, BrainStore};
+use crate::db::{RouteLatencyStats, RouteTiming};
 use crate::embed::Embedder;
 use crate::index;
 use crate::tokens::estimate_json_tokens;
@@ -24,6 +26,8 @@ pub struct Engine {
     pub embedder: Arc<Embedder>,
     pub cache: Arc<TurnCache>,
     pub auto_capture_enabled: bool,
+    pub route_latency: Arc<RouteLatencyStats>,
+    pub warmed: Arc<AtomicBool>,
 }
 
 impl Engine {
@@ -38,6 +42,8 @@ impl Engine {
             store,
             embedder,
             cache,
+            route_latency: Arc::new(RouteLatencyStats::new(256)),
+            warmed: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -54,7 +60,33 @@ impl Engine {
             }
             n += sessions;
         }
+        if self.config.prewarm_on_bootstrap {
+            if let Err(err) = self.prewarm() {
+                tracing::warn!(error = %err, "bootstrap prewarm failed");
+            }
+        }
         Ok(n)
+    }
+
+    pub fn prewarm(&self) -> Result<()> {
+        self.store.prewarm_search_cache()?;
+        self.embedder.embed_one("agent-brain warmup")?;
+        self.warmed.store(true, Ordering::Relaxed);
+        tracing::info!(target: "agent_brain::route", "bootstrap prewarm complete");
+        Ok(())
+    }
+
+    fn embed_query(&self, query: &str) -> Result<(Vec<f32>, bool)> {
+        let query_hash = content_hash(query);
+        if self.config.embedding_cache_enabled {
+            if let Some(embedding) = self.store.get_query_embedding(&query_hash)? {
+                return Ok((embedding, true));
+            }
+            let embedding = self.embedder.embed_one(query)?;
+            self.store.put_query_embedding(&query_hash, &embedding)?;
+            return Ok((embedding, false));
+        }
+        Ok((self.embedder.embed_one(query)?, false))
     }
 
     pub fn route_task(
@@ -69,6 +101,7 @@ impl Engine {
         let ws = probe(cwd);
         let phase = infer_phase(user_message);
         let scope_key = ws.repo_root.clone().unwrap_or_default();
+        let cache_warm = self.warmed.load(Ordering::Relaxed);
 
         let cache_key = CacheKey {
             scope_key: scope_key.clone(),
@@ -79,24 +112,58 @@ impl Engine {
         };
 
         if let Some(mut cached) = self.cache.get(&cache_key) {
-            cached.latency_ms = started.elapsed().as_millis() as u64;
+            let total_us = started.elapsed().as_micros() as u64;
+            cached.latency_ms = total_us / 1000;
+            let timing = RouteTiming {
+                total_us,
+                cache_hit: true,
+                cache_warm,
+                ..Default::default()
+            };
+            let p95 = self.route_latency.p95_ms();
+            self.route_latency.record(timing.total_us / 1000);
+            timing.log_line(p95, &phase);
             return Ok(cached);
         }
 
         let query = format!("{} {}", user_message, ws.tags.join(" "));
-        let query_emb = self.embedder.embed_one(&query)?;
-        let scored = self.store.score_items(
+        let embed_started = Instant::now();
+        let (query_emb, embed_cache_hit) = self.embed_query(&query)?;
+        let embed_us = embed_started.elapsed().as_micros() as u64;
+
+        let score_started = Instant::now();
+        let (scored, candidates, index_total) = self.store.score_items(
             &query,
             &query_emb,
             ws.repo_root.as_deref(),
             &ws.tags,
             agent_boost_keywords(user_message),
         )?;
+        let score_us = score_started.elapsed().as_micros() as u64;
 
+        let build_started = Instant::now();
         let mut resp = build_route_response(scored, &limits, &phase, max_tokens);
+        let build_us = build_started.elapsed().as_micros() as u64;
+
+        let total_us = started.elapsed().as_micros() as u64;
         resp.cache_hit = false;
-        resp.latency_ms = started.elapsed().as_millis() as u64;
+        resp.latency_ms = total_us / 1000;
         resp.log_id = Uuid::new_v4().to_string();
+
+        let timing = RouteTiming {
+            embed_us,
+            score_us,
+            build_us,
+            total_us,
+            cache_hit: false,
+            embed_cache_hit,
+            cache_warm,
+            candidates,
+            index_total,
+        };
+        let p95 = self.route_latency.p95_ms();
+        self.route_latency.record(timing.total_us / 1000);
+        timing.log_line(p95, &phase);
 
         self.cache.put(cache_key, resp.clone());
         Ok(resp)
@@ -111,8 +178,8 @@ impl Engine {
     ) -> Result<GetContextResponse> {
         let ws = probe(cwd);
         let query = format!("{} {}", task_description, ws.tags.join(" "));
-        let query_emb = self.embedder.embed_one(&query)?;
-        let scored = self.store.score_items(
+        let (query_emb, _) = self.embed_query(&query)?;
+        let (scored, _, _) = self.store.score_items(
             &query,
             &query_emb,
             ws.repo_root.as_deref(),

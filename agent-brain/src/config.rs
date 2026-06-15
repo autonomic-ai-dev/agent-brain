@@ -12,6 +12,8 @@ pub struct Config {
     pub auto_capture_enabled: bool,
     pub session_ingest_enabled: bool,
     pub session_max_age_days: u64,
+    pub prewarm_on_bootstrap: bool,
+    pub embedding_cache_enabled: bool,
 }
 
 impl Config {
@@ -34,6 +36,12 @@ impl Config {
                 .map(|v| v != "0" && v != "false")
                 .unwrap_or(true),
             session_max_age_days: 90,
+            prewarm_on_bootstrap: std::env::var("AGENT_BRAIN_PREWARM")
+                .map(|v| v != "0" && v != "false")
+                .unwrap_or(true),
+            embedding_cache_enabled: std::env::var("AGENT_BRAIN_EMBEDDING_CACHE")
+                .map(|v| v != "0" && v != "false")
+                .unwrap_or(true),
             home,
             data_dir,
         })
