@@ -411,3 +411,105 @@ fn purges_indexed_items_under_package_prefix() {
     assert_eq!(remaining.len(), 1);
     assert_eq!(remaining[0].topic, "bar");
 }
+
+#[test]
+fn zero_route_limits_normalize_to_defaults() {
+    let limits = RouteLimits {
+        agents: 0,
+        skills: 0,
+        rules: 0,
+        memory: 0,
+    }
+    .normalize();
+    assert_eq!(limits.agents, 2);
+    assert_eq!(limits.skills, 3);
+    assert_eq!(limits.rules, 5);
+    assert_eq!(limits.memory, 5);
+}
+
+#[test]
+fn partial_zero_route_limits_are_preserved() {
+    let limits = RouteLimits {
+        agents: 0,
+        skills: 3,
+        rules: 0,
+        memory: 0,
+    }
+    .normalize();
+    assert_eq!(limits.skills, 3);
+    assert_eq!(limits.agents, 0);
+}
+
+#[test]
+fn route_task_with_all_zero_limits_returns_skills() {
+    let dir = TempDir::new().unwrap();
+    let config = test_config(&dir);
+    config.ensure_dirs().unwrap();
+    let store = BrainStore::open(&config.db_path).unwrap();
+    let embedder = test_embedder();
+
+    let text = "spring boot junit mockmvc test patterns";
+    let emb = deterministic_embedding(text);
+    store
+        .upsert_indexed_item(
+            ItemType::Skill,
+            "springboot-tdd",
+            text,
+            "/skills/springboot-tdd/SKILL.md",
+            "package",
+            Some("ecc"),
+            &content_hash(text),
+            Some(&emb),
+        )
+        .unwrap();
+
+    let engine = Engine {
+        config,
+        store: Arc::new(store),
+        embedder: embedder.clone(),
+        cache: Arc::new(TurnCache::new(8, 60)),
+        auto_capture_enabled: true,
+        route_latency: Arc::new(RouteLatencyStats::new(32)),
+        warmed: Arc::new(AtomicBool::new(false)),
+        query_emb_cache: Arc::new(QueryEmbeddingCache::new(32)),
+    };
+
+    let resp = engine
+        .route_task(
+            "write spring boot integration tests with mockmvc",
+            None,
+            &[],
+            500,
+            RouteLimits {
+                agents: 0,
+                skills: 0,
+                rules: 0,
+                memory: 0,
+            },
+        )
+        .unwrap();
+
+    assert!(
+        !resp.recommended_skills.is_empty(),
+        "expected skills after zero-limit normalization"
+    );
+    assert!(resp.tokens_used > 0);
+}
+
+#[test]
+fn route_limits_schema_defaults_are_nonzero() {
+    let schema = schemars::schema_for!(RouteLimits);
+    let json = serde_json::to_value(&schema).unwrap();
+    let props = json
+        .pointer("/properties")
+        .and_then(|v| v.as_object())
+        .expect("properties");
+    for field in ["agents", "skills", "rules", "memory"] {
+        let default = props
+            .get(field)
+            .and_then(|v| v.get("default"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        assert!(default > 0, "{field} schema default should be > 0");
+    }
+}

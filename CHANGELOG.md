@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.10] - 2026-06-15
+
+### Fixed
+
+- MCP `route_task` schema advertised `limits` defaults as all zeros; Cursor sent `{0,0,0,0}` and routing returned empty results. Schema and `RouteLimits::Default` now use agents=2, skills=3, rules=5, memory=5; all-zero limits are normalized at runtime.
+- Empty `route_task` responses are no longer cached (and stale empty cache entries are ignored).
+
+### Changed
+
+- `build_route_response` fills agents, skills, and rules before memory so skills are not crowded out by legacy session memories within the token budget.
+- Release pipeline uses `pipeline-compose-run`: tests must pass before cross-platform build and GitHub release publish on `v*` tags.
+
 ## [0.3.9] - 2026-06-15
 
 ### Fixed

@@ -1,0 +1,24 @@
+name: Stage build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: ./.github/workflows/reusable-build.yml
+    with:
+      retention-days: 90
+
+  export:
+    name: Export build run id
+    needs: build
+    if: success()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: aeswibon/pipeline-compose-export@v1.1.0
+        with:
+          stage_id: build
+          outputs: '{"run_id":"${{ github.run_id }}"}'

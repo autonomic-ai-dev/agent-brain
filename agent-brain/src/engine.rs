@@ -206,6 +206,7 @@ impl Engine {
         max_tokens: usize,
         limits: RouteLimits,
     ) -> Result<RouteTaskResponse> {
+        let limits = limits.normalize();
         let started = Instant::now();
         let ws = probe(cwd);
         let phase = infer_phase(user_message);
@@ -222,18 +223,22 @@ impl Engine {
         );
 
         if let Some(mut cached) = self.cache.get(&cache_key) {
-            let total_us = started.elapsed().as_micros() as u64;
-            cached.latency_ms = total_us / 1000;
-            let timing = RouteTiming {
-                total_us,
-                cache_hit: true,
-                cache_warm,
-                ..Default::default()
-            };
-            let p95 = self.route_latency.p95_ms();
-            self.route_latency.record(timing.total_us / 1000);
-            timing.log_line(p95, &phase);
-            return Ok(cached);
+            if is_empty_route_response(&cached) {
+                self.cache.remove(&cache_key);
+            } else {
+                let total_us = started.elapsed().as_micros() as u64;
+                cached.latency_ms = total_us / 1000;
+                let timing = RouteTiming {
+                    total_us,
+                    cache_hit: true,
+                    cache_warm,
+                    ..Default::default()
+                };
+                let p95 = self.route_latency.p95_ms();
+                self.route_latency.record(timing.total_us / 1000);
+                timing.log_line(p95, &phase);
+                return Ok(cached);
+            }
         }
 
         let query = format!("{} {}", user_message, ws.tags.join(" "));
@@ -272,7 +277,9 @@ impl Engine {
         self.route_latency.record(timing.total_us / 1000);
         timing.log_line(p95, &phase);
 
-        self.cache.put(cache_key, resp.clone());
+        if !is_empty_route_response(&resp) {
+            self.cache.put(cache_key, resp.clone());
+        }
         Ok(resp)
     }
 
@@ -338,95 +345,128 @@ fn build_route_response(
     phase: &str,
     max_tokens: usize,
 ) -> RouteTaskResponse {
-    let mut agents = Vec::new();
-    let mut skills = Vec::new();
-    let mut rules = Vec::new();
-    let mut memory = Vec::new();
-    let mut must_apply = Vec::new();
-    let mut tokens_used = 0;
-    let mut seen_agents = HashSet::new();
-    let mut seen_skills = HashSet::new();
-
-    for item in scored {
-        let (bucket, rec_tokens) = match item.item_type {
-            ItemType::Agent if agents.len() < limits.agents => {
-                if !seen_agents.insert(item.topic.to_ascii_lowercase()) {
-                    continue;
-                }
-                let rec = AgentRec {
-                    name: item.topic.clone(),
-                    path: item.source_path.clone().unwrap_or_default(),
-                    rationale: rationale_for(&item, phase),
-                    score: item.score,
-                };
-                let t = estimate_json_tokens(&serde_json::to_value(&rec).unwrap_or_default());
-                agents.push(rec);
-                ("agent", t)
-            }
-            ItemType::Skill if skills.len() < limits.skills => {
-                if !seen_skills.insert(item.topic.to_ascii_lowercase()) {
-                    continue;
-                }
-                let rec = SkillRec {
-                    name: item.topic.clone(),
-                    path: item.source_path.clone().unwrap_or_default(),
-                    rationale: rationale_for(&item, phase),
-                    score: item.score,
-                };
-                let t = estimate_json_tokens(&serde_json::to_value(&rec).unwrap_or_default());
-                skills.push(rec);
-                ("skill", t)
-            }
-            ItemType::Rule if rules.len() < limits.rules => {
-                let rec = RuleRec {
-                    topic: item.topic.clone(),
-                    text: item.text.chars().take(300).collect(),
-                    source_path: item.source_path.clone().unwrap_or_default(),
-                    score: item.score,
-                };
-                let t = estimate_json_tokens(&serde_json::to_value(&rec).unwrap_or_default());
-                rules.push(rec);
-                ("rule", t)
-            }
-            ItemType::Memory if memory.len() < limits.memory => {
-                if item.text.to_lowercase().contains("do not") {
-                    must_apply.push(MustApply {
-                        topic: item.topic.clone(),
-                        text: item.text.chars().take(200).collect(),
-                    });
-                }
-                let rec = MemoryRec {
-                    topic: item.topic.clone(),
-                    text: item.text.chars().take(300).collect(),
-                    score: item.score,
-                };
-                let t = estimate_json_tokens(&serde_json::to_value(&rec).unwrap_or_default());
-                memory.push(rec);
-                ("memory", t)
-            }
-            _ => continue,
-        };
-
-        if tokens_used + rec_tokens > max_tokens {
-            break;
-        }
-        tokens_used += rec_tokens;
-        let _ = bucket;
-    }
-
-    RouteTaskResponse {
-        recommended_agents: agents,
-        recommended_skills: skills,
-        applicable_rules: rules,
-        relevant_memory: memory,
-        must_apply,
+    let mut resp = RouteTaskResponse {
         recommended_phase: phase.to_string(),
-        tokens_used,
         tokens_budget: max_tokens,
-        cache_hit: false,
-        latency_ms: 0,
-        log_id: String::new(),
+        ..Default::default()
+    };
+    let mut state = RouteBuildState::default();
+
+    // Pass 1: agents, skills, rules — before memory consumes the token budget.
+    for item in &scored {
+        if matches!(item.item_type, ItemType::Memory) {
+            continue;
+        }
+        try_add_route_item(&mut resp, &mut state, item, limits, phase, max_tokens);
     }
+
+    // Pass 2: memory with whatever budget remains.
+    for item in &scored {
+        if !matches!(item.item_type, ItemType::Memory) {
+            continue;
+        }
+        try_add_route_item(&mut resp, &mut state, item, limits, phase, max_tokens);
+    }
+
+    resp
+}
+
+#[derive(Default)]
+struct RouteBuildState {
+    seen_agents: HashSet<String>,
+    seen_skills: HashSet<String>,
+}
+
+fn try_add_route_item(
+    resp: &mut RouteTaskResponse,
+    state: &mut RouteBuildState,
+    item: &ScoredItem,
+    limits: &RouteLimits,
+    phase: &str,
+    max_tokens: usize,
+) {
+    enum PendingRec {
+        Agent(AgentRec),
+        Skill(SkillRec),
+        Rule(RuleRec),
+        Memory(MemoryRec),
+    }
+
+    let (pending, rec_tokens) = match item.item_type {
+        ItemType::Agent if resp.recommended_agents.len() < limits.agents => {
+            if !state.seen_agents.insert(item.topic.to_ascii_lowercase()) {
+                return;
+            }
+            let rec = AgentRec {
+                name: item.topic.clone(),
+                path: item.source_path.clone().unwrap_or_default(),
+                rationale: rationale_for(item, phase),
+                score: item.score,
+            };
+            let t = estimate_json_tokens(&serde_json::to_value(&rec).unwrap_or_default());
+            (PendingRec::Agent(rec), t)
+        }
+        ItemType::Skill if resp.recommended_skills.len() < limits.skills => {
+            if !state.seen_skills.insert(item.topic.to_ascii_lowercase()) {
+                return;
+            }
+            let rec = SkillRec {
+                name: item.topic.clone(),
+                path: item.source_path.clone().unwrap_or_default(),
+                rationale: rationale_for(item, phase),
+                score: item.score,
+            };
+            let t = estimate_json_tokens(&serde_json::to_value(&rec).unwrap_or_default());
+            (PendingRec::Skill(rec), t)
+        }
+        ItemType::Rule if resp.applicable_rules.len() < limits.rules => {
+            let rec = RuleRec {
+                topic: item.topic.clone(),
+                text: item.text.chars().take(300).collect(),
+                source_path: item.source_path.clone().unwrap_or_default(),
+                score: item.score,
+            };
+            let t = estimate_json_tokens(&serde_json::to_value(&rec).unwrap_or_default());
+            (PendingRec::Rule(rec), t)
+        }
+        ItemType::Memory if resp.relevant_memory.len() < limits.memory => {
+            let rec = MemoryRec {
+                topic: item.topic.clone(),
+                text: item.text.chars().take(300).collect(),
+                score: item.score,
+            };
+            let t = estimate_json_tokens(&serde_json::to_value(&rec).unwrap_or_default());
+            (PendingRec::Memory(rec), t)
+        }
+        _ => return,
+    };
+
+    if resp.tokens_used + rec_tokens > max_tokens {
+        return;
+    }
+
+    resp.tokens_used += rec_tokens;
+    match pending {
+        PendingRec::Agent(rec) => resp.recommended_agents.push(rec),
+        PendingRec::Skill(rec) => resp.recommended_skills.push(rec),
+        PendingRec::Rule(rec) => resp.applicable_rules.push(rec),
+        PendingRec::Memory(rec) => {
+            if item.text.to_lowercase().contains("do not") {
+                resp.must_apply.push(MustApply {
+                    topic: item.topic.clone(),
+                    text: item.text.chars().take(200).collect(),
+                });
+            }
+            resp.relevant_memory.push(rec);
+        }
+    }
+}
+
+fn is_empty_route_response(resp: &RouteTaskResponse) -> bool {
+    resp.recommended_agents.is_empty()
+        && resp.recommended_skills.is_empty()
+        && resp.applicable_rules.is_empty()
+        && resp.relevant_memory.is_empty()
 }
 
 fn rationale_for(item: &ScoredItem, phase: &str) -> String {

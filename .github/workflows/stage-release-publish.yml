@@ -1,0 +1,48 @@
+name: Stage release publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Workflow run id from the build stage
+        type: string
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    name: Publish release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v7
+        with:
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: dist
+          merge-multiple: true
+
+      - name: Extract changelog release notes
+        shell: bash
+        run: |
+          chmod +x .github/scripts/changelog-extract.sh
+          .github/scripts/changelog-extract.sh "${{ github.ref_name }}" > release-notes.md
+          echo "--- Release notes ---"
+          cat release-notes.md
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: agent-brain ${{ github.ref_name }}
+          body_path: release-notes.md
+          files: dist/*
+          draft: false
+          prerelease: false

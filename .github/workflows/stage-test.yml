@@ -1,10 +1,6 @@
-name: CI
+name: Stage test
 
 on:
-  push:
-    branches: [main, master]
-  pull_request:
-    branches: [main, master]
   workflow_dispatch:
 
 env:
@@ -24,8 +20,3 @@ jobs:
 
       - name: Run tests
         run: cargo test --release -p agent-brain
-
-  build:
-    name: Build
-    needs: test
-    uses: ./.github/workflows/reusable-build.yml

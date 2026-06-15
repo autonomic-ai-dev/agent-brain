@@ -100,8 +100,13 @@ struct RouteTaskParams {
     open_files: Vec<String>,
     #[serde(default = "default_max_tokens")]
     max_tokens: usize,
-    #[serde(default)]
+    #[serde(default = "default_route_limits")]
+    #[schemars(default = "default_route_limits")]
     limits: RouteLimits,
+}
+
+fn default_route_limits() -> RouteLimits {
+    RouteLimits::default()
 }
 
 fn default_max_tokens() -> usize {
@@ -193,7 +198,7 @@ impl BrainMcp {
                 cwd.as_deref(),
                 &p.open_files,
                 p.max_tokens,
-                p.limits,
+                p.limits.normalize(),
             )
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         json_result(resp)

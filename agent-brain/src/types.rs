@@ -42,28 +42,53 @@ pub struct ScoredItem {
     pub score: f64,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct RouteLimits {
     #[serde(default = "default_agents")]
+    #[schemars(default = "default_agents")]
     pub agents: usize,
     #[serde(default = "default_skills")]
+    #[schemars(default = "default_skills")]
     pub skills: usize,
     #[serde(default = "default_rules")]
+    #[schemars(default = "default_rules")]
     pub rules: usize,
     #[serde(default = "default_memory")]
+    #[schemars(default = "default_memory")]
     pub memory: usize,
 }
 
-fn default_agents() -> usize {
+impl Default for RouteLimits {
+    fn default() -> Self {
+        Self {
+            agents: default_agents(),
+            skills: default_skills(),
+            rules: default_rules(),
+            memory: default_memory(),
+        }
+    }
+}
+
+impl RouteLimits {
+    /// MCP clients may send the JSON-schema zero object; treat that as unset.
+    pub fn normalize(self) -> Self {
+        if self.agents == 0 && self.skills == 0 && self.rules == 0 && self.memory == 0 {
+            return Self::default();
+        }
+        self
+    }
+}
+
+pub fn default_agents() -> usize {
     2
 }
-fn default_skills() -> usize {
+pub fn default_skills() -> usize {
     3
 }
-fn default_rules() -> usize {
+pub fn default_rules() -> usize {
     5
 }
-fn default_memory() -> usize {
+pub fn default_memory() -> usize {
     5
 }
 

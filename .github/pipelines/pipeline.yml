@@ -1,0 +1,23 @@
+version: 2
+companion_workflows:
+  - .github/workflows/release.yml
+  - .github/workflows/ci.yml
+pipelines:
+  release:
+    stages:
+      - id: test
+        workflow: .github/workflows/stage-test.yml
+
+      - id: build
+        workflow: .github/workflows/stage-build.yml
+        needs:
+          - test
+        outputs:
+          - run_id
+
+      - id: release-publish
+        workflow: .github/workflows/stage-release-publish.yml
+        needs:
+          - build
+        inputs:
+          build_run_id: ${{ context.build.run_id }}

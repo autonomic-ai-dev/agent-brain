@@ -4,90 +4,18 @@ on:
   push:
     tags: ["v*"]
 
-env:
-  CARGO_TERM_COLOR: always
-
 permissions:
   contents: write
+  actions: write
 
 jobs:
-  build:
-    name: Build (${{ matrix.target }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            artifact: agent-brain-aarch64-apple-darwin
-          - os: macos-15-intel
-            target: x86_64-apple-darwin
-            artifact: agent-brain-x86_64-apple-darwin
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            artifact: agent-brain-x86_64-unknown-linux-gnu
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact: agent-brain-x86_64-pc-windows-msvc.exe
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - uses: Swatinem/rust-cache@v2.9.1
-
-      - name: Build release binary
-        run: cargo build --release -p agent-brain --target ${{ matrix.target }}
-
-      - name: Stage binary
-        shell: bash
-        run: |
-          mkdir -p dist
-          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
-            cp "target/${{ matrix.target }}/release/agent-brain.exe" "dist/${{ matrix.artifact }}"
-          else
-            cp "target/${{ matrix.target }}/release/agent-brain" "dist/${{ matrix.artifact }}"
-            chmod +x "dist/${{ matrix.artifact }}"
-          fi
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ matrix.artifact }}
-          path: dist/${{ matrix.artifact }}
-          if-no-files-found: error
-
-  release:
-    name: Publish release
-    needs: build
+  run-pipeline:
+    name: Run release pipeline
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
-      - name: Download all build artifacts
-        uses: actions/download-artifact@v7
+      - uses: aeswibon/pipeline-compose-run@v1.1.0
         with:
-          path: dist
-          merge-multiple: true
-
-      - name: Extract changelog release notes
-        shell: bash
-        run: |
-          chmod +x .github/scripts/changelog-extract.sh
-          .github/scripts/changelog-extract.sh "${{ github.ref_name }}" > release-notes.md
-          echo "--- Release notes ---"
-          cat release-notes.md
-
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: agent-brain ${{ github.ref_name }}
-          body_path: release-notes.md
-          files: dist/*
-          draft: false
-          prerelease: false
+          pipeline_file: .github/pipelines/pipeline.yml
+          github_token: ${{ github.token }}

@@ -47,6 +47,12 @@ impl TurnCache {
         }
     }
 
+    pub fn remove(&self, key: &CacheKey) {
+        if let Ok(mut guard) = self.inner.lock() {
+            guard.pop(key);
+        }
+    }
+
     pub fn clear(&self) {
         if let Ok(mut guard) = self.inner.lock() {
             guard.clear();
