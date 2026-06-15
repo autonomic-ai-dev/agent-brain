@@ -49,6 +49,7 @@ impl BrainMcp {
                         &payload.scope,
                         payload.scope_key.as_deref(),
                         payload.confidence,
+                        "agent",
                         &hash,
                         &embedding,
                     )?;

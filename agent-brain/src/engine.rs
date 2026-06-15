@@ -41,7 +41,19 @@ impl Engine {
     }
 
     pub fn bootstrap(&self, cwd: Option<&Path>) -> Result<usize> {
-        index::sync_index(&self.store, &self.config, &self.embedder, cwd)
+        let mut n = index::sync_index(&self.store, &self.config, &self.embedder, cwd)?;
+        if self.config.session_ingest_enabled {
+            let sessions = crate::sessions::ingest_legacy_sessions(
+                &self.store,
+                &self.embedder,
+                &self.config,
+            )?;
+            if sessions > 0 {
+                tracing::info!("session ingest: imported {sessions} legacy snippets");
+            }
+            n += sessions;
+        }
+        Ok(n)
     }
 
     pub fn route_task(

@@ -154,6 +154,26 @@ impl BrainStore {
         })
     }
 
+    pub fn get_meta(&self, key: &str) -> Result<Option<String>> {
+        self.with_conn(|conn| {
+            conn.query_row("SELECT value FROM meta WHERE key = ?1", params![key], |r| {
+                r.get(0)
+            })
+            .optional()
+            .map_err(Into::into)
+        })
+    }
+
+    pub fn set_meta(&self, key: &str, value: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
+                params![key, value],
+            )?;
+            Ok(())
+        })
+    }
+
     pub fn store_fact(
         &self,
         topic: &str,
@@ -161,6 +181,7 @@ impl BrainStore {
         scope: &str,
         scope_key: Option<&str>,
         confidence: f64,
+        source: &str,
         content_hash: &str,
         embedding: &[f32],
     ) -> Result<StoreFactResult> {
@@ -203,8 +224,8 @@ impl BrainStore {
 
             conn.execute(
                 r#"INSERT INTO facts (id, topic, fact, scope, scope_key, source, confidence, created_at, updated_at, expires_at, content_hash)
-                   VALUES (?1,?2,?3,?4,?5,'agent',?6,?7,?7,?8,?9)"#,
-                params![id, topic, fact, scope, scope_key, confidence, now, expires, content_hash],
+                   VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?8,?9,?10)"#,
+                params![id, topic, fact, scope, scope_key, source, confidence, now, expires, content_hash],
             )?;
             Ok(())
         })?;

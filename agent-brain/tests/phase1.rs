@@ -19,6 +19,8 @@ fn test_config(dir: &TempDir) -> Config {
         vectors_path: home.join("data").join("vectors.bin"),
         turn_ttl_secs: 60,
         auto_capture_enabled: true,
+        session_ingest_enabled: false,
+        session_max_age_days: 90,
     }
 }
 
@@ -55,6 +57,7 @@ fn deduplicates_identical_facts() {
             "project",
             Some("/repo"),
             0.9,
+            "agent",
             &hash,
             &emb,
         )
@@ -69,6 +72,7 @@ fn deduplicates_identical_facts() {
             "project",
             Some("/repo"),
             0.9,
+            "agent",
             &hash,
             &emb,
         )
@@ -93,6 +97,7 @@ fn supersedes_same_topic_facts() {
             "project",
             Some("/repo"),
             0.9,
+            "agent",
             &content_hash("Run clippy on every PR"),
             &emb,
         )
@@ -104,6 +109,7 @@ fn supersedes_same_topic_facts() {
             "project",
             Some("/repo"),
             0.9,
+            "agent",
             &content_hash("Run clippy and fmt on every PR"),
             &emb,
         )

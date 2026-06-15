@@ -145,4 +145,13 @@ Packages live at `~/.agent_brain/packages/<name>/`.
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `AGENT_BRAIN_HOME` | `~/.agent_brain` | Data, packages, database |
+| `AGENT_BRAIN_SESSION_INGEST` | `1` (on) | Set `0` or `false` to disable legacy session import |
 | `RUST_LOG` | `agent_brain=info` | Log level (stderr only) |
+
+## Legacy session import (0.3.2 hack)
+
+On startup, agent-brain scans recent Cursor (`~/.cursor/projects/**/agent-transcripts/`) and Codex (`~/.codex/sessions/`) JSONL files and imports user messages into memory. This is a temporary bridge until proper session digests ship in 0.3.4.
+
+- Skips files already ingested (content hash in `brain.db` meta)
+- Caps at 150 files and 12 user messages per file per run
+- Disable with `AGENT_BRAIN_SESSION_INGEST=0`

@@ -10,6 +10,8 @@ pub struct Config {
     pub vectors_path: PathBuf,
     pub turn_ttl_secs: u64,
     pub auto_capture_enabled: bool,
+    pub session_ingest_enabled: bool,
+    pub session_max_age_days: u64,
 }
 
 impl Config {
@@ -28,6 +30,10 @@ impl Config {
             vectors_path: data_dir.join("vectors.bin"),
             turn_ttl_secs: 60,
             auto_capture_enabled: true,
+            session_ingest_enabled: std::env::var("AGENT_BRAIN_SESSION_INGEST")
+                .map(|v| v != "0" && v != "false")
+                .unwrap_or(true),
+            session_max_age_days: 90,
             home,
             data_dir,
         })
