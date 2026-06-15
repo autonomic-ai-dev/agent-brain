@@ -1,0 +1,38 @@
+[package]
+name = "agent-brain"
+version = "0.3.0"
+edition = "2021"
+description = "Fast local MCP router for agents, skills, rules, and memory"
+license = "MIT"
+repository = "https://github.com/aeswibon/agent-brain"
+readme = "README.md"
+keywords = ["mcp", "cursor", "agent", "router"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "agent-brain"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+dirs = "6"
+fastembed = "4"
+glob = "0.3"
+lru = "0.12"
+regex = "1"
+rmcp = { version = "0.16", features = ["server", "transport-io", "macros"] }
+rusqlite = { version = "0.32", features = ["bundled", "functions"] }
+schemars = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4"] }
+walkdir = "2"
+
+[dev-dependencies]
+tempfile = "3"

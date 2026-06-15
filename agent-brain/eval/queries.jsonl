@@ -1,0 +1,5 @@
+{"query":"fix a failing rust test in agent-brain","cwd_hint":"agent-brain","expect_types":["skill","rule"]}
+{"query":"review this PR for security issues","expect_types":["skill","agent"]}
+{"query":"what did we decide about memory dedup?","expect_types":["memory"]}
+{"query":"implement route_task MCP tool","expect_types":["skill","rule","agent"]}
+{"query":"store a project fact about error handling","expect_types":["memory"]}

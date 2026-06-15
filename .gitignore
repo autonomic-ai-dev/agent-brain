@@ -1,0 +1,12 @@
+docs/superpowers/
+.fastembed_cache/
+**/.fastembed_cache/
+/target/
+**/*.rs.bk
+.DS_Store
+.idea/
+.vscode/
+*.db
+*.db-*
+vectors.bin
+.agent_brain_test/

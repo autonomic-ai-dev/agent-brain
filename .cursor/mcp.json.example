@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "agent-brain": {
+      "command": "agent-brain",
+      "args": ["serve"],
+      "env": {
+        "RUST_LOG": "agent_brain=info"
+      }
+    }
+  }
+}

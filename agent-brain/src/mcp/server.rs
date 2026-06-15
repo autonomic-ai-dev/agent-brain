@@ -1,0 +1,353 @@
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use anyhow::Result;
+use rmcp::handler::server::router::tool::ToolRouter;
+use rmcp::handler::server::wrapper::Parameters;
+use rmcp::model::{CallToolResult, Content, Implementation, ServerCapabilities, ServerInfo};
+use rmcp::{tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler, ServiceExt};
+
+use schemars::JsonSchema;
+use serde::Deserialize;
+
+use crate::db::store::{content_hash, looks_like_secret, word_count};
+use crate::db::write_queue::{store_memory_payload, WriteOp, WriteQueue};
+use crate::engine::Engine;
+use crate::types::{ItemType, RouteLimits};
+
+#[derive(Clone)]
+pub struct BrainMcp {
+    engine: Arc<Engine>,
+    write_queue: Arc<WriteQueue>,
+    tool_router: ToolRouter<Self>,
+}
+
+impl BrainMcp {
+    pub fn new(engine: Arc<Engine>) -> Self {
+        let store = engine.store.clone();
+        let embedder = engine.embedder.clone();
+        let cache = engine.cache.clone();
+        let auto = engine.auto_capture_enabled;
+
+        let write_queue = WriteQueue::spawn(move |op| match op {
+            WriteOp::StoreMemory { resp_tx, payload } => {
+                let result = (|| {
+                    if !auto {
+                        anyhow::bail!("auto capture disabled");
+                    }
+                    if looks_like_secret(&payload.fact) {
+                        anyhow::bail!("prohibited content");
+                    }
+                    if word_count(&payload.fact) > 50 {
+                        anyhow::bail!("fact exceeds 50 words");
+                    }
+                    let hash = content_hash(&payload.fact);
+                    let embedding = embedder.embed_one(&format!("{} {}", payload.topic, payload.fact))?;
+                    let res = store.store_fact(
+                        &payload.topic,
+                        &payload.fact,
+                        &payload.scope,
+                        payload.scope_key.as_deref(),
+                        payload.confidence,
+                        &hash,
+                        &embedding,
+                    )?;
+                    cache.clear();
+                    store.bump_index_version().ok();
+                    Ok(serde_json::json!({
+                        "id": res.id,
+                        "stored": res.stored,
+                        "deduplicated": res.deduplicated
+                    }))
+                })();
+                let _ = resp_tx.send(result);
+            }
+            WriteOp::DeleteMemory {
+                resp_tx,
+                id,
+                topic,
+                scope,
+                scope_key,
+            } => {
+                let result = store
+                    .delete_fact(
+                        id.as_deref(),
+                        topic.as_deref(),
+                        scope.as_deref(),
+                        scope_key.as_deref(),
+                    )
+                    .map(|n| serde_json::json!({ "deleted": n }));
+                let _ = resp_tx.send(result);
+            }
+            WriteOp::ReindexComplete => {}
+        });
+
+        Self {
+            engine,
+            write_queue: Arc::new(write_queue),
+            tool_router: Self::tool_router(),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct RouteTaskParams {
+    user_message: String,
+    #[serde(default)]
+    current_working_directory: Option<String>,
+    #[serde(default)]
+    open_files: Vec<String>,
+    #[serde(default = "default_max_tokens")]
+    max_tokens: usize,
+    #[serde(default)]
+    limits: RouteLimits,
+}
+
+fn default_max_tokens() -> usize {
+    500
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct GetContextParams {
+    task_description: String,
+    #[serde(default)]
+    current_working_directory: Option<String>,
+    #[serde(default = "default_ctx_tokens")]
+    max_tokens: usize,
+    #[serde(default = "default_include_types")]
+    include_types: Vec<String>,
+}
+
+fn default_ctx_tokens() -> usize {
+    300
+}
+
+fn default_include_types() -> Vec<String> {
+    vec![
+        "rule".into(),
+        "skill".into(),
+        "agent".into(),
+        "memory".into(),
+    ]
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct StoreMemoryParams {
+    topic: String,
+    fact: String,
+    #[serde(default = "default_scope")]
+    scope: String,
+    #[serde(default)]
+    confidence: f64,
+}
+
+fn default_scope() -> String {
+    "project".into()
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct ListMemoryParams {
+    #[serde(default = "default_limit")]
+    limit: usize,
+}
+
+fn default_limit() -> usize {
+    50
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct DeleteMemoryParams {
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    topic: Option<String>,
+    #[serde(default)]
+    scope: Option<String>,
+    #[serde(default)]
+    scope_key: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct ExportMemoryParams {
+    #[serde(default)]
+    filename: Option<String>,
+}
+
+#[tool_router]
+impl BrainMcp {
+    #[tool(description = "Primary routing tool. Returns recommended agents, skills, rules, and memory for the current user message.")]
+    async fn route_task(
+        &self,
+        params: Parameters<RouteTaskParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let p = params.0;
+        let cwd = p
+            .current_working_directory
+            .as_ref()
+            .map(PathBuf::from);
+        let resp = self
+            .engine
+            .route_task(
+                &p.user_message,
+                cwd.as_deref(),
+                &p.open_files,
+                p.max_tokens,
+                p.limits,
+            )
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        json_result(resp)
+    }
+
+    #[tool(description = "Lower-level flat context retrieval.")]
+    async fn get_context(
+        &self,
+        params: Parameters<GetContextParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let p = params.0;
+        let cwd = p
+            .current_working_directory
+            .as_ref()
+            .map(PathBuf::from);
+        let types: Vec<ItemType> = p
+            .include_types
+            .iter()
+            .filter_map(|s| ItemType::parse(s))
+            .collect();
+        let resp = self
+            .engine
+            .get_context(
+                &p.task_description,
+                cwd.as_deref(),
+                p.max_tokens,
+                &types,
+            )
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        json_result(resp)
+    }
+
+    #[tool(description = "Persist a durable fact at task completion. Max 50 words. No secrets.")]
+    async fn store_memory(
+        &self,
+        params: Parameters<StoreMemoryParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let p = params.0;
+        if looks_like_secret(&p.fact) {
+            return Err(McpError::invalid_params(
+                "prohibited content detected",
+                None,
+            ));
+        }
+        if word_count(&p.fact) > 50 {
+            return Err(McpError::invalid_params("fact exceeds 50 words", None));
+        }
+
+        let scope_key = std::env::current_dir()
+            .ok()
+            .and_then(|c| crate::config::find_repo_root(&c))
+            .map(|p| p.display().to_string());
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.write_queue
+            .send(WriteOp::StoreMemory {
+                resp_tx: tx,
+                payload: store_memory_payload::StoreMemoryRequest {
+                    topic: p.topic,
+                    fact: p.fact,
+                    scope: p.scope,
+                    scope_key,
+                    confidence: if p.confidence == 0.0 { 0.9 } else { p.confidence },
+                },
+            })
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+
+        let value = rx
+            .recv()
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        json_result(value)
+    }
+
+    #[tool(description = "List stored memory facts.")]
+    async fn list_memory(
+        &self,
+        params: Parameters<ListMemoryParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let facts = self
+            .engine
+            .store
+            .list_facts(params.0.limit)
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        json_result(serde_json::json!({ "facts": facts }))
+    }
+
+    #[tool(description = "Delete a stored fact by id or topic+scope.")]
+    async fn delete_memory(
+        &self,
+        params: Parameters<DeleteMemoryParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let p = params.0;
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.write_queue
+            .send(WriteOp::DeleteMemory {
+                resp_tx: tx,
+                id: p.id,
+                topic: p.topic,
+                scope: p.scope,
+                scope_key: p.scope_key,
+            })
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        let value = rx
+            .recv()
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        json_result(value)
+    }
+
+    #[tool(description = "Export memory facts to ~/.agent_brain/export/")]
+    async fn export_memory(
+        &self,
+        params: Parameters<ExportMemoryParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let filename = params.0.filename.unwrap_or_else(|| {
+            format!("export-{}.json", chrono::Utc::now().timestamp())
+        });
+        let path = self.engine.config.home.join("export").join(filename);
+        let written = self
+            .engine
+            .store
+            .export_facts(&path)
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        json_result(serde_json::json!({ "path": written }))
+    }
+}
+
+#[tool_handler]
+impl ServerHandler for BrainMcp {
+    fn get_info(&self) -> ServerInfo {
+        ServerInfo {
+            instructions: Some(
+                "Call route_task every turn to get recommended agents, skills, rules, and memory under a token budget.".into(),
+            ),
+            capabilities: ServerCapabilities::builder().enable_tools().build(),
+            server_info: Implementation {
+                name: "agent-brain".into(),
+                version: env!("CARGO_PKG_VERSION").into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+}
+
+fn json_result<T: serde::Serialize>(value: T) -> Result<CallToolResult, McpError> {
+    let text = serde_json::to_string(&value)
+        .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+    Ok(CallToolResult::success(vec![Content::text(text)]))
+}
+
+pub async fn run_stdio(engine: Arc<Engine>) -> Result<()> {
+    let server = BrainMcp::new(engine);
+    let service = server.serve(rmcp::transport::io::stdio()).await?;
+    service.waiting().await?;
+    Ok(())
+}
