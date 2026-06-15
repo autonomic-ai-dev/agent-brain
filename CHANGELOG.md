@@ -7,10 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.15] - 2026-06-15
+
 ### Added
 
 - `agent-brain doctor --fix`: adhoc re-sign macOS binaries, realign `mcp.json`, refresh hooks.
 - macOS adhoc codesign after MCP binary auto-update and `install --global`.
+- `make release-macos` / `scripts/build-release-macos.sh` for post-build adhoc sign on macOS.
+- CI adhoc-signs macOS release artifacts; `install.sh` signs after download.
 
 ### Fixed
 

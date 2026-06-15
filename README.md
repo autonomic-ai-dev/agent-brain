@@ -200,8 +200,11 @@ Clones to `~/.agent_brain/packages/` and indexes skills, agents, rules, and comm
 
 ```bash
 cargo test --release -p agent-brain
+make release-macos             # macOS: build + adhoc sign (required for Cursor MCP)
 cargo build --release -p agent-brain
 ```
+
+On macOS, release CI artifacts and `install.sh` adhoc-sign binaries; local builds need `make release-macos` or `agent-brain doctor --fix`.
 
 ## Releases
 

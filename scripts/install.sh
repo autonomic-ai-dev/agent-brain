@@ -62,6 +62,15 @@ artifact_name() {
   fi
 }
 
+sign_macos_binary() {
+  local bin="$1"
+  if [[ "$(uname -s)" != "Darwin" ]] || [[ ! -f "$bin" ]]; then
+    return 0
+  fi
+  xattr -cr "$bin"
+  codesign --force --sign - "$bin"
+}
+
 install_from_release() {
   local target asset url tmp
   target="$(detect_target)"
@@ -84,6 +93,7 @@ install_from_release() {
   fi
   chmod +x "$tmp"
   mv "$tmp" "${INSTALL_DIR}/agent-brain"
+  sign_macos_binary "${INSTALL_DIR}/agent-brain"
   echo "Installed to ${INSTALL_DIR}/agent-brain"
 }
 
@@ -120,6 +130,8 @@ main() {
   else
     bin="${INSTALL_DIR}/agent-brain"
   fi
+
+  sign_macos_binary "$bin"
 
   local args=(install)
   [[ "$GLOBAL" -eq 1 ]] && args+=(--global)

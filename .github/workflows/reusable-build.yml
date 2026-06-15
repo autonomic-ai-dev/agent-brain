@@ -60,6 +60,14 @@ jobs:
             chmod +x "dist/${{ matrix.artifact }}"
           fi
 
+      - name: Adhoc sign (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          xattr -cr "dist/${{ matrix.artifact }}"
+          codesign --force --sign - "dist/${{ matrix.artifact }}"
+          codesign --verify --verbose "dist/${{ matrix.artifact }}"
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
         with:

@@ -119,7 +119,10 @@ Run `agent-brain install --global` after building, or add to `~/.cursor/mcp.json
 
 ## Build
 
+On macOS, use `make release-macos` (or `./scripts/build-release-macos.sh`) to build and adhoc-sign so Cursor MCP can launch the binary. Plain `cargo build --release` produces a linker-signed binary that taskgated kills until you run `agent-brain doctor --fix` or `./scripts/sign-macos.sh`.
+
 ```bash
+make release-macos             # macOS: build + adhoc sign
 cargo build --release -p agent-brain
 ```
 
