@@ -8,6 +8,10 @@ pipelines:
     stages:
       - id: test
         workflow: .github/workflows/stage-test.yml
+        outputs:
+          - version
+          - git_sha
+          - snapshot_run_id
 
       - id: build
         workflow: .github/workflows/stage-build.yml
@@ -15,6 +19,11 @@ pipelines:
           - test
         outputs:
           - run_id
+          - version
+          - git_sha
+        inputs:
+          version: ${{ context.test.version }}
+          git_sha: ${{ context.test.git_sha }}
 
       - id: release-publish
         workflow: .github/workflows/stage-release-publish.yml
@@ -22,3 +31,5 @@ pipelines:
           - build
         inputs:
           build_run_id: ${{ context.build.run_id }}
+          version: ${{ context.build.version }}
+          git_sha: ${{ context.build.git_sha }}

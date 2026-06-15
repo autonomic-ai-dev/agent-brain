@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `build_route_response` fills agents, skills, and rules before memory so skills are not crowded out by legacy session memories within the token budget.
 - Release pipeline uses `pipeline-compose-run`: tests must pass before cross-platform build and GitHub release publish on `v*` tags. Push/PR and tag entry workflows only dispatch stages declared in `.github/pipelines/`; stage workflows are `workflow_dispatch` only.
 - Test stage runs a Linux snapshot build and uploads the binary before the cross-platform release build stage.
+- Pipeline stages export context via `pipeline-compose-export` (`version`, `git_sha`, `snapshot_run_id`, `run_id`) and pass values to downstream stages through pipeline `context`.
 
 ## [0.3.9] - 2026-06-15
 

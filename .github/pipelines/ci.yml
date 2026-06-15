@@ -8,8 +8,15 @@ pipelines:
     stages:
       - id: test
         workflow: .github/workflows/stage-test.yml
+        outputs:
+          - version
+          - git_sha
+          - snapshot_run_id
 
       - id: build
         workflow: .github/workflows/stage-build.yml
         needs:
           - test
+        inputs:
+          version: ${{ context.test.version }}
+          git_sha: ${{ context.test.git_sha }}

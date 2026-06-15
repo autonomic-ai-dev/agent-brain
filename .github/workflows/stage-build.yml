@@ -2,6 +2,15 @@ name: Stage build
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: Crate version from the test stage
+        type: string
+        required: false
+      git_sha:
+        description: Commit SHA from the test stage
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -13,7 +22,7 @@ jobs:
       retention-days: 90
 
   export:
-    name: Export build run id
+    name: Export build stage context
     needs: build
     if: success()
     runs-on: ubuntu-latest
@@ -21,4 +30,7 @@ jobs:
       - uses: aeswibon/pipeline-compose-export@v1.1.0
         with:
           stage_id: build
-          outputs: '{"run_id":"${{ github.run_id }}"}'
+          outputs: >-
+            {"run_id":"${{ github.run_id }}",
+             "version":"${{ inputs.version }}",
+             "git_sha":"${{ inputs.git_sha }}"}

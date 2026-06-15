@@ -7,6 +7,14 @@ on:
         description: Workflow run id from the build stage
         type: string
         required: true
+      version:
+        description: Crate version from the build stage
+        type: string
+        required: false
+      git_sha:
+        description: Commit SHA from the build stage
+        type: string
+        required: false
 
 permissions:
   contents: write
@@ -41,7 +49,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
-          name: agent-brain ${{ github.ref_name }}
+          name: agent-brain ${{ github.ref_name }} (${{ inputs.version }})
           body_path: release-notes.md
           files: dist/*
           draft: false

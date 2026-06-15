@@ -18,6 +18,13 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2.9.1
 
+      - name: Resolve package metadata
+        id: meta
+        run: |
+          version=$(grep '^version' agent-brain/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "git_sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
       - name: Run tests
         run: cargo test --release -p agent-brain
 
@@ -27,13 +34,23 @@ jobs:
       - name: Stage snapshot binary
         run: |
           mkdir -p dist
-          cp target/release/agent-brain "dist/agent-brain-snapshot-linux-x86_64-${{ github.sha }}"
-          chmod +x "dist/agent-brain-snapshot-linux-x86_64-${{ github.sha }}"
+          cp target/release/agent-brain \
+            "dist/agent-brain-snapshot-linux-x86_64-${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.git_sha }}"
+          chmod +x "dist/agent-brain-snapshot-linux-x86_64-${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.git_sha }}"
 
       - name: Upload snapshot artifact
         uses: actions/upload-artifact@v7
         with:
           name: agent-brain-snapshot-linux-x86_64
-          path: dist/agent-brain-snapshot-linux-x86_64-${{ github.sha }}
+          path: dist/agent-brain-snapshot-linux-x86_64-${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.git_sha }}
           if-no-files-found: error
           retention-days: 14
+
+      - uses: aeswibon/pipeline-compose-export@v1.1.0
+        if: success()
+        with:
+          stage_id: test
+          outputs: >-
+            {"version":"${{ steps.meta.outputs.version }}",
+             "git_sha":"${{ steps.meta.outputs.git_sha }}",
+             "snapshot_run_id":"${{ github.run_id }}"}
