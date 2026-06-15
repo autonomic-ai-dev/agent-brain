@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use uuid::Uuid;
@@ -18,6 +18,7 @@ use crate::types::{
     AgentRec, GetContextItem, GetContextResponse, ItemType, MemoryRec, MustApply, RouteLimits,
     RouteTaskResponse, RuleRec, ScoredItem, SkillRec,
 };
+use crate::mcp_activity::McpActivity;
 use crate::workspace::{agent_boost_keywords, infer_phase, probe};
 
 pub struct Engine {
@@ -29,6 +30,7 @@ pub struct Engine {
     pub route_latency: Arc<RouteLatencyStats>,
     pub warmed: Arc<AtomicBool>,
     pub query_emb_cache: Arc<QueryEmbeddingCache>,
+    pub mcp_activity: Arc<McpActivity>,
 }
 
 impl Engine {
@@ -54,6 +56,7 @@ impl Engine {
             route_latency: Arc::new(RouteLatencyStats::new(256)),
             warmed: Arc::new(AtomicBool::new(false)),
             query_emb_cache: Arc::new(QueryEmbeddingCache::new(128)),
+            mcp_activity: Arc::new(McpActivity::new()),
         })
     }
 
@@ -71,36 +74,121 @@ impl Engine {
             }
             n += sessions;
         }
-        if self.config.session_ingest_enabled && self.config.session_ingest_background {
-            match crate::sessions::ingest_legacy_sessions(&self.store, &self.embedder, &self.config)
-            {
-                Ok(sessions) if sessions > 0 => {
-                    tracing::info!(
-                        "session ingest (background): imported {sessions} legacy snippets"
-                    );
-                    self.store.bump_index_version()?;
-                    n += sessions;
-                }
-                Ok(_) => {}
-                Err(err) => tracing::warn!(error = %err, "background session ingest failed"),
-            }
-        }
         if self.config.prewarm_on_bootstrap {
             if let Err(err) = self.prewarm() {
                 tracing::warn!(error = %err, "bootstrap prewarm failed");
             }
         }
+        let now = chrono::Utc::now().timestamp().to_string();
+        if let Err(err) = self.store.set_meta("last_bootstrap_unix", &now) {
+            tracing::warn!(error = %err, "record last_bootstrap_unix failed");
+        }
         Ok(n)
+    }
+
+    pub fn spawn_auto_update(self: &Arc<Self>) {
+        let settings = crate::settings::AgentBrainSettings::load(&self.config.home);
+        if !settings.auto_update.enabled {
+            return;
+        }
+        let delay = self.config.auto_update_startup_delay_secs;
+        let engine = Arc::clone(self);
+        std::thread::spawn(move || {
+            if delay > 0 {
+                std::thread::sleep(Duration::from_secs(delay));
+            }
+            match crate::auto_update::run(
+                &engine,
+                &settings,
+                false,
+                crate::auto_update::AutoUpdateRunOptions::background_serve(),
+            ) {
+                Ok(report) if report.mcp_updated || report.packages_updated > 0 => {
+                    tracing::info!(
+                        target: "agent_brain::auto_update",
+                        packages = report.packages_updated,
+                        mcp = report.mcp_updated,
+                        reindexed = report.reindexed,
+                        "auto-update applied"
+                    );
+                }
+                Ok(_) => {}
+                Err(err) => tracing::warn!(error = %err, "auto-update failed"),
+            }
+        });
+    }
+
+    pub fn spawn_session_ingest(self: &Arc<Self>) {
+        if !self.config.session_ingest_enabled || !self.config.session_ingest_background {
+            return;
+        }
+        let delay = self.config.session_ingest_delay_secs;
+        let engine = Arc::clone(self);
+        std::thread::spawn(move || {
+            if delay > 0 {
+                std::thread::sleep(Duration::from_secs(delay));
+            }
+            match crate::sessions::ingest_legacy_sessions(
+                &engine.store,
+                &engine.embedder,
+                &engine.config,
+            ) {
+                Ok(sessions) if sessions > 0 => {
+                    tracing::info!(
+                        target: "agent_brain::sessions",
+                        sessions,
+                        "background session ingest complete"
+                    );
+                    engine.store.bump_index_version().ok();
+                }
+                Ok(_) => {}
+                Err(err) => tracing::warn!(error = %err, "background session ingest failed"),
+            }
+        });
+    }
+
+    fn bootstrap_due(&self) -> bool {
+        let interval = self.config.bootstrap_interval_secs;
+        if interval == 0 {
+            return true;
+        }
+        let last = self
+            .store
+            .get_meta("last_bootstrap_unix")
+            .ok()
+            .flatten()
+            .and_then(|s| s.parse::<i64>().ok())
+            .unwrap_or(0);
+        let elapsed = chrono::Utc::now().timestamp() - last;
+        elapsed >= interval as i64
     }
 
     pub fn spawn_bootstrap(self: &Arc<Self>, cwd: Option<&Path>) {
         let engine = Arc::clone(self);
         let cwd = cwd.map(|p| p.to_path_buf());
+        let startup_delay = engine.config.bootstrap_startup_delay_secs;
         std::thread::spawn(move || {
+            if startup_delay > 0 {
+                std::thread::sleep(Duration::from_secs(startup_delay));
+            }
+            if !engine.bootstrap_due() {
+                tracing::info!(
+                    target: "agent_brain::bootstrap",
+                    interval_secs = engine.config.bootstrap_interval_secs,
+                    "skipped (indexed recently)"
+                );
+                if engine.config.session_ingest_enabled && engine.config.session_ingest_background {
+                    engine.spawn_session_ingest();
+                }
+                return;
+            }
             let cwd_ref = cwd.as_deref();
             match engine.bootstrap(cwd_ref) {
                 Ok(n) => tracing::info!(target: "agent_brain::bootstrap", items = n, "bootstrap complete"),
                 Err(err) => tracing::warn!(error = %err, "background bootstrap failed"),
+            }
+            if engine.config.session_ingest_enabled && engine.config.session_ingest_background {
+                engine.spawn_session_ingest();
             }
         });
     }

@@ -1,5 +1,5 @@
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -77,6 +77,14 @@ impl RouteLimits {
         }
         self
     }
+}
+
+/// Serde helper: normalize limits after every MCP/client parse.
+pub fn deserialize_route_limits<'de, D>(deserializer: D) -> Result<RouteLimits, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(RouteLimits::deserialize(deserializer)?.normalize())
 }
 
 pub fn default_agents() -> usize {

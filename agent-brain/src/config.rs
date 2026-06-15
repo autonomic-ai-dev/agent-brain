@@ -19,6 +19,14 @@ pub struct Config {
     pub session_ingest_background: bool,
     pub turn_cache_ignore_open_files: bool,
     pub embedding_model: String,
+    /// Seconds to wait after `serve` before background bootstrap (lets MCP handshake finish).
+    pub bootstrap_startup_delay_secs: u64,
+    /// Skip background bootstrap when last run was within this many seconds (0 = always run).
+    pub bootstrap_interval_secs: u64,
+    /// Seconds to wait after `serve` before auto-update checks.
+    pub auto_update_startup_delay_secs: u64,
+    /// Extra delay before background session ingest (after bootstrap).
+    pub session_ingest_delay_secs: u64,
 }
 
 impl Config {
@@ -60,6 +68,10 @@ impl Config {
                 .map(|v| v == "1" || v == "true")
                 .unwrap_or(false),
             embedding_model: std::env::var("AGENT_BRAIN_EMBED_MODEL").unwrap_or_else(|_| "mini".into()),
+            bootstrap_startup_delay_secs: env_u64("AGENT_BRAIN_BOOTSTRAP_DELAY_SEC", 2),
+            bootstrap_interval_secs: env_u64("AGENT_BRAIN_BOOTSTRAP_INTERVAL_SEC", 3600),
+            auto_update_startup_delay_secs: env_u64("AGENT_BRAIN_AUTO_UPDATE_DELAY_SEC", 300),
+            session_ingest_delay_secs: env_u64("AGENT_BRAIN_SESSION_INGEST_DELAY_SEC", 180),
             home,
             data_dir,
         })
@@ -143,4 +155,11 @@ pub fn expand_home(path: &str) -> PathBuf {
     } else {
         PathBuf::from(path)
     }
+}
+
+fn env_u64(key: &str, default: u64) -> u64 {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
 }

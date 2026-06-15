@@ -12,6 +12,11 @@
         "command": "./hooks/agent-brain/route_gate.py"
       }
     ],
+    "postToolUse": [
+      {
+        "command": "./hooks/agent-brain/route_gate.py"
+      }
+    ],
     "beforeMCPExecution": [
       {
         "command": "./hooks/agent-brain/route_gate.py",

@@ -7,7 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.3.11] - 2026-06-15
+## [0.3.12] - 2026-06-15
+
+### Added
+
+- Config-driven auto-update for installed packages and the MCP binary (`~/.agent_brain/config.yaml`).
+- `agent-brain update [--force]` and `agent-brain config init|show` CLI commands.
+- Background auto-update on MCP `serve` when `auto_update.enabled` is true.
+- MCP self-update can auto-restart the `serve` process (`mcp.restart_after_update`, Unix `exec` + Cursor reconnect).
 
 ### Fixed
 

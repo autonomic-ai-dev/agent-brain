@@ -1,3 +1,5 @@
+pub mod auto_update;
+pub mod mcp_activity;
 pub mod cache;
 pub mod config;
 pub mod db;
@@ -8,6 +10,7 @@ pub mod install;
 pub mod mcp;
 pub mod packages;
 pub mod sessions;
+pub mod settings;
 pub mod tokens;
 pub mod types;
 pub mod workspace;

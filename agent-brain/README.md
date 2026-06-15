@@ -52,6 +52,29 @@ agent-brain package update ecc
 agent-brain package remove ecc
 ```
 
+### Auto-update (packages + MCP)
+
+Create `~/.agent_brain/config.yaml` (or run `agent-brain config init`):
+
+```yaml
+auto_update:
+  enabled: true
+  interval_hours: 24
+  packages:
+    enabled: true
+  mcp:
+    enabled: true
+    repo: aeswibon/agent-brain
+    bin_path: ~/.local/bin/agent-brain
+    refresh_cursor: true
+```
+
+When enabled, MCP `serve` checks for updates in the background (packages via `git fetch`, MCP via GitHub releases). After an MCP binary update during `serve`, the process **restarts itself** (Unix: `exec serve`) so Cursor reconnects without a full IDE restart. Disable with `mcp.restart_after_update: false`.
+
+Run manually with `agent-brain update --force` (CLI updates disk only; toggle MCP in Settings if `serve` is already running).
+
+Environment overrides: `AGENT_BRAIN_AUTO_UPDATE`, `AGENT_BRAIN_AUTO_UPDATE_PACKAGES`, `AGENT_BRAIN_AUTO_UPDATE_MCP`, `AGENT_BRAIN_AUTO_UPDATE_INTERVAL_HOURS`, `AGENT_BRAIN_MCP_RESTART_DELAY_SEC` (default `2`).
+
 ## Install MCP server
 
 ### One-liner (recommended)

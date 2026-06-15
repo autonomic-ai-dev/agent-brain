@@ -30,6 +30,10 @@ fn test_config(dir: &TempDir) -> Config {
         session_ingest_background: false,
         turn_cache_ignore_open_files: true,
         embedding_model: "mini".into(),
+        bootstrap_startup_delay_secs: 0,
+        bootstrap_interval_secs: 0,
+        auto_update_startup_delay_secs: 0,
+        session_ingest_delay_secs: 0,
     }
 }
 
@@ -194,6 +198,7 @@ fn truncates_context_to_token_budget() {
         route_latency: Arc::new(RouteLatencyStats::new(32)),
         warmed: Arc::new(AtomicBool::new(false)),
         query_emb_cache: Arc::new(QueryEmbeddingCache::new(32)),
+        mcp_activity: Arc::new(agent_brain::mcp_activity::McpActivity::new()),
     };
 
     let resp = engine
@@ -243,6 +248,7 @@ fn route_task_respects_max_tokens() {
         route_latency: Arc::new(RouteLatencyStats::new(32)),
         warmed: Arc::new(AtomicBool::new(false)),
         query_emb_cache: Arc::new(QueryEmbeddingCache::new(32)),
+        mcp_activity: Arc::new(agent_brain::mcp_activity::McpActivity::new()),
     };
 
     let resp = engine
@@ -313,6 +319,7 @@ fn dedupes_duplicate_skill_names_in_route_task() {
         route_latency: Arc::new(RouteLatencyStats::new(32)),
         warmed: Arc::new(AtomicBool::new(false)),
         query_emb_cache: Arc::new(QueryEmbeddingCache::new(32)),
+        mcp_activity: Arc::new(agent_brain::mcp_activity::McpActivity::new()),
     };
 
     let resp = engine
@@ -473,6 +480,7 @@ fn route_task_with_all_zero_limits_returns_skills() {
         route_latency: Arc::new(RouteLatencyStats::new(32)),
         warmed: Arc::new(AtomicBool::new(false)),
         query_emb_cache: Arc::new(QueryEmbeddingCache::new(32)),
+        mcp_activity: Arc::new(agent_brain::mcp_activity::McpActivity::new()),
     };
 
     let resp = engine

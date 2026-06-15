@@ -14,7 +14,12 @@ STATE_PATH = (
     / "route_state.json"
 )
 
-ROUTE_TOOL_NAMES = {"route_task", "MCP:route_task", "mcp:route_task"}
+ROUTE_TOOL_NAMES = {
+    "route_task",
+    "MCP:route_task",
+    "mcp:route_task",
+    "mcp_agent-brain_route_task",
+}
 
 
 def disabled() -> bool:
@@ -39,17 +44,117 @@ def save_state(state: dict) -> None:
 def is_agent_brain_command(event: dict) -> bool:
     cmd = str(event.get("command") or "")
     server = str(event.get("server") or "")
-    return "agent-brain" in cmd or server == "agent-brain"
+    url = str(event.get("url") or "")
+    return (
+        "agent-brain" in cmd
+        or server == "agent-brain"
+        or "agent-brain" in url
+    )
 
 
 def is_route_task(event: dict) -> bool:
-    tool = str(event.get("tool_name") or "")
-    if tool in ROUTE_TOOL_NAMES or tool.endswith(":route_task"):
+    tool = str(event.get("tool_name") or "").strip()
+    if not tool:
+        return False
+    tool_lower = tool.lower()
+    if tool in ROUTE_TOOL_NAMES:
+        return True
+    if tool_lower.endswith(":route_task") or tool_lower.endswith("_route_task"):
+        return True
+    # Cursor Agent tools: mcp_<server>_route_task
+    if "route_task" in tool_lower and (
+        "agent-brain" in tool_lower or "agent_brain" in tool_lower
+    ):
         return True
     if tool == "route_task" and is_agent_brain_command(event):
         return True
-    # preToolUse MCP tools may only expose MCP:route_task without server field
-    return tool in ROUTE_TOOL_NAMES
+    return False
+
+
+def is_agent_brain_route_event(event: dict) -> bool:
+    if not is_route_task(event):
+        return False
+    tool_lower = str(event.get("tool_name") or "").lower()
+    return (
+        is_agent_brain_command(event)
+        or "agent-brain" in tool_lower
+        or "agent_brain" in tool_lower
+        or str(event.get("tool_name") or "") in ROUTE_TOOL_NAMES
+    )
+
+
+def parse_json_value(raw: object) -> object | None:
+    if raw is None:
+        return None
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return None
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+def unwrap_mcp_payload(data: object) -> dict | None:
+    parsed = parse_json_value(data)
+    if not isinstance(parsed, dict):
+        return None
+
+    # MCP CallToolResult: { "content": [ { "type": "text", "text": "{...}" } ] }
+    content = parsed.get("content")
+    if isinstance(content, list):
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "text":
+                inner = parse_json_value(block.get("text"))
+                if isinstance(inner, dict):
+                    return inner
+
+    if any(
+        key in parsed
+        for key in (
+            "recommended_skills",
+            "recommended_agents",
+            "applicable_rules",
+            "relevant_memory",
+            "tokens_used",
+        )
+    ):
+        return parsed
+    return None
+
+
+def route_response_useful(event: dict) -> bool:
+    for key in (
+        "result_json",
+        "tool_result",
+        "tool_output",
+        "result",
+        "output",
+        "response",
+    ):
+        payload = unwrap_mcp_payload(event.get(key))
+        if payload is None:
+            continue
+        if int(payload.get("tokens_used") or 0) > 0:
+            return True
+        for field in (
+            "recommended_skills",
+            "recommended_agents",
+            "applicable_rules",
+            "relevant_memory",
+        ):
+            value = payload.get(field)
+            if isinstance(value, list) and value:
+                return True
+    return False
 
 
 def deny_payload() -> dict:
@@ -57,11 +162,26 @@ def deny_payload() -> dict:
         "permission": "deny",
         "agent_message": (
             "You must call agent-brain MCP tool route_task first with the user's "
-            "message (and cwd/open_files) before any other tool. Then use the "
-            "returned skills, rules, and memory."
+            "message, current_working_directory, and open_files. If the response "
+            "is empty (tokens_used 0), restart the agent-brain MCP server and "
+            "retry route_task; pass explicit limits if needed."
         ),
         "user_message": "agent-brain hook: call route_task before other tools.",
     }
+
+
+def try_clear_route_gate(event: dict) -> None:
+    if not is_agent_brain_route_event(event):
+        return
+    if event.get("success") is False or event.get("error"):
+        return
+    if not route_response_useful(event):
+        return
+    state = load_state()
+    state["needs_route"] = False
+    if event.get("generation_id"):
+        state["generation_id"] = event["generation_id"]
+    save_state(state)
 
 
 def handle_before_submit_prompt(_event: dict) -> dict:
@@ -70,12 +190,14 @@ def handle_before_submit_prompt(_event: dict) -> dict:
 
 
 def handle_after_mcp_execution(event: dict) -> dict:
-    if is_route_task(event) and (is_agent_brain_command(event) or event.get("tool_name") in ROUTE_TOOL_NAMES):
-        state = load_state()
-        state["needs_route"] = False
-        if event.get("generation_id"):
-            state["generation_id"] = event["generation_id"]
-        save_state(state)
+    try_clear_route_gate(event)
+    return {}
+
+
+def handle_post_tool_use(event: dict) -> dict:
+    # Cursor Agent MCP tools (mcp_agent-brain_*) clear the gate via postToolUse,
+    # not afterMCPExecution.
+    try_clear_route_gate(event)
     return {}
 
 
@@ -89,10 +211,7 @@ def handle_pre_tool_use(event: dict) -> dict:
 
 
 def handle_before_mcp_execution(event: dict) -> dict:
-    if is_route_task(event) and is_agent_brain_command(event):
-        return {"permission": "allow"}
     if is_route_task(event):
-        # route_task from agent-brain even if command field is missing
         return {"permission": "allow"}
     state = load_state()
     if state.get("needs_route"):
@@ -128,6 +247,8 @@ def main() -> int:
         out = handle_before_submit_prompt(event)
     elif name == "afterMCPExecution":
         out = handle_after_mcp_execution(event)
+    elif name == "postToolUse":
+        out = handle_post_tool_use(event)
     elif name == "preToolUse":
         out = handle_pre_tool_use(event)
     elif name == "beforeMCPExecution":

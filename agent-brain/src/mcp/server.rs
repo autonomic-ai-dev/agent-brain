@@ -13,7 +13,7 @@ use serde::Deserialize;
 use crate::db::store::{content_hash, looks_like_secret, word_count};
 use crate::db::write_queue::{store_memory_payload, WriteOp, WriteQueue};
 use crate::engine::Engine;
-use crate::types::{ItemType, RouteLimits};
+use crate::types::{deserialize_route_limits, ItemType, RouteLimits};
 
 #[derive(Clone)]
 pub struct BrainMcp {
@@ -100,7 +100,7 @@ struct RouteTaskParams {
     open_files: Vec<String>,
     #[serde(default = "default_max_tokens")]
     max_tokens: usize,
-    #[serde(default = "default_route_limits")]
+    #[serde(default = "default_route_limits", deserialize_with = "deserialize_route_limits")]
     #[schemars(default = "default_route_limits")]
     limits: RouteLimits,
 }
@@ -186,6 +186,7 @@ impl BrainMcp {
         &self,
         params: Parameters<RouteTaskParams>,
     ) -> Result<CallToolResult, McpError> {
+        let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
         let cwd = p
             .current_working_directory
@@ -209,6 +210,7 @@ impl BrainMcp {
         &self,
         params: Parameters<GetContextParams>,
     ) -> Result<CallToolResult, McpError> {
+        let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
         let cwd = p
             .current_working_directory
@@ -236,6 +238,7 @@ impl BrainMcp {
         &self,
         params: Parameters<StoreMemoryParams>,
     ) -> Result<CallToolResult, McpError> {
+        let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
         if looks_like_secret(&p.fact) {
             return Err(McpError::invalid_params(
@@ -278,6 +281,7 @@ impl BrainMcp {
         &self,
         params: Parameters<ListMemoryParams>,
     ) -> Result<CallToolResult, McpError> {
+        let _req = self.engine.mcp_activity.begin_request();
         let facts = self
             .engine
             .store
@@ -291,6 +295,7 @@ impl BrainMcp {
         &self,
         params: Parameters<DeleteMemoryParams>,
     ) -> Result<CallToolResult, McpError> {
+        let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
         let (tx, rx) = std::sync::mpsc::channel();
         self.write_queue
@@ -314,6 +319,7 @@ impl BrainMcp {
         &self,
         params: Parameters<ExportMemoryParams>,
     ) -> Result<CallToolResult, McpError> {
+        let _req = self.engine.mcp_activity.begin_request();
         let filename = params.0.filename.unwrap_or_else(|| {
             format!("export-{}.json", chrono::Utc::now().timestamp())
         });

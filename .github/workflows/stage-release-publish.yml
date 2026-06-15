@@ -53,7 +53,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
-          name: agent-brain ${{ github.ref_name }} (${{ inputs.version }})
+          name: agent-brain ${{ github.ref_name }}
           body_path: release-notes.md
           files: dist/*
           draft: false

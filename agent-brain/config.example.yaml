@@ -1,0 +1,17 @@
+# Copy to ~/.agent_brain/config.yaml (or run: agent-brain config init)
+auto_update:
+  enabled: true
+  interval_hours: 24
+  packages:
+    enabled: true
+    # names: [ecc]   # omit or leave empty to update all installed packages
+  mcp:
+    enabled: true
+    repo: aeswibon/agent-brain
+    bin_path: ~/.local/bin/agent-brain
+    refresh_cursor: true
+    restart_after_update: true
+    restart_idle_secs: 10
+    restart_max_wait_secs: 300
+    restart_min_delay_secs: 2
+    # Set enabled: false while running a local dev build ahead of GitHub releases.

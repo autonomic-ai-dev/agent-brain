@@ -14,32 +14,59 @@ pub fn run(global: bool, print_only: bool) -> Result<()> {
         return Ok(());
     }
 
+    configure_cursor(global, &exe, false)?;
+    println!("agent-brain MCP configured at {}", config_path.display());
+    println!("Binary: {}", exe.display());
+    println!();
+    println!("Next steps:");
+    println!("  1. Restart Cursor (required so MCP reloads the new binary and hooks)");
+    println!("  2. Confirm 'agent-brain' appears and is enabled under MCP");
+    println!("  3. Confirm hooks loaded under Settings → Hooks (route_task gate)");
+    println!("  4. Confirm project rule at .cursor/rules/agent-brain.mdc (Settings → Rules)");
+    println!("  5. Use Agent mode — route_task is required before other tools");
+    Ok(())
+}
+
+/// Merge MCP config and optionally refresh Cursor hooks/rule (used by install + auto-update).
+pub fn configure_cursor(global: bool, exe: &Path, quiet: bool) -> Result<()> {
+    let config_path = mcp_config_path(global)?;
     if let Some(parent) = config_path.parent() {
         fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
 
-    let merged = merge_mcp_config(&config_path, snippet)?;
+    let merged = merge_mcp_config(&config_path, mcp_server_entry(exe))?;
     let pretty = serde_json::to_string_pretty(&merged)?;
     fs::write(&config_path, format!("{pretty}\n")).with_context(|| {
         format!("write MCP config to {}", config_path.display())
     })?;
 
-    println!("agent-brain MCP configured at {}", config_path.display());
-    println!("Binary: {}", exe.display());
     if global {
-        install_cursor_rule()?;
-        install_cursor_hooks()?;
+        install_cursor_hooks(quiet)?;
     }
-    println!();
-    println!("Next steps:");
-    println!("  1. Restart Cursor (or reload MCP + Hooks in Settings)");
-    println!("  2. Confirm 'agent-brain' appears and is enabled under MCP");
-    println!("  3. Confirm hooks loaded under Settings → Hooks (route_task gate)");
-    println!("  4. Use Agent mode — route_task is required before other tools");
+    install_project_cursor_rules(quiet)?;
     Ok(())
 }
 
-fn install_cursor_hooks() -> Result<()> {
+/// Cursor loads **project** rules from `<workspace>/.cursor/rules/*.mdc` only.
+/// `~/.cursor/rules/` is not read by Cursor — use Settings → Rules for User Rules.
+pub fn install_project_cursor_rules(quiet: bool) -> Result<()> {
+    let cwd = std::env::current_dir().context("current working directory")?;
+    let root = crate::config::find_repo_root(&cwd).unwrap_or(cwd);
+    let rules_dir = root.join(".cursor").join("rules");
+    fs::create_dir_all(&rules_dir).with_context(|| format!("create {}", rules_dir.display()))?;
+
+    let rule_path = rules_dir.join("agent-brain.mdc");
+    fs::write(&rule_path, CURSOR_RULE).with_context(|| format!("write {}", rule_path.display()))?;
+    if !quiet {
+        println!("Installed project Cursor rule at {}", rule_path.display());
+        println!(
+            "Note: Cursor does not load ~/.cursor/rules/. For global text rules, use Cursor Settings → Rules → User Rules."
+        );
+    }
+    Ok(())
+}
+
+fn install_cursor_hooks(quiet: bool) -> Result<()> {
     let home = dirs::home_dir().context("home directory")?;
     let cursor_dir = home.join(".cursor");
     let hooks_dir = cursor_dir.join("hooks").join("agent-brain");
@@ -66,7 +93,9 @@ fn install_cursor_hooks() -> Result<()> {
         eprintln!("Warning: python3 not found on PATH — route_gate hook requires python3");
     }
 
-    println!("Installed Cursor hooks at {}", hooks_config.display());
+    if !quiet {
+        println!("Installed Cursor hooks at {}", hooks_config.display());
+    }
     Ok(())
 }
 
@@ -134,21 +163,6 @@ const ROUTE_GATE_HOOK: &str = include_str!("../hooks/route_gate.py");
 
 const AGENT_BRAIN_HOOKS_JSON: &str = include_str!("../hooks/agent-brain-hooks.json");
 
-fn install_cursor_rule() -> Result<()> {
-    let home = dirs::home_dir().context("home directory")?;
-    let rules_dir = home.join(".cursor").join("rules");
-    fs::create_dir_all(&rules_dir).with_context(|| format!("create {}", rules_dir.display()))?;
-
-    let rule_path = rules_dir.join("agent-brain.mdc");
-    if !rule_path.exists() {
-        fs::write(&rule_path, CURSOR_RULE).with_context(|| format!("write {}", rule_path.display()))?;
-        println!("Installed Cursor rule at {}", rule_path.display());
-    } else {
-        println!("Cursor rule already exists at {}", rule_path.display());
-    }
-    Ok(())
-}
-
 const CURSOR_RULE: &str = r#"---
 description: Require agent-brain MCP on every agent turn (route_task, store_memory)
 alwaysApply: true
@@ -195,7 +209,12 @@ fn mcp_server_entry(exe: &Path) -> Value {
         "command": exe.display().to_string(),
         "args": ["serve"],
         "env": {
-            "RUST_LOG": "agent_brain=info"
+            "RUST_LOG": "agent_brain=warn",
+            "AGENT_BRAIN_BOOTSTRAP_BG": "1",
+            "AGENT_BRAIN_BOOTSTRAP_DELAY_SEC": "2",
+            "AGENT_BRAIN_BOOTSTRAP_INTERVAL_SEC": "3600",
+            "AGENT_BRAIN_AUTO_UPDATE_DELAY_SEC": "300",
+            "AGENT_BRAIN_SESSION_INGEST_DELAY_SEC": "180"
         }
     })
 }
@@ -249,6 +268,7 @@ mod tests {
         assert!(text.contains("custom.sh"));
         assert!(text.contains("route_gate.py"));
         assert!(text.contains("beforeSubmitPrompt"));
+        assert!(text.contains("postToolUse"));
     }
 
     #[test]
