@@ -423,6 +423,7 @@ impl BrainMcp {
             &self.engine.embedder,
             PathBuf::from(&p.bundle_path).as_path(),
             policy,
+            crate::sync::SyncSource::ManualImport,
         )
         .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         self.engine.store.bump_index_version().ok();

@@ -191,7 +191,14 @@ fn sync_bundle_round_trip_imports_facts() {
     dst_config.ensure_dirs().unwrap();
     let dst_store = BrainStore::open(&dst_config.db_path).unwrap();
     let embedder = Embedder::deterministic();
-    let report = import_bundle(&dst_store, &embedder, &bundle_path, MergePolicy::NewerWins).unwrap();
+    let report = import_bundle(
+        &dst_store,
+        &embedder,
+        &bundle_path,
+        MergePolicy::NewerWins,
+        agent_brain::sync::SyncSource::ManualImport,
+    )
+    .unwrap();
 
     assert_eq!(report.imported, 1);
     let facts = dst_store.list_facts(10).unwrap();

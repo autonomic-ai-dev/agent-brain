@@ -9,6 +9,23 @@ use crate::db::store::{content_hash, BrainStore};
 use crate::embed::Embedder;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyncSource {
+    ManualImport,
+    Git,
+    Cloud,
+}
+
+impl SyncSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ManualImport => "manual_import",
+            Self::Git => "git",
+            Self::Cloud => "cloud",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MergePolicy {
     NewerWins,
     KeepLocal,
@@ -114,6 +131,7 @@ pub fn import_bundle(
     embedder: &Embedder,
     bundle_path: &Path,
     policy: MergePolicy,
+    sync_source: SyncSource,
 ) -> Result<ImportReport> {
     let manifest_raw =
         fs::read_to_string(bundle_path.join("manifest.json")).context("read manifest.json")?;
@@ -132,7 +150,7 @@ pub fn import_bundle(
             continue;
         }
         let remote: BundleFact = serde_json::from_str(line).context("parse facts.jsonl line")?;
-        import_one_fact(store, embedder, &remote, policy, &mut report)?;
+        import_one_fact(store, embedder, &remote, policy, sync_source, &mut report)?;
     }
     Ok(report)
 }
@@ -142,6 +160,7 @@ fn import_one_fact(
     embedder: &Embedder,
     remote: &BundleFact,
     policy: MergePolicy,
+    sync_source: SyncSource,
     report: &mut ImportReport,
 ) -> Result<()> {
     let hash = if remote.content_hash.is_empty() {
@@ -173,6 +192,7 @@ fn import_one_fact(
             }
             MergePolicy::KeepRemote | MergePolicy::NewerWins => {
                 store.log_import_conflict(
+                    sync_source.as_str(),
                     &remote.topic,
                     &remote.scope,
                     remote.scope_key.as_deref(),

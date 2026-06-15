@@ -737,6 +737,7 @@ impl BrainStore {
 
     pub fn log_import_conflict(
         &self,
+        sync_source: &str,
         topic: &str,
         scope: &str,
         scope_key: Option<&str>,
@@ -750,10 +751,11 @@ impl BrainStore {
         self.with_conn(|conn| {
             conn.execute(
                 r#"INSERT INTO conflict_log (id, timestamp, sync_source, topic, scope, scope_key, loser_id, loser_fact, winner_id, winner_fact, resolution)
-                   VALUES (?1,?2,'manual_import',?3,?4,?5,?6,?7,?8,?9,'newer_updated_at')"#,
+                   VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,'newer_updated_at')"#,
                 params![
                     conflict_id,
                     now,
+                    sync_source,
                     topic,
                     scope,
                     scope_key,
@@ -925,21 +927,22 @@ impl BrainStore {
     pub fn list_conflicts(&self, limit: usize) -> Result<Vec<serde_json::Value>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, timestamp, topic, scope, scope_key, loser_id, loser_fact, winner_id, winner_fact, resolution FROM conflict_log ORDER BY timestamp DESC LIMIT ?1",
+                "SELECT id, timestamp, sync_source, topic, scope, scope_key, loser_id, loser_fact, winner_id, winner_fact, resolution FROM conflict_log ORDER BY timestamp DESC LIMIT ?1",
             )?;
             let rows = stmt
                 .query_map(params![limit as i64], |row| {
                     Ok(serde_json::json!({
                         "id": row.get::<_, String>(0)?,
                         "timestamp": row.get::<_, i64>(1)?,
-                        "topic": row.get::<_, String>(2)?,
-                        "scope": row.get::<_, String>(3)?,
-                        "scope_key": row.get::<_, Option<String>>(4)?,
-                        "loser_id": row.get::<_, String>(5)?,
-                        "loser_fact": row.get::<_, String>(6)?,
-                        "winner_id": row.get::<_, String>(7)?,
-                        "winner_fact": row.get::<_, String>(8)?,
-                        "resolution": row.get::<_, String>(9)?,
+                        "sync_source": row.get::<_, String>(2)?,
+                        "topic": row.get::<_, String>(3)?,
+                        "scope": row.get::<_, String>(4)?,
+                        "scope_key": row.get::<_, Option<String>>(5)?,
+                        "loser_id": row.get::<_, String>(6)?,
+                        "loser_fact": row.get::<_, String>(7)?,
+                        "winner_id": row.get::<_, String>(8)?,
+                        "winner_fact": row.get::<_, String>(9)?,
+                        "resolution": row.get::<_, String>(10)?,
                     }))
                 })?
                 .collect::<Result<Vec<_>, _>>()?;

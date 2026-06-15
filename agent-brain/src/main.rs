@@ -225,6 +225,7 @@ async fn main() -> Result<()> {
                 &engine.embedder,
                 std::path::Path::new(bundle),
                 policy,
+                agent_brain::sync::SyncSource::ManualImport,
             )?;
             engine.store.bump_index_version()?;
             engine.bootstrap(None)?;
@@ -261,6 +262,22 @@ async fn main() -> Result<()> {
                                 );
                             }
                         }
+                        "clone" => {
+                            let remote = flag_value(&args, "--remote")
+                                .or_else(|| {
+                                    let r = brain_settings.sync.git.remote.clone();
+                                    if r.is_empty() { None } else { Some(r) }
+                                })
+                                .context("usage: agent-brain sync git clone [--remote URL]")?;
+                            let branch = brain_settings.sync.git.branch.clone();
+                            let root = agent_brain::sync::git_clone(
+                                &config.home,
+                                &remote,
+                                &branch,
+                            )?;
+                            println!("Cloned sync repo to {}", root.display());
+                            eprintln!("Run: agent-brain sync git pull");
+                        }
                         "push" => {
                             let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
                             agent_brain::sync::git_push(&store, &config.home, &brain_settings.sync.git)?;
@@ -293,6 +310,7 @@ async fn main() -> Result<()> {
                         }
                         _ => {
                             eprintln!("Usage: agent-brain sync git init [--remote URL]");
+                            eprintln!("       agent-brain sync git clone [--remote URL]");
                             eprintln!("       agent-brain sync git push");
                             eprintln!("       agent-brain sync git pull");
                             eprintln!("       agent-brain sync git status");
@@ -301,7 +319,7 @@ async fn main() -> Result<()> {
                     }
                 }
                 _ => {
-                    eprintln!("Usage: agent-brain sync git init|push|pull|status");
+                    eprintln!("Usage: agent-brain sync git init|clone|push|pull|status");
                     std::process::exit(1);
                 }
             }
@@ -404,6 +422,7 @@ Usage:
   agent-brain export [dir]                    Export sync bundle (manifest + facts.jsonl)
   agent-brain import <dir> [--policy POLICY]  Import sync bundle (newer_wins default)
   agent-brain sync git init [--remote URL]    Init ~/.agent_brain/sync git repo (S2)
+  agent-brain sync git clone [--remote URL]   Clone sync repo on a second machine
   agent-brain sync git push                   Export bundle, commit, push to origin
   agent-brain sync git pull                   Pull from origin and import bundle
   agent-brain sync git status                 Show git sync repo state

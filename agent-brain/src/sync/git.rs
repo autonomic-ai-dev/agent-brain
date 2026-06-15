@@ -10,7 +10,7 @@ use crate::db::store::BrainStore;
 use crate::embed::Embedder;
 use crate::settings::GitSyncSettings;
 
-use super::bundle::{export_bundle, import_bundle, ImportReport, MergePolicy};
+use super::bundle::{export_bundle, import_bundle, ImportReport, MergePolicy, SyncSource};
 
 pub const BUNDLE_DIR_NAME: &str = "bundle";
 
@@ -88,6 +88,30 @@ pub fn init_git_repo(home: &Path, remote: Option<&str>, branch: &str) -> Result<
     Ok(root)
 }
 
+/// Clone an existing sync repo (second machine setup). Refuses if `~/.agent_brain/sync` exists.
+pub fn git_clone(home: &Path, remote: &str, branch: &str) -> Result<PathBuf> {
+    let root = git_sync_root(home);
+    if root.exists() {
+        bail!(
+            "sync dir already exists at {}; remove it or use sync git pull",
+            root.display()
+        );
+    }
+    fs::create_dir_all(home).context("create home dir")?;
+    run_git(
+        home,
+        &[
+            "clone",
+            "--branch",
+            branch,
+            "--single-branch",
+            remote,
+            root.to_str().context("sync path not UTF-8")?,
+        ],
+    )?;
+    Ok(root)
+}
+
 pub fn git_push(store: &BrainStore, home: &Path, settings: &GitSyncSettings) -> Result<()> {
     let root = git_sync_root(home);
     if !root.join(".git").is_dir() {
@@ -143,7 +167,13 @@ pub fn git_pull(
         return Ok(ImportReport::default());
     }
 
-    import_bundle(store, embedder, &bundle, MergePolicy::NewerWins)
+    import_bundle(
+        store,
+        embedder,
+        &bundle,
+        MergePolicy::NewerWins,
+        SyncSource::Git,
+    )
 }
 
 fn write_sync_readme(root: &Path) -> Result<()> {

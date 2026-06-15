@@ -3,7 +3,8 @@
 mod bundle;
 mod git;
 
-pub use bundle::{export_bundle, import_bundle, ImportReport, MergePolicy};
+pub use bundle::{export_bundle, import_bundle, ImportReport, MergePolicy, SyncSource};
 pub use git::{
-    git_bundle_dir, git_pull, git_push, git_status, git_sync_root, init_git_repo, GitSyncStatus,
+    git_bundle_dir, git_clone, git_pull, git_push, git_status, git_sync_root, init_git_repo,
+    GitSyncStatus,
 };
