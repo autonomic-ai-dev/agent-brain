@@ -16,6 +16,10 @@ on:
         type: string
         required: false
 
+concurrency:
+  group: stage-release-publish-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
 

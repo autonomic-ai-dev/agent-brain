@@ -12,6 +12,10 @@ on:
         type: string
         required: false
 
+concurrency:
+  group: stage-build-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

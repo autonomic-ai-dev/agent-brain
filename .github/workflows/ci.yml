@@ -7,6 +7,10 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
+concurrency:
+  group: ci-pipeline-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   actions: write
 
