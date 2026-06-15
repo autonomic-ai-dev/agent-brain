@@ -1,12 +1,12 @@
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use agent_brain::cache::{fingerprint_open_files, fingerprint_query, route_cache_key, CacheKey, QueryEmbeddingCache, TurnCache};
 use agent_brain::config::Config;
 use agent_brain::db::RouteLatencyStats;
 use agent_brain::db::store::{content_hash, looks_like_secret, BrainStore};
-use agent_brain::embed::Embedder;
+use agent_brain::embed::{deterministic_embedding, Embedder};
 use agent_brain::engine::Engine;
 use agent_brain::tokens::estimate_tokens;
 use agent_brain::types::{ItemType, RouteLimits, RouteTaskResponse};
@@ -36,9 +36,8 @@ fn dummy_embedding() -> Vec<f32> {
     vec![0.01; 384]
 }
 
-fn shared_embedder() -> Arc<Embedder> {
-    static EMBEDDER: OnceLock<Arc<Embedder>> = OnceLock::new();
-    Arc::clone(EMBEDDER.get_or_init(|| Arc::new(Embedder::new().expect("embedder init"))))
+fn test_embedder() -> Arc<Embedder> {
+    Arc::new(Embedder::deterministic())
 }
 
 #[test]
@@ -166,11 +165,11 @@ fn truncates_context_to_token_budget() {
     let config = test_config(&dir);
     config.ensure_dirs().unwrap();
     let store = BrainStore::open(&config.db_path).unwrap();
-    let embedder = shared_embedder();
+    let embedder = test_embedder();
 
     for i in 0..20 {
         let text = format!("Long rule number {i} with enough text to consume token budget quickly.");
-        let emb = embedder.embed_one(&text).unwrap();
+        let emb = deterministic_embedding(&text);
         store
             .upsert_indexed_item(
                 ItemType::Rule,
@@ -215,11 +214,11 @@ fn route_task_respects_max_tokens() {
     let config = test_config(&dir);
     config.ensure_dirs().unwrap();
     let store = BrainStore::open(&config.db_path).unwrap();
-    let embedder = shared_embedder();
+    let embedder = test_embedder();
 
     for i in 0..10 {
         let text = format!("Agent capability {i} for rust backend work");
-        let emb = embedder.embed_one(&text).unwrap();
+        let emb = deterministic_embedding(&text);
         store
             .upsert_indexed_item(
                 ItemType::Agent,
@@ -276,7 +275,7 @@ fn dedupes_duplicate_skill_names_in_route_task() {
     let config = test_config(&dir);
     config.ensure_dirs().unwrap();
     let store = BrainStore::open(&config.db_path).unwrap();
-    let embedder = shared_embedder();
+    let embedder = test_embedder();
 
     let query = "configure vitest for react testing";
     let strong = format!("{query} vitest react testing patterns");
@@ -289,7 +288,7 @@ fn dedupes_duplicate_skill_names_in_route_task() {
             weak,
         ),
     ] {
-        let emb = embedder.embed_one(text).unwrap();
+        let emb = deterministic_embedding(text);
         store
             .upsert_indexed_item(
                 ItemType::Skill,

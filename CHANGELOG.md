@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.9] - 2026-06-15
+
+### Fixed
+
+- Integration tests use `Embedder::deterministic()` so CI does not download ONNX models from HuggingFace (avoids 429 rate limits)
+
 ## [0.3.8] - 2026-06-15
 
 ### Added

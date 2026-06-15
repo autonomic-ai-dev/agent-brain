@@ -2,13 +2,21 @@ use anyhow::{Context, Result};
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 
 pub struct Embedder {
-    model: TextEmbedding,
+    model: Option<TextEmbedding>,
     pub model_id: &'static str,
 }
 
 impl Embedder {
     pub fn new() -> Result<Self> {
         Self::with_model(EmbeddingModel::AllMiniLML6V2)
+    }
+
+    /// Offline embedder for tests and CI — no ONNX model download.
+    pub fn deterministic() -> Self {
+        Self {
+            model: None,
+            model_id: "deterministic",
+        }
     }
 
     pub fn with_model(model: EmbeddingModel) -> Result<Self> {
@@ -18,32 +26,55 @@ impl Embedder {
         )
         .context("init fastembed")?;
         Ok(Self {
-            model: inner,
+            model: Some(inner),
             model_id,
         })
     }
 
     pub fn dim(&self) -> usize {
-        self.model
-            .embed(vec!["probe".to_string()], None)
-            .map(|v| v.first().map(|e| e.len()).unwrap_or(384))
-            .unwrap_or(384)
+        match &self.model {
+            Some(model) => model
+                .embed(vec!["probe".to_string()], None)
+                .map(|v| v.first().map(|e| e.len()).unwrap_or(384))
+                .unwrap_or(384),
+            None => 384,
+        }
     }
 
     pub fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
         if texts.is_empty() {
             return Ok(vec![]);
         }
+        if self.model.is_none() {
+            return Ok(texts.iter().map(|t| deterministic_embedding(t)).collect());
+        }
         self.model
+            .as_ref()
+            .unwrap()
             .embed(texts.to_vec(), None)
             .context("embed texts")
     }
 
     pub fn embed_one(&self, text: &str) -> Result<Vec<f32>> {
+        if self.model.is_none() {
+            return Ok(deterministic_embedding(text));
+        }
         let mut emb = self.embed(&[text.to_string()])?.remove(0);
         l2_normalize(&mut emb);
         Ok(emb)
     }
+}
+
+/// Stable unit vector from text — used by `Embedder::deterministic`.
+pub fn deterministic_embedding(text: &str) -> Vec<f32> {
+    use sha2::{Digest, Sha256};
+    let hash = Sha256::digest(text.as_bytes());
+    let mut v = Vec::with_capacity(384);
+    for i in 0..384 {
+        v.push(hash[i % hash.len()] as f32 / 255.0);
+    }
+    l2_normalize(&mut v);
+    v
 }
 
 pub fn parse_embedding_model(name: &str) -> EmbeddingModel {
@@ -185,5 +216,13 @@ mod tests {
             parse_embedding_model("bge-small"),
             EmbeddingModel::BGESmallENV15
         ));
+    }
+
+    #[test]
+    fn deterministic_embedding_is_unit_length() {
+        let emb = deterministic_embedding("configure vitest for react testing");
+        assert_eq!(emb.len(), 384);
+        let norm: f64 = emb.iter().map(|x| (*x as f64).powi(2)).sum::<f64>().sqrt();
+        assert!((norm - 1.0).abs() < 1e-5);
     }
 }
