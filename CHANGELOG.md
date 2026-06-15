@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-15
+
+### Added
+
+- **`apply_when` on facts** — phase/tag/path conditions with +0.15 score boost; matching facts surface in `must_apply`.
+- **Convention confidence boost** — +0.08 for `source=user` or `confidence >= 0.95`.
+- **`warnings` in `route_task`** — global vs project fact conflicts on the same topic.
+- **Sync S1** — sync bundle export/import (`agent-brain export`, `agent-brain import`, MCP `import_memory`).
+- Schema v3 migration: `facts.apply_when`.
+
 ## [0.4.0] - 2026-06-15
 
 ### Added

@@ -261,6 +261,7 @@ impl Engine {
         tags: &[String],
         boost_agents: bool,
         phase: &str,
+        open_files: &[String],
     ) -> Result<(Vec<ScoredItem>, usize, usize, u64, u64, bool, bool)> {
         let query_owned = query.to_string();
         let store = Arc::clone(&self.store);
@@ -282,6 +283,12 @@ impl Engine {
 
         let score_started = Instant::now();
         let snapshot = self.store.search_cache_snapshot()?;
+        let match_ctx = crate::intelligence::MatchContext {
+            phase,
+            tags,
+            open_files,
+            repo_root,
+        };
         let (scored, candidates, index_total) = self.store.score_items_with_bm25(
             &snapshot,
             &query_emb,
@@ -291,6 +298,7 @@ impl Engine {
             boost_agents,
             bm25_fast_path,
             Some(phase),
+            Some(&match_ctx),
         )?;
         let score_us = score_started.elapsed().as_micros() as u64;
 
@@ -362,10 +370,15 @@ impl Engine {
                 &ws.tags,
                 agent_boost_keywords(user_message),
                 &phase,
+                open_files,
             )?;
 
         let build_started = Instant::now();
         let mut resp = build_route_response(&scored, &limits, &phase, max_tokens);
+        let topics: Vec<String> = resp.relevant_memory.iter().map(|m| m.topic.clone()).collect();
+        for (topic, message) in self.store.scope_conflict_warnings(&topics)? {
+            resp.warnings.push(crate::types::RouteWarning { topic, message });
+        }
         let build_us = build_started.elapsed().as_micros() as u64;
 
         let total_us = started.elapsed().as_micros() as u64;
@@ -437,6 +450,7 @@ impl Engine {
             &ws.tags,
             false,
             &infer_phase(task_description),
+            &[],
         )?;
 
         let mut items = Vec::new();
@@ -592,7 +606,9 @@ fn try_add_route_item(
             let is_negative = item.polarity.as_deref() == Some("negative")
                 || item.text.to_lowercase().contains("do not")
                 || item.text.to_lowercase().contains("never ");
-            if is_negative && item.score > 0.6 && resp.must_apply.len() < 3 {
+            if (is_negative && item.score > 0.6 || item.apply_when_matched)
+                && resp.must_apply.len() < 3
+            {
                 resp.must_apply.push(MustApply {
                     topic: item.topic.clone(),
                     text: item.text.chars().take(200).collect(),

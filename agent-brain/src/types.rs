@@ -42,6 +42,8 @@ pub struct ScoredItem {
     pub score: f64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub polarity: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub apply_when_matched: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -139,6 +141,12 @@ pub struct MustApply {
     pub text: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RouteWarning {
+    pub topic: String,
+    pub message: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RouteTaskResponse {
     pub recommended_agents: Vec<AgentRec>,
@@ -146,6 +154,8 @@ pub struct RouteTaskResponse {
     pub applicable_rules: Vec<RuleRec>,
     pub relevant_memory: Vec<MemoryRec>,
     pub must_apply: Vec<MustApply>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<RouteWarning>,
     pub recommended_phase: String,
     pub tokens_used: usize,
     pub tokens_budget: usize,

@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use crate::db::migrations;
 use crate::embed::{batch_dot_products, normalize_embedding};
+use crate::intelligence::{parse_apply_when, MatchContext, matches_apply_when};
 use crate::types::{ItemType, ScoredItem};
 
 const BM25_ITEMS_TOP: usize = 150;
@@ -52,6 +53,9 @@ struct CachedRow {
     embedding: Option<Vec<f32>>,
     updated_at: i64,
     polarity: Option<String>,
+    source: Option<String>,
+    confidence: f64,
+    apply_when: Option<String>,
 }
 
 pub struct BrainStore {
@@ -161,6 +165,9 @@ impl BrainStore {
                             .map(|b| normalize_embedding(bytes_to_f32(&b))),
                         updated_at: row.get(8)?,
                         polarity: None,
+                        source: None,
+                        confidence: 0.9,
+                        apply_when: None,
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -172,7 +179,7 @@ impl BrainStore {
         self.with_conn(|conn| {
             let now = chrono::Utc::now().timestamp_millis();
             let mut stmt = conn.prepare(
-                r#"SELECT id, topic, fact, scope, scope_key, updated_at, polarity
+                r#"SELECT id, topic, fact, scope, scope_key, updated_at, polarity, source, confidence, apply_when
                    FROM facts WHERE superseded_by IS NULL AND (expires_at IS NULL OR expires_at > ?1)"#,
             )?;
             let rows = stmt
@@ -188,6 +195,9 @@ impl BrainStore {
                         embedding: None,
                         updated_at: row.get(5)?,
                         polarity: row.get(6)?,
+                        source: row.get(7)?,
+                        confidence: row.get(8)?,
+                        apply_when: row.get(9)?,
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -466,6 +476,33 @@ impl BrainStore {
         embedding: &[f32],
         polarity: &str,
     ) -> Result<StoreFactResult> {
+        self.store_fact_full(
+            topic,
+            fact,
+            scope,
+            scope_key,
+            confidence,
+            source,
+            content_hash,
+            embedding,
+            polarity,
+            None,
+        )
+    }
+
+    pub fn store_fact_full(
+        &self,
+        topic: &str,
+        fact: &str,
+        scope: &str,
+        scope_key: Option<&str>,
+        confidence: f64,
+        source: &str,
+        content_hash: &str,
+        embedding: &[f32],
+        polarity: &str,
+        apply_when: Option<&str>,
+    ) -> Result<StoreFactResult> {
         let polarity = if polarity == "negative" {
             "negative"
         } else {
@@ -528,9 +565,9 @@ impl BrainStore {
             }
 
             conn.execute(
-                r#"INSERT INTO facts (id, topic, fact, scope, scope_key, source, confidence, created_at, updated_at, expires_at, content_hash, polarity)
-                   VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?8,?9,?10,?11)"#,
-                params![id, topic, fact, scope, scope_key, source, confidence, now, expires, content_hash, polarity],
+                r#"INSERT INTO facts (id, topic, fact, scope, scope_key, source, confidence, created_at, updated_at, expires_at, content_hash, polarity, apply_when)
+                   VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?8,?9,?10,?11,?12)"#,
+                params![id, topic, fact, scope, scope_key, source, confidence, now, expires, content_hash, polarity, apply_when],
             )?;
             Ok(())
         })?;
@@ -558,6 +595,7 @@ impl BrainStore {
             Ok(())
         })?;
 
+        self.invalidate_search_cache();
         Ok(StoreFactResult {
             id,
             stored: true,
@@ -612,6 +650,152 @@ impl BrainStore {
         let json = serde_json::to_string_pretty(&facts)?;
         std::fs::write(export_path, &json)?;
         Ok(export_path.display().to_string())
+    }
+
+    pub fn ensure_device_id(&self) -> Result<String> {
+        if let Some(id) = self.get_meta("device_id")? {
+            return Ok(id);
+        }
+        let id = Uuid::new_v4().to_string();
+        self.set_meta("device_id", &id)?;
+        Ok(id)
+    }
+
+    pub fn list_export_facts(&self) -> Result<Vec<serde_json::Value>> {
+        self.with_conn(|conn| {
+            let now = chrono::Utc::now().timestamp_millis();
+            let mut stmt = conn.prepare(
+                r#"SELECT id, topic, fact, scope, scope_key, source, confidence, polarity, apply_when, content_hash, created_at, updated_at
+                   FROM facts WHERE superseded_by IS NULL AND (expires_at IS NULL OR expires_at > ?1)"#,
+            )?;
+            let rows = stmt
+                .query_map(params![now], |row| {
+                    let apply_raw: Option<String> = row.get(8)?;
+                    let apply_when = apply_raw
+                        .as_deref()
+                        .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok());
+                    Ok(serde_json::json!({
+                        "id": row.get::<_, String>(0)?,
+                        "topic": row.get::<_, String>(1)?,
+                        "fact": row.get::<_, String>(2)?,
+                        "scope": row.get::<_, String>(3)?,
+                        "scope_key": row.get::<_, Option<String>>(4)?,
+                        "source": row.get::<_, String>(5)?,
+                        "confidence": row.get::<_, f64>(6)?,
+                        "polarity": row.get::<_, String>(7)?,
+                        "apply_when": apply_when,
+                        "content_hash": row.get::<_, String>(9)?,
+                        "created_at": row.get::<_, i64>(10)?,
+                        "updated_at": row.get::<_, i64>(11)?,
+                    }))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
+    pub fn fact_exists_by_hash(
+        &self,
+        content_hash: &str,
+        scope: &str,
+        scope_key: Option<&str>,
+    ) -> Result<bool> {
+        self.with_conn(|conn| {
+            Ok(conn
+                .query_row(
+                    "SELECT 1 FROM facts WHERE content_hash = ?1 AND scope = ?2 AND IFNULL(scope_key,'') = IFNULL(?3,'') AND superseded_by IS NULL LIMIT 1",
+                    params![content_hash, scope, scope_key],
+                    |_| Ok(()),
+                )
+                .optional()?
+                .is_some())
+        })
+    }
+
+    pub fn get_active_fact_by_topic(
+        &self,
+        topic: &str,
+        scope: &str,
+        scope_key: Option<&str>,
+    ) -> Result<Option<ActiveFactSnapshot>> {
+        self.with_conn(|conn| {
+            conn.query_row(
+                "SELECT id, fact, updated_at FROM facts WHERE topic = ?1 AND scope = ?2 AND IFNULL(scope_key,'') = IFNULL(?3,'') AND superseded_by IS NULL",
+                params![topic, scope, scope_key],
+                |row| {
+                    Ok(ActiveFactSnapshot {
+                        id: row.get(0)?,
+                        fact: row.get(1)?,
+                        updated_at: row.get(2)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(Into::into)
+        })
+    }
+
+    pub fn log_import_conflict(
+        &self,
+        topic: &str,
+        scope: &str,
+        scope_key: Option<&str>,
+        loser_id: &str,
+        loser_fact: &str,
+        winner_id: &str,
+        winner_fact: &str,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let conflict_id = Uuid::new_v4().to_string();
+        self.with_conn(|conn| {
+            conn.execute(
+                r#"INSERT INTO conflict_log (id, timestamp, sync_source, topic, scope, scope_key, loser_id, loser_fact, winner_id, winner_fact, resolution)
+                   VALUES (?1,?2,'manual_import',?3,?4,?5,?6,?7,?8,?9,'newer_updated_at')"#,
+                params![
+                    conflict_id,
+                    now,
+                    topic,
+                    scope,
+                    scope_key,
+                    loser_id,
+                    loser_fact,
+                    winner_id,
+                    winner_fact
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn scope_conflict_warnings(&self, topics: &[String]) -> Result<Vec<(String, String)>> {
+        let mut warnings = Vec::new();
+        for topic in topics {
+            let rows: Vec<(String, String)> = self.with_conn(|conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT scope, fact FROM facts WHERE topic = ?1 AND superseded_by IS NULL",
+                )?;
+                let rows = stmt
+                    .query_map(params![topic], |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    })?
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(rows)
+            })?;
+            if rows.len() < 2 {
+                continue;
+            }
+            let global = rows.iter().find(|(s, _)| s == "global");
+            let project = rows.iter().find(|(s, _)| s == "project");
+            if let (Some((_, g)), Some((_, p))) = (global, project) {
+                if g != p {
+                    warnings.push((
+                        topic.clone(),
+                        format!("Global vs project conflict on '{topic}'"),
+                    ));
+                }
+            }
+        }
+        Ok(warnings)
     }
 
     pub fn get_fact(&self, id: &str) -> Result<Option<serde_json::Value>> {
@@ -848,6 +1032,7 @@ impl BrainStore {
         boost_agents: bool,
         bm25_only: bool,
         phase: Option<&str>,
+        match_ctx: Option<&MatchContext<'_>>,
     ) -> Result<(Vec<ScoredItem>, usize, usize)> {
         let index_total = snapshot.indexed.len() + snapshot.memories.len();
 
@@ -949,6 +1134,49 @@ impl BrainStore {
                 score *= weight;
             }
 
+            let mut apply_when_matched = false;
+            if item_type == ItemType::Memory {
+                let meta = memory_fact_meta(snapshot, row);
+                let source = meta.map(|m| m.source.as_deref()).flatten();
+                let confidence = meta.map(|m| m.confidence).unwrap_or(row.confidence);
+                let apply_when = meta
+                    .and_then(|m| m.apply_when.as_deref())
+                    .or(row.apply_when.as_deref());
+                let polarity = meta
+                    .and_then(|m| m.polarity.as_deref())
+                    .or(row.polarity.as_deref());
+
+                if source == Some("user") || confidence >= 0.95 {
+                    score += 0.08;
+                }
+                if let Some(ctx) = match_ctx {
+                    let conditions = parse_apply_when(apply_when);
+                    if matches_apply_when(&conditions, ctx) {
+                        score += 0.15;
+                        apply_when_matched = !conditions.is_empty();
+                    } else if !conditions.is_empty() {
+                        score *= 0.85;
+                    }
+                }
+
+                scored.push(ScoredItem {
+                    id: row.id.clone(),
+                    item_type,
+                    topic: row.topic.clone(),
+                    text: row.text.clone(),
+                    source_path: if row.source_path.is_empty() {
+                        None
+                    } else {
+                        Some(row.source_path.clone())
+                    },
+                    scope: row.scope.clone(),
+                    score,
+                    polarity: polarity.map(str::to_string),
+                    apply_when_matched,
+                });
+                continue;
+            }
+
             scored.push(ScoredItem {
                 id: row.id.clone(),
                 item_type,
@@ -962,6 +1190,7 @@ impl BrainStore {
                 scope: row.scope.clone(),
                 score,
                 polarity: row.polarity.clone(),
+                apply_when_matched,
             });
         }
 
@@ -977,6 +1206,7 @@ impl BrainStore {
         tags: &[String],
         boost_agents: bool,
         phase: Option<&str>,
+        match_ctx: Option<&MatchContext<'_>>,
     ) -> Result<(Vec<ScoredItem>, usize, usize)> {
         let snapshot = self.search_cache_snapshot()?;
         let bm25 = self.bm25_prefilter(query)?;
@@ -989,8 +1219,18 @@ impl BrainStore {
             boost_agents,
             false,
             phase,
+            match_ctx,
         )
     }
+}
+
+fn memory_fact_meta<'a>(snapshot: &'a SearchIndexCache, row: &'a CachedRow) -> Option<&'a CachedRow> {
+    snapshot.memories.iter().find(|m| {
+        m.topic == row.topic
+            && m.text == row.text
+            && m.scope == row.scope
+            && m.scope_key == row.scope_key
+    })
 }
 
 fn scoped_fallback_rows<'a>(
@@ -1070,6 +1310,13 @@ pub struct StoreFactResult {
     pub id: String,
     pub stored: bool,
     pub deduplicated: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ActiveFactSnapshot {
+    pub id: String,
+    pub fact: String,
+    pub updated_at: i64,
 }
 
 #[derive(Debug, Clone)]

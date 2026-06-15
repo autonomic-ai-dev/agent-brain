@@ -202,6 +202,37 @@ async fn main() -> Result<()> {
                 std::process::exit(1);
             }
         }
+        "export" => {
+            let config = Config::load()?;
+            config.ensure_dirs()?;
+            let dest = args.get(2).map(std::path::PathBuf::from);
+            let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
+            let path = agent_brain::sync::export_bundle(&store, &config.home, dest.as_deref())?;
+            println!("Exported sync bundle to {}", path.display());
+        }
+        "import" => {
+            let bundle = args
+                .get(2)
+                .context("usage: agent-brain import <bundle-dir> [--policy newer_wins|keep_local|keep_remote]")?;
+            let policy = flag_value(&args, "--policy")
+                .and_then(|s| agent_brain::sync::MergePolicy::parse(&s))
+                .unwrap_or(agent_brain::sync::MergePolicy::NewerWins);
+            let config = Config::load()?;
+            config.ensure_dirs()?;
+            let engine = Arc::new(Engine::new(config)?);
+            let report = agent_brain::sync::import_bundle(
+                &engine.store,
+                &engine.embedder,
+                std::path::Path::new(bundle),
+                policy,
+            )?;
+            engine.store.bump_index_version()?;
+            engine.bootstrap(None)?;
+            println!(
+                "Imported {} facts (deduped {}, conflicts {}, skipped {})",
+                report.imported, report.deduplicated, report.conflicts_resolved, report.skipped
+            );
+        }
         "doctor" => {
             let fix = args.iter().any(|a| a == "--fix");
             doctor::run(fix)?;
@@ -297,6 +328,8 @@ Usage:
   agent-brain config show                     Print active config file
   agent-brain version                         Print installed version
   agent-brain briefing                        Print last human-readable route summary
+  agent-brain export [dir]                    Export sync bundle (manifest + facts.jsonl)
+  agent-brain import <dir> [--policy POLICY]  Import sync bundle (newer_wins default)
   agent-brain doctor                          Check MCP install, binary, hooks, codesign
   agent-brain doctor --fix                    Re-sign binary (macOS), align mcp.json, refresh hooks
   agent-brain inspect log [--last]            List retrieval logs (what route_task returned)

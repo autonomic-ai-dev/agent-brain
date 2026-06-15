@@ -44,7 +44,12 @@ impl BrainMcp {
                     let hash = content_hash(&payload.fact);
                     let embedding = embedder.embed_one(&format!("{} {}", payload.topic, payload.fact))?;
                     let polarity = payload.polarity.as_deref().unwrap_or("positive");
-                    let res = store.store_fact(
+                    let apply_when = payload
+                        .apply_when
+                        .as_ref()
+                        .map(|v| serde_json::to_string(v))
+                        .transpose()?;
+                    let res = store.store_fact_full(
                         &payload.topic,
                         &payload.fact,
                         &payload.scope,
@@ -54,6 +59,7 @@ impl BrainMcp {
                         &hash,
                         &embedding,
                         polarity,
+                        apply_when.as_deref(),
                     )?;
                     cache.clear();
                     store.bump_index_version().ok();
@@ -151,6 +157,8 @@ struct StoreMemoryParams {
     confidence: f64,
     #[serde(default)]
     polarity: Option<String>,
+    #[serde(default)]
+    apply_when: Option<Vec<String>>,
 }
 
 fn default_scope() -> String {
@@ -197,6 +205,17 @@ struct ReportContextUsefulParams {
 struct ExplainLastContextParams {
     #[serde(default)]
     log_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct ImportMemoryParams {
+    bundle_path: String,
+    #[serde(default = "default_merge_policy")]
+    merge_policy: String,
+}
+
+fn default_merge_policy() -> String {
+    "newer_wins".into()
 }
 
 #[tool_router]
@@ -289,6 +308,7 @@ impl BrainMcp {
                     scope_key,
                     confidence: if p.confidence == 0.0 { 0.9 } else { p.confidence },
                     polarity,
+                    apply_when: p.apply_when,
                 },
             })
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
@@ -387,6 +407,27 @@ impl BrainMcp {
         )
         .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         json_result(serde_json::json!({ "context": explain }))
+    }
+
+    #[tool(description = "Import memory facts from a sync bundle directory.")]
+    async fn import_memory(
+        &self,
+        params: Parameters<ImportMemoryParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let policy = crate::sync::MergePolicy::parse(&p.merge_policy)
+            .ok_or_else(|| McpError::invalid_params("invalid merge_policy", None))?;
+        let report = crate::sync::import_bundle(
+            &self.engine.store,
+            &self.engine.embedder,
+            PathBuf::from(&p.bundle_path).as_path(),
+            policy,
+        )
+        .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        self.engine.store.bump_index_version().ok();
+        self.engine.cache.clear();
+        json_result(report)
     }
 }
 
