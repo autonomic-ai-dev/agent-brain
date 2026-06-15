@@ -6,13 +6,9 @@ Fast, local MCP server that routes each turn to the right agents, skills, rules,
 
 ## Why agent-brain?
 
-While there are many AI agent frameworks and memory tools available, **agent-brain** is specifically designed to act as a fast, local traffic cop between the AI and your codebase. It differentiates itself through highly opinionated architectural choices:
+See the [repository README](../README.md#why-agent-brain) for positioning, comparisons, latency tuning, and storage direction.
 
-- **Hard-Gated Action Enforcement**: Rather than relying on soft system prompts, agent-brain can install editor hooks that physically block the AI from using destructive or exploratory tools until it successfully retrieves necessary context.
-- **Strict Token Budgeting**: Instead of blindly stuffing all available `.cursorrules` and skills into the context window—which degrades AI reasoning—agent-brain performs local semantic routing to fetch only the exact skills, agents, and rules needed for the current turn.
-- **Universal Package Management**: It functions as a package manager for AI behaviors. You can install remote GitHub repositories containing collections of skills and agents with a single command (e.g., `agent-brain add affaan-m/ecc`).
-- **Durable Memory & Constraints**: It utilizes a local SQLite database to persist facts and hard constraints (`must_apply`) across sessions, preventing the AI from repeating the same mistakes.
-- **Local & Sub-50ms Routing**: Built in Rust and utilizing a local embedding model, the routing step takes less than 50ms on repeat queries, keeping the interaction feeling instantaneous without relying on external APIs.
+In short: **per-turn routing** under a token budget, **hook-enforced** `route_task`, and **local** skill packages + memory — not a cloud memory SaaS or agent framework.
 
 ## MCP auto-start (important)
 
