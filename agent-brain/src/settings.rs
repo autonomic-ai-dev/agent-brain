@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 const CONFIG_NAMES: &[&str] = &["config.yaml", "config.yml", "config.json"];
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct AgentBrainSettings {
     #[serde(default)]
     pub auto_update: AutoUpdateSettings,
@@ -14,7 +14,7 @@ pub struct AgentBrainSettings {
     pub sync: SyncSettings,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct SyncSettings {
     #[serde(default)]
     pub git: GitSyncSettings,
@@ -68,15 +68,6 @@ pub struct GitSyncSettings {
 
 fn default_git_branch() -> String {
     "main".into()
-}
-
-impl Default for SyncSettings {
-    fn default() -> Self {
-        Self {
-            git: GitSyncSettings::default(),
-            cloud: CloudSyncSettings::default(),
-        }
-    }
 }
 
 impl Default for GitSyncSettings {
@@ -168,15 +159,6 @@ fn default_repo() -> String {
 
 fn default_bin_path() -> String {
     "~/.local/bin/agent-brain".into()
-}
-
-impl Default for AgentBrainSettings {
-    fn default() -> Self {
-        Self {
-            auto_update: AutoUpdateSettings::default(),
-            sync: SyncSettings::default(),
-        }
-    }
 }
 
 impl Default for AutoUpdateSettings {

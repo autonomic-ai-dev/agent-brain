@@ -11,12 +11,18 @@ pub struct McpRequestGuard<'a> {
     activity: &'a McpActivity,
 }
 
-impl McpActivity {
-    pub fn new() -> Self {
+impl Default for McpActivity {
+    fn default() -> Self {
         Self {
             in_flight: AtomicU32::new(0),
             last_complete_ms: AtomicU64::new(now_ms()),
         }
+    }
+}
+
+impl McpActivity {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn begin_request(&self) -> McpRequestGuard<'_> {

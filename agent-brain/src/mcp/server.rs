@@ -48,7 +48,7 @@ impl BrainMcp {
                     let apply_when = payload
                         .apply_when
                         .as_ref()
-                        .map(|v| serde_json::to_string(v))
+                        .map(serde_json::to_string)
                         .transpose()?;
                     let res = store.store_fact_full(
                         &payload.topic,

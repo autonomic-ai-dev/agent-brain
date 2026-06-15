@@ -22,6 +22,8 @@ use crate::mcp_activity::McpActivity;
 use crate::route_briefing;
 use crate::workspace::{agent_boost_keywords, infer_phase, probe};
 
+type RouteQueryParallelResult = (Vec<ScoredItem>, usize, usize, u64, u64, bool, bool);
+
 pub struct Engine {
     pub config: Config,
     pub store: Arc<BrainStore>,
@@ -253,6 +255,7 @@ impl Engine {
         Ok((embedding, false))
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn route_query_parallel(
         &self,
         query: &str,
@@ -262,7 +265,7 @@ impl Engine {
         boost_agents: bool,
         phase: &str,
         open_files: &[String],
-    ) -> Result<(Vec<ScoredItem>, usize, usize, u64, u64, bool, bool)> {
+    ) -> Result<RouteQueryParallelResult> {
         let query_owned = query.to_string();
         let store = Arc::clone(&self.store);
         let bm25_handle = std::thread::spawn(move || store.bm25_prefilter(&query_owned));

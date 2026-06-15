@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments)] // row-oriented SQLite APIs take many optional columns
+
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -1122,7 +1124,7 @@ impl BrainStore {
         const MAX_EXTRA_MEMORIES: usize = 50;
         let mut included_ids: HashSet<String> = candidates.iter().map(|r| r.id.clone()).collect();
         let mut extra_memories: Vec<&CachedRow> = snapshot.memories.iter().collect();
-        extra_memories.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        extra_memories.sort_by_key(|row| std::cmp::Reverse(row.updated_at));
         for row in extra_memories.into_iter().take(MAX_EXTRA_MEMORIES) {
             if included_ids.insert(row.id.clone()) {
                 candidates.push(row);
@@ -1195,7 +1197,7 @@ impl BrainStore {
             let mut apply_when_matched = false;
             if item_type == ItemType::Memory {
                 let meta = memory_fact_meta(snapshot, row);
-                let source = meta.map(|m| m.source.as_deref()).flatten();
+                let source = meta.and_then(|m| m.source.as_deref());
                 let confidence = meta.map(|m| m.confidence).unwrap_or(row.confidence);
                 let apply_when = meta
                     .and_then(|m| m.apply_when.as_deref())
@@ -1324,7 +1326,7 @@ fn scoped_fallback_rows<'a>(
     }
 
     let mut rows: Vec<&CachedRow> = indices.iter().map(|&i| &snapshot.indexed[i]).collect();
-    rows.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    rows.sort_by_key(|row| std::cmp::Reverse(row.updated_at));
     rows.truncate(FALLBACK_RECENT);
     rows
 }

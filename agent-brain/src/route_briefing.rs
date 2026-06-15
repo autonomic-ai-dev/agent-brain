@@ -72,7 +72,7 @@ pub fn format_briefing(resp: &RouteTaskResponse) -> String {
     out
 }
 
-fn section_list<'a>(out: &mut String, title: &str, items: impl Iterator<Item = String>) {
+fn section_list(out: &mut String, title: &str, items: impl Iterator<Item = String>) {
     let rows: Vec<String> = items.collect();
     out.push_str(&format!("## {title} ({})\n", rows.len()));
     if rows.is_empty() {

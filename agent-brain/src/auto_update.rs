@@ -85,9 +85,7 @@ pub fn run(
     let mut state = AutoUpdateState::load(home);
     let check_mcp = cfg.mcp.enabled
         && (force || should_check_mcp(cfg, &state, options));
-    let check_packages = cfg.packages.enabled
-        && !mcp_only
-        && (force || due_for_packages(cfg, &state));
+    let check_packages = should_check_packages(cfg, &state, force, mcp_only);
 
     if !check_mcp && !check_packages {
         tracing::debug!(target: "agent_brain::auto_update", "skipped (interval not elapsed)");
@@ -172,6 +170,15 @@ fn due_for_packages(cfg: &AutoUpdateSettings, state: &AutoUpdateState) -> bool {
     elapsed >= (cfg.interval_hours as i64) * 3600
 }
 
+fn should_check_packages(
+    cfg: &AutoUpdateSettings,
+    state: &AutoUpdateState,
+    force: bool,
+    mcp_only: bool,
+) -> bool {
+    cfg.packages.enabled && !mcp_only && (force || due_for_packages(cfg, state))
+}
+
 /// MCP release checks are independent of package `interval_hours`.
 fn should_check_mcp(
     cfg: &AutoUpdateSettings,
@@ -253,7 +260,7 @@ fn update_mcp_binary(cfg: &AutoUpdateSettings, current_version: &str) -> Result<
     }
 
     let target = detect_release_target().context("unsupported platform for mcp auto-update")?;
-    let asset = release_artifact_name(&target);
+    let asset = release_artifact_name(target);
     let url = format!(
         "https://github.com/{}/releases/download/{}/{}",
         cfg.mcp.repo, latest, asset
@@ -586,9 +593,7 @@ mod tests {
             ..Default::default()
         };
         assert!(due_for_packages(&cfg, &state));
-        // mcp_only=true is enforced in run(); packages gate stays false when forced with mcp_only
-        let check_packages = cfg.packages.enabled && !true && (true || due_for_packages(&cfg, &state));
-        assert!(!check_packages);
+        assert!(!should_check_packages(&cfg, &state, false, true));
     }
 
     #[test]

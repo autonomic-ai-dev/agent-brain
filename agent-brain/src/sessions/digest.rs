@@ -110,11 +110,14 @@ fn build_digest(source: &str, messages: &[String]) -> String {
     let last = messages.last().map(|s| s.as_str()).unwrap_or("");
     let tail = truncate_words(last, 30);
 
-    format!(
-        "Session digest ({source}, {} turns): {}. Latest focus: {}",
-        messages.len(),
-        topics.join(" | "),
-        tail
+    truncate_words(
+        &format!(
+            "Session digest ({source}, {} turns): {}. Latest focus: {}",
+            messages.len(),
+            topics.join(" | "),
+            tail
+        ),
+        MAX_DIGEST_WORDS,
     )
 }
 

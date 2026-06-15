@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Git sync commits set local `user.name` / `user.email` when missing (fixes CI and fresh machines without global git config).
+- Release build warning: session digest word limit now applied; clippy cleanups across lib and tests.
+
 ## [0.6.0] - 2026-06-15
 
 ### Added

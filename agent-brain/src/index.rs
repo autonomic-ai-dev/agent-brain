@@ -40,7 +40,7 @@ pub fn sync_index(
             if should_skip(path) {
                 continue;
             }
-            let repo = cwd.and_then(|c| crate::config::find_repo_root(c));
+            let repo = cwd.and_then(crate::config::find_repo_root);
             if let Some(item) = parse_file(path, repo.as_deref(), pkg_ctx.clone()) {
                 if index_item(store, embedder, &item)? {
                     count += 1;
@@ -124,13 +124,8 @@ fn parse_file(path: &Path, repo: Option<&Path>, package: Option<String>) -> Opti
         || file_name == "CLAUDE.md"
         || file_name == "AGENTS.md"
         || file_name == ".cursorrules"
+        || file_name.ends_with(".md")
     {
-        (
-            ItemType::Rule,
-            file_name.clone(),
-            content.chars().take(2000).collect(),
-        )
-    } else if file_name.ends_with(".md") {
         (
             ItemType::Rule,
             file_name.clone(),
@@ -159,9 +154,9 @@ fn parse_file(path: &Path, repo: Option<&Path>, package: Option<String>) -> Opti
 }
 
 fn extract_skill_text(content: &str, name: &str) -> String {
-    if content.starts_with("---") {
-        if let Some(end) = content[3..].find("---") {
-            let front = &content[3..3 + end];
+    if let Some(rest) = content.strip_prefix("---") {
+        if let Some(end) = rest.find("---") {
+            let front = &rest[..end];
             return format!("{name} {front}").chars().take(800).collect();
         }
     }

@@ -90,7 +90,7 @@ pub fn export_bundle(store: &BrainStore, home: &Path, dest: Option<&Path>) -> Re
     } else {
         facts
             .iter()
-            .map(|f| serde_json::to_string(f))
+            .map(serde_json::to_string)
             .collect::<Result<Vec<_>, _>>()?
             .join("\n")
             + "\n"
@@ -209,7 +209,7 @@ fn import_one_fact(
     let apply_when_json = remote
         .apply_when
         .as_ref()
-        .map(|v| serde_json::to_string(v))
+        .map(serde_json::to_string)
         .transpose()?;
 
     let embedding = embedder.embed_one(&format!("{} {}", remote.topic, remote.fact))?;
