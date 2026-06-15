@@ -10,6 +10,50 @@ const CONFIG_NAMES: &[&str] = &["config.yaml", "config.yml", "config.json"];
 pub struct AgentBrainSettings {
     #[serde(default)]
     pub auto_update: AutoUpdateSettings,
+    #[serde(default)]
+    pub sync: SyncSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SyncSettings {
+    #[serde(default)]
+    pub git: GitSyncSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GitSyncSettings {
+    /// Git remote URL (e.g. git@github.com:user/agent-brain-private.git)
+    #[serde(default)]
+    pub remote: String,
+    #[serde(default = "default_git_branch")]
+    pub branch: String,
+    #[serde(default)]
+    pub include_vectors: bool,
+    #[serde(default)]
+    pub auto_push: bool,
+}
+
+fn default_git_branch() -> String {
+    "main".into()
+}
+
+impl Default for SyncSettings {
+    fn default() -> Self {
+        Self {
+            git: GitSyncSettings::default(),
+        }
+    }
+}
+
+impl Default for GitSyncSettings {
+    fn default() -> Self {
+        Self {
+            remote: String::new(),
+            branch: default_git_branch(),
+            include_vectors: false,
+            auto_push: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -96,6 +140,7 @@ impl Default for AgentBrainSettings {
     fn default() -> Self {
         Self {
             auto_update: AutoUpdateSettings::default(),
+            sync: SyncSettings::default(),
         }
     }
 }
@@ -171,6 +216,7 @@ impl AgentBrainSettings {
                 enabled: true,
                 ..AutoUpdateSettings::default()
             },
+            sync: SyncSettings::default(),
         }
     }
 
@@ -263,5 +309,28 @@ auto_update:
         settings.apply_env_overrides();
         assert!(!settings.auto_update.enabled);
         std::env::remove_var("AGENT_BRAIN_AUTO_UPDATE");
+    }
+
+    #[test]
+    fn parses_sync_git_config() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("config.yaml"),
+            r#"
+sync:
+  git:
+    remote: git@github.com:user/agent-brain-private.git
+    branch: main
+    auto_push: false
+"#,
+        )
+        .unwrap();
+        let settings = AgentBrainSettings::from_file(dir.path()).unwrap();
+        assert_eq!(
+            settings.sync.git.remote,
+            "git@github.com:user/agent-brain-private.git"
+        );
+        assert_eq!(settings.sync.git.branch, "main");
+        assert!(!settings.sync.git.auto_push);
     }
 }

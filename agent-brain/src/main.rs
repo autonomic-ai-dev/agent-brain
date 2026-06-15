@@ -233,6 +233,79 @@ async fn main() -> Result<()> {
                 report.imported, report.deduplicated, report.conflicts_resolved, report.skipped
             );
         }
+        "sync" => {
+            let config = Config::load()?;
+            config.ensure_dirs()?;
+            let brain_settings = settings::AgentBrainSettings::load(&config.home);
+            let sub = args.get(2).map(String::as_str).unwrap_or("help");
+            match sub {
+                "git" => {
+                    let git_cmd = args.get(3).map(String::as_str).unwrap_or("help");
+                    match git_cmd {
+                        "init" => {
+                            let remote = flag_value(&args, "--remote")
+                                .or_else(|| {
+                                    let r = brain_settings.sync.git.remote.clone();
+                                    if r.is_empty() { None } else { Some(r) }
+                                });
+                            let branch = brain_settings.sync.git.branch.clone();
+                            let root = agent_brain::sync::init_git_repo(
+                                &config.home,
+                                remote.as_deref(),
+                                &branch,
+                            )?;
+                            println!("Initialized git sync repo at {}", root.display());
+                            if remote.is_none() {
+                                eprintln!(
+                                    "Tip: set sync.git.remote in config.yaml, then run sync git push"
+                                );
+                            }
+                        }
+                        "push" => {
+                            let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
+                            agent_brain::sync::git_push(&store, &config.home, &brain_settings.sync.git)?;
+                            println!("Pushed memory bundle to origin/{}", brain_settings.sync.git.branch);
+                        }
+                        "pull" => {
+                            let engine = Arc::new(Engine::new(config)?);
+                            let report = agent_brain::sync::git_pull(
+                                &engine.store,
+                                &engine.embedder,
+                                &engine.config.home,
+                                &brain_settings.sync.git,
+                            )?;
+                            engine.store.bump_index_version()?;
+                            engine.bootstrap(None)?;
+                            println!(
+                                "Pulled and imported {} facts (deduped {}, conflicts {}, skipped {})",
+                                report.imported,
+                                report.deduplicated,
+                                report.conflicts_resolved,
+                                report.skipped
+                            );
+                        }
+                        "status" => {
+                            let status = agent_brain::sync::git_status(
+                                &config.home,
+                                &brain_settings.sync.git,
+                            )?;
+                            println!("{}", serde_json::to_string_pretty(&status)?);
+                        }
+                        _ => {
+                            eprintln!("Usage: agent-brain sync git init [--remote URL]");
+                            eprintln!("       agent-brain sync git push");
+                            eprintln!("       agent-brain sync git pull");
+                            eprintln!("       agent-brain sync git status");
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                _ => {
+                    eprintln!("Usage: agent-brain sync git init|push|pull|status");
+                    std::process::exit(1);
+                }
+            }
+        }
         "doctor" => {
             let fix = args.iter().any(|a| a == "--fix");
             doctor::run(fix)?;
@@ -330,6 +403,10 @@ Usage:
   agent-brain briefing                        Print last human-readable route summary
   agent-brain export [dir]                    Export sync bundle (manifest + facts.jsonl)
   agent-brain import <dir> [--policy POLICY]  Import sync bundle (newer_wins default)
+  agent-brain sync git init [--remote URL]    Init ~/.agent_brain/sync git repo (S2)
+  agent-brain sync git push                   Export bundle, commit, push to origin
+  agent-brain sync git pull                   Pull from origin and import bundle
+  agent-brain sync git status                 Show git sync repo state
   agent-brain doctor                          Check MCP install, binary, hooks, codesign
   agent-brain doctor --fix                    Re-sign binary (macOS), align mcp.json, refresh hooks
   agent-brain inspect log [--last]            List retrieval logs (what route_task returned)
