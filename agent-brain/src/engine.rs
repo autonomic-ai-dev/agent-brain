@@ -7,7 +7,7 @@ use std::time::Instant;
 use anyhow::Result;
 use uuid::Uuid;
 
-use crate::cache::{fingerprint_open_files, fingerprint_query, CacheKey, TurnCache};
+use crate::cache::{fingerprint_open_files, fingerprint_query, CacheKey, QueryEmbeddingCache, TurnCache};
 use crate::config::Config;
 use crate::db::store::{content_hash, BrainStore};
 use crate::db::{RouteLatencyStats, RouteTiming};
@@ -28,6 +28,7 @@ pub struct Engine {
     pub auto_capture_enabled: bool,
     pub route_latency: Arc<RouteLatencyStats>,
     pub warmed: Arc<AtomicBool>,
+    pub query_emb_cache: Arc<QueryEmbeddingCache>,
 }
 
 impl Engine {
@@ -44,6 +45,7 @@ impl Engine {
             cache,
             route_latency: Arc::new(RouteLatencyStats::new(256)),
             warmed: Arc::new(AtomicBool::new(false)),
+            query_emb_cache: Arc::new(QueryEmbeddingCache::new(128)),
         })
     }
 
@@ -76,17 +78,87 @@ impl Engine {
         Ok(())
     }
 
-    fn embed_query(&self, query: &str) -> Result<(Vec<f32>, bool)> {
+    fn embed_query(&self, query: &str, message_fp: Option<&str>) -> Result<(Vec<f32>, bool)> {
         let query_hash = content_hash(query);
+
+        for key in std::iter::once(query_hash.as_str()).chain(message_fp) {
+            if let Some(embedding) = self.query_emb_cache.get(key) {
+                if key != query_hash.as_str() {
+                    self.query_emb_cache
+                        .put(query_hash.clone(), embedding.clone());
+                }
+                return Ok((embedding, true));
+            }
+        }
+
         if self.config.embedding_cache_enabled {
             if let Some(embedding) = self.store.get_query_embedding(&query_hash)? {
+                self.query_emb_cache
+                    .put(query_hash.clone(), embedding.clone());
+                if let Some(fp) = message_fp {
+                    self.query_emb_cache.put(fp.to_string(), embedding.clone());
+                }
                 return Ok((embedding, true));
             }
             let embedding = self.embedder.embed_one(query)?;
             self.store.put_query_embedding(&query_hash, &embedding)?;
+            self.query_emb_cache
+                .put(query_hash.clone(), embedding.clone());
+            if let Some(fp) = message_fp {
+                self.query_emb_cache.put(fp.to_string(), embedding.clone());
+            }
             return Ok((embedding, false));
         }
-        Ok((self.embedder.embed_one(query)?, false))
+
+        let embedding = self.embedder.embed_one(query)?;
+        self.query_emb_cache
+            .put(query_hash.clone(), embedding.clone());
+        if let Some(fp) = message_fp {
+            self.query_emb_cache.put(fp.to_string(), embedding.clone());
+        }
+        Ok((embedding, false))
+    }
+
+    fn route_query_parallel(
+        &self,
+        query: &str,
+        message_fp: &str,
+        repo_root: Option<&str>,
+        tags: &[String],
+        boost_agents: bool,
+    ) -> Result<(Vec<ScoredItem>, usize, usize, u64, u64, bool)> {
+        let query_owned = query.to_string();
+        let store = Arc::clone(&self.store);
+        let bm25_handle = std::thread::spawn(move || store.bm25_prefilter(&query_owned));
+
+        let embed_started = Instant::now();
+        let (query_emb, embed_cache_hit) = self.embed_query(query, Some(message_fp))?;
+        let embed_us = embed_started.elapsed().as_micros() as u64;
+
+        let bm25 = bm25_handle
+            .join()
+            .map_err(|_| anyhow::anyhow!("bm25 prefilter thread panicked"))??;
+
+        let score_started = Instant::now();
+        let snapshot = self.store.search_cache_snapshot()?;
+        let (scored, candidates, index_total) = self.store.score_items_with_bm25(
+            &snapshot,
+            &query_emb,
+            &bm25,
+            repo_root,
+            tags,
+            boost_agents,
+        )?;
+        let score_us = score_started.elapsed().as_micros() as u64;
+
+        Ok((
+            scored,
+            candidates,
+            index_total,
+            embed_us,
+            score_us,
+            embed_cache_hit,
+        ))
     }
 
     pub fn route_task(
@@ -127,19 +199,15 @@ impl Engine {
         }
 
         let query = format!("{} {}", user_message, ws.tags.join(" "));
-        let embed_started = Instant::now();
-        let (query_emb, embed_cache_hit) = self.embed_query(&query)?;
-        let embed_us = embed_started.elapsed().as_micros() as u64;
-
-        let score_started = Instant::now();
-        let (scored, candidates, index_total) = self.store.score_items(
-            &query,
-            &query_emb,
-            ws.repo_root.as_deref(),
-            &ws.tags,
-            agent_boost_keywords(user_message),
-        )?;
-        let score_us = score_started.elapsed().as_micros() as u64;
+        let message_fp = fingerprint_query(user_message);
+        let (scored, candidates, index_total, embed_us, score_us, embed_cache_hit) =
+            self.route_query_parallel(
+                &query,
+                &message_fp,
+                ws.repo_root.as_deref(),
+                &ws.tags,
+                agent_boost_keywords(user_message),
+            )?;
 
         let build_started = Instant::now();
         let mut resp = build_route_response(scored, &limits, &phase, max_tokens);
@@ -178,10 +246,10 @@ impl Engine {
     ) -> Result<GetContextResponse> {
         let ws = probe(cwd);
         let query = format!("{} {}", task_description, ws.tags.join(" "));
-        let (query_emb, _) = self.embed_query(&query)?;
-        let (scored, _, _) = self.store.score_items(
+        let message_fp = fingerprint_query(task_description);
+        let (scored, _, _, _, _, _) = self.route_query_parallel(
             &query,
-            &query_emb,
+            &message_fp,
             ws.repo_root.as_deref(),
             &ws.tags,
             false,

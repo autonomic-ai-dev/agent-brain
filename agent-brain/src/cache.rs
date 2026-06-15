@@ -62,6 +62,30 @@ pub fn fingerprint_open_files(files: &[String]) -> String {
     format!("{:x}", Sha256::digest(joined.as_bytes()))
 }
 
+pub struct QueryEmbeddingCache {
+    inner: Mutex<LruCache<String, Vec<f32>>>,
+}
+
+impl QueryEmbeddingCache {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            inner: Mutex::new(LruCache::new(
+                NonZeroUsize::new(capacity.max(1)).unwrap(),
+            )),
+        }
+    }
+
+    pub fn get(&self, key: &str) -> Option<Vec<f32>> {
+        self.inner.lock().ok()?.get(key).cloned()
+    }
+
+    pub fn put(&self, key: impl Into<String>, embedding: Vec<f32>) {
+        if let Ok(mut guard) = self.inner.lock() {
+            guard.put(key.into(), embedding);
+        }
+    }
+}
+
 pub fn fingerprint_query(message: &str) -> String {
     use sha2::{Digest, Sha256};
     let normalized: String = message

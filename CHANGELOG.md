@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.6] - 2026-06-15
+
+### Added
+
+- In-memory LRU query embedding cache (128 entries) atop SQLite persistence, with dual-key lookup via `fingerprint_query(user_message)`
+
+### Changed
+
+- Search index cache uses `Arc` snapshots — no full index clone per `route_task`
+- BM25 prefilter runs in parallel with query embedding (overlapped wall time)
+- Index and query embeddings stored as unit vectors; scoring uses dot product instead of per-candidate cosine
+
 ## [0.3.5] - 2026-06-15
 
 ### Added

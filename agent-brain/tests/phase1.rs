@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, OnceLock};
 
-use agent_brain::cache::{fingerprint_open_files, fingerprint_query, CacheKey, TurnCache};
+use agent_brain::cache::{fingerprint_open_files, fingerprint_query, CacheKey, QueryEmbeddingCache, TurnCache};
 use agent_brain::config::Config;
 use agent_brain::db::RouteLatencyStats;
 use agent_brain::db::store::{content_hash, looks_like_secret, BrainStore};
@@ -178,6 +178,7 @@ fn truncates_context_to_token_budget() {
         auto_capture_enabled: true,
         route_latency: Arc::new(RouteLatencyStats::new(32)),
         warmed: Arc::new(AtomicBool::new(false)),
+        query_emb_cache: Arc::new(QueryEmbeddingCache::new(32)),
     };
 
     let resp = engine
@@ -226,6 +227,7 @@ fn route_task_respects_max_tokens() {
         auto_capture_enabled: true,
         route_latency: Arc::new(RouteLatencyStats::new(32)),
         warmed: Arc::new(AtomicBool::new(false)),
+        query_emb_cache: Arc::new(QueryEmbeddingCache::new(32)),
     };
 
     let resp = engine
@@ -295,6 +297,7 @@ fn dedupes_duplicate_skill_names_in_route_task() {
         auto_capture_enabled: true,
         route_latency: Arc::new(RouteLatencyStats::new(32)),
         warmed: Arc::new(AtomicBool::new(false)),
+        query_emb_cache: Arc::new(QueryEmbeddingCache::new(32)),
     };
 
     let resp = engine

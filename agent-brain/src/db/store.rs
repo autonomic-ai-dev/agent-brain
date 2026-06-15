@@ -7,7 +7,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
 use crate::db::migrations;
-use crate::embed::cosine;
+use crate::embed::{dot_product, normalize_embedding};
 use crate::types::{ItemType, ScoredItem};
 
 const BM25_ITEMS_TOP: usize = 150;
@@ -16,12 +16,19 @@ const MIN_CANDIDATES: usize = 50;
 const FALLBACK_RECENT: usize = 80;
 const QUERY_EMBEDDING_CACHE_MAX: usize = 500;
 
-struct SearchIndexCache {
+pub(crate) struct SearchIndexCache {
     version: u64,
     indexed: Vec<CachedRow>,
     indexed_by_id: HashMap<String, usize>,
     memories: Vec<CachedRow>,
     memories_by_id: HashMap<String, usize>,
+}
+
+pub(crate) struct Bm25Prefilter {
+    item_ids: HashSet<String>,
+    memory_ids: HashSet<String>,
+    bm25_map: HashMap<String, f64>,
+    bm25_max: f64,
 }
 
 #[derive(Clone)]
@@ -37,18 +44,10 @@ struct CachedRow {
     updated_at: i64,
 }
 
-struct SearchSnapshot {
-    version: u64,
-    indexed: Vec<CachedRow>,
-    indexed_by_id: HashMap<String, usize>,
-    memories: Vec<CachedRow>,
-    memories_by_id: HashMap<String, usize>,
-}
-
 pub struct BrainStore {
     conn: Arc<Mutex<Connection>>,
     pub index_version: Arc<Mutex<u64>>,
-    search_cache: Mutex<Option<SearchIndexCache>>,
+    search_cache: Mutex<Option<Arc<SearchIndexCache>>>,
 }
 
 impl BrainStore {
@@ -80,18 +79,12 @@ impl BrainStore {
         }
     }
 
-    fn search_cache_snapshot(&self) -> Result<SearchSnapshot> {
+    pub(crate) fn search_cache_snapshot(&self) -> Result<Arc<SearchIndexCache>> {
         let version = self.get_index_version();
         if let Ok(guard) = self.search_cache.lock() {
             if let Some(cache) = guard.as_ref() {
                 if cache.version == version {
-                    return Ok(SearchSnapshot {
-                        version,
-                        indexed: cache.indexed.clone(),
-                        indexed_by_id: cache.indexed_by_id.clone(),
-                        memories: cache.memories.clone(),
-                        memories_by_id: cache.memories_by_id.clone(),
-                    });
+                    return Ok(Arc::clone(cache));
                 }
             }
         }
@@ -108,22 +101,17 @@ impl BrainStore {
             .enumerate()
             .map(|(i, row)| (row.id.clone(), i))
             .collect();
-        if let Ok(mut guard) = self.search_cache.lock() {
-            *guard = Some(SearchIndexCache {
-                version,
-                indexed: indexed.clone(),
-                indexed_by_id: indexed_by_id.clone(),
-                memories: memories.clone(),
-                memories_by_id: memories_by_id.clone(),
-            });
-        }
-        Ok(SearchSnapshot {
+        let cache = Arc::new(SearchIndexCache {
             version,
             indexed,
             indexed_by_id,
             memories,
             memories_by_id,
-        })
+        });
+        if let Ok(mut guard) = self.search_cache.lock() {
+            *guard = Some(Arc::clone(&cache));
+        }
+        Ok(cache)
     }
 
     pub fn prewarm_search_cache(&self) -> Result<()> {
@@ -147,7 +135,9 @@ impl BrainStore {
                         source_path: row.get(4)?,
                         scope: row.get(5)?,
                         scope_key: row.get(6)?,
-                        embedding: row.get::<_, Option<Vec<u8>>>(7)?.map(|b| bytes_to_f32(&b)),
+                        embedding: row
+                            .get::<_, Option<Vec<u8>>>(7)?
+                            .map(|b| normalize_embedding(bytes_to_f32(&b))),
                         updated_at: row.get(8)?,
                     })
                 })?
@@ -225,7 +215,9 @@ impl BrainStore {
         let id = Uuid::new_v4().to_string();
         let now = chrono::Utc::now().timestamp_millis();
         let blob = embedding.map(|e| {
-            e.iter()
+            let normalized = normalize_embedding(e.to_vec());
+            normalized
+                .iter()
                 .flat_map(|f| f.to_le_bytes())
                 .collect::<Vec<u8>>()
         });
@@ -353,13 +345,14 @@ impl BrainStore {
                     |r| r.get(0),
                 )
                 .optional()?;
-            Ok(blob.map(|b| bytes_to_f32(&b)))
+            Ok(blob.map(|b| normalize_embedding(bytes_to_f32(&b))))
         })
     }
 
     pub fn put_query_embedding(&self, query_hash: &str, embedding: &[f32]) -> Result<()> {
         let now = chrono::Utc::now().timestamp_millis();
-        let blob: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
+        let normalized = normalize_embedding(embedding.to_vec());
+        let blob: Vec<u8> = normalized.iter().flat_map(|f| f.to_le_bytes()).collect();
         self.with_conn(|conn| {
             conn.execute(
                 "INSERT INTO query_embeddings (query_hash, embedding, updated_at) VALUES (?1, ?2, ?3)
@@ -457,7 +450,10 @@ impl BrainStore {
             Ok(())
         })?;
 
-        let blob: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
+        let blob: Vec<u8> = normalize_embedding(embedding.to_vec())
+            .iter()
+            .flat_map(|f| f.to_le_bytes())
+            .collect();
         self.with_conn(|conn| {
             conn.execute(
                 r#"INSERT INTO indexed_items (id, item_type, topic, text, source_path, scope, scope_key, content_hash, embedding, updated_at)
@@ -533,38 +529,44 @@ impl BrainStore {
         Ok(export_path.display().to_string())
     }
 
-    pub fn score_items(
-        &self,
-        query: &str,
-        query_embedding: &[f32],
-        repo_root: Option<&str>,
-        tags: &[String],
-        boost_agents: bool,
-    ) -> Result<(Vec<ScoredItem>, usize, usize)> {
-        let snapshot = self.search_cache_snapshot()?;
-        let index_total = snapshot.indexed.len() + snapshot.memories.len();
-
+    pub(crate) fn bm25_prefilter(&self, query: &str) -> Result<Bm25Prefilter> {
         let item_bm25 = self.bm25_search_items(query, BM25_ITEMS_TOP).unwrap_or_default();
         let fact_bm25 = self.bm25_search_facts(query, BM25_FACTS_TOP).unwrap_or_default();
 
-        let mut bm25_map = std::collections::HashMap::new();
+        let mut bm25_map = HashMap::new();
         let mut bm25_max = 0.0f64;
         for (id, score) in item_bm25.iter().chain(fact_bm25.iter()) {
             bm25_max = bm25_max.max(score.abs());
             bm25_map.insert(id.clone(), *score);
         }
 
-        let mut candidate_ids: HashSet<String> =
-            item_bm25.into_iter().map(|(id, _)| id).collect();
-        let memory_ids: HashSet<String> = fact_bm25.into_iter().map(|(id, _)| id).collect();
+        Ok(Bm25Prefilter {
+            item_ids: item_bm25.into_iter().map(|(id, _)| id).collect(),
+            memory_ids: fact_bm25.into_iter().map(|(id, _)| id).collect(),
+            bm25_map,
+            bm25_max,
+        })
+    }
 
+    pub(crate) fn score_items_with_bm25(
+        &self,
+        snapshot: &SearchIndexCache,
+        query_embedding: &[f32],
+        bm25: &Bm25Prefilter,
+        repo_root: Option<&str>,
+        tags: &[String],
+        boost_agents: bool,
+    ) -> Result<(Vec<ScoredItem>, usize, usize)> {
+        let index_total = snapshot.indexed.len() + snapshot.memories.len();
+
+        let mut candidate_ids = bm25.item_ids.clone();
         let mut candidates: Vec<&CachedRow> = Vec::new();
-        for id in &candidate_ids {
+        for id in &bm25.item_ids {
             if let Some(&idx) = snapshot.indexed_by_id.get(id) {
                 candidates.push(&snapshot.indexed[idx]);
             }
         }
-        for id in &memory_ids {
+        for id in &bm25.memory_ids {
             if let Some(&idx) = snapshot.memories_by_id.get(id) {
                 candidates.push(&snapshot.memories[idx]);
             }
@@ -583,7 +585,6 @@ impl BrainStore {
             }
         }
 
-        // Include memories for convention matching; cap scan when many session imports exist.
         const MAX_EXTRA_MEMORIES: usize = 50;
         let mut included_ids: HashSet<String> = candidates.iter().map(|r| r.id.clone()).collect();
         let mut extra_memories: Vec<&CachedRow> = snapshot.memories.iter().collect();
@@ -599,14 +600,21 @@ impl BrainStore {
         for row in candidates {
             let item_type = ItemType::parse(&row.item_type).unwrap_or(ItemType::Rule);
             let cosine_sim = if let Some(emb) = &row.embedding {
-                cosine(query_embedding, emb)
+                dot_product(query_embedding, emb)
             } else {
                 0.0
             };
 
-            let bm25_norm = bm25_map
+            let bm25_norm = bm25
+                .bm25_map
                 .get(&row.id)
-                .map(|s| if bm25_max > 0.0 { s.abs() / bm25_max } else { 0.0 })
+                .map(|s| {
+                    if bm25.bm25_max > 0.0 {
+                        s.abs() / bm25.bm25_max
+                    } else {
+                        0.0
+                    }
+                })
                 .unwrap_or(0.0);
 
             let mut score = 0.7 * cosine_sim + 0.2 * bm25_norm;
@@ -647,6 +655,26 @@ impl BrainStore {
 
         scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
         Ok((scored, candidate_count, index_total))
+    }
+
+    pub fn score_items(
+        &self,
+        query: &str,
+        query_embedding: &[f32],
+        repo_root: Option<&str>,
+        tags: &[String],
+        boost_agents: bool,
+    ) -> Result<(Vec<ScoredItem>, usize, usize)> {
+        let snapshot = self.search_cache_snapshot()?;
+        let bm25 = self.bm25_prefilter(query)?;
+        self.score_items_with_bm25(
+            &snapshot,
+            query_embedding,
+            &bm25,
+            repo_root,
+            tags,
+            boost_agents,
+        )
     }
 }
 
