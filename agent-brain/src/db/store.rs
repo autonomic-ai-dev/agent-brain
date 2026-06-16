@@ -1123,7 +1123,13 @@ impl BrainStore {
 
         const MAX_EXTRA_MEMORIES: usize = 50;
         let mut included_ids: HashSet<String> = candidates.iter().map(|r| r.id.clone()).collect();
-        let mut extra_memories: Vec<&CachedRow> = snapshot.memories.iter().collect();
+        let mut extra_memories: Vec<&CachedRow> = snapshot
+            .memories
+            .iter()
+            .filter(|row| {
+                !crate::workspace::is_low_signal_memory(&row.topic, row.source.as_deref())
+            })
+            .collect();
         extra_memories.sort_by_key(|row| std::cmp::Reverse(row.updated_at));
         for row in extra_memories.into_iter().take(MAX_EXTRA_MEMORIES) {
             if included_ids.insert(row.id.clone()) {
@@ -1209,6 +1215,7 @@ impl BrainStore {
                 if source == Some("user") || confidence >= 0.95 {
                     score += 0.08;
                 }
+                score += memory_source_score_adjustment(source, &row.topic);
                 if let Some(ctx) = match_ctx {
                     let conditions = parse_apply_when(apply_when);
                     if matches_apply_when(&conditions, ctx) {
@@ -1293,6 +1300,13 @@ fn memory_fact_meta<'a>(snapshot: &'a SearchIndexCache, row: &'a CachedRow) -> O
     })
 }
 
+fn memory_source_score_adjustment(source: Option<&str>, topic: &str) -> f64 {
+    if crate::workspace::is_low_signal_memory(topic, source) {
+        return -0.30;
+    }
+    0.0
+}
+
 fn scoped_fallback_rows<'a>(
     snapshot: &'a SearchIndexCache,
     repo_root: Option<&str>,
@@ -1353,6 +1367,13 @@ mod tests {
         };
         assert!(strong.fast_path_eligible());
     }
+
+    #[test]
+    fn low_signal_memory_penalized() {
+        assert!(memory_source_score_adjustment(Some("session_digest"), "session-digest-x") < 0.0);
+        assert!(memory_source_score_adjustment(None, "legacy-cursor-de") < 0.0);
+        assert_eq!(memory_source_score_adjustment(Some("user"), "routing"), 0.0);
+    }
 }
 
 pub struct SearchRow {
@@ -1410,11 +1431,11 @@ fn phase_match_boost(phase: &str, topic: &str, text: &str) -> f64 {
     if hay.contains(phase) {
         return 0.12;
     }
-    let keywords = match phase {
-        "debugging" => ["debug", "fix", "error", "bug"],
-        "planning" => ["plan", "design", "architect", "roadmap"],
-        "implementing" => ["implement", "build", "add", "create"],
-        "reviewing" => ["review", "pr", "audit", "lint"],
+    let keywords: &[&str] = match phase {
+        "debugging" => &["debug", "fix", "error", "bug", "fail", "crash", "issue"],
+        "planning" => &["plan", "design", "architect", "roadmap", "spec", "version"],
+        "implementing" => &["implement", "build", "add", "create", "release", "sync", "mcp"],
+        "reviewing" => &["review", "pr", "audit", "lint", "checklist"],
         _ => return 0.0,
     };
     if keywords.iter().any(|k| hay.contains(k)) {

@@ -4,11 +4,21 @@
 from __future__ import annotations
 
 import json
+import time
 import unittest
 
 from route_gate import (
+    STALE_ROUTE_SECS,
+    enter_grace,
+    handle_before_mcp_execution,
+    handle_before_submit_prompt,
+    handle_post_tool_use,
+    handle_pre_tool_use,
+    in_grace_period,
     is_route_task,
+    load_state,
     route_response_useful,
+    stale_needs_route,
 )
 
 
@@ -71,6 +81,53 @@ class RouteGateTests(unittest.TestCase):
         }
         event = {"result_json": json.dumps(wrapped)}
         self.assertTrue(route_response_useful(event))
+
+    def test_failed_route_enters_grace(self) -> None:
+        from route_gate import STATE_PATH
+
+        STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        STATE_PATH.write_text('{"needs_route": true}', encoding="utf-8")
+        handle_post_tool_use(
+            {
+                "tool_name": "mcp_agent-brain_route_task",
+                "success": False,
+                "errorMessage": "Connection closed",
+            }
+        )
+        state = load_state()
+        self.assertFalse(state.get("needs_route"))
+        self.assertTrue(in_grace_period(state))
+
+    def test_grace_allows_other_tools(self) -> None:
+        from route_gate import STATE_PATH
+
+        STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        enter_grace({"needs_route": True, "needs_route_since": time.time()})
+        out = handle_pre_tool_use({"tool_name": "Shell"})
+        self.assertEqual(out.get("permission"), "allow")
+
+    def test_stale_gate_allows_tools(self) -> None:
+        from route_gate import STATE_PATH
+
+        STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        state = {
+            "needs_route": True,
+            "needs_route_since": time.time() - STALE_ROUTE_SECS - 1,
+        }
+        STATE_PATH.write_text(json.dumps(state), encoding="utf-8")
+        self.assertTrue(stale_needs_route(load_state()))
+        out = handle_before_mcp_execution({"tool_name": "Shell"})
+        self.assertEqual(out.get("permission"), "allow")
+
+    def test_new_prompt_resets_grace(self) -> None:
+        from route_gate import STATE_PATH
+
+        STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        enter_grace()
+        handle_before_submit_prompt({})
+        state = load_state()
+        self.assertTrue(state.get("needs_route"))
+        self.assertEqual(state.get("route_grace_until"), 0)
 
 
 if __name__ == "__main__":

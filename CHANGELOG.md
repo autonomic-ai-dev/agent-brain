@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-06-16
+
+### Added
+
+- **Route gate grace mode** — after a failed `route_task` (MCP disconnect), hooks allow other tools for 120s (`AGENT_BRAIN_ROUTE_GRACE_SECS`); stale gate auto-opens after 45s (`AGENT_BRAIN_ROUTE_STALE_SECS`).
+- **Phase inference** — broader keyword sets for reviewing/planning/implementing when host omits `phase`.
+- **Memory signal ranking** — penalize `legacy-*` and `session-digest-*` facts; exclude low-signal memories from extra candidate pool; cap to one low-signal memory in route output.
+- **Briefing visibility** — one-line `briefing` now includes top skill/agent names.
+
+### Changed
+
+- Default MCP `RUST_LOG` from `agent_brain=warn` to `agent_brain=info` (Cursor no longer treats INFO as errors).
+
 ## [0.6.0] - 2026-06-15
 
 ### Added

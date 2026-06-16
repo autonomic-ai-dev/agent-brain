@@ -48,19 +48,83 @@ pub fn probe(cwd: Option<&Path>) -> WorkspaceTags {
 
 pub fn infer_phase(message: &str) -> String {
     let lower = message.to_lowercase();
-    if lower.contains("review") || lower.contains("pr ") {
+    if [
+        "review",
+        "audit",
+        "pr ",
+        "pull request",
+        "lint",
+        "checklist",
+    ]
+    .iter()
+    .any(|k| lower.contains(k))
+    {
         return "reviewing".into();
     }
-    if lower.contains("fix") || lower.contains("debug") || lower.contains("error") {
+    if [
+        "fix",
+        "debug",
+        "error",
+        "bug",
+        "fail",
+        "broken",
+        "crash",
+        "issue",
+    ]
+    .iter()
+    .any(|k| lower.contains(k))
+    {
         return "debugging".into();
     }
-    if lower.contains("plan") || lower.contains("design") || lower.contains("architect") {
+    if [
+        "plan",
+        "design",
+        "architect",
+        "roadmap",
+        "spec",
+        "blueprint",
+        "version",
+    ]
+    .iter()
+    .any(|k| lower.contains(k))
+    {
         return "planning".into();
     }
-    if lower.contains("implement") || lower.contains("add ") || lower.contains("create ") {
+    if [
+        "implement",
+        "add ",
+        "create ",
+        "build ",
+        "write ",
+        "develop",
+        "release",
+        "deploy",
+        "sync",
+        "commit",
+        "push",
+        "mcp",
+        "hook",
+        "install",
+        "test",
+    ]
+    .iter()
+    .any(|k| lower.contains(k))
+    {
         return "implementing".into();
     }
     "unknown".into()
+}
+
+pub fn is_low_signal_memory(topic: &str, source: Option<&str>) -> bool {
+    let topic_lower = topic.to_lowercase();
+    topic_lower.starts_with("legacy-")
+        || topic_lower.starts_with("legacy_")
+        || topic_lower.starts_with("session-digest-")
+        || topic_lower.contains("session_digest")
+        || matches!(
+            source,
+            Some("session_digest") | Some("legacy") | Some("legacy_cursor")
+        )
 }
 
 pub fn agent_boost_keywords(message: &str) -> bool {
@@ -68,4 +132,27 @@ pub fn agent_boost_keywords(message: &str) -> bool {
     ["review", "debug", "build", "plan", "test", "security"]
         .iter()
         .any(|k| lower.contains(k))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn infer_phase_covers_operator_workflows() {
+        assert_eq!(infer_phase("audit MCP integration"), "reviewing");
+        assert_eq!(infer_phase("fix the route gate hook"), "debugging");
+        assert_eq!(infer_phase("update the roadmap and VERSIONING"), "planning");
+        assert_eq!(infer_phase("implement sync git push"), "implementing");
+    }
+
+    #[test]
+    fn low_signal_memory_topics() {
+        assert!(is_low_signal_memory("legacy-cursor-de", None));
+        assert!(is_low_signal_memory(
+            "session-digest-abc",
+            Some("session_digest")
+        ));
+        assert!(!is_low_signal_memory("routing", Some("user")));
+    }
 }

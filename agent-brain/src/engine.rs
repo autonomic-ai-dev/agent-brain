@@ -20,7 +20,7 @@ use crate::types::{
 };
 use crate::mcp_activity::McpActivity;
 use crate::route_briefing;
-use crate::workspace::{agent_boost_keywords, infer_phase, probe};
+use crate::workspace::{agent_boost_keywords, infer_phase, is_low_signal_memory, probe};
 
 type RouteQueryParallelResult = (Vec<ScoredItem>, usize, usize, u64, u64, bool, bool);
 
@@ -530,6 +530,7 @@ fn build_route_response(
 struct RouteBuildState {
     seen_agents: HashSet<String>,
     seen_skills: HashSet<String>,
+    low_signal_memories: usize,
 }
 
 fn try_add_route_item(
@@ -585,6 +586,9 @@ fn try_add_route_item(
             (PendingRec::Rule(rec), t)
         }
         ItemType::Memory if resp.relevant_memory.len() < limits.memory => {
+            if is_low_signal_memory(&item.topic, None) && state.low_signal_memories >= 1 {
+                return;
+            }
             let rec = MemoryRec {
                 topic: item.topic.clone(),
                 text: item.text.chars().take(300).collect(),
@@ -606,6 +610,9 @@ fn try_add_route_item(
         PendingRec::Skill(rec) => resp.recommended_skills.push(rec),
         PendingRec::Rule(rec) => resp.applicable_rules.push(rec),
         PendingRec::Memory(rec) => {
+            if is_low_signal_memory(&item.topic, None) {
+                state.low_signal_memories += 1;
+            }
             let is_negative = item.polarity.as_deref() == Some("negative")
                 || item.text.to_lowercase().contains("do not")
                 || item.text.to_lowercase().contains("never ");

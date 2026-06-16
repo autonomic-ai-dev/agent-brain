@@ -86,17 +86,28 @@ fn section_list(out: &mut String, title: &str, items: impl Iterator<Item = Strin
 }
 
 pub fn format_summary_line(resp: &RouteTaskResponse) -> String {
+    let skill_names = join_top_names(resp.recommended_skills.iter().map(|s| s.name.as_str()), 3);
+    let agent_names = join_top_names(resp.recommended_agents.iter().map(|a| a.name.as_str()), 2);
     format!(
-        "{} agents, {} skills, {} rules, {} memory · phase={} · {}ms · log={} · details: {}",
-        resp.recommended_agents.len(),
+        "phase={} · skills: {} [{skill_names}] · agents: {} [{agent_names}] · {} rules · {} memory · {}ms · log={} · {}",
+        resp.recommended_phase,
         resp.recommended_skills.len(),
+        resp.recommended_agents.len(),
         resp.applicable_rules.len(),
         resp.relevant_memory.len(),
-        resp.recommended_phase,
         resp.latency_ms,
         resp.log_id,
         briefing_path_display()
     )
+}
+
+fn join_top_names<'a>(names: impl Iterator<Item = &'a str>, max: usize) -> String {
+    let picked: Vec<&str> = names.take(max).collect();
+    if picked.is_empty() {
+        "—".into()
+    } else {
+        picked.join(", ")
+    }
 }
 
 pub fn format_stderr_line(resp: &RouteTaskResponse) -> String {
@@ -157,5 +168,10 @@ mod tests {
         assert!(text.contains("rust-reviewer"));
         assert!(text.contains("rust-testing"));
         assert!(text.contains("debugging"));
+
+        let summary = format_summary_line(&resp);
+        assert!(summary.contains("rust-reviewer"));
+        assert!(summary.contains("rust-testing"));
+        assert!(summary.contains("phase=debugging"));
     }
 }

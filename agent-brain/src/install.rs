@@ -227,7 +227,7 @@ fn mcp_server_entry(exe: &Path) -> Value {
         "command": exe.display().to_string(),
         "args": ["serve"],
         "env": {
-            "RUST_LOG": "agent_brain=warn",
+            "RUST_LOG": "agent_brain=info",
             "AGENT_BRAIN_BOOTSTRAP_BG": "1",
             "AGENT_BRAIN_BOOTSTRAP_DELAY_SEC": "2",
             "AGENT_BRAIN_BOOTSTRAP_INTERVAL_SEC": "3600",

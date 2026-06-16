@@ -126,7 +126,7 @@ CLI is only for one-time setup (`install`, optional `add`) or maintenance (`pack
 
 ## Other agents
 
-The MCP server is host-agnostic. **Cursor** has a one-command installer. **Claude Code / Codex / Claude Desktop** work with the same binary — add it to their MCP config manually; skills under `~/.claude/` and `~/.codex/` are already indexed. Host-specific installers come later.
+The MCP server is host-agnostic. **Cursor** has a one-command installer. **Claude Code / Codex / Claude Desktop / VS Code** work with the same binary — add MCP config manually today; host-specific installers ship in **v0.9** (see [`docs/superpowers/VERSIONING.md`](docs/superpowers/VERSIONING.md)). Skills under `~/.claude/` and `~/.codex/` are already indexed.
 
 ## Install options
 

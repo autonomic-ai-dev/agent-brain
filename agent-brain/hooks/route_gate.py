@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 STATE_PATH = (
@@ -20,6 +21,9 @@ ROUTE_TOOL_NAMES = {
     "mcp:route_task",
     "mcp_agent-brain_route_task",
 }
+
+GRACE_SECS = float(os.environ.get("AGENT_BRAIN_ROUTE_GRACE_SECS", "120"))
+STALE_ROUTE_SECS = float(os.environ.get("AGENT_BRAIN_ROUTE_STALE_SECS", "45"))
 
 
 def disabled() -> bool:
@@ -170,6 +174,67 @@ def deny_payload() -> dict:
     }
 
 
+def route_attempt_failed(event: dict) -> bool:
+    if not is_agent_brain_route_event(event):
+        return False
+    if event.get("success") is False:
+        return True
+    if event.get("error"):
+        return True
+    for key in ("errorMessage", "message"):
+        err = str(event.get(key) or "").lower()
+        if any(
+            token in err
+            for token in ("connection closed", "not connected", "mcp error")
+        ):
+            return True
+    return False
+
+
+def enter_grace(state: dict | None = None, seconds: float | None = None) -> None:
+    state = state if state is not None else load_state()
+    secs = seconds if seconds is not None else GRACE_SECS
+    state["route_grace_until"] = time.time() + secs
+    state["needs_route"] = False
+    state.pop("needs_route_since", None)
+    save_state(state)
+
+
+def in_grace_period(state: dict) -> bool:
+    until = state.get("route_grace_until")
+    if not isinstance(until, (int, float)) or until <= 0:
+        return False
+    return time.time() < until
+
+
+def stale_needs_route(state: dict) -> bool:
+    if not state.get("needs_route"):
+        return False
+    since = state.get("needs_route_since")
+    if not isinstance(since, (int, float)) or since <= 0:
+        return False
+    return (time.time() - since) >= STALE_ROUTE_SECS
+
+
+def should_allow_without_route(state: dict) -> bool:
+    return in_grace_period(state) or stale_needs_route(state)
+
+
+def grace_allow_payload(state: dict) -> dict:
+    reason = (
+        "grace period after route_task failure"
+        if in_grace_period(state)
+        else "stale gate timeout"
+    )
+    return {
+        "permission": "allow",
+        "agent_message": (
+            f"agent-brain route gate: proceeding without route_task ({reason}). "
+            "Call route_task when MCP is available."
+        ),
+    }
+
+
 def try_clear_route_gate(event: dict) -> None:
     if not is_agent_brain_route_event(event):
         return
@@ -179,25 +244,42 @@ def try_clear_route_gate(event: dict) -> None:
         return
     state = load_state()
     state["needs_route"] = False
+    state.pop("needs_route_since", None)
+    state["route_grace_until"] = 0
     if event.get("generation_id"):
         state["generation_id"] = event["generation_id"]
     save_state(state)
 
 
+def handle_route_outcome(event: dict) -> None:
+    if not is_agent_brain_route_event(event):
+        return
+    if route_attempt_failed(event):
+        enter_grace()
+        return
+    try_clear_route_gate(event)
+
+
 def handle_before_submit_prompt(_event: dict) -> dict:
-    save_state({"needs_route": True})
+    save_state(
+        {
+            "needs_route": True,
+            "needs_route_since": time.time(),
+            "route_grace_until": 0,
+        }
+    )
     return {"continue": True}
 
 
 def handle_after_mcp_execution(event: dict) -> dict:
-    try_clear_route_gate(event)
+    handle_route_outcome(event)
     return {}
 
 
 def handle_post_tool_use(event: dict) -> dict:
     # Cursor Agent MCP tools (mcp_agent-brain_*) clear the gate via postToolUse,
     # not afterMCPExecution.
-    try_clear_route_gate(event)
+    handle_route_outcome(event)
     return {}
 
 
@@ -206,6 +288,8 @@ def handle_pre_tool_use(event: dict) -> dict:
         return {"permission": "allow"}
     state = load_state()
     if state.get("needs_route"):
+        if should_allow_without_route(state):
+            return grace_allow_payload(state)
         return deny_payload()
     return {"permission": "allow"}
 
@@ -215,6 +299,8 @@ def handle_before_mcp_execution(event: dict) -> dict:
         return {"permission": "allow"}
     state = load_state()
     if state.get("needs_route"):
+        if should_allow_without_route(state):
+            return grace_allow_payload(state)
         return deny_payload()
     return {"permission": "allow"}
 
