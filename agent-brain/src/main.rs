@@ -566,6 +566,7 @@ async fn main() -> Result<()> {
         "memory" => {
             let config = Config::load()?;
             config.ensure_dirs()?;
+            let brain_settings = settings::AgentBrainSettings::load(&config.home);
             let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
             let sub = args.get(2).map(String::as_str).unwrap_or("help");
             match sub {
@@ -574,10 +575,10 @@ async fn main() -> Result<()> {
                     let force = args.iter().any(|a| a == "--force");
                     let stale_days = flag_value(&args, "--stale-days")
                         .and_then(|s| s.parse::<u32>().ok())
-                        .unwrap_or(90);
+                        .unwrap_or(brain_settings.memory_gc.stale_days);
                     let very_stale_days = flag_value(&args, "--very-stale-days")
                         .and_then(|s| s.parse::<u32>().ok())
-                        .unwrap_or(180);
+                        .unwrap_or(brain_settings.memory_gc.very_stale_days);
                     let report = agent_brain::memory_gc::run_memory_gc_with_thresholds(
                         &store,
                         dry_run,

@@ -287,6 +287,10 @@ sync:
     encryption_key_env: AGENT_BRAIN_SYNC_KEY
     region: auto
     auto_push: false
+
+memory_gc:
+  stale_days: 90
+  very_stale_days: 180
 ```
 
 MCP `serve` checks updates in the background; after a binary update it restarts when idle so Cursor reconnects.

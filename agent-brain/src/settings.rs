@@ -14,6 +14,33 @@ pub struct AgentBrainSettings {
     pub sync: SyncSettings,
     #[serde(default)]
     pub upstream_mcp: UpstreamMcpSettings,
+    #[serde(default)]
+    pub memory_gc: MemoryGcSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MemoryGcSettings {
+    #[serde(default = "default_memory_gc_stale_days")]
+    pub stale_days: u32,
+    #[serde(default = "default_memory_gc_very_stale_days")]
+    pub very_stale_days: u32,
+}
+
+fn default_memory_gc_stale_days() -> u32 {
+    90
+}
+
+fn default_memory_gc_very_stale_days() -> u32 {
+    180
+}
+
+impl Default for MemoryGcSettings {
+    fn default() -> Self {
+        Self {
+            stale_days: default_memory_gc_stale_days(),
+            very_stale_days: default_memory_gc_very_stale_days(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -298,6 +325,7 @@ impl AgentBrainSettings {
             },
             sync: SyncSettings::default(),
             upstream_mcp: UpstreamMcpSettings::default(),
+            memory_gc: MemoryGcSettings::default(),
         }
     }
 
@@ -437,5 +465,22 @@ sync:
         );
         assert_eq!(settings.sync.git.branch, "main");
         assert!(!settings.sync.git.auto_push);
+    }
+
+    #[test]
+    fn parses_memory_gc_config() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("config.yaml"),
+            r#"
+memory_gc:
+  stale_days: 45
+  very_stale_days: 120
+"#,
+        )
+        .unwrap();
+        let settings = AgentBrainSettings::from_file(dir.path()).unwrap();
+        assert_eq!(settings.memory_gc.stale_days, 45);
+        assert_eq!(settings.memory_gc.very_stale_days, 120);
     }
 }
