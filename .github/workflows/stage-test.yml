@@ -32,6 +32,9 @@ jobs:
       - name: Run tests
         run: cargo test --release -p agent-brain
 
+      - name: Run eval gate
+        run: cargo run --release -p agent-brain -- eval --ci
+
       - name: Snapshot build
         run: cargo build --release -p agent-brain
 
