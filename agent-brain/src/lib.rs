@@ -28,5 +28,8 @@ pub mod retrieval;
 pub mod memory_gc;
 pub mod operator_digest;
 pub mod eval;
+pub mod fixture;
+pub mod bench;
+pub mod proofs;
 
 pub use engine::Engine;

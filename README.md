@@ -427,14 +427,18 @@ user message
 
 ## Lower latency
 
-`route_task` target: **under 50ms** on warm cache.
+**Design target:** under 50ms warm `route_task` on real ONNX with a typical index (not CI-gated).
+
+**Proven in CI** (isolated 500-skill fixture, deterministic embedder): turn-cache p95 ≤ 30ms, warm-route p95 ≤ 100ms — see [`docs/benchmarks/latest.json`](docs/benchmarks/latest.json).
 
 | Mechanism | Effect |
 |-----------|--------|
-| Turn cache (60s LRU) | Repeat queries ~0ms |
-| BM25 fast path | Skip embed when FTS hits are strong |
+| Turn cache (60s LRU) | Repeat queries skip embed + score |
+| Always embed on route | Semantic signal (BM25-only fast path removed) |
 | Bootstrap prewarm | Warm index + embedder before first route |
 | Query embedding cache | Persisted in SQLite across restarts |
+
+Regenerate proofs: `cargo run --release -p agent-brain -- proofs --ci --write docs/benchmarks/latest.json`
 
 Tune via MCP `env` in `mcp.json` — see [docs/USAGE.md](docs/USAGE.md#environment-variables).
 

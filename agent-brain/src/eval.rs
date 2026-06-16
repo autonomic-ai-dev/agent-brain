@@ -127,9 +127,17 @@ const SKILL_DECOYS: &[(&str, &str)] = &[
 ];
 
 pub fn run_ci_eval(engine: &Engine) -> Result<EvalReport> {
-    seed_golden_facts(&engine.store)?;
-    seed_golden_skills(&engine.store)?;
+    seed_eval_fixture(&engine.store)?;
+    run_ci_eval_seeded(engine)
+}
 
+/// Isolated temp DB with deterministic embeddings — used by CI and published proofs.
+pub fn run_ci_eval_isolated() -> Result<EvalReport> {
+    let (engine, _dir) = crate::fixture::new_isolated_engine()?;
+    run_ci_eval(&engine)
+}
+
+pub fn run_ci_eval_seeded(engine: &Engine) -> Result<EvalReport> {
     let memory = run_memory_suite(engine)?;
     let skills = run_skill_suite(engine)?;
 
@@ -295,6 +303,25 @@ fn seed_golden_skills(store: &Arc<BrainStore>) -> Result<()> {
         upsert_skill(store, topic, text)?;
     }
     store.bump_index_version()?;
+    Ok(())
+}
+
+/// Golden memory + skill decoys for eval and bench proofs.
+pub fn seed_eval_fixture(store: &Arc<BrainStore>) -> Result<()> {
+    seed_golden_facts(store)?;
+    seed_golden_skills(store)?;
+    Ok(())
+}
+
+/// Filler skills to reach a target index size for latency benchmarks.
+pub fn seed_filler_skills(store: &Arc<BrainStore>, count: usize) -> Result<()> {
+    for i in 0..count {
+        let topic = format!("bench-filler-{i:04}");
+        let text = format!(
+            "Generic documentation and utility patterns for module {i}; unrelated to pull requests, testing, or deployment"
+        );
+        upsert_skill(store, &topic, &text)?;
+    }
     Ok(())
 }
 

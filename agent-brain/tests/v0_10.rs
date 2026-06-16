@@ -271,3 +271,11 @@ fn eval_ci_meets_recall_gate() {
     assert!(report.recall_at_3 >= RECALL_AT_3_THRESHOLD, "{report:?}");
     assert_ci_gate(&report).unwrap();
 }
+
+#[test]
+fn proofs_ci_passes_isolated_gates() {
+    let report = agent_brain::proofs::run_ci_proofs().unwrap();
+    agent_brain::proofs::assert_ci_proofs(&report).unwrap();
+    assert!(report.eval.skills.recall_at_3 >= RECALL_AT_3_THRESHOLD);
+    assert!(report.latency.passed);
+}

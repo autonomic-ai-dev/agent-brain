@@ -1,0 +1,49 @@
+{
+  "generated_at": "2026-06-16T16:24:07.648327+00:00",
+  "environment": "isolated-fixture",
+  "embedder": "deterministic",
+  "fixture_skills": 500,
+  "eval": {
+    "memory": {
+      "suite": "memory",
+      "cases": 4,
+      "passed": 4,
+      "recall_at_3": 1.0,
+      "failures": []
+    },
+    "skills": {
+      "suite": "skills",
+      "cases": 6,
+      "passed": 6,
+      "recall_at_3": 1.0,
+      "failures": []
+    },
+    "cases": 10,
+    "passed": 10,
+    "recall_at_3": 1.0,
+    "threshold": 0.85,
+    "failures": []
+  },
+  "latency": {
+    "fixture_skills": 500,
+    "warmup_routes": 5,
+    "turn_cache_hit": {
+      "samples": 25,
+      "min_ms": 0,
+      "p50_ms": 0,
+      "p95_ms": 0,
+      "max_ms": 3
+    },
+    "warm_route": {
+      "samples": 25,
+      "min_ms": 4,
+      "p50_ms": 4,
+      "p95_ms": 5,
+      "max_ms": 5
+    },
+    "turn_cache_hit_p95_threshold_ms": 30,
+    "warm_route_p95_threshold_ms": 100,
+    "passed": true
+  },
+  "passed": true
+}

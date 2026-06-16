@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use agent_brain::{
@@ -610,17 +611,51 @@ async fn main() -> Result<()> {
             println!("{}", agent_brain::operator_digest::format_weekly_digest(&digest));
         }
         "eval" => {
+            let live = args.iter().any(|a| a == "--live");
             if !args.iter().any(|a| a == "--ci") {
-                eprintln!("Usage: agent-brain eval --ci");
+                eprintln!("Usage: agent-brain eval --ci [--live]");
+                eprintln!("  --ci     Run Recall@3 gate (default: isolated fixture DB)");
+                eprintln!("  --live   Use ~/.agent_brain brain.db (not for CI)");
                 std::process::exit(1);
             }
-            let mut config = Config::load()?;
-            config.bootstrap_background = false;
-            config.session_ingest_background = false;
-            let engine = Arc::new(Engine::new(config)?);
-            let report = agent_brain::eval::run_ci_eval(&engine)?;
+            let report = if live {
+                let mut config = Config::load()?;
+                config.bootstrap_background = false;
+                config.session_ingest_background = false;
+                let engine = Arc::new(Engine::new(config)?);
+                agent_brain::eval::run_ci_eval(&engine)?
+            } else {
+                agent_brain::eval::run_ci_eval_isolated()?
+            };
             println!("{}", serde_json::to_string_pretty(&report)?);
             if let Err(err) = agent_brain::eval::assert_ci_gate(&report) {
+                eprintln!("{err}");
+                std::process::exit(1);
+            }
+        }
+        "bench" => {
+            if !args.iter().any(|a| a == "--ci") {
+                eprintln!("Usage: agent-brain bench --ci");
+                std::process::exit(1);
+            }
+            let report = agent_brain::bench::run_ci_bench()?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            if let Err(err) = agent_brain::bench::assert_bench_gate(&report) {
+                eprintln!("{err}");
+                std::process::exit(1);
+            }
+        }
+        "proofs" => {
+            if !args.iter().any(|a| a == "--ci") {
+                eprintln!("Usage: agent-brain proofs --ci [--write PATH]");
+                std::process::exit(1);
+            }
+            let report = agent_brain::proofs::run_ci_proofs()?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            if let Some(path) = flag_value(&args, "--write") {
+                agent_brain::proofs::write_proof_report(PathBuf::from(path).as_path(), &report)?;
+            }
+            if let Err(err) = agent_brain::proofs::assert_ci_proofs(&report) {
                 eprintln!("{err}");
                 std::process::exit(1);
             }
@@ -704,7 +739,9 @@ Usage:
   agent-brain promote list|approve|reject     Skill promotion workflow (human approval required)
   agent-brain memory gc [--apply] [--force] [--stale-days N] [--very-stale-days N]  Archive stale facts (dry-run by default)
   agent-brain digest --weekly                 Operator digest from retrieval_log
-  agent-brain eval --ci                       Recall@3 CI gate (threshold 0.85)
+  agent-brain eval --ci [--live]                 Recall@3 gate (isolated fixture; --live uses brain.db)
+  agent-brain bench --ci                         Latency gate on 500-skill fixture (isolated)
+  agent-brain proofs --ci [--write PATH]         Eval + latency gates; optional JSON artifact
   agent-brain --version                       Same as version (prints version only)
 
 Examples:

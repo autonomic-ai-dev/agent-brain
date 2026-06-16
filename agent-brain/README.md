@@ -144,7 +144,7 @@ Logs go to **stderr** only — stdout is reserved for MCP JSON-RPC.
 
 - Indexes agents, skills, rules, and memory from local paths and packages
 - MCP tools: `route_task`, `get_context`, `store_memory`, `list_memory`, `delete_memory`, `export_memory`
-- Turn cache (LRU, 60s TTL) for sub-50ms repeat queries
+- Turn cache (LRU, 60s TTL) for fast repeat queries; see `docs/benchmarks/latest.json` for CI latency proofs
 - Write queue with SQLite WAL for durable memory writes
 
 ## Cursor MCP config

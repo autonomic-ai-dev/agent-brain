@@ -9,10 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Architecture documentation series** — `docs/architecture/` (12 articles): design goals, retrieval, memory, hooks, sync, operator loop, routing accuracy USP, decisions log.
+- **Proof gates** — `agent-brain proofs --ci` runs isolated Recall@3 + latency benchmarks; writes `docs/benchmarks/latest.json`.
+- **Isolated eval** — `eval --ci` uses fixture DB by default; `--live` checks production `brain.db`.
+- **Latency CI thresholds** — turn-cache p95 ≤ 30ms, warm-route p95 ≤ 100ms on 500-skill fixture.
+- **Criterion bench** — `cargo bench -p agent-brain --bench route_task` for local micro-benchmarks.
+- **Architecture doc** — `docs/architecture/13-proofs-and-benchmarks.md`.
+- **Architecture documentation series** — `docs/architecture/` (13 articles): design goals, retrieval, memory, hooks, sync, operator loop, routing accuracy USP, proofs, decisions log.
 - **Hybrid retrieval** — `route_task` always uses embeddings plus BM25 and lexical term overlap (no BM25-only fast path).
 - **Skill indexing** — YAML `description`, `name`, and "When to activate" sections are indexed for search.
-- **Skill routing eval** — `eval --ci` gates both memory and skills at Recall@3 ≥ 0.85 (6 skill golden cases with decoys).
+- **Skill routing eval** — `proofs --ci` gates both memory and skills at Recall@3 ≥ 0.85 on isolated fixture.
 - **Architecture docs** — expanded PE/senior-dev sections (invariants, failure modes, evaluation questions) across `docs/architecture/`.
 - **Doctor** — reports OpenCode and Claude Code global MCP status; `doctor --fix` runs `install --all`.
 

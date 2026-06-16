@@ -41,12 +41,14 @@ Read in order for a full picture, or jump to a topic:
 | 10 | [Concurrency and performance](10-concurrency-and-performance.md) | Write queue, background bootstrap, latency |
 | 11 | [Decisions log](11-decisions-log.md) | Quick-reference table of major choices |
 | 12 | [Routing accuracy (USP)](12-routing-accuracy.md) | Recall@3, golden suites, hybrid retrieval, feedback loop |
+| 13 | [Proofs and benchmarks](13-proofs-and-benchmarks.md) | CI gates, `latest.json`, claim types (proven vs aspirational) |
 
 ## Relationship to other docs
 
 | Document | Role |
 |----------|------|
 | [README.md](../../README.md) | Product overview, setup, feature matrix |
+| [docs/benchmarks/](../benchmarks/README.md) | Published CI proof artifacts (`latest.json`) |
 | [USAGE.md](../USAGE.md) | Operator guide, day-to-day commands |
 | [host-integration.md](../host-integration.md) | Per-editor MCP config paths |
 | [agent-brain/docs/concurrency.md](../../agent-brain/docs/concurrency.md) | Write-queue implementation detail |

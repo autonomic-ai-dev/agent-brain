@@ -91,6 +91,36 @@ impl Config {
         })
     }
 
+    /// Ephemeral home for eval/bench proofs — no production `~/.agent_brain` reads or writes.
+    pub fn isolated(home: PathBuf) -> Self {
+        let data_dir = home.join("data");
+        Self {
+            home: home.clone(),
+            data_dir: data_dir.clone(),
+            db_path: data_dir.join("brain.db"),
+            vectors_path: data_dir.join("vectors.bin"),
+            turn_ttl_secs: 60,
+            auto_capture_enabled: false,
+            session_ingest_enabled: false,
+            session_digest_enabled: false,
+            session_ingest_legacy: false,
+            session_max_age_days: 90,
+            prewarm_on_bootstrap: false,
+            bootstrap_background: false,
+            embedding_cache_enabled: true,
+            bm25_fast_path_enabled: false,
+            session_ingest_background: false,
+            turn_cache_ignore_open_files: true,
+            embedding_model: "mini".into(),
+            bootstrap_startup_delay_secs: 0,
+            bootstrap_interval_secs: 0,
+            auto_update_startup_delay_secs: 0,
+            session_ingest_delay_secs: 0,
+            route_briefing_enabled: false,
+            route_briefing_stderr: false,
+        }
+    }
+
     pub fn ensure_dirs(&self) -> Result<()> {
         std::fs::create_dir_all(&self.home).context("create home dir")?;
         std::fs::create_dir_all(self.home.join("rules")).ok();
