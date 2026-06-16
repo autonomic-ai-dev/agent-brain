@@ -229,6 +229,27 @@ The **agent** calls this at task end (you do not run it manually in normal use).
 
 Rules: max 50 words, no secrets. Conflicting facts are superseded with a conflict log (`agent-brain sync status`).
 
+### v0.10 operator loop (promote, gc, digest, eval)
+
+```bash
+# 1) Stage skill drafts from memory facts (human approval required)
+agent-brain promote list
+agent-brain promote approve <staging-id>
+agent-brain promote reject <staging-id>
+
+# 2) Memory garbage collection (dry-run by default)
+agent-brain memory gc
+agent-brain memory gc --apply
+
+# 3) Weekly operator digest from retrieval logs
+agent-brain digest --weekly
+
+# 4) CI retrieval quality gate
+agent-brain eval --ci
+```
+
+Promotion writes draft `SKILL.md` files to `~/.agent_brain/staging/` first; approval is explicit before files land in `.cursor/skills/`.
+
 ### Auto-update — `~/.agent_brain/config.yaml`
 
 ```bash
@@ -415,7 +436,17 @@ Tune via MCP `env` in `mcp.json` — see [docs/USAGE.md](docs/USAGE.md#environme
 
 ## Other MCP hosts
 
-Same binary works with **Claude Code, Codex, Claude Desktop, VS Code** — add MCP config manually; host-specific installers planned for v0.9. Skills under `~/.claude/` and `~/.codex/` are already indexed.
+Same binary works with **Cursor, Claude Code, OpenCode, Claude Desktop, and VS Code**. Use host installers:
+
+```bash
+agent-brain install --claude-desktop
+agent-brain install --vscode [--global]
+agent-brain install --claude-code [--global]
+agent-brain install --opencode [--global]
+agent-brain install --all
+```
+
+Skills under `~/.claude/` and `~/.codex/` are already indexed.
 
 ```json
 {

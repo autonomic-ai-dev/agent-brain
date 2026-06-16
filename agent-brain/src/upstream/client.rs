@@ -85,13 +85,12 @@ pub async fn call_upstream_tool(
 ) -> Result<CallToolResult> {
     validate_server_config(server)?;
     let service = connect(server).await?;
+    let mut req = CallToolRequestParams::new(tool_name.to_string());
+    if let Some(args) = arguments.as_object().cloned() {
+        req = req.with_arguments(args);
+    }
     let result = service
-        .call_tool(CallToolRequestParams {
-            meta: None,
-            name: tool_name.to_string().into(),
-            arguments: arguments.as_object().cloned(),
-            task: None,
-        })
+        .call_tool(req)
         .await
         .context("upstream tools/call failed")?;
     service.cancel().await.ok();
