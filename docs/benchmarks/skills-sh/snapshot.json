@@ -1,0 +1,34 @@
+{
+  "generated_at": "2026-06-16T17:01:09.187570+00:00",
+  "source": "skills.sh",
+  "catalog_size_note": "730k+ skills in catalog; snapshot is a reproducible sample for CI",
+  "skills": [
+    {
+      "id": "vercel-labs/agent-skills/vercel-react-best-practices",
+      "slug": "vercel-react-best-practices",
+      "name": "vercel-react-best-practices",
+      "source": "vercel-labs/agent-skills",
+      "topic": "vercel-react-best-practices",
+      "text": "vercel-react-best-practices React and Next.js performance optimization guidelines from Vercel Engineering. This skill should be used when writing, reviewing, or refactoring React/Next.js code to ensure optimal performance patterns. Triggers on tasks involving React components, Next.js pages, data fetching, bundle optimization, or performance improvements. # Vercel React Best Practices  Comprehensive performance optimization guide for React and Next.js applications, maintained by Vercel. Contains 70 rules across 8 categories, prioritized by impact to guide automated refactoring and code generation.  ## When to Apply  Reference these guidelines when: - Writing new React components or Next.js pages - Implementing data fetching (client or server-side) - Reviewing code for performance issues - ",
+      "installs": null
+    },
+    {
+      "id": "vercel-labs/agent-skills/vercel-react-native-skills",
+      "slug": "vercel-react-native-skills",
+      "name": "vercel-react-native-skills",
+      "source": "vercel-labs/agent-skills",
+      "topic": "vercel-react-native-skills",
+      "text": "vercel-react-native-skills # React Native Skills  Comprehensive best practices for React Native and Expo applications. Contains rules across multiple categories covering performance, animations, UI patterns, and platform-specific optimizations.  ## When to Apply  Reference these guidelines when:  - Building React Native or Expo apps - Optimizing list and scroll performance - Implementing animations with Reanimated - Working with images and media - Configuring native modules or fonts - Structuring monorepo projects with native dependencies  ## Rule Categories by Priority  | Priority | Category         | Impact   | Prefix               |",
+      "installs": null
+    },
+    {
+      "id": "vercel-labs/skills/find-skills",
+      "slug": "find-skills",
+      "name": "find-skills",
+      "source": "vercel-labs/skills",
+      "topic": "find-skills",
+      "text": "find-skills Helps users discover and install agent skills when they ask questions like \"how do I do X\", \"find a skill for X\", \"is there a skill that can...\", or express interest in extending capabilities. This skill should be used when the user is looking for functionality that might exist as an installable skill. When to Use This Skill Use this skill when the user: - Asks \"how do I do X\" where X might be a common task with an existing skill - Says \"find a skill for X\" or \"is there a skill for X\" - Asks \"can you do X\" where X is a specialized capability - Expresses interest in extending agent capabilities - Wants to search for tools, templates, or workflows - Mentions they wish they had help with a specific # Find Skills  This skill helps you discover and install skills from the open agent",
+      "installs": null
+    }
+  ]
+}

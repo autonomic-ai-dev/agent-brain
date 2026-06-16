@@ -1,0 +1,10 @@
+{
+  "snapshot_skills": 3,
+  "simulated_index_size": 2000,
+  "cases": 3,
+  "passed": 3,
+  "recall_at_3": 1.0,
+  "threshold": 0.8,
+  "failures": [],
+  "passed_gate": true
+}

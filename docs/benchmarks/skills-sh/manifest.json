@@ -1,0 +1,31 @@
+{
+  "catalog_note": "skills.sh hosts 730k+ skills (Vercel). CI snapshot uses verified downloads; expand via `skills-sh sync --max 200`.",
+  "required_ids": [
+    "vercel-labs/skills/find-skills",
+    "vercel-labs/agent-skills/vercel-react-best-practices",
+    "vercel-labs/agent-skills/vercel-react-native-skills"
+  ],
+  "discovery_queries": [
+    "react",
+    "nextjs",
+    "deploy",
+    "test",
+    "review",
+    "debug",
+    "rust",
+    "python",
+    "postgres",
+    "docker",
+    "security",
+    "typescript",
+    "vitest",
+    "playwright",
+    "kubernetes",
+    "mcp",
+    "plan",
+    "api",
+    "prisma",
+    "tailwind"
+  ],
+  "max_skills": 200
+}

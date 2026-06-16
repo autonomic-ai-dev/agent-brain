@@ -1,0 +1,63 @@
+name: Skills.sh eval
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 8 * * 1"
+  push:
+    branches: [master]
+    paths:
+      - "agent-brain/src/skills_sh.rs"
+      - "docs/benchmarks/skills-sh/**"
+      - ".github/workflows/stage-skills-sh-eval.yml"
+
+concurrency:
+  group: skills-sh-eval-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  eval:
+    name: skills.sh snapshot eval (~2000 index)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2.9.1
+
+      - name: Run skills.sh eval gate (committed snapshot, no network)
+        run: cargo run --release -p agent-brain -- eval --skills-sh --write docs/benchmarks/skills-sh-latest.json
+
+      - name: Upload skills.sh proof artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: agent-brain-skills-sh-proofs
+          path: docs/benchmarks/skills-sh-latest.json
+          if-no-files-found: error
+          retention-days: 30
+
+  sync:
+    name: Refresh skills.sh snapshot (optional)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2.9.1
+
+      - name: Sync expanded snapshot from skills.sh
+        run: |
+          cargo run --release -p agent-brain -- skills-sh sync \
+            --max 100 \
+            --delay-ms 3000 \
+            --write docs/benchmarks/skills-sh/snapshot.json
+
+      - name: Re-run eval on refreshed snapshot
+        run: cargo run --release -p agent-brain -- eval --skills-sh

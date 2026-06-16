@@ -273,6 +273,15 @@ fn eval_ci_meets_recall_gate() {
 }
 
 #[test]
+fn skills_sh_eval_passes_on_committed_snapshot() {
+    let snapshot = agent_brain::skills_sh::default_snapshot_path();
+    let golden = agent_brain::skills_sh::default_golden_path();
+    let report = agent_brain::skills_sh::run_skills_sh_eval(&snapshot, &golden).unwrap();
+    agent_brain::skills_sh::assert_skills_sh_gate(&report).unwrap();
+    assert_eq!(report.simulated_index_size, agent_brain::skills_sh::SKILLS_SH_SIMULATED_INDEX);
+}
+
+#[test]
 fn proofs_ci_passes_isolated_gates() {
     let report = agent_brain::proofs::run_ci_proofs().unwrap();
     agent_brain::proofs::assert_ci_proofs(&report).unwrap();

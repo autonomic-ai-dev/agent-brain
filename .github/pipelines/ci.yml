@@ -13,6 +13,11 @@ pipelines:
           - git_sha
           - snapshot_run_id
 
+      - id: skills-sh-eval
+        workflow: .github/workflows/stage-skills-sh-eval.yml
+        needs:
+          - test
+
       - id: build
         workflow: .github/workflows/stage-build.yml
         needs:

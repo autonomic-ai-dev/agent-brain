@@ -153,6 +153,11 @@ fn parse_file(path: &Path, repo: Option<&Path>, package: Option<String>) -> Opti
     })
 }
 
+/// Build indexed text for a SKILL.md body (used by filesystem index and skills.sh import).
+pub fn skill_index_text(content: &str, name: &str) -> String {
+    extract_skill_text(content, name)
+}
+
 fn extract_skill_text(content: &str, name: &str) -> String {
     let mut parts = vec![name.to_string()];
     let body = if let Some((front, body)) = split_yaml_frontmatter(content) {

@@ -31,5 +31,6 @@ pub mod eval;
 pub mod fixture;
 pub mod bench;
 pub mod proofs;
+pub mod skills_sh;
 
 pub use engine::Engine;

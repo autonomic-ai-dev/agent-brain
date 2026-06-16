@@ -1,0 +1,19 @@
+{
+  "cases": [
+    {
+      "query": "find a skill for extending agent capabilities",
+      "expected_topic": "find-skills",
+      "skill_id": "vercel-labs/skills/find-skills"
+    },
+    {
+      "query": "optimize react server components and performance",
+      "expected_topic": "vercel-react-best-practices",
+      "skill_id": "vercel-labs/agent-skills/vercel-react-best-practices"
+    },
+    {
+      "query": "react native mobile app development patterns",
+      "expected_topic": "vercel-react-native-skills",
+      "skill_id": "vercel-labs/agent-skills/vercel-react-native-skills"
+    }
+  ]
+}

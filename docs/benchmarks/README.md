@@ -39,11 +39,23 @@ cargo bench -p agent-brain --bench route_task
 
 Production `brain.db` with thousands of real skills is **not** part of the CI proof — use `eval --ci --live` to spot-check your machine only.
 
+## skills.sh catalog (730k+ skills)
+
+Separate workflow **`stage-skills-sh-eval.yml`** gates routing against a **committed skills.sh snapshot** padded to **2000 items** — closer to production crowding than the tiny isolated fixture.
+
+| Gate | Command | Threshold |
+|------|---------|-----------|
+| skills.sh Recall@3 | `eval --skills-sh` | ≥ 0.80 on golden cases |
+
+See [skills-sh/README.md](skills-sh/README.md). Artifact: `skills-sh-latest.json`.
+
 ## Files
 
 | File | Contents |
 |------|----------|
 | `latest.json` | Last generated `ProofReport` (eval + latency on isolated fixture) |
+| `skills-sh-latest.json` | Last skills.sh eval report |
+| `skills-sh/` | Manifest, golden cases, committed snapshot |
 
 ## Source modules
 
@@ -53,6 +65,7 @@ Production `brain.db` with thousands of real skills is **not** part of the CI pr
 | `agent-brain/src/eval.rs` | Golden Recall@3 suites |
 | `agent-brain/src/bench.rs` | Latency percentiles + thresholds |
 | `agent-brain/src/proofs.rs` | Combined gate + JSON export |
+| `agent-brain/src/skills_sh.rs` | skills.sh sync + 2000-item eval gate |
 | `agent-brain/benches/route_task.rs` | Criterion micro-benchmarks |
 
 See also [../architecture/13-proofs-and-benchmarks.md](../architecture/13-proofs-and-benchmarks.md).

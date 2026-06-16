@@ -10,6 +10,7 @@ Architecture docs cite latency and accuracy targets. This article separates **wh
 | Turn-cache p95 ≤ 30 ms (500-skill fixture) | **Yes** | same |
 | Warm-route p95 ≤ 100 ms (fixture, deterministic embed) | **Yes** | same |
 | Production brain Recall@3 | **No** | `eval --ci --live` (informational) |
+| skills.sh snapshot Recall@3 (2000-item index) | **Yes** | `eval --skills-sh` — see [`skills-sh/`](../benchmarks/skills-sh/README.md) |
 | &lt;50 ms p95 on real ONNX + full index | **No** | `retrieval_log`, `digest --weekly` |
 | Hook latency &lt;1 ms | **No** | not instrumented |
 
@@ -41,6 +42,9 @@ cargo run --release -p agent-brain -- eval --ci --live
 
 # Latency only (isolated)
 cargo run --release -p agent-brain -- bench --ci
+
+# skills.sh catalog (committed snapshot + 2000 fillers)
+cargo run --release -p agent-brain -- eval --skills-sh --write docs/benchmarks/skills-sh-latest.json
 
 # Criterion (local, not CI)
 cargo bench -p agent-brain --bench route_task

@@ -612,12 +612,32 @@ async fn main() -> Result<()> {
         }
         "eval" => {
             let live = args.iter().any(|a| a == "--live");
-            if !args.iter().any(|a| a == "--ci") {
+            let skills_sh = args.iter().any(|a| a == "--skills-sh");
+            if skills_sh {
+                let snapshot = flag_value(&args, "--snapshot")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(agent_brain::skills_sh::default_snapshot_path);
+                let golden = flag_value(&args, "--golden")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(agent_brain::skills_sh::default_golden_path);
+                let report = agent_brain::skills_sh::run_skills_sh_eval(&snapshot, &golden)?;
+                println!("{}", serde_json::to_string_pretty(&report)?);
+                if let Some(path) = flag_value(&args, "--write") {
+                    let json = serde_json::to_string_pretty(&report)?;
+                    std::fs::write(&path, format!("{json}\n"))?;
+                }
+                if let Err(err) = agent_brain::skills_sh::assert_skills_sh_gate(&report) {
+                    eprintln!("{err}");
+                    std::process::exit(1);
+                }
+            } else if !args.iter().any(|a| a == "--ci") {
                 eprintln!("Usage: agent-brain eval --ci [--live]");
-                eprintln!("  --ci     Run Recall@3 gate (default: isolated fixture DB)");
-                eprintln!("  --live   Use ~/.agent_brain brain.db (not for CI)");
+                eprintln!("       agent-brain eval --skills-sh [--snapshot PATH] [--golden PATH] [--write PATH]");
+                eprintln!("  --ci          Run Recall@3 gate (default: isolated fixture DB)");
+                eprintln!("  --live        Use ~/.agent_brain brain.db (not for CI)");
+                eprintln!("  --skills-sh   Run skills.sh snapshot eval (~2000 simulated index)");
                 std::process::exit(1);
-            }
+            } else {
             let report = if live {
                 let mut config = Config::load()?;
                 config.bootstrap_background = false;
@@ -631,6 +651,42 @@ async fn main() -> Result<()> {
             if let Err(err) = agent_brain::eval::assert_ci_gate(&report) {
                 eprintln!("{err}");
                 std::process::exit(1);
+            }
+            }
+        }
+        "skills-sh" => {
+            let sub = args.get(2).map(String::as_str).unwrap_or("");
+            match sub {
+                "sync" => {
+                    let manifest_path = flag_value(&args, "--manifest")
+                        .map(PathBuf::from)
+                        .unwrap_or_else(agent_brain::skills_sh::default_manifest_path);
+                    let write_path = flag_value(&args, "--write")
+                        .map(PathBuf::from)
+                        .unwrap_or_else(agent_brain::skills_sh::default_snapshot_path);
+                    let max = flag_value(&args, "--max")
+                        .and_then(|v| v.parse().ok());
+                    let required_only = args.iter().any(|a| a == "--required-only");
+                    let mut manifest = agent_brain::skills_sh::load_manifest(&manifest_path)?;
+                    if required_only {
+                        manifest.discovery_queries.clear();
+                        manifest.max_skills = manifest.required_ids.len();
+                    }
+                    let delay_ms = flag_value(&args, "--delay-ms")
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(if required_only { 20_000 } else { 250 });
+                    let snapshot = agent_brain::skills_sh::sync_snapshot(&manifest, max, delay_ms)?;
+                    agent_brain::skills_sh::write_snapshot(&write_path, &snapshot)?;
+                    eprintln!(
+                        "Synced {} skills from skills.sh → {}",
+                        snapshot.skills.len(),
+                        write_path.display()
+                    );
+                }
+                _ => {
+                    eprintln!("Usage: agent-brain skills-sh sync [--manifest PATH] [--write PATH] [--max N] [--required-only]");
+                    std::process::exit(1);
+                }
             }
         }
         "bench" => {
@@ -741,7 +797,8 @@ Usage:
   agent-brain digest --weekly                 Operator digest from retrieval_log
   agent-brain eval --ci [--live]                 Recall@3 gate (isolated fixture; --live uses brain.db)
   agent-brain bench --ci                         Latency gate on 500-skill fixture (isolated)
-  agent-brain proofs --ci [--write PATH]         Eval + latency gates; optional JSON artifact
+  agent-brain eval --skills-sh [--write PATH]   skills.sh snapshot Recall@3 (~2000 index)
+  agent-brain skills-sh sync [--max N]          Refresh skills.sh snapshot from public API
   agent-brain --version                       Same as version (prints version only)
 
 Examples:
