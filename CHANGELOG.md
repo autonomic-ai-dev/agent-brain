@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-06-16
+
+### Added
+
+- **OpenCode installer** — `agent-brain install --opencode [--global]` writes `mcp.agent-brain` into `opencode.json` (project root or `~/.config/opencode/opencode.json`) using OpenCode's `type: local` + `command` array format.
+- **OpenCode instructions** — `agent-brain.md` at `.opencode/` (project) or `~/.config/opencode/` (user) on first install.
+- **`--all`** now includes OpenCode user config.
+
 ## [0.9.0] - 2026-06-16
 
 ### Added

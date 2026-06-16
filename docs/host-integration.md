@@ -23,6 +23,12 @@ agent-brain install --claude-code
 # Claude Code — all projects (`~/.claude.json`)
 agent-brain install --claude-code --global
 
+# OpenCode — project `opencode.json`
+agent-brain install --opencode
+
+# OpenCode — user config (`~/.config/opencode/opencode.json`)
+agent-brain install --opencode --global
+
 # Everything at once
 agent-brain install --all
 ```
@@ -32,6 +38,7 @@ Print JSON without writing files:
 ```bash
 agent-brain install --print-only
 agent-brain install --vscode --print-only
+agent-brain install --opencode --print-only
 ```
 
 ## Config file locations
@@ -45,6 +52,8 @@ agent-brain install --vscode --print-only
 | **VS Code** | user | macOS: `~/Library/Application Support/Code/User/mcp.json` |
 | **Claude Code** | project | `.mcp.json` (repository root) |
 | **Claude Code** | user | `~/.claude.json` |
+| **OpenCode** | project | `opencode.json` (repository root) |
+| **OpenCode** | user | `~/.config/opencode/opencode.json` (macOS/Linux) |
 
 ### JSON shape
 
@@ -78,6 +87,21 @@ agent-brain install --vscode --print-only
 
 **Claude Code** project/user entries also include `"type": "stdio"`.
 
+**OpenCode** uses a top-level `mcp` object with `type: local` and `command` as an array:
+
+```json
+{
+  "mcp": {
+    "agent-brain": {
+      "type": "local",
+      "command": ["/absolute/path/to/agent-brain", "serve"],
+      "enabled": true,
+      "environment": { "RUST_LOG": "agent_brain=info" }
+    }
+  }
+}
+```
+
 ## Required agent workflow
 
 Every host should call these MCP tools:
@@ -95,6 +119,7 @@ Readable route summary: `~/.agent_brain/logs/last-route.md` or `agent-brain brie
 |------|-------------------|--------------|
 | **Cursor** | Yes | `~/.cursor/hooks.json` → `route_gate.py` (installed by `install --global`) |
 | **Claude Code** | Rule template | `~/.claude/agent-brain.md` or `.claude/agent-brain.md` (installed by `install --claude-code`) |
+| **OpenCode** | Rule template | `~/.config/opencode/agent-brain.md` or `.opencode/agent-brain.md` (installed by `install --opencode`) |
 | **VS Code** | Rule-only | Add Copilot/custom instructions (see below) |
 | **Claude Desktop** | Rule-only | Paste rule into project/system instructions |
 | **Windsurf / Zed / other** | Manual | Copy `mcpServers` block; add equivalent rule text |
@@ -147,3 +172,4 @@ No extra index configuration is required per host — installers only register t
 | Claude Desktop | Hammer icon; Developer → MCP logs |
 | VS Code | Command Palette → “MCP: List Servers” → agent-brain connected |
 | Claude Code | `/mcp` lists agent-brain; tools appear after approval |
+| OpenCode | `opencode mcp list` shows agent-brain; restart session if needed |

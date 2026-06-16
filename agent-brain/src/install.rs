@@ -20,6 +20,14 @@ pub fn run(target: HostTarget, print_only: bool, reload: bool) -> Result<()> {
                     }))?
                 );
             }
+            HostTarget::OpenCode { .. } => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "mcp": { "agent-brain": host_install::opencode_server_entry_public(&exe) }
+                    }))?
+                );
+            }
             _ => {
                 println!(
                     "{}",
@@ -76,7 +84,7 @@ fn print_cursor_next_steps() {
     println!("  2. Confirm hooks under Settings → Hooks (route_task gate)");
     println!("  3. After rebuilds: agent-brain install --global --reload");
     println!();
-    println!("Other hosts: agent-brain install --claude-desktop | --vscode | --claude-code [--global] | --all");
+    println!("Other hosts: agent-brain install --claude-desktop | --vscode | --claude-code | --opencode [--global] | --all");
 }
 
 /// Merge MCP config and optionally refresh Cursor hooks/rule (used by install + auto-update).

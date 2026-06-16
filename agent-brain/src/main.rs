@@ -578,6 +578,7 @@ Usage:
   agent-brain install --claude-desktop          Claude Desktop MCP config
   agent-brain install --vscode [--global]       VS Code workspace or user mcp.json
   agent-brain install --claude-code [--global]  Claude Code .mcp.json or ~/.claude.json
+  agent-brain install --opencode [--global]     OpenCode opencode.json (project or ~/.config/opencode)
   agent-brain install --all                     All of the above (user/global scope)
   agent-brain update [--force] [--mcp-only]     Run auto-update (MCP checks GitHub tag; packages use 24h interval unless --force)
   agent-brain config init                     Write ~/.agent_brain/config.yaml defaults
