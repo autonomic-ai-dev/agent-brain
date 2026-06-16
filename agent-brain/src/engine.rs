@@ -80,7 +80,15 @@ impl Engine {
     /// fastembed ONNX cache locks and stored test vectors stay in the same embedding space.
     #[doc(hidden)]
     pub fn new_with_store(config: Config, store: Arc<BrainStore>) -> Result<Self> {
-        let embedder = Arc::new(Embedder::deterministic());
+        Self::new_with_store_and_embedder(config, store, Arc::new(Embedder::deterministic()))
+    }
+
+    #[doc(hidden)]
+    pub fn new_with_store_and_embedder(
+        config: Config,
+        store: Arc<BrainStore>,
+        embedder: Arc<Embedder>,
+    ) -> Result<Self> {
         let cache = Arc::new(TurnCache::new(64, config.turn_ttl_secs));
         let write_queue = spawn_write_handler(
             Arc::clone(&store),

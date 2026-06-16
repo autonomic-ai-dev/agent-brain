@@ -9,6 +9,7 @@ use tempfile::TempDir;
 
 use crate::config::Config;
 use crate::db::store::BrainStore;
+use crate::embed::{parse_embedding_model, Embedder};
 use crate::engine::Engine;
 use crate::eval::seed_eval_fixture;
 use crate::types::RouteLimits;
@@ -31,6 +32,11 @@ pub fn new_isolated_engine() -> Result<(Engine, TempDir)> {
 
 /// Open a committed fixture DB (copied to a temp dir so route_task can write logs).
 pub fn open_fixture_engine(fixture_path: &Path) -> Result<(Engine, TempDir)> {
+    open_fixture_engine_with_onnx(fixture_path, false)
+}
+
+/// Open fixture DB with ONNX query embedder (indexed rows keep baked deterministic vectors).
+pub fn open_fixture_engine_with_onnx(fixture_path: &Path, onnx: bool) -> Result<(Engine, TempDir)> {
     let meta = read_fixture_meta(fixture_path)?;
     let dir = tempfile::tempdir()?;
     let config = Config::isolated(dir.path().to_path_buf());
@@ -39,7 +45,13 @@ pub fn open_fixture_engine(fixture_path: &Path) -> Result<(Engine, TempDir)> {
         .with_context(|| format!("copy fixture {}", fixture_path.display()))?;
     let store = Arc::new(BrainStore::open(&config.db_path)?);
     verify_fixture_store(&store, &meta)?;
-    let engine = Engine::new_with_store(config, store)?;
+    let embedder = if onnx {
+        let model = parse_embedding_model(&config.embedding_model);
+        Arc::new(Embedder::with_model(model)?)
+    } else {
+        Arc::new(Embedder::deterministic())
+    };
+    let engine = Engine::new_with_store_and_embedder(config, store, embedder)?;
     Ok((engine, dir))
 }
 
@@ -64,7 +76,17 @@ pub struct FixtureDbMeta {
     pub recipe_version: String,
     pub index_size: usize,
     pub snapshot_skills: usize,
+    pub filler_skills: usize,
     pub generated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FixtureDbBreakdown {
+    pub total_indexed: usize,
+    pub snapshot_skills: usize,
+    pub filler_skills: usize,
+    pub skills_sh_rows: usize,
+    pub bench_filler_rows: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -135,7 +157,25 @@ pub fn read_fixture_meta(fixture_path: &Path) -> Result<FixtureDbMeta> {
         recipe_version,
         index_size,
         snapshot_skills,
+        filler_skills: index_size.saturating_sub(snapshot_skills),
         generated_at,
+    })
+}
+
+pub fn fixture_db_breakdown(store: &BrainStore) -> Result<FixtureDbBreakdown> {
+    let total_indexed = store.count_indexed_items()?;
+    let skills_sh_rows = store.count_indexed_items_matching(
+        "SELECT COUNT(*) FROM indexed_items WHERE source_path LIKE 'https://skills.sh/%'",
+    )?;
+    let bench_filler_rows = store.count_indexed_items_matching(
+        "SELECT COUNT(*) FROM indexed_items WHERE topic LIKE 'bench-filler-%'",
+    )?;
+    Ok(FixtureDbBreakdown {
+        total_indexed,
+        snapshot_skills: skills_sh_rows,
+        filler_skills: bench_filler_rows,
+        skills_sh_rows,
+        bench_filler_rows,
     })
 }
 

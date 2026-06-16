@@ -702,7 +702,23 @@ async fn main() -> Result<()> {
                         .map(PathBuf::from)
                         .unwrap_or_else(agent_brain::fixture::default_fixture_2k_path);
                     let meta = agent_brain::fixture::read_fixture_meta(&path)?;
-                    println!("{}", serde_json::to_string_pretty(&meta)?);
+                    let breakdown = {
+                        let dir = tempfile::tempdir()?;
+                        let config = Config::isolated(dir.path().to_path_buf());
+                        config.ensure_dirs()?;
+                        std::fs::copy(&path, &config.db_path)?;
+                        let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
+                        agent_brain::fixture::fixture_db_breakdown(&store)?
+                    };
+                    #[derive(serde::Serialize)]
+                    struct VerifyOut {
+                        meta: agent_brain::fixture::FixtureDbMeta,
+                        breakdown: agent_brain::fixture::FixtureDbBreakdown,
+                    }
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&VerifyOut { meta, breakdown })?
+                    );
                 }
                 _ => {
                     eprintln!("Usage: agent-brain fixture build [--snapshot PATH] [--index-size N] [--write PATH]");
@@ -747,14 +763,34 @@ async fn main() -> Result<()> {
             }
         }
         "bench" => {
-            if !args.iter().any(|a| a == "--ci") {
+            let onnx = args.iter().any(|a| a == "--onnx");
+            let ci = args.iter().any(|a| a == "--ci");
+            if onnx {
+                let fixture = flag_value(&args, "--fixture-db")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(agent_brain::fixture::default_fixture_2k_path);
+                let report = agent_brain::bench::run_onnx_fixture_bench(&fixture)?;
+                println!("{}", serde_json::to_string_pretty(&report)?);
+                if let Some(path) = flag_value(&args, "--write") {
+                    let json = serde_json::to_string_pretty(&report)?;
+                    std::fs::write(&path, format!("{json}\n"))?;
+                }
+                if args.iter().any(|a| a == "--assert-target") {
+                    if let Err(err) = agent_brain::bench::assert_onnx_bench_target(&report) {
+                        eprintln!("{err}");
+                        std::process::exit(1);
+                    }
+                }
+            } else if ci {
+                let report = agent_brain::bench::run_ci_bench()?;
+                println!("{}", serde_json::to_string_pretty(&report)?);
+                if let Err(err) = agent_brain::bench::assert_bench_gate(&report) {
+                    eprintln!("{err}");
+                    std::process::exit(1);
+                }
+            } else {
                 eprintln!("Usage: agent-brain bench --ci");
-                std::process::exit(1);
-            }
-            let report = agent_brain::bench::run_ci_bench()?;
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            if let Err(err) = agent_brain::bench::assert_bench_gate(&report) {
-                eprintln!("{err}");
+                eprintln!("       agent-brain bench --onnx [--fixture-db PATH] [--write PATH] [--assert-target]");
                 std::process::exit(1);
             }
         }
@@ -854,6 +890,7 @@ Usage:
   agent-brain digest --weekly                 Operator digest from retrieval_log
   agent-brain eval --ci [--live]                 Recall@3 gate (isolated fixture; --live uses brain.db)
   agent-brain bench --ci                         Latency gate on 500-skill fixture (isolated)
+  agent-brain bench --onnx [--fixture-db PATH]   ONNX warm-route bench on fixture-2k.db (nightly)
   agent-brain eval --skills-sh [--fixture-db PATH]   skills.sh Recall@3 (~2000 index)
   agent-brain fixture build [--index-size N]      Build committed fixture-2k.db from snapshot
   agent-brain skills-sh sync [--max N]          Refresh skills.sh snapshot from public API

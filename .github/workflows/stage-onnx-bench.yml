@@ -1,0 +1,55 @@
+name: ONNX bench
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 9 * * 1"
+  push:
+    branches: [master]
+    paths:
+      - "agent-brain/src/bench.rs"
+      - "agent-brain/src/fixture.rs"
+      - "agent-brain/src/engine.rs"
+      - "docs/benchmarks/fixture-2k.db"
+      - ".github/workflows/stage-onnx-bench.yml"
+
+concurrency:
+  group: onnx-bench-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  bench:
+    name: ONNX warm-route on fixture-2k.db
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2.9.1
+
+      - name: Cache fastembed models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/fastembed
+          key: fastembed-${{ runner.os }}-${{ hashFiles('agent-brain/Cargo.lock') }}
+          restore-keys: |
+            fastembed-${{ runner.os }}-
+
+      - name: Run ONNX bench (informational 50ms target)
+        run: |
+          cargo run --release -p agent-brain -- bench --onnx \
+            --fixture-db docs/benchmarks/fixture-2k.db \
+            --write docs/benchmarks/onnx-latest.json
+
+      - name: Upload ONNX proof artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: agent-brain-onnx-proofs
+          path: docs/benchmarks/onnx-latest.json
+          if-no-files-found: error
+          retention-days: 30

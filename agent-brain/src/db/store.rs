@@ -520,6 +520,12 @@ impl BrainStore {
         Ok(n as usize)
     }
 
+    pub fn count_indexed_items_matching(&self, sql: &str) -> Result<usize> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let n: i64 = conn.query_row(sql, [], |r| r.get(0))?;
+        Ok(n as usize)
+    }
+
     pub fn set_meta(&self, key: &str, value: &str) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(

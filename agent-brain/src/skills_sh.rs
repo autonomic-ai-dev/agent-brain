@@ -105,6 +105,7 @@ pub struct SkillsShGoldenCase {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillsShEvalReport {
     pub snapshot_skills: usize,
+    pub filler_skills: usize,
     pub simulated_index_size: usize,
     #[serde(default)]
     pub fixture_db: Option<String>,
@@ -466,6 +467,7 @@ fn run_skills_sh_eval_on_engine(
 
     Ok(SkillsShEvalReport {
         snapshot_skills,
+        filler_skills: index_size.saturating_sub(snapshot_skills),
         simulated_index_size: index_size,
         fixture_db: fixture_db.map(|p| p.display().to_string()),
         index_mode: index_mode.into(),

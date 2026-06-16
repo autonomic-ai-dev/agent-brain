@@ -287,6 +287,26 @@ fn skills_sh_eval_passes_on_committed_fixture_db() {
     agent_brain::skills_sh::assert_skills_sh_gate(&report).unwrap();
     assert_eq!(report.index_mode, "fixture-db");
     assert_eq!(report.simulated_index_size, agent_brain::skills_sh::SKILLS_SH_SIMULATED_INDEX);
+    assert_eq!(report.snapshot_skills, 3);
+    assert_eq!(report.filler_skills, 1997);
+}
+
+#[test]
+fn fixture_2k_db_has_expected_composition() {
+    let fixture = agent_brain::fixture::default_fixture_2k_path();
+    let meta = agent_brain::fixture::read_fixture_meta(&fixture).unwrap();
+    assert_eq!(meta.index_size, 2000);
+    assert_eq!(meta.snapshot_skills, 3);
+    assert_eq!(meta.filler_skills, 1997);
+    let dir = tempfile::tempdir().unwrap();
+    let config = agent_brain::config::Config::isolated(dir.path().to_path_buf());
+    config.ensure_dirs().unwrap();
+    std::fs::copy(&fixture, &config.db_path).unwrap();
+    let store = agent_brain::db::store::BrainStore::open(&config.db_path).unwrap();
+    let breakdown = agent_brain::fixture::fixture_db_breakdown(&store).unwrap();
+    assert_eq!(breakdown.total_indexed, 2000);
+    assert_eq!(breakdown.skills_sh_rows, 3);
+    assert_eq!(breakdown.bench_filler_rows, 1997);
 }
 
 #[test]

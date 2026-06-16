@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import time
 import unittest
+from pathlib import Path
 
 from route_gate import (
     GATE_SCOPE,
@@ -198,6 +200,58 @@ class RouteGateTests(unittest.TestCase):
         self.assertTrue(
             should_gate_tool({"tool_name": "mcp_agent-brain_store_memory"})
         )
+
+    def _hook_latency_p95(self, handler, event: dict, iterations: int = 500) -> float:
+        import route_gate
+
+        samples: list[float] = []
+        for _ in range(iterations):
+            start = time.perf_counter()
+            handler(event)
+            samples.append((time.perf_counter() - start) * 1000.0)
+        samples.sort()
+        idx = max(0, int(len(samples) * 0.95) - 1)
+        return samples[idx]
+
+    def test_hook_pre_tool_use_allow_p95_under_1ms(self) -> None:
+        import route_gate
+
+        old_path = route_gate.STATE_PATH
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                route_gate.STATE_PATH = Path(tmp) / "route_state.json"
+                route_gate.STATE_PATH.write_text(
+                    json.dumps({"needs_route": False}), encoding="utf-8"
+                )
+                p95 = self._hook_latency_p95(
+                    handle_pre_tool_use, {"tool_name": "Shell"}
+                )
+                self.assertLess(p95, 1.0, f"allow-path hook p95 {p95:.3f}ms")
+        finally:
+            route_gate.STATE_PATH = old_path
+
+    def test_hook_pre_tool_use_deny_p95_under_1ms(self) -> None:
+        import route_gate
+
+        old_path = route_gate.STATE_PATH
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                route_gate.STATE_PATH = Path(tmp) / "route_state.json"
+                route_gate.STATE_PATH.write_text(
+                    json.dumps(
+                        {
+                            "needs_route": True,
+                            "needs_route_since": time.time(),
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                p95 = self._hook_latency_p95(
+                    handle_pre_tool_use, {"tool_name": "mcp_agent-brain_store_memory"}
+                )
+                self.assertLess(p95, 1.0, f"deny-path hook p95 {p95:.3f}ms")
+        finally:
+            route_gate.STATE_PATH = old_path
 
 
 if __name__ == "__main__":

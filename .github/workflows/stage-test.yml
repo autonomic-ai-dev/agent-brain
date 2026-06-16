@@ -32,6 +32,9 @@ jobs:
       - name: Run tests
         run: cargo test --release -p agent-brain
 
+      - name: Run hook latency tests
+        run: python3 agent-brain/hooks/test_route_gate.py
+
       - name: Run proof gates (eval + latency)
         run: cargo run --release -p agent-brain -- proofs --ci --write docs/benchmarks/latest.json
 

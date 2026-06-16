@@ -11,8 +11,8 @@ Architecture docs cite latency and accuracy targets. This article separates **wh
 | Warm-route p95 ≤ 100 ms (fixture, deterministic embed) | **Yes** | same |
 | Production brain Recall@3 | **No** | `eval --ci --live` (informational) |
 | skills.sh snapshot Recall@3 (2000-item index) | **Yes** | `eval --skills-sh` — see [`skills-sh/`](../benchmarks/skills-sh/README.md) |
-| &lt;50 ms p95 on real ONNX + full index | **No** | `retrieval_log`, `digest --weekly` |
-| Hook latency &lt;1 ms | **No** | not instrumented |
+| &lt;50 ms p95 on real ONNX + full index | **No** (nightly informational) | `bench --onnx --fixture-db` → [`onnx-latest.json`](../benchmarks/onnx-latest.json) |
+| Hook latency &lt;1 ms | **Yes** (gate logic) | `python3 agent-brain/hooks/test_route_gate.py` in CI |
 
 Published artifact: [`docs/benchmarks/latest.json`](../benchmarks/latest.json)
 
@@ -42,6 +42,12 @@ cargo run --release -p agent-brain -- eval --ci --live
 
 # Latency only (isolated)
 cargo run --release -p agent-brain -- bench --ci
+
+# ONNX warm-route on committed fixture-2k.db (nightly / local)
+cargo run --release -p agent-brain -- bench --onnx --write docs/benchmarks/onnx-latest.json
+
+# Hook gate latency (CI)
+python3 agent-brain/hooks/test_route_gate.py
 
 # skills.sh catalog (committed snapshot + 2000 fillers)
 cargo run --release -p agent-brain -- fixture build --write docs/benchmarks/fixture-2k.db

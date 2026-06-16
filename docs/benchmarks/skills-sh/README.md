@@ -8,6 +8,8 @@
 
 CI opens the committed DB (copied to a temp dir) — no runtime seeding.
 
+**Index composition:** 3 real skills.sh skills + 1997 synthetic `bench-filler-*` skills = 2000 rows. Verify with `fixture verify`.
+
 ## CI
 
 - **Every push:** `stage-skills-sh-eval.yml` runs `eval --skills-sh` against `fixture-2k.db`
