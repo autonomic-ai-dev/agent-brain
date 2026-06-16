@@ -14,9 +14,19 @@ pub struct GcReport {
 }
 
 pub fn run_memory_gc(store: &BrainStore, dry_run: bool, force: bool) -> Result<GcReport> {
+    run_memory_gc_with_thresholds(store, dry_run, force, 90, 180)
+}
+
+pub fn run_memory_gc_with_thresholds(
+    store: &BrainStore,
+    dry_run: bool,
+    force: bool,
+    stale_days: u32,
+    very_stale_days: u32,
+) -> Result<GcReport> {
     let now = chrono::Utc::now().timestamp_millis();
-    let stale_ms = 90_i64 * 24 * 3600 * 1000;
-    let very_stale_ms = 180_i64 * 24 * 3600 * 1000;
+    let stale_ms = i64::from(stale_days) * 24 * 3600 * 1000;
+    let very_stale_ms = i64::from(very_stale_days) * 24 * 3600 * 1000;
 
     let candidates = store.list_gc_candidates(now, stale_ms, very_stale_ms)?;
     let mut archived = 0usize;

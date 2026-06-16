@@ -572,14 +572,28 @@ async fn main() -> Result<()> {
                 "gc" => {
                     let dry_run = !args.iter().any(|a| a == "--apply");
                     let force = args.iter().any(|a| a == "--force");
-                    let report = agent_brain::memory_gc::run_memory_gc(&store, dry_run, force)?;
+                    let stale_days = flag_value(&args, "--stale-days")
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .unwrap_or(90);
+                    let very_stale_days = flag_value(&args, "--very-stale-days")
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .unwrap_or(180);
+                    let report = agent_brain::memory_gc::run_memory_gc_with_thresholds(
+                        &store,
+                        dry_run,
+                        force,
+                        stale_days,
+                        very_stale_days,
+                    )?;
                     println!("{}", serde_json::to_string_pretty(&report)?);
                     if dry_run && !report.ids.is_empty() {
                         eprintln!("Dry run — re-run with --apply to archive.");
                     }
                 }
                 _ => {
-                    eprintln!("Usage: agent-brain memory gc [--apply] [--force]");
+                    eprintln!(
+                        "Usage: agent-brain memory gc [--apply] [--force] [--stale-days N] [--very-stale-days N]"
+                    );
                     std::process::exit(1);
                 }
             }
@@ -687,7 +701,7 @@ Usage:
   agent-brain sessions ingest [--source SRCS] [--legacy]  Import session digests (cursor/codex/gemini/opencode)
   agent-brain sessions status                 Discoverable vs stored session digests
   agent-brain promote list|approve|reject     Skill promotion workflow (human approval required)
-  agent-brain memory gc [--apply] [--force]   Archive stale facts (dry-run by default)
+  agent-brain memory gc [--apply] [--force] [--stale-days N] [--very-stale-days N]  Archive stale facts (dry-run by default)
   agent-brain digest --weekly                 Operator digest from retrieval_log
   agent-brain eval --ci                       Recall@3 CI gate (threshold 0.85)
   agent-brain --version                       Same as version (prints version only)
