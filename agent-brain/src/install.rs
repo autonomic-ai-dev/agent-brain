@@ -4,35 +4,79 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 
-pub fn run(global: bool, print_only: bool, reload: bool) -> Result<()> {
+use crate::host_install::{self, HostTarget};
+
+pub fn run(target: HostTarget, print_only: bool, reload: bool) -> Result<()> {
     let exe = std::env::current_exe().context("resolve agent-brain binary path")?;
-    let config_path = mcp_config_path(global)?;
     let snippet = mcp_server_entry(&exe);
 
     if print_only {
-        println!("{}", serde_json::to_string_pretty(&json!({ "mcpServers": { "agent-brain": snippet } }))?);
+        match target {
+            HostTarget::VsCode { .. } => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "servers": { "agent-brain": host_install::vscode_server_entry_public(&exe) }
+                    }))?
+                );
+            }
+            _ => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({ "mcpServers": { "agent-brain": snippet } }))?
+                );
+            }
+        }
         return Ok(());
     }
 
-    configure_cursor(global, &exe, false)?;
-    println!("agent-brain MCP configured at {}", config_path.display());
-    println!("Binary: {}", exe.display());
-    println!();
-    if reload {
-        println!("Reload nudge: refreshed mcp.json (AGENT_BRAIN_BUILD bumped).");
-        println!("Cursor may reload agent-brain automatically; if not, toggle it under Settings → MCP.");
-    } else {
-        println!("Next steps:");
-        println!("  1. Restart Cursor or toggle agent-brain under Settings → MCP (loads new binary + hooks)");
-        println!("  2. Confirm 'agent-brain' appears and is enabled under MCP");
-        println!("  3. Confirm hooks loaded under Settings → Hooks (route_task gate)");
-        println!("  4. Confirm ~/.cursor/permissions.json includes agent-brain:* (CLI MCP auto-approve)");
-        println!("  5. Confirm project rule at .cursor/rules/agent-brain.mdc (Settings → Rules)");
-        println!("  6. Use Agent mode — route_task is required before other agent-brain MCP tools");
-        println!();
-        println!("After local rebuilds without full reinstall: agent-brain install --global --reload");
+    if matches!(target, HostTarget::Cursor { global: true }) || reload {
+        if reload && !matches!(target, HostTarget::Cursor { .. } | HostTarget::All) {
+            eprintln!("Note: --reload only applies to Cursor MCP config.");
+        }
     }
+
+    let paths = host_install::install_host(target, &exe, false)?;
+    println!("agent-brain MCP configured for {}", target.label());
+    println!("Binary: {}", exe.display());
+    for path in paths {
+        println!("  {}", path.display());
+    }
+    println!();
+
+    match target {
+        HostTarget::Cursor { global: true } if reload => {
+            println!("Reload nudge: refreshed Cursor mcp.json (AGENT_BRAIN_BUILD bumped).");
+            println!("Toggle agent-brain under Settings → MCP if it does not reconnect.");
+        }
+        HostTarget::All if reload => {
+            println!("Reload nudge: refreshed Cursor mcp.json (AGENT_BRAIN_BUILD bumped).");
+            println!("Toggle agent-brain under Settings → MCP if it does not reconnect.");
+        }
+        HostTarget::Cursor { global: true } => {
+            print_cursor_next_steps();
+        }
+        HostTarget::All => print_cursor_next_steps(),
+        _ => {}
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if let Err(err) = crate::doctor::adhoc_sign(&exe) {
+            eprintln!("Warning: adhoc codesign failed: {err}");
+        }
+    }
+
     Ok(())
+}
+
+fn print_cursor_next_steps() {
+    println!("Cursor next steps:");
+    println!("  1. Restart Cursor or toggle agent-brain under Settings → MCP");
+    println!("  2. Confirm hooks under Settings → Hooks (route_task gate)");
+    println!("  3. After rebuilds: agent-brain install --global --reload");
+    println!();
+    println!("Other hosts: agent-brain install --claude-desktop | --vscode | --claude-code [--global] | --all");
 }
 
 /// Merge MCP config and optionally refresh Cursor hooks/rule (used by install + auto-update).
@@ -280,7 +324,7 @@ Linker-signed local builds are killed by taskgated when Cursor launches MCP. Use
 **Hooks enforce this:** Cursor blocks other tools until `route_task` succeeds each turn.
 "#;
 
-fn mcp_config_path(global: bool) -> Result<PathBuf> {
+pub fn mcp_config_path(global: bool) -> Result<PathBuf> {
     if global {
         let home = dirs::home_dir().context("home directory")?;
         return Ok(home.join(".cursor").join("mcp.json"));
@@ -288,7 +332,7 @@ fn mcp_config_path(global: bool) -> Result<PathBuf> {
     Ok(std::env::current_dir()?.join(".cursor").join("mcp.json"))
 }
 
-fn mcp_server_entry(exe: &Path) -> Value {
+pub fn mcp_server_entry(exe: &Path) -> Value {
     let build_id = format!(
         "{}@{}",
         env!("CARGO_PKG_VERSION"),
@@ -309,7 +353,7 @@ fn mcp_server_entry(exe: &Path) -> Value {
     })
 }
 
-fn merge_mcp_config(path: &Path, server_entry: Value) -> Result<Value> {
+pub fn merge_mcp_config(path: &Path, server_entry: Value) -> Result<Value> {
     let mut root = if path.exists() {
         let raw = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
         serde_json::from_str(&raw).with_context(|| format!("parse {}", path.display()))?

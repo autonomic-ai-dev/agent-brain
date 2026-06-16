@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use agent_brain::{
-    auto_update, config::Config, doctor, engine::Engine, install, mcp, packages, serve_meta,
-    settings,
+    auto_update, config::Config, doctor, engine::Engine, host_install, install, mcp, packages,
+    serve_meta, settings,
 };
 use anyhow::{Context, Result};
 use tracing_subscriber::EnvFilter;
@@ -116,11 +116,14 @@ async fn main() -> Result<()> {
             }
         }
         "install" => {
-            let global = args.iter().any(|a| a == "--global");
+            let target = host_install::HostTarget::from_args(&args);
             let reload = args.iter().any(|a| a == "--reload");
             let print_only = args.iter().any(|a| a == "--print-only");
-            install::run(global || reload, print_only, reload)?;
-            if global && !print_only {
+            let global = args.iter().any(|a| a == "--global");
+            install::run(target, print_only, reload)?;
+            if (global || matches!(target, host_install::HostTarget::All))
+                && !print_only
+            {
                 let config = Config::load()?;
                 if settings::config_path_optional(&config.home).is_none() {
                     let path = settings::AgentBrainSettings::save_default(&config.home)?;
@@ -571,7 +574,11 @@ Usage:
   agent-brain package list                  List installed packages
   agent-brain package update [name]         Update one or all packages
   agent-brain package remove <name>         Remove an installed package
-  agent-brain install [--global] [--reload]     Write Cursor MCP config for this binary
+  agent-brain install [--global] [--reload]     Cursor MCP (default)
+  agent-brain install --claude-desktop          Claude Desktop MCP config
+  agent-brain install --vscode [--global]       VS Code workspace or user mcp.json
+  agent-brain install --claude-code [--global]  Claude Code .mcp.json or ~/.claude.json
+  agent-brain install --all                     All of the above (user/global scope)
   agent-brain update [--force] [--mcp-only]     Run auto-update (MCP checks GitHub tag; packages use 24h interval unless --force)
   agent-brain config init                     Write ~/.agent_brain/config.yaml defaults
   agent-brain config show                     Print active config file

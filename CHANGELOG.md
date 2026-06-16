@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-16
+
+### Added
+
+- **Multi-host installers** — `agent-brain install --claude-desktop`, `--vscode [--global]`, `--claude-code [--global]`, `--all`.
+- **`host_install` module** — per-host config paths, JSON merge (Cursor/Claude `mcpServers`, VS Code `servers`).
+- **Claude Code rule template** — `~/.claude/agent-brain.md` or `.claude/agent-brain.md` on install.
+- **`docs/host-integration.md`** — host-agnostic guide, config locations, hook parity matrix, verification checklist.
+
+### Changed
+
+- `install` CLI defaults to Cursor; `--global` applies to Cursor or scopes VS Code / Claude Code to user profile.
+- Install help text documents all host targets.
+
 ## [0.8.0] - 2026-06-16
 
 ### Added

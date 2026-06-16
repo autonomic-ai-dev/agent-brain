@@ -8,6 +8,7 @@ pub mod serve_meta;
 pub mod embed;
 pub mod engine;
 pub mod index;
+pub mod host_install;
 pub mod install;
 pub mod mcp;
 pub mod packages;
