@@ -75,10 +75,12 @@ impl Engine {
     }
 
     /// Pre-opened store for integration tests (same wiring as [`Self::new`]).
+    ///
+    /// Uses [`Embedder::deterministic`] so parallel `cargo test` runs do not contend on
+    /// fastembed ONNX cache locks and stored test vectors stay in the same embedding space.
     #[doc(hidden)]
     pub fn new_with_store(config: Config, store: Arc<BrainStore>) -> Result<Self> {
-        let embed_model = parse_embedding_model(&config.embedding_model);
-        let embedder = Arc::new(Embedder::with_model(embed_model)?);
+        let embedder = Arc::new(Embedder::deterministic());
         let cache = Arc::new(TurnCache::new(64, config.turn_ttl_secs));
         let write_queue = spawn_write_handler(
             Arc::clone(&store),
