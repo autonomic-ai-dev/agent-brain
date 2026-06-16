@@ -11,11 +11,10 @@ use opendal::services::{Fs, S3};
 use opendal::Operator;
 
 use crate::db::store::BrainStore;
-use crate::embed::Embedder;
 use crate::secrets;
 use crate::settings::CloudSyncSettings;
 
-use super::bundle::{export_bundle, import_bundle, ImportReport, MergePolicy, SyncSource};
+use super::bundle::{export_bundle, ImportReport, MergePolicy, SyncSource};
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct CloudSyncStatus {
@@ -72,11 +71,10 @@ pub fn cloud_push(store: &BrainStore, home: &Path, settings: &CloudSyncSettings)
 }
 
 pub fn cloud_pull(
-    store: &BrainStore,
-    embedder: &Embedder,
-    _home: &Path,
+    engine: &crate::engine::Engine,
     settings: &CloudSyncSettings,
 ) -> Result<CloudPullReport> {
+    let store = engine.store.as_ref();
     validate_settings(settings)?;
 
     let op = build_operator(settings)?.blocking();
@@ -98,9 +96,7 @@ pub fn cloud_pull(
         bail!("cloud artifact missing manifest.json");
     }
 
-    let import = import_bundle(
-        store,
-        embedder,
+    let import = engine.import_bundle_queued(
         tmp.path(),
         MergePolicy::NewerWins,
         SyncSource::Cloud,

@@ -4,9 +4,11 @@ use sha2::Digest;
 
 use agent_brain::config::Config;
 use agent_brain::db::store::{content_hash, BrainStore};
-use agent_brain::embed::{deterministic_embedding, Embedder};
+use agent_brain::embed::deterministic_embedding;
 use agent_brain::settings::CloudSyncSettings;
-use agent_brain::sync::{cloud_pull, cloud_push, SyncSource};
+use agent_brain::sync::{cloud_pull, cloud_push};
+use agent_brain::Engine;
+use std::sync::Arc;
 use tempfile::TempDir;
 
 fn test_config(home: &std::path::Path) -> Config {
@@ -84,12 +86,11 @@ fn cloud_push_pull_round_trip_local_provider() {
     fs::create_dir_all(&home_b).unwrap();
     let config_b = test_config(&home_b);
     config_b.ensure_dirs().unwrap();
-    let store_b = BrainStore::open(&config_b.db_path).unwrap();
-    let embedder = Embedder::deterministic();
-    let report = cloud_pull(&store_b, &embedder, &home_b, &settings).unwrap();
+    let engine_b = Arc::new(Engine::new(config_b).unwrap());
+    let report = cloud_pull(&engine_b, &settings).unwrap();
 
     assert_eq!(report.import.imported, 1);
-    let facts = store_b.list_facts(10).unwrap();
+    let facts = engine_b.store.list_facts(10).unwrap();
     assert!(facts.iter().any(|f| f["topic"] == "cloud-sync-test"));
 
     std::env::remove_var("AGENT_BRAIN_SYNC_KEY");
@@ -97,7 +98,8 @@ fn cloud_push_pull_round_trip_local_provider() {
 
 #[test]
 fn cloud_import_logs_conflicts_with_cloud_sync_source() {
-    use agent_brain::sync::{import_bundle, MergePolicy};
+    use agent_brain::embed::Embedder;
+    use agent_brain::sync::{import_bundle, MergePolicy, SyncSource};
 
     let dir = TempDir::new().unwrap();
     let config = test_config(dir.path());

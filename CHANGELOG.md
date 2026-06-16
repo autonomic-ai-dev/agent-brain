@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-06-16
+
+### Added
+
+- **Write-queue hardening** — `import_memory`, CLI `import`, `sync git pull`, and `sync cloud pull` serialize through the shared `Engine` write queue (`WriteOp::ImportBundle`).
+- **`db/write_handler.rs`** — central write-thread handler for store, delete, and import ops.
+- **`docs/concurrency.md`** — documents queued vs non-queued paths.
+- **CLI MCP auto-approve** — `install --global` merges `agent-brain:*` into `~/.cursor/permissions.json` so Cursor CLI agents skip per-session MCP approval (requires Run Mode enabled).
+
+### Changed
+
+- `Engine` owns the write queue (MCP no longer spawns a second queue).
+- `git_pull` / `cloud_pull` take `&Engine` instead of separate store/embedder args.
+
 ## [0.7.1] - 2026-06-16
 
 ### Added

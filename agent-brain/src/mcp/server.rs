@@ -10,112 +10,21 @@ use rmcp::{tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-use crate::db::store::{content_hash, looks_like_secret, word_count};
-use crate::db::write_queue::{store_memory_payload, WriteOp, WriteQueue};
+use crate::db::store::{looks_like_secret, word_count};
+use crate::db::write_queue::{store_memory_payload, WriteOp};
 use crate::engine::Engine;
 use crate::types::{deserialize_route_limits, ItemType, RouteLimits};
 
 #[derive(Clone)]
 pub struct BrainMcp {
     engine: Arc<Engine>,
-    write_queue: Arc<WriteQueue>,
     tool_router: ToolRouter<Self>,
 }
 
 impl BrainMcp {
     pub fn new(engine: Arc<Engine>) -> Self {
-        let store = engine.store.clone();
-        let embedder = engine.embedder.clone();
-        let cache = engine.cache.clone();
-        let auto = engine.auto_capture_enabled;
-        let home = engine.config.home.clone();
-
-        let write_queue = WriteQueue::spawn(move |op| match op {
-            WriteOp::StoreMemory { resp_tx, payload } => {
-                let result = (|| {
-                    if !auto {
-                        anyhow::bail!("auto capture disabled");
-                    }
-                    if looks_like_secret(&payload.fact) {
-                        anyhow::bail!("prohibited content");
-                    }
-                    if word_count(&payload.fact) > 50 {
-                        anyhow::bail!("fact exceeds 50 words");
-                    }
-                    let hash = content_hash(&payload.fact);
-                    let embedding = embedder.embed_one(&format!("{} {}", payload.topic, payload.fact))?;
-                    let polarity = payload.polarity.as_deref().unwrap_or("positive");
-                    let apply_when = payload
-                        .apply_when
-                        .as_ref()
-                        .map(serde_json::to_string)
-                        .transpose()?;
-                    let res = store.store_fact_full(
-                        &payload.topic,
-                        &payload.fact,
-                        &payload.scope,
-                        payload.scope_key.as_deref(),
-                        payload.confidence,
-                        "agent",
-                        &hash,
-                        &embedding,
-                        polarity,
-                        apply_when.as_deref(),
-                    )?;
-                    cache.clear();
-                    store.bump_index_version().ok();
-
-                    if res.stored {
-                        let settings = crate::settings::AgentBrainSettings::load(&home);
-                        if settings.sync.git.auto_push {
-                            if let Err(err) =
-                                crate::sync::git_push(&store, &home, &settings.sync.git)
-                            {
-                                tracing::warn!(target: "agent_brain::sync", "git auto_push failed: {err}");
-                            }
-                        }
-                        if settings.sync.cloud.enabled && settings.sync.cloud.auto_push {
-                            if let Err(err) = crate::sync::cloud_push(
-                                &store,
-                                &home,
-                                &settings.sync.cloud,
-                            ) {
-                                tracing::warn!(target: "agent_brain::sync", "cloud auto_push failed: {err}");
-                            }
-                        }
-                    }
-
-                    Ok(serde_json::json!({
-                        "id": res.id,
-                        "stored": res.stored,
-                        "deduplicated": res.deduplicated
-                    }))
-                })();
-                let _ = resp_tx.send(result);
-            }
-            WriteOp::DeleteMemory {
-                resp_tx,
-                id,
-                topic,
-                scope,
-                scope_key,
-            } => {
-                let result = store
-                    .delete_fact(
-                        id.as_deref(),
-                        topic.as_deref(),
-                        scope.as_deref(),
-                        scope_key.as_deref(),
-                    )
-                    .map(|n| serde_json::json!({ "deleted": n }));
-                let _ = resp_tx.send(result);
-            }
-            WriteOp::ReindexComplete => {}
-        });
-
         Self {
             engine,
-            write_queue: Arc::new(write_queue),
             tool_router: Self::tool_router(),
         }
     }
@@ -320,7 +229,8 @@ impl BrainMcp {
         let polarity = p.polarity.or_else(|| infer_memory_polarity(&p.fact));
 
         let (tx, rx) = std::sync::mpsc::channel();
-        self.write_queue
+        self.engine
+            .write_queue()
             .send(WriteOp::StoreMemory {
                 resp_tx: tx,
                 payload: store_memory_payload::StoreMemoryRequest {
@@ -364,7 +274,8 @@ impl BrainMcp {
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
         let (tx, rx) = std::sync::mpsc::channel();
-        self.write_queue
+        self.engine
+            .write_queue()
             .send(WriteOp::DeleteMemory {
                 resp_tx: tx,
                 id: p.id,
@@ -440,15 +351,14 @@ impl BrainMcp {
         let p = params.0;
         let policy = crate::sync::MergePolicy::parse(&p.merge_policy)
             .ok_or_else(|| McpError::invalid_params("invalid merge_policy", None))?;
-        let report = crate::sync::import_bundle(
-            &self.engine.store,
-            &self.engine.embedder,
-            PathBuf::from(&p.bundle_path).as_path(),
-            policy,
-            crate::sync::SyncSource::ManualImport,
-        )
-        .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-        self.engine.store.bump_index_version().ok();
+        let report = self
+            .engine
+            .import_bundle_queued(
+                PathBuf::from(&p.bundle_path).as_path(),
+                policy,
+                crate::sync::SyncSource::ManualImport,
+            )
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         self.engine.cache.clear();
         json_result(report)
     }

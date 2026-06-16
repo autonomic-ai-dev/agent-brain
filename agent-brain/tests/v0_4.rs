@@ -62,17 +62,7 @@ fn negative_memory_surfaces_in_must_apply() {
         )
         .unwrap();
 
-    let engine = Engine {
-        config: config.clone(),
-        store: Arc::clone(&store),
-        embedder: Arc::new(Embedder::deterministic()),
-        cache: Arc::new(TurnCache::new(8, 60)),
-        auto_capture_enabled: true,
-        route_latency: Arc::new(RouteLatencyStats::new(32)),
-        warmed: Arc::new(AtomicBool::new(false)),
-        query_emb_cache: Arc::new(QueryEmbeddingCache::new(32)),
-        mcp_activity: Arc::new(McpActivity::new()),
-    };
+    let engine = Engine::new_with_store(config.clone(), Arc::clone(&store)).unwrap();
 
     let resp = engine
         .route_task(
@@ -157,17 +147,7 @@ fn retrieval_log_persisted_on_route() {
         )
         .unwrap();
 
-    let engine = Engine {
-        config: config.clone(),
-        store: Arc::clone(&store),
-        embedder: Arc::new(Embedder::deterministic()),
-        cache: Arc::new(TurnCache::new(8, 60)),
-        auto_capture_enabled: true,
-        route_latency: Arc::new(RouteLatencyStats::new(32)),
-        warmed: Arc::new(AtomicBool::new(false)),
-        query_emb_cache: Arc::new(QueryEmbeddingCache::new(32)),
-        mcp_activity: Arc::new(McpActivity::new()),
-    };
+    let engine = Engine::new_with_store(config.clone(), Arc::clone(&store)).unwrap();
 
     let resp = engine
         .route_task(

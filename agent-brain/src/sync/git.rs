@@ -7,10 +7,9 @@ use std::process::Command;
 use anyhow::{bail, Context, Result};
 
 use crate::db::store::BrainStore;
-use crate::embed::Embedder;
 use crate::settings::GitSyncSettings;
 
-use super::bundle::{export_bundle, import_bundle, ImportReport, MergePolicy, SyncSource};
+use super::bundle::{export_bundle, ImportReport, MergePolicy, SyncSource};
 
 pub const BUNDLE_DIR_NAME: &str = "bundle";
 
@@ -150,12 +149,8 @@ pub fn git_push(store: &BrainStore, home: &Path, settings: &GitSyncSettings) -> 
     Ok(())
 }
 
-pub fn git_pull(
-    store: &BrainStore,
-    embedder: &Embedder,
-    home: &Path,
-    settings: &GitSyncSettings,
-) -> Result<ImportReport> {
+pub fn git_pull(engine: &crate::engine::Engine, settings: &GitSyncSettings) -> Result<ImportReport> {
+    let home = &engine.config.home;
     let root = git_sync_root(home);
     if !root.join(".git").is_dir() {
         bail!("git sync not initialized; run: agent-brain sync git init [--remote URL]");
@@ -171,13 +166,7 @@ pub fn git_pull(
         return Ok(ImportReport::default());
     }
 
-    import_bundle(
-        store,
-        embedder,
-        &bundle,
-        MergePolicy::NewerWins,
-        SyncSource::Git,
-    )
+    engine.import_bundle_queued(&bundle, MergePolicy::NewerWins, SyncSource::Git)
 }
 
 fn ensure_git_identity(repo: &Path) -> Result<()> {

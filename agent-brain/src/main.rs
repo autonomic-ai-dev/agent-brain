@@ -227,14 +227,11 @@ async fn main() -> Result<()> {
             let config = Config::load()?;
             config.ensure_dirs()?;
             let engine = Arc::new(Engine::new(config)?);
-            let report = agent_brain::sync::import_bundle(
-                &engine.store,
-                &engine.embedder,
+            let report = engine.import_bundle_queued(
                 std::path::Path::new(bundle),
                 policy,
                 agent_brain::sync::SyncSource::ManualImport,
             )?;
-            engine.store.bump_index_version()?;
             engine.bootstrap(None)?;
             println!(
                 "Imported {} facts (deduped {}, conflicts {}, skipped {})",
@@ -290,12 +287,9 @@ async fn main() -> Result<()> {
                         "pull" => {
                             let engine = Arc::new(Engine::new(config)?);
                             let report = agent_brain::sync::cloud_pull(
-                                &engine.store,
-                                &engine.embedder,
-                                &engine.config.home,
+                                &engine,
                                 &brain_settings.sync.cloud,
                             )?;
-                            engine.store.bump_index_version()?;
                             engine.bootstrap(None)?;
                             println!(
                                 "Pulled and imported {} facts (deduped {}, conflicts {}, skipped {})",
@@ -357,12 +351,9 @@ async fn main() -> Result<()> {
                         "pull" => {
                             let engine = Arc::new(Engine::new(config)?);
                             let report = agent_brain::sync::git_pull(
-                                &engine.store,
-                                &engine.embedder,
-                                &engine.config.home,
+                                &engine,
                                 &brain_settings.sync.git,
                             )?;
-                            engine.store.bump_index_version()?;
                             engine.bootstrap(None)?;
                             println!(
                                 "Pulled and imported {} facts (deduped {}, conflicts {}, skipped {})",

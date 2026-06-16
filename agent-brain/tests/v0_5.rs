@@ -42,17 +42,7 @@ fn test_config(dir: &TempDir) -> Config {
 }
 
 fn test_engine(config: &Config, store: Arc<BrainStore>) -> Engine {
-    Engine {
-        config: config.clone(),
-        store,
-        embedder: Arc::new(Embedder::deterministic()),
-        cache: Arc::new(TurnCache::new(8, 60)),
-        auto_capture_enabled: true,
-        route_latency: Arc::new(RouteLatencyStats::new(32)),
-        warmed: Arc::new(AtomicBool::new(false)),
-        query_emb_cache: Arc::new(QueryEmbeddingCache::new(32)),
-        mcp_activity: Arc::new(McpActivity::new()),
-    }
+    Engine::new_with_store(config.clone(), store).unwrap()
 }
 
 #[test]

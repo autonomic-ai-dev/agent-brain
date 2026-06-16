@@ -10,6 +10,7 @@ use uuid::Uuid;
 use crate::cache::{route_cache_key, fingerprint_query, QueryEmbeddingCache, TurnCache};
 use crate::config::Config;
 use crate::db::store::{content_hash, BrainStore};
+use crate::db::{send_and_recv, spawn_write_handler, WriteOp, WriteQueue};
 use crate::db::{RouteLatencyStats, RouteTiming};
 use crate::embed::{parse_embedding_model, Embedder};
 use crate::index;
@@ -20,6 +21,7 @@ use crate::types::{
 };
 use crate::mcp_activity::McpActivity;
 use crate::route_briefing;
+use crate::sync::{ImportReport, MergePolicy, SyncSource};
 use crate::workspace::{agent_boost_keywords, infer_phase, is_low_signal_memory, probe};
 
 type RouteQueryParallelResult = (Vec<ScoredItem>, usize, usize, u64, u64, bool, bool);
@@ -34,6 +36,7 @@ pub struct Engine {
     pub warmed: Arc<AtomicBool>,
     pub query_emb_cache: Arc<QueryEmbeddingCache>,
     pub mcp_activity: Arc<McpActivity>,
+    write_queue: WriteQueue,
 }
 
 impl Engine {
@@ -50,6 +53,13 @@ impl Engine {
             );
         }
         let cache = Arc::new(TurnCache::new(64, config.turn_ttl_secs));
+        let write_queue = spawn_write_handler(
+            Arc::clone(&store),
+            Arc::clone(&embedder),
+            Arc::clone(&cache),
+            config.home.clone(),
+            config.auto_capture_enabled,
+        );
         Ok(Self {
             auto_capture_enabled: config.auto_capture_enabled,
             config,
@@ -60,6 +70,53 @@ impl Engine {
             warmed: Arc::new(AtomicBool::new(false)),
             query_emb_cache: Arc::new(QueryEmbeddingCache::new(128)),
             mcp_activity: Arc::new(McpActivity::new()),
+            write_queue,
+        })
+    }
+
+    /// Pre-opened store for integration tests (same wiring as [`Self::new`]).
+    #[doc(hidden)]
+    pub fn new_with_store(config: Config, store: Arc<BrainStore>) -> Result<Self> {
+        let embed_model = parse_embedding_model(&config.embedding_model);
+        let embedder = Arc::new(Embedder::with_model(embed_model)?);
+        let cache = Arc::new(TurnCache::new(64, config.turn_ttl_secs));
+        let write_queue = spawn_write_handler(
+            Arc::clone(&store),
+            Arc::clone(&embedder),
+            Arc::clone(&cache),
+            config.home.clone(),
+            config.auto_capture_enabled,
+        );
+        Ok(Self {
+            auto_capture_enabled: config.auto_capture_enabled,
+            config,
+            store,
+            embedder,
+            cache,
+            route_latency: Arc::new(RouteLatencyStats::new(256)),
+            warmed: Arc::new(AtomicBool::new(false)),
+            query_emb_cache: Arc::new(QueryEmbeddingCache::new(128)),
+            mcp_activity: Arc::new(McpActivity::new()),
+            write_queue,
+        })
+    }
+
+    pub fn write_queue(&self) -> &WriteQueue {
+        &self.write_queue
+    }
+
+    pub fn import_bundle_queued(
+        &self,
+        bundle: &Path,
+        policy: MergePolicy,
+        source: SyncSource,
+    ) -> Result<ImportReport> {
+        let bundle_path = bundle.to_path_buf();
+        send_and_recv(self.write_queue(), |resp_tx| WriteOp::ImportBundle {
+            resp_tx,
+            bundle_path,
+            policy,
+            source,
         })
     }
 

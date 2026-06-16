@@ -5,9 +5,11 @@ use sha2::Digest;
 
 use agent_brain::config::Config;
 use agent_brain::db::store::{content_hash, BrainStore};
-use agent_brain::embed::{deterministic_embedding, Embedder};
+use agent_brain::embed::deterministic_embedding;
 use agent_brain::settings::GitSyncSettings;
-use agent_brain::sync::{git_clone, git_pull, git_push, init_git_repo, SyncSource};
+use agent_brain::sync::{git_clone, git_pull, git_push, init_git_repo};
+use agent_brain::Engine;
+use std::sync::Arc;
 use tempfile::TempDir;
 
 fn test_config(home: &std::path::Path) -> Config {
@@ -91,18 +93,18 @@ fn git_push_pull_round_trip_via_bare_remote() {
 
     let config_b = test_config(&home_b);
     config_b.ensure_dirs().unwrap();
-    let store_b = BrainStore::open(&config_b.db_path).unwrap();
-    let embedder = Embedder::deterministic();
-    let report = git_pull(&store_b, &embedder, &home_b, &settings).unwrap();
+    let engine_b = Arc::new(Engine::new(config_b).unwrap());
+    let report = git_pull(&engine_b, &settings).unwrap();
 
     assert_eq!(report.imported, 1);
-    let facts = store_b.list_facts(10).unwrap();
+    let facts = engine_b.store.list_facts(10).unwrap();
     assert!(facts.iter().any(|f| f["topic"] == "sync-test"));
 }
 
 #[test]
 fn git_import_logs_conflicts_with_git_sync_source() {
-    use agent_brain::sync::{import_bundle, MergePolicy};
+    use agent_brain::embed::Embedder;
+    use agent_brain::sync::{import_bundle, MergePolicy, SyncSource};
 
     let dir = TempDir::new().unwrap();
     let config = test_config(dir.path());
@@ -177,6 +179,7 @@ fn git_import_logs_conflicts_with_git_sync_source() {
 
 #[test]
 fn sync_restore_repromotes_loser_fact() {
+    use agent_brain::embed::Embedder;
     use agent_brain::sync::{import_bundle, restore_conflict, MergePolicy, SyncSource};
 
     let dir = TempDir::new().unwrap();

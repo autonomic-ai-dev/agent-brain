@@ -1,7 +1,10 @@
+use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::thread;
 
 use anyhow::Result;
+
+use crate::sync::{ImportReport, MergePolicy, SyncSource};
 
 pub enum WriteOp {
     StoreMemory {
@@ -14,6 +17,12 @@ pub enum WriteOp {
         topic: Option<String>,
         scope: Option<String>,
         scope_key: Option<String>,
+    },
+    ImportBundle {
+        resp_tx: std::sync::mpsc::Sender<Result<ImportReport>>,
+        bundle_path: PathBuf,
+        policy: MergePolicy,
+        source: SyncSource,
     },
     ReindexComplete,
 }

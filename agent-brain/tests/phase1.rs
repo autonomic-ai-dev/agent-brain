@@ -197,17 +197,7 @@ fn truncates_context_to_token_budget() {
             .unwrap();
     }
 
-    let engine = Engine {
-        config: config.clone(),
-        store: Arc::new(store),
-        embedder: embedder.clone(),
-        cache: Arc::new(TurnCache::new(8, 60)),
-        auto_capture_enabled: true,
-        route_latency: Arc::new(RouteLatencyStats::new(32)),
-        warmed: Arc::new(AtomicBool::new(false)),
-        query_emb_cache: Arc::new(QueryEmbeddingCache::new(32)),
-        mcp_activity: Arc::new(agent_brain::mcp_activity::McpActivity::new()),
-    };
+    let engine = Engine::new_with_store(config.clone(), Arc::new(store)).unwrap();
 
     let resp = engine
         .get_context(
@@ -247,17 +237,7 @@ fn route_task_respects_max_tokens() {
             .unwrap();
     }
 
-    let engine = Engine {
-        config,
-        store: Arc::new(store),
-        embedder: embedder.clone(),
-        cache: Arc::new(TurnCache::new(8, 60)),
-        auto_capture_enabled: true,
-        route_latency: Arc::new(RouteLatencyStats::new(32)),
-        warmed: Arc::new(AtomicBool::new(false)),
-        query_emb_cache: Arc::new(QueryEmbeddingCache::new(32)),
-        mcp_activity: Arc::new(agent_brain::mcp_activity::McpActivity::new()),
-    };
+    let engine = Engine::new_with_store(config, Arc::new(store)).unwrap();
 
     let resp = engine
         .route_task(
@@ -319,17 +299,7 @@ fn dedupes_duplicate_skill_names_in_route_task() {
             .unwrap();
     }
 
-    let engine = Engine {
-        config,
-        store: Arc::new(store),
-        embedder: embedder.clone(),
-        cache: Arc::new(TurnCache::new(8, 60)),
-        auto_capture_enabled: true,
-        route_latency: Arc::new(RouteLatencyStats::new(32)),
-        warmed: Arc::new(AtomicBool::new(false)),
-        query_emb_cache: Arc::new(QueryEmbeddingCache::new(32)),
-        mcp_activity: Arc::new(agent_brain::mcp_activity::McpActivity::new()),
-    };
+    let engine = Engine::new_with_store(config, Arc::new(store)).unwrap();
 
     let resp = engine
         .route_task(
@@ -481,17 +451,7 @@ fn route_task_with_all_zero_limits_returns_skills() {
         )
         .unwrap();
 
-    let engine = Engine {
-        config,
-        store: Arc::new(store),
-        embedder: embedder.clone(),
-        cache: Arc::new(TurnCache::new(8, 60)),
-        auto_capture_enabled: true,
-        route_latency: Arc::new(RouteLatencyStats::new(32)),
-        warmed: Arc::new(AtomicBool::new(false)),
-        query_emb_cache: Arc::new(QueryEmbeddingCache::new(32)),
-        mcp_activity: Arc::new(agent_brain::mcp_activity::McpActivity::new()),
-    };
+    let engine = Engine::new_with_store(config, Arc::new(store)).unwrap();
 
     let resp = engine
         .route_task(

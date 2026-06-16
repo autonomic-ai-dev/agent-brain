@@ -26,8 +26,9 @@ pub fn run(global: bool, print_only: bool, reload: bool) -> Result<()> {
         println!("  1. Restart Cursor or toggle agent-brain under Settings → MCP (loads new binary + hooks)");
         println!("  2. Confirm 'agent-brain' appears and is enabled under MCP");
         println!("  3. Confirm hooks loaded under Settings → Hooks (route_task gate)");
-        println!("  4. Confirm project rule at .cursor/rules/agent-brain.mdc (Settings → Rules)");
-        println!("  5. Use Agent mode — route_task is required before other agent-brain MCP tools");
+        println!("  4. Confirm ~/.cursor/permissions.json includes agent-brain:* (CLI MCP auto-approve)");
+        println!("  5. Confirm project rule at .cursor/rules/agent-brain.mdc (Settings → Rules)");
+        println!("  6. Use Agent mode — route_task is required before other agent-brain MCP tools");
         println!();
         println!("After local rebuilds without full reinstall: agent-brain install --global --reload");
     }
@@ -49,6 +50,7 @@ pub fn configure_cursor(global: bool, exe: &Path, quiet: bool) -> Result<()> {
 
     if global {
         install_cursor_hooks(quiet)?;
+        install_cursor_permissions(quiet)?;
     }
     install_project_cursor_rules(quiet)?;
 
@@ -114,6 +116,63 @@ fn install_cursor_hooks(quiet: bool) -> Result<()> {
         println!("Installed Cursor hooks at {}", hooks_config.display());
     }
     Ok(())
+}
+
+const AGENT_BRAIN_MCP_ALLOW: &str = "agent-brain:*";
+
+fn install_cursor_permissions(quiet: bool) -> Result<()> {
+    let home = dirs::home_dir().context("home directory")?;
+    let cursor_dir = home.join(".cursor");
+    fs::create_dir_all(&cursor_dir).with_context(|| format!("create {}", cursor_dir.display()))?;
+
+    let path = cursor_dir.join("permissions.json");
+    let merged = merge_permissions_config(&path)?;
+    let pretty = serde_json::to_string_pretty(&merged)?;
+    fs::write(&path, format!("{pretty}\n")).with_context(|| {
+        format!("write permissions config to {}", path.display())
+    })?;
+
+    if !quiet {
+        println!("Installed Cursor MCP allowlist at {}", path.display());
+        println!(
+            "  Added {AGENT_BRAIN_MCP_ALLOW} — CLI agents skip per-session MCP approval when Run Mode is enabled."
+        );
+    }
+    Ok(())
+}
+
+fn merge_permissions_config(path: &Path) -> Result<Value> {
+    let mut root = if path.exists() {
+        let raw = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+        serde_json::from_str(&raw).unwrap_or_else(|_| json!({}))
+    } else {
+        json!({})
+    };
+
+    if !root.is_object() {
+        root = json!({});
+    }
+
+    let existing = root
+        .get("mcpAllowlist")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let has_agent_brain = existing.iter().any(|entry| {
+        entry
+            .as_str()
+            .map(|s| s.eq_ignore_ascii_case(AGENT_BRAIN_MCP_ALLOW))
+            .unwrap_or(false)
+    });
+
+    let mut mcp_allowlist = existing;
+    if !has_agent_brain {
+        mcp_allowlist.push(json!(AGENT_BRAIN_MCP_ALLOW));
+    }
+
+    root["mcpAllowlist"] = json!(mcp_allowlist);
+    Ok(root)
 }
 
 fn command_exists(cmd: &str) -> bool {
@@ -300,6 +359,26 @@ mod tests {
         assert!(text.contains("route_gate.py"));
         assert!(text.contains("beforeSubmitPrompt"));
         assert!(text.contains("postToolUse"));
+    }
+
+    #[test]
+    fn merges_permissions_without_clobbering() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("permissions.json");
+        fs::write(
+            &path,
+            r#"{
+  "mcpAllowlist": ["github:*"],
+  "terminalAllowlist": ["git"]
+}"#,
+        )
+        .unwrap();
+
+        let merged = merge_permissions_config(&path).unwrap();
+        let text = serde_json::to_string_pretty(&merged).unwrap();
+        assert!(text.contains("github:*"));
+        assert!(text.contains("agent-brain:*"));
+        assert!(text.contains("terminalAllowlist"));
     }
 
     #[test]
