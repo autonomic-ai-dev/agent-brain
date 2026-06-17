@@ -36,7 +36,7 @@ agent-brain add @nextjs
 2. Rebuild / release agent-brain
 3. Document the alias in this file
 
-For community packages, prefer a separate **`awesome-agent-brain`** GitHub repo that links here — keep the embedded registry small and curated.
+For community packages, prefer **`docs/awesome-agent-brain/README.md`** (publish as its own GitHub repo when ready).
 
 ## Team workflow
 
