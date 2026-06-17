@@ -50,6 +50,7 @@ Beyond routing context, agent-brain acts as an **execution supervisor** — keep
 | **Hooks** | Block tools until `route_task` runs every turn |
 | **`must_apply`** | Hard constraints from negative memory / `apply_when` — surfaced in briefing and stats |
 | **`@supervisor` pack** | Token-efficient ops skills + always-on rule (`agent-brain add @supervisor`) |
+| **Token MCP tools** | `grep_search`, `file_summary`, `read_file_head`, `read_file_tail` — bounded reads instead of full-file loads |
 | **`store_memory`** | Persist anti-patterns (`polarity: "negative"`) so mistakes do not repeat |
 
 ```bash
@@ -57,6 +58,8 @@ agent-brain add @supervisor
 agent-brain briefing    # Supervisor: N constraint(s) in must_apply
 agent-brain stats         # routes with must_apply + token savings
 ```
+
+Prefer agent-brain **`grep_search`** / **`read_file_head`** over Cursor **Read** on large or unknown files. Blocked by default: `dist/`, `node_modules/`, `target/`, `build/`.
 
 Example: after the agent burns tokens reading `dist/`, store *“Never read dist/ — use rg on src/ only.”* The next similar task promotes it to **`must_apply`**.
 
@@ -118,6 +121,7 @@ Reproducible proof artifacts live in [`docs/benchmarks/`](docs/benchmarks/). Reg
 | Warm-route p95 (fixture) | 500 | — | **≤ 100 ms** | gated | `proofs --ci` |
 | Turn-cache p95 (fixture) | 500 | — | **≤ 30 ms** | gated | `proofs --ci` |
 | Execution supervisor | 500 + `@supervisor` | 3 scenarios | skill **100%** · must_apply **100%** · savings **~99%** · p95 **≤ 100 ms** | gated | `proofs --ci` |
+| Token MCP tools | synthetic 2k-line file | 4 tools | **≥ 80%** savings vs full read | gated | `proofs --ci` |
 | Hook gate logic | — | — | **< 1 ms p95** | gated | `test_route_gate.py` |
 
 **skills.sh eval** runs against committed `fixture-2k.db` — no network, no synthetic fillers. See [docs/benchmarks/skills-sh/README.md](docs/benchmarks/skills-sh/README.md).

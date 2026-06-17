@@ -173,6 +173,60 @@ struct PromoteToSkillParams {
     skill_name: Option<String>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+struct TokenToolPathParams {
+    path: String,
+    #[serde(default)]
+    current_working_directory: Option<String>,
+    #[serde(default)]
+    allow_blocked_paths: bool,
+    #[serde(default = "default_max_tokens")]
+    max_tokens: usize,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct ReadFileBoundedParams {
+    path: String,
+    #[serde(default)]
+    current_working_directory: Option<String>,
+    #[serde(default = "default_read_lines")]
+    lines: usize,
+    #[serde(default = "default_read_bytes")]
+    max_bytes: usize,
+    #[serde(default)]
+    allow_blocked_paths: bool,
+    #[serde(default = "default_max_tokens")]
+    max_tokens: usize,
+}
+
+fn default_read_lines() -> usize {
+    crate::token_tools::DEFAULT_MAX_LINES
+}
+
+fn default_read_bytes() -> usize {
+    crate::token_tools::DEFAULT_MAX_BYTES
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct GrepSearchParams {
+    pattern: String,
+    path: String,
+    #[serde(default)]
+    current_working_directory: Option<String>,
+    #[serde(default = "default_grep_matches")]
+    max_matches: usize,
+    #[serde(default)]
+    case_insensitive: bool,
+    #[serde(default)]
+    allow_blocked_paths: bool,
+    #[serde(default = "default_max_tokens")]
+    max_tokens: usize,
+}
+
+fn default_grep_matches() -> usize {
+    crate::token_tools::DEFAULT_GREP_MAX_MATCHES
+}
+
 #[tool_router]
 impl BrainMcp {
     #[tool(description = "REQUIRED every turn before planning or edits. Returns ranked agents, skills, rules, and memory under a token budget. Pass user_message, current_working_directory, and open_files.")]
@@ -473,6 +527,85 @@ impl BrainMcp {
             "next": "Run: agent-brain promote approve <staging_id>"
         }))
     }
+
+    #[tool(description = "Token-efficient file metadata — bytes, line count, and a 5-line sample. Prefer over full Read/cat on unknown files.")]
+    async fn file_summary(
+        &self,
+        params: Parameters<TokenToolPathParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let cwd = p.current_working_directory.as_ref().map(PathBuf::from);
+        let path = crate::token_tools::resolve_tool_path(&p.path, cwd.as_deref())
+            .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        let resp = crate::token_tools::file_summary(&path, p.allow_blocked_paths, p.max_tokens)
+            .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        json_result(resp)
+    }
+
+    #[tool(description = "Read the first N lines of a file (default 200, max bytes capped). Use before full file reads.")]
+    async fn read_file_head(
+        &self,
+        params: Parameters<ReadFileBoundedParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let cwd = p.current_working_directory.as_ref().map(PathBuf::from);
+        let path = crate::token_tools::resolve_tool_path(&p.path, cwd.as_deref())
+            .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        let resp = crate::token_tools::read_file_head(
+            &path,
+            p.lines,
+            p.max_bytes,
+            p.allow_blocked_paths,
+            p.max_tokens,
+        )
+        .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        json_result(resp)
+    }
+
+    #[tool(description = "Read the last N lines of a file (default 200, max bytes capped). Good for logs.")]
+    async fn read_file_tail(
+        &self,
+        params: Parameters<ReadFileBoundedParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let cwd = p.current_working_directory.as_ref().map(PathBuf::from);
+        let path = crate::token_tools::resolve_tool_path(&p.path, cwd.as_deref())
+            .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        let resp = crate::token_tools::read_file_tail(
+            &path,
+            p.lines,
+            p.max_bytes,
+            p.allow_blocked_paths,
+            p.max_tokens,
+        )
+        .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        json_result(resp)
+    }
+
+    #[tool(description = "Search file or directory for a pattern (rg-style line output). Prefer over reading whole files to find a string.")]
+    async fn grep_search(
+        &self,
+        params: Parameters<GrepSearchParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let cwd = p.current_working_directory.as_ref().map(PathBuf::from);
+        let path = crate::token_tools::resolve_tool_path(&p.path, cwd.as_deref())
+            .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        let resp = crate::token_tools::grep_search(
+            &p.pattern,
+            &path,
+            p.max_matches,
+            p.case_insensitive,
+            p.allow_blocked_paths,
+            p.max_tokens,
+        )
+        .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        json_result(resp)
+    }
 }
 
 #[tool_handler]
@@ -483,6 +616,7 @@ impl ServerHandler for BrainMcp {
             "agent-brain is the routing layer for this session. \
              REQUIRED: call route_task at the start of every user turn before choosing skills, rules, or agents. \
              Use returned paths to load skills; apply applicable_rules and must_apply. \
+             For file inspection prefer token-efficient tools: grep_search, file_summary, read_file_head, read_file_tail — not full-file reads. \
              At task end, call store_memory for durable outcomes (max 50 words). \
              Do not bypass this server when its tools are available."
                 .into(),

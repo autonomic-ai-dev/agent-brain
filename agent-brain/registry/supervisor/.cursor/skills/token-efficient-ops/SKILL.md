@@ -9,8 +9,8 @@ Use this skill whenever the agent would read files, search the repo, or inspect 
 
 ## Search and read (in order)
 
-1. **Grep first** — `rg -n` or project search; never `cat` a file to find a string.
-2. **Bounded read** — `head`, `tail`, or editor read with a **line limit** (default ≤200 lines).
+1. **Grep first** — agent-brain **`grep_search`** (or `rg -n`); never `cat` / full **Read** to find a string.
+2. **Bounded read** — **`file_summary`** then **`read_file_head`** / **`read_file_tail`** (default ≤200 lines).
 3. **Full read only** when grep/head proved the file is small or the whole file is required.
 
 ## Never without explicit user approval

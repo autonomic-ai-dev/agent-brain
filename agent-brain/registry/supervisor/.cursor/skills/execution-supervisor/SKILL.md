@@ -13,6 +13,7 @@ agent-brain is the **execution supervisor**: it routes minimal context and retur
 2. Read **`must_apply`** — hard constraints (negative memory, apply_when rules).
 3. Load only **`recommended_skills`** paths returned — do not grep the skill library.
 4. Plan with token budget in mind: smallest tool output that answers the question.
+5. Use agent-brain **`grep_search`**, **`file_summary`**, **`read_file_head`**, **`read_file_tail`** before Cursor Read/cat on large files.
 
 ## Persist anti-patterns
 

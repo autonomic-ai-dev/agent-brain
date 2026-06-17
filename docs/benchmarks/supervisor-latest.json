@@ -10,7 +10,7 @@
       "saved_pct": 99,
       "latency_ms": 2,
       "bm25_fast_path_eligible": true,
-      "tokens_used": 161,
+      "tokens_used": 292,
       "must_apply_count": 1
     },
     {
@@ -20,7 +20,7 @@
       "skill_hit": true,
       "must_apply_hit": true,
       "saved_pct": 99,
-      "latency_ms": 3,
+      "latency_ms": 4,
       "bm25_fast_path_eligible": true,
       "tokens_used": 162,
       "must_apply_count": 1
@@ -42,10 +42,41 @@
   "must_apply_rate": 1.0,
   "avg_saved_pct": 99.0,
   "bm25_fast_path_rate": 1.0,
-  "warm_route_p95_ms": 2,
+  "warm_route_p95_ms": 3,
   "skill_hit_threshold": 1.0,
   "must_apply_threshold": 1.0,
   "warm_route_p95_threshold_ms": 100,
   "avg_saved_pct_min": 90,
+  "token_tools": {
+    "scenarios": [
+      {
+        "name": "file_summary",
+        "tool": "file_summary",
+        "savings_pct": 99.58896065766295,
+        "passed": true
+      },
+      {
+        "name": "read_file_head",
+        "tool": "read_file_head",
+        "savings_pct": 97.60316019858004,
+        "passed": true
+      },
+      {
+        "name": "read_file_tail",
+        "tool": "read_file_tail",
+        "savings_pct": 98.98574707735013,
+        "passed": true
+      },
+      {
+        "name": "grep_search",
+        "tool": "grep_search",
+        "savings_pct": 99.83985480168687,
+        "passed": true
+      }
+    ],
+    "avg_savings_pct": 99.00443068382,
+    "savings_min_pct": 80.0,
+    "passed": true
+  },
   "passed": true
 }

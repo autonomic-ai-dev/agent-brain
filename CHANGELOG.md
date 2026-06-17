@@ -7,26 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-06-17
+
 ### Added
 
-- **Proof gates** — `agent-brain proofs --ci` runs isolated Recall@3 + latency benchmarks; writes `docs/benchmarks/latest.json`.
-- **Isolated eval** — `eval --ci` uses fixture DB by default; `--live` checks production `brain.db`.
-- **Latency CI thresholds** — turn-cache p95 ≤ 30ms, warm-route p95 ≤ 100ms on 500-skill fixture.
-- **Criterion bench** — `cargo bench -p agent-brain --bench route_task` for local micro-benchmarks.
-- **Architecture doc** — `docs/architecture/13-proofs-and-benchmarks.md`.
-- **Architecture documentation series** — `docs/architecture/` (13 articles): design goals, retrieval, memory, hooks, sync, operator loop, routing accuracy USP, proofs, decisions log.
-- **Hybrid retrieval** — `route_task` always uses embeddings plus BM25 and lexical term overlap (no BM25-only fast path).
-- **Skill indexing** — YAML `description`, `name`, and "When to activate" sections are indexed for search.
-- **Skill routing eval** — `proofs --ci` gates both memory and skills at Recall@3 ≥ 0.85 on isolated fixture.
-- **Architecture docs** — expanded PE/senior-dev sections (invariants, failure modes, evaluation questions) across `docs/architecture/`.
-- **Doctor** — reports OpenCode and Claude Code global MCP status; `doctor --fix` runs `install --all`.
+- **Token-efficient MCP tools** — `grep_search`, `file_summary`, `read_file_head`, `read_file_tail` with per-response token savings metadata.
+- **Blocked path guard** — refuses `dist/`, `node_modules/`, `target/`, `build/` unless `allow_blocked_paths=true`.
+- **Token tools bench** — gated in `proofs --ci` / `bench --supervisor` (≥ 80% savings vs full read on 2k-line fixture).
 
 ### Changed
 
-- **FTS prefilter** — strict AND across significant terms first, loose OR fallback when recall is low; general synonym expansion (PR/pull request, test/pytest, etc.).
-- **Recommendation threshold** — weak skill/agent/rule hits below relative minimum score are dropped from `route_task` output.
-- **Memory candidate pool** — reduced from 50 to 12 extra memories in scoring to avoid crowding skills.
-- **fastembed cache** — ONNX models cache under `~/.agent_brain/cache/fastembed` (not project cwd).
+- **`@supervisor` pack** — skills and rule now direct agents to agent-brain bounded-read tools before Cursor Read/cat.
+- **MCP server instructions** — mention token-efficient file tools explicitly.
+
+## [0.12.0] - 2026-06-17
+
+### Added
+
+- **Bundled `@supervisor` package** — execution-supervisor rule + token-efficient-ops / execution-supervisor skills.
+- **Supervisor routing** — `must_apply` pre-scan, negative-memory pinning, supervisor lexical boost, BM25 fast-path for supervisor queries.
+- **`bench --supervisor`** — skill recall, must_apply hit rate, token savings, latency gate.
+- **Proofs CI** — supervisor bench embedded in `proofs --ci`; writes `supervisor-latest.json`.
+
+### Changed
+
+- **Briefing / stats** — supervisor constraint counts in route summary and operator metrics.
 
 ## [0.11.0] - 2026-06-16
 

@@ -15,6 +15,7 @@ use crate::engine::Engine;
 use crate::fixture::{seed_bench_fixture, BENCH_FIXTURE_SKILLS};
 use crate::packages::install_bundled;
 use crate::route_briefing::token_savings;
+use crate::token_tools::{run_token_tools_bench, TokenToolsBenchReport};
 use crate::types::RouteLimits;
 
 pub const SUPERVISOR_SKILL_HIT_THRESHOLD: f64 = 1.0;
@@ -76,6 +77,7 @@ pub struct SupervisorBenchReport {
     pub must_apply_threshold: f64,
     pub warm_route_p95_threshold_ms: u64,
     pub avg_saved_pct_min: usize,
+    pub token_tools: TokenToolsBenchReport,
     pub passed: bool,
 }
 
@@ -220,10 +222,13 @@ pub fn run_supervisor_bench_on_engine(engine: &Engine) -> Result<SupervisorBench
     };
     let bm25_fast_path_rate = fast_path_eligible as f64 / SCENARIOS.len() as f64;
 
+    let token_tools = run_token_tools_bench()?;
+
     let passed = skill_hit_rate >= SUPERVISOR_SKILL_HIT_THRESHOLD
         && must_apply_rate >= MUST_APPLY_HIT_THRESHOLD
         && avg_saved_pct >= AVG_SAVED_PCT_MIN as f64
-        && warm_route_p95_ms <= SUPERVISOR_WARM_P95_MS;
+        && warm_route_p95_ms <= SUPERVISOR_WARM_P95_MS
+        && token_tools.passed;
 
     Ok(SupervisorBenchReport {
         fixture_skills: BENCH_FIXTURE_SKILLS,
@@ -237,6 +242,7 @@ pub fn run_supervisor_bench_on_engine(engine: &Engine) -> Result<SupervisorBench
         must_apply_threshold: MUST_APPLY_HIT_THRESHOLD,
         warm_route_p95_threshold_ms: SUPERVISOR_WARM_P95_MS,
         avg_saved_pct_min: AVG_SAVED_PCT_MIN,
+        token_tools,
         passed,
     })
 }
@@ -264,6 +270,13 @@ pub fn assert_supervisor_bench_gate(report: &SupervisorBenchReport) -> Result<()
             "avg saved_pct {:.0}% below minimum {}%",
             report.avg_saved_pct,
             report.avg_saved_pct_min
+        );
+    }
+    if !report.token_tools.passed {
+        bail!(
+            "token tools avg savings {:.0}% below minimum {:.0}%",
+            report.token_tools.avg_savings_pct,
+            report.token_tools.savings_min_pct
         );
     }
     bail!(

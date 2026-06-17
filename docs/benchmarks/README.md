@@ -14,6 +14,7 @@ This directory holds **reproducible proof artifacts** for claims in the architec
 | Supervisor must_apply | `proofs --ci` | 100% | negative `no-read-dist` memory |
 | Supervisor token savings | `proofs --ci` | ≥ 90% avg | vs naive full-index estimate |
 | Supervisor warm-route p95 | `proofs --ci` | ≤ 100 ms | BM25 fast-path (no query embed) |
+| Token MCP tools savings | `proofs --ci` | ≥ 80% avg | grep/head/tail/summary vs full read |
 
 CI runs: `cargo run --release -p agent-brain -- proofs --ci --write docs/benchmarks/latest.json` (also writes `supervisor-latest.json`)
 
@@ -74,6 +75,7 @@ See [skills-sh/README.md](skills-sh/README.md). Artifacts: `fixture-2k.db`, `ski
 | `agent-brain/src/eval.rs` | Golden Recall@3 suites |
 | `agent-brain/src/bench.rs` | Latency percentiles + thresholds |
 | `agent-brain/src/supervisor_bench.rs` | Execution supervisor efficiency gate |
+| `agent-brain/src/token_tools.rs` | Bounded file/grep MCP tools + savings bench |
 | `agent-brain/src/proofs.rs` | Combined gate + JSON export |
 | `agent-brain/src/skills_sh.rs` | skills.sh sync + 2000-item eval gate |
 | `agent-brain/benches/route_task.rs` | Criterion micro-benchmarks |

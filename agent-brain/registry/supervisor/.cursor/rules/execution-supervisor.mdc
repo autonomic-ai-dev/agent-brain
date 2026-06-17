@@ -9,7 +9,7 @@ When **agent-brain** MCP is available:
 
 1. **`route_task` every turn** before other tools (hooks enforce).
 2. Treat **`must_apply`** as **hard constraints** — not suggestions. Do not use tools that violate them.
-3. Prefer **grep / bounded reads** over full-file `cat` or directory dumps.
+3. Prefer **grep_search / read_file_head / file_summary** over full-file `cat` or directory dumps.
 4. After a token-wasting mistake, call **`store_memory`** with `polarity: "negative"` (max 50 words).
 
 If `must_apply` is non-empty, mention which constraints you are following in your plan (one line).

@@ -16,6 +16,7 @@ pub fn print_onboarding(home: &Path, has_briefing: bool) {
     println!("Get value in 5 minutes:");
     println!("  1. Restart Cursor · Settings → MCP → enable agent-brain");
     println!("  2. agent-brain add @supervisor       # token-efficient ops + execution supervisor");
+    println!("     MCP tools: grep_search, file_summary, read_file_head, read_file_tail");
     println!("     (or @starter / @nextjs / owner/repo)");
     println!("  3. Open Agent mode · send any task   # hooks require route_task first");
     println!("  4. agent-brain briefing              # skills routed + token savings");
