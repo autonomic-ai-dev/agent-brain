@@ -122,6 +122,8 @@ Reproducible proof artifacts live in [`docs/benchmarks/`](docs/benchmarks/). Reg
 | Turn-cache p95 (fixture) | 500 | — | **≤ 30 ms** | gated | `proofs --ci` |
 | Execution supervisor | 500 + `@supervisor` | 3 scenarios | skill **100%** · must_apply **100%** · savings **~99%** · p95 **≤ 100 ms** | gated | `proofs --ci` |
 | Token MCP tools | synthetic 2k-line file | 4 tools | **≥ 80%** savings vs full read | gated | `proofs --ci` |
+| Supervisor telemetry | hook + tool_log | 24h window | tool savings + Read steers in briefing | informational | `agent-brain stats` |
+| Anti-pattern loop | hook steer | — | `suggest-memory approve` → negative memory | manual | CLI |
 | Hook gate logic | — | — | **< 1 ms p95** | gated | `test_route_gate.py` |
 
 **skills.sh eval** runs against committed `fixture-2k.db` — no network, no synthetic fillers. See [docs/benchmarks/skills-sh/README.md](docs/benchmarks/skills-sh/README.md).

@@ -331,6 +331,7 @@ fn proofs_ci_passes_isolated_gates() {
     assert!(report.eval.skills.recall_at_3 >= RECALL_AT_3_THRESHOLD);
     assert!(report.latency.passed);
     assert!(report.supervisor.passed);
+    assert!(report.token_tools.passed);
     assert!(report.eval.cases >= 20);
 }
 
@@ -512,5 +513,39 @@ fn route_task_suggests_native_token_tools_for_file_queries() {
             .any(|t| t.tool == "grep_search"),
         "expected grep_search suggestion, got {:?}",
         resp.suggested_native_tools
+    );
+}
+
+#[test]
+fn suggest_memory_approve_stores_negative_with_apply_when() {
+    use std::fs;
+
+    let dir = tempfile::TempDir::new().unwrap();
+    let config = test_config(&dir);
+    config.ensure_dirs().unwrap();
+    let hooks = config.home.join("hooks");
+    fs::create_dir_all(&hooks).unwrap();
+    let state = serde_json::json!({
+        "anti_pattern_suggestion": {
+            "topic": "no-read-dist",
+            "fact": "Never read /app/dist/bundle.js whole — use grep_search.",
+            "polarity": "negative",
+            "path": "/app/dist/bundle.js",
+            "reason": "blocked path"
+        }
+    });
+    fs::write(
+        hooks.join("route_state.json"),
+        serde_json::to_string(&state).unwrap(),
+    )
+    .unwrap();
+
+    let engine = Engine::new(config).unwrap();
+    let report = agent_brain::suggest_memory::approve_pending(&engine).unwrap();
+    assert!(report.stored);
+    assert_eq!(report.polarity, "negative");
+    assert_eq!(report.apply_when, vec!["path:**/dist/**"]);
+    assert!(
+        agent_brain::route_briefing::read_anti_pattern_suggestion(&engine.config.home).is_none()
     );
 }

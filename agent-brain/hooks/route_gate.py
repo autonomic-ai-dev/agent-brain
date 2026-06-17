@@ -324,6 +324,7 @@ def write_anti_pattern_suggestion(path: str, reason: str) -> None:
         "topic": topic,
         "fact": f"Never read {path} whole — use grep_search, file_summary, read_file_head/tail.",
         "polarity": "negative",
+        "path": path,
         "reason": reason,
         "suggested_at": time.time(),
         "apply_with": "store_memory",

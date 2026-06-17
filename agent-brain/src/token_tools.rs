@@ -20,7 +20,7 @@ pub const DEFAULT_GREP_MAX_MATCHES: usize = 50;
 pub const MAX_GREP_FILE_BYTES: u64 = 10 * 1024 * 1024;
 pub const TOKEN_TOOLS_SAVINGS_MIN_PCT: f64 = 80.0;
 
-const BLOCKED_SEGMENTS: &[&str] = &[
+pub const BLOCKED_SEGMENTS: &[&str] = &[
     "node_modules",
     ".git",
     "target",

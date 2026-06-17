@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-06-17
+
+### Added
+
+- **`agent-brain suggest-memory approve|reject`** — promote hook-captured anti-patterns into `store_memory` (negative polarity + `apply_when` paths).
+- **Supervisor period in briefing** — 24h token-tool stats, read-gate mode, and pending suggestion footer in `last-route.md`.
+- **Token tools in `proofs --ci`** — gates bounded-read savings alongside eval, latency, and supervisor benches.
+
+### Changed
+
+- **Hook anti-pattern payload** — includes `path` for smarter `apply_when` on approve.
+- **Route stderr summary** — shows `read_gate=steer|hard|off` when active.
+
 ## [0.14.0] - 2026-06-17
 
 ### Added

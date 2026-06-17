@@ -261,12 +261,36 @@ async fn main() -> Result<()> {
         }
         "suggest-memory" => {
             let config = Config::load()?;
-            match agent_brain::route_briefing::read_anti_pattern_suggestion(&config.home) {
-                Some(suggestion) => println!("{}", serde_json::to_string_pretty(&suggestion)?),
-                None => {
-                    eprintln!("No anti-pattern suggestion pending.");
-                    std::process::exit(1);
+            let sub = args.get(2).map(String::as_str).unwrap_or("show");
+            match sub {
+                "approve" => {
+                    let engine = Arc::new(Engine::new(config)?);
+                    let report = agent_brain::suggest_memory::approve_pending(&engine)?;
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                    if report.stored {
+                        let n = engine.bootstrap(None)?;
+                        println!("Stored negative memory (reindexed {n} items)");
+                    } else if report.deduplicated {
+                        println!("Already stored (deduplicated)");
+                    }
                 }
+                "reject" => {
+                    let config = Config::load()?;
+                    agent_brain::suggest_memory::reject_pending(&config.home)?;
+                    println!("Dismissed pending anti-pattern suggestion");
+                }
+                "show" | _ => match agent_brain::route_briefing::read_anti_pattern_suggestion(
+                    &Config::load()?.home,
+                ) {
+                    Some(suggestion) => {
+                        println!("{}", serde_json::to_string_pretty(&suggestion)?);
+                        println!("\nApprove: agent-brain suggest-memory approve");
+                    }
+                    None => {
+                        eprintln!("No anti-pattern suggestion pending.");
+                        std::process::exit(1);
+                    }
+                },
             }
         }
         "onboarding" => {
@@ -1036,6 +1060,7 @@ Usage:
   agent-brain config show                     Print active config file
   agent-brain version                         Print installed version
   agent-brain briefing                        Print last human-readable route summary
+  agent-brain suggest-memory [approve|reject] Show or promote hook anti-pattern to store_memory
   agent-brain stats [--days N] [--json]       Index, routing, token savings, adoption milestones
   agent-brain digest --weekly                 Operator digest from retrieval_log
   agent-brain onboarding                      USP + 5-minute getting started checklist

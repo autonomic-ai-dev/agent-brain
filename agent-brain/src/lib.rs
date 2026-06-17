@@ -30,6 +30,7 @@ pub mod operator_digest;
 pub mod onboarding;
 pub mod adoption;
 pub mod stats;
+pub mod suggest_memory;
 pub mod eval;
 pub mod fixture;
 pub mod bench;

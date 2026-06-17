@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 
+use anyhow::{Context, Result};
 use chrono::Local;
 
 use crate::types::RouteTaskResponse;
@@ -174,8 +175,13 @@ pub fn format_summary_line(resp: &RouteTaskResponse) -> String {
         );
         format!(" · tools: [{names}]")
     };
+    let read_gate = if read_gate_mode() == "off" {
+        String::new()
+    } else {
+        format!(" · read_gate={}", read_gate_mode())
+    };
     format!(
-        "phase={} · skills: {} [{skill_names}] · agents: {} [{agent_names}] · {} rules · {} memory · {}/{} tok{}{}{} · {}ms · log={} · {}",
+        "phase={} · skills: {} [{skill_names}] · agents: {} [{agent_names}] · {} rules · {} memory · {}/{} tok{}{}{}{} · {}ms · log={} · {}",
         resp.recommended_phase,
         resp.recommended_skills.len(),
         resp.recommended_agents.len(),
@@ -186,6 +192,7 @@ pub fn format_summary_line(resp: &RouteTaskResponse) -> String {
         savings.unwrap_or_default(),
         constraints,
         native_tools,
+        read_gate,
         resp.latency_ms,
         resp.log_id,
         briefing_path_display()
@@ -216,8 +223,16 @@ fn briefing_path_display() -> String {
     home.join("logs/last-route.md").display().to_string()
 }
 
-pub fn publish_briefing(home: &Path, resp: &RouteTaskResponse, stderr_line: bool) {
-    let briefing = format_briefing(resp);
+pub fn publish_briefing(
+    home: &Path,
+    resp: &RouteTaskResponse,
+    stderr_line: bool,
+    store: Option<&crate::db::store::BrainStore>,
+) {
+    let mut briefing = format_briefing(resp);
+    if let Some(store) = store {
+        briefing.push_str(&format_supervisor_period_section(home, store));
+    }
     let logs = home.join("logs");
     if fs::create_dir_all(&logs).is_ok() {
         let path = logs.join("last-route.md");
@@ -262,6 +277,73 @@ pub fn publish_route_state(home: &Path, resp: &RouteTaskResponse) {
         );
     }
     let _ = fs::write(&path, serde_json::to_string(&state).unwrap_or_default());
+}
+
+pub fn clear_anti_pattern_suggestion(home: &Path) -> Result<()> {
+    let path = home.join("hooks/route_state.json");
+    let mut state: serde_json::Value = fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    if let Some(obj) = state.as_object_mut() {
+        obj.remove("anti_pattern_suggestion");
+    }
+    fs::write(&path, serde_json::to_string(&state)?).with_context(|| {
+        format!("write {}", path.display())
+    })?;
+    Ok(())
+}
+
+pub fn read_gate_mode() -> &'static str {
+    let raw = std::env::var("AGENT_BRAIN_READ_GATE").unwrap_or_else(|_| "steer".into());
+    let lower = raw.trim().to_ascii_lowercase();
+    if lower == "off" {
+        "off"
+    } else if lower == "hard" {
+        "hard"
+    } else {
+        "steer"
+    }
+}
+
+pub fn format_supervisor_period_section(
+    home: &Path,
+    store: &crate::db::store::BrainStore,
+) -> String {
+    let since = chrono::Utc::now().timestamp_millis() - 24 * 3600 * 1000;
+    let _ = crate::tool_events::ingest_hook_events_since(store, home, since);
+    let stats = store.retrieval_stats_since(since).ok();
+    let pending = read_anti_pattern_suggestion(home).is_some();
+    let mut out = String::from("## Supervisor (24h)\n\n");
+    out.push_str(&format!("- Read gate: **{}**\n", read_gate_mode()));
+    if let Some(stats) = stats {
+        if stats.tool_calls > 0 {
+            out.push_str(&format!(
+                "- Token tools: {} calls · ~{} tok saved · {:.0}% avg savings\n",
+                stats.tool_calls, stats.tool_tokens_saved, stats.tool_avg_savings_pct
+            ));
+        }
+        if stats.inefficient_read_events > 0 {
+            out.push_str(&format!(
+                "- Inefficient Read steers: {} — run `agent-brain suggest-memory approve` to persist\n",
+                stats.inefficient_read_events
+            ));
+        }
+        if stats.routes_with_constraints > 0 {
+            out.push_str(&format!(
+                "- must_apply routes: {} ({} constraints)\n",
+                stats.routes_with_constraints, stats.total_must_apply
+            ));
+        }
+    }
+    if pending {
+        out.push_str("- **Pending anti-pattern** — `agent-brain suggest-memory approve`\n");
+    }
+    if out.ends_with("## Supervisor (24h)\n\n") {
+        out.push_str("_no supervisor telemetry in last 24h_\n");
+    }
+    out.push('\n');
+    out
 }
 
 pub fn read_anti_pattern_suggestion(home: &Path) -> Option<serde_json::Value> {

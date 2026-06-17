@@ -284,6 +284,7 @@ class ReadGateTests(unittest.TestCase):
             self.assertEqual(result["permission"], "allow")
             state = load_state()
             self.assertIn("anti_pattern_suggestion", state)
+            self.assertEqual(state["anti_pattern_suggestion"].get("path"), str(big))
 
 
 if __name__ == "__main__":

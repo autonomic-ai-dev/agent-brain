@@ -10,6 +10,7 @@ use crate::eval::{assert_ci_gate, run_ci_eval_isolated, EvalReport};
 use crate::supervisor_bench::{
     assert_supervisor_bench_gate, run_supervisor_bench, SupervisorBenchReport,
 };
+use crate::token_tools::{run_token_tools_bench, TokenToolsBenchReport};
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ProofReport {
@@ -20,6 +21,7 @@ pub struct ProofReport {
     pub eval: EvalReport,
     pub latency: LatencyBenchReport,
     pub supervisor: SupervisorBenchReport,
+    pub token_tools: TokenToolsBenchReport,
     pub passed: bool,
 }
 
@@ -33,6 +35,14 @@ pub fn run_ci_proofs() -> Result<ProofReport> {
     let supervisor = run_supervisor_bench()?;
     assert_supervisor_bench_gate(&supervisor)?;
 
+    let token_tools = run_token_tools_bench()?;
+    if !token_tools.passed {
+        anyhow::bail!(
+            "token tools bench failed: min {:.0}% savings required",
+            token_tools.savings_min_pct
+        );
+    }
+
     Ok(ProofReport {
         generated_at: Utc::now().to_rfc3339(),
         environment: "isolated-fixture",
@@ -42,6 +52,7 @@ pub fn run_ci_proofs() -> Result<ProofReport> {
         eval,
         latency,
         supervisor,
+        token_tools,
     })
 }
 
@@ -71,6 +82,9 @@ pub fn assert_ci_proofs(report: &ProofReport) -> Result<()> {
     assert_ci_gate(&report.eval)?;
     assert_bench_gate(&report.latency)?;
     assert_supervisor_bench_gate(&report.supervisor)?;
+    if !report.token_tools.passed {
+        bail!("token tools proof gate failed");
+    }
     if !report.passed {
         bail!("proof report marked failed");
     }

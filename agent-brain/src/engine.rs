@@ -532,6 +532,7 @@ impl Engine {
                 &self.config.home,
                 &resp,
                 self.config.route_briefing_stderr,
+                Some(&self.store),
             );
         }
         resp.briefing = route_briefing::format_summary_line(&resp);
