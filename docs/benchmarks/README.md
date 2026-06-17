@@ -10,8 +10,12 @@ This directory holds **reproducible proof artifacts** for claims in the architec
 | Skills Recall@3 | `proofs --ci` | ≥ 0.85 | 6 golden skills + 3 decoys |
 | Turn-cache p95 | `proofs --ci` | ≤ 30 ms | 500-skill index, deterministic embedder |
 | Warm-route p95 | `proofs --ci` | ≤ 100 ms | Unique queries, embedder warm |
+| Supervisor skill recall | `proofs --ci` | 100% | `@supervisor` + 500 fillers |
+| Supervisor must_apply | `proofs --ci` | 100% | negative `no-read-dist` memory |
+| Supervisor token savings | `proofs --ci` | ≥ 90% avg | vs naive full-index estimate |
+| Supervisor warm-route p95 | `proofs --ci` | ≤ 100 ms | BM25 fast-path (no query embed) |
 
-CI runs: `cargo run --release -p agent-brain -- proofs --ci --write docs/benchmarks/latest.json`
+CI runs: `cargo run --release -p agent-brain -- proofs --ci --write docs/benchmarks/latest.json` (also writes `supervisor-latest.json`)
 
 Integration test: `proofs_ci_passes_isolated_gates` in `agent-brain/tests/v0_10.rs`
 
@@ -57,7 +61,8 @@ See [skills-sh/README.md](skills-sh/README.md). Artifacts: `fixture-2k.db`, `ski
 
 | File | Contents |
 |------|----------|
-| `latest.json` | Last generated `ProofReport` (eval + latency on isolated fixture) |
+| `latest.json` | Last generated `ProofReport` (eval + latency + supervisor on isolated fixture) |
+| `supervisor-latest.json` | Supervisor bench snapshot (also embedded in `latest.json`) |
 | `skills-sh-latest.json` | Last skills.sh eval report |
 | `skills-sh/` | Manifest, golden cases, committed snapshot |
 
@@ -68,6 +73,7 @@ See [skills-sh/README.md](skills-sh/README.md). Artifacts: `fixture-2k.db`, `ski
 | `agent-brain/src/fixture.rs` | Isolated temp DB + seed helpers |
 | `agent-brain/src/eval.rs` | Golden Recall@3 suites |
 | `agent-brain/src/bench.rs` | Latency percentiles + thresholds |
+| `agent-brain/src/supervisor_bench.rs` | Execution supervisor efficiency gate |
 | `agent-brain/src/proofs.rs` | Combined gate + JSON export |
 | `agent-brain/src/skills_sh.rs` | skills.sh sync + 2000-item eval gate |
 | `agent-brain/benches/route_task.rs` | Criterion micro-benchmarks |

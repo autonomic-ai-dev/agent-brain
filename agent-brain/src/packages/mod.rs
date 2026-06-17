@@ -8,7 +8,9 @@ use serde::{Deserialize, Serialize};
 use crate::config::Config;
 
 mod curated;
-pub use curated::{list_aliases, resolve_package_inputs, CuratedAliasInfo};
+mod bundles;
+pub use curated::{list_aliases, lookup_alias, resolve_package_inputs, CuratedAliasInfo, ResolvedAlias};
+pub use bundles::install_bundled;
 
 const REGISTRY_FILE: &str = "packages.json";
 

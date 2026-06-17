@@ -1,0 +1,51 @@
+{
+  "fixture_skills": 500,
+  "scenarios": [
+    {
+      "query": "grep before cat a large log file token efficient",
+      "expect_skill": "token-efficient-ops",
+      "expect_must_apply_topic": null,
+      "skill_hit": true,
+      "must_apply_hit": true,
+      "saved_pct": 99,
+      "latency_ms": 2,
+      "bm25_fast_path_eligible": true,
+      "tokens_used": 161,
+      "must_apply_count": 1
+    },
+    {
+      "query": "read frontend build artifacts from dist folder deployment",
+      "expect_skill": null,
+      "expect_must_apply_topic": "no-read-dist",
+      "skill_hit": true,
+      "must_apply_hit": true,
+      "saved_pct": 99,
+      "latency_ms": 3,
+      "bm25_fast_path_eligible": true,
+      "tokens_used": 162,
+      "must_apply_count": 1
+    },
+    {
+      "query": "use rg head tail instead of cat huge files save tokens",
+      "expect_skill": "token-efficient-ops",
+      "expect_must_apply_topic": null,
+      "skill_hit": true,
+      "must_apply_hit": true,
+      "saved_pct": 99,
+      "latency_ms": 3,
+      "bm25_fast_path_eligible": true,
+      "tokens_used": 165,
+      "must_apply_count": 1
+    }
+  ],
+  "skill_hit_rate": 1.0,
+  "must_apply_rate": 1.0,
+  "avg_saved_pct": 99.0,
+  "bm25_fast_path_rate": 1.0,
+  "warm_route_p95_ms": 2,
+  "skill_hit_threshold": 1.0,
+  "must_apply_threshold": 1.0,
+  "warm_route_p95_threshold_ms": 100,
+  "avg_saved_pct_min": 90,
+  "passed": true
+}

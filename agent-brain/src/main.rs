@@ -57,9 +57,29 @@ async fn main() -> Result<()> {
             let git_ref = flag_value(&args, "--ref");
             let skip_index = args.iter().any(|a| a == "--no-index");
             let config = Config::load()?;
-            let sources = packages::resolve_package_inputs(source)?;
-            for src in &sources {
-                let record = packages::add_package(&config, src, git_ref.as_deref())?;
+            if let Some(resolved) = packages::lookup_alias(source)? {
+                match resolved {
+                    packages::ResolvedAlias::Bundle(name) => {
+                        let record = packages::install_bundled(&config, &name)?;
+                        println!(
+                            "Installed bundled package '{}' ({})",
+                            record.name, record.source
+                        );
+                    }
+                    packages::ResolvedAlias::Git(sources) => {
+                        for src in &sources {
+                            let record = packages::add_package(&config, src, git_ref.as_deref())?;
+                            println!(
+                                "Installed package '{}' from {} ({})",
+                                record.name,
+                                record.source,
+                                record.commit.unwrap_or_else(|| "unknown".into())
+                            );
+                        }
+                    }
+                }
+            } else {
+                let record = packages::add_package(&config, source, git_ref.as_deref())?;
                 println!(
                     "Installed package '{}' from {} ({})",
                     record.name,
@@ -80,8 +100,12 @@ async fn main() -> Result<()> {
             match args.get(2).map(String::as_str).unwrap_or("list") {
                 "list" => {
                     for entry in packages::list_aliases()? {
-                        let pkgs = entry.packages.join(", ");
-                        println!("@{:<8}  {}  [{}]", entry.alias, entry.description, pkgs);
+                        let source = if let Some(bundle) = &entry.bundle {
+                            format!("bundle:{bundle}")
+                        } else {
+                            entry.packages.join(", ")
+                        };
+                        println!("@{:<10}  {}  [{}]", entry.alias, entry.description, source);
                     }
                 }
                 other => {
@@ -874,7 +898,23 @@ async fn main() -> Result<()> {
         "bench" => {
             let onnx = args.iter().any(|a| a == "--onnx");
             let ci = args.iter().any(|a| a == "--ci");
-            if onnx {
+            let supervisor = args.iter().any(|a| a == "--supervisor");
+            if supervisor {
+                let report = agent_brain::supervisor_bench::run_supervisor_bench()?;
+                println!("{}", serde_json::to_string_pretty(&report)?);
+                if let Some(path) = flag_value(&args, "--write") {
+                    let json = serde_json::to_string_pretty(&report)?;
+                    std::fs::write(&path, format!("{json}\n"))?;
+                }
+                if args.iter().any(|a| a == "--assert") {
+                    if let Err(err) =
+                        agent_brain::supervisor_bench::assert_supervisor_bench_gate(&report)
+                    {
+                        eprintln!("{err}");
+                        std::process::exit(1);
+                    }
+                }
+            } else if onnx {
                 let fixture = flag_value(&args, "--fixture-db")
                     .map(PathBuf::from)
                     .unwrap_or_else(agent_brain::fixture::default_fixture_2k_path);
@@ -899,6 +939,7 @@ async fn main() -> Result<()> {
                 }
             } else {
                 eprintln!("Usage: agent-brain bench --ci");
+                eprintln!("       agent-brain bench --supervisor [--assert] [--write PATH]");
                 eprintln!("       agent-brain bench --onnx [--fixture-db PATH] [--write PATH] [--assert-target]");
                 std::process::exit(1);
             }
@@ -964,6 +1005,7 @@ Usage:
   agent-brain serve                         Start MCP server (stdio)
   agent-brain index                         Reindex local agents/skills/rules/memory
   agent-brain add <@alias|owner/repo|url>   Install package(s) and index
+  agent-brain add @supervisor               Execution supervisor pack (token-efficient ops)
   agent-brain add @starter                  Curated onboarding pack
   agent-brain add @nextjs                   Vercel React/Next.js skills
   agent-brain registry list                 Show curated @aliases
@@ -1007,6 +1049,7 @@ Usage:
   agent-brain digest --weekly                 Operator digest from retrieval_log
   agent-brain eval --ci [--live]                 Recall@3 gate (isolated fixture; --live uses brain.db)
   agent-brain bench --ci                         Latency gate on 500-skill fixture (isolated)
+  agent-brain bench --supervisor [--assert]      Supervisor skill/must_apply/savings bench
   agent-brain bench --onnx [--fixture-db PATH]   ONNX warm-route bench on fixture-2k.db (nightly)
   agent-brain eval --skills-sh [--fixture-db PATH]   skills.sh Recall@3 (~2000 index)
   agent-brain fixture build [--index-size N]      Build committed fixture-2k.db from snapshot

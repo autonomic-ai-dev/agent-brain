@@ -145,13 +145,20 @@ pub fn format_text(stats: &OperatorStats) -> String {
     } else {
         out.push_str("- Token savings: no routes logged yet (send an agent turn with route_task)\n");
     }
+    if stats.period.routes_with_constraints > 0 {
+        out.push_str(&format!(
+            "- Supervisor: {} routes enforced must_apply ({} constraints total)\n",
+            stats.period.routes_with_constraints, stats.period.total_must_apply
+        ));
+    }
 
     out.push_str("\n## Adoption (local)\n\n");
     out.push_str(&format!(
-        "- Installed: {}\n- First route: {}\n- Starter pack: {}\n",
+        "- Installed: {}\n- First route: {}\n- Starter pack: {}\n- Supervisor pack: {}\n",
         stats.adoption.installed_at.as_deref().unwrap_or("—"),
         stats.adoption.first_route_at.as_deref().unwrap_or("—"),
         stats.adoption.starter_pack_at.as_deref().unwrap_or("—"),
+        stats.adoption.supervisor_pack_at.as_deref().unwrap_or("—"),
     ));
 
     if let Some(proof) = &stats.proof {
@@ -184,11 +191,20 @@ pub fn format_summary_line(stats: &OperatorStats) -> String {
     } else {
         "savings pending".into()
     };
+    let supervisor = if stats.period.routes_with_constraints > 0 {
+        format!(
+            " · must_apply on {} routes",
+            stats.period.routes_with_constraints
+        )
+    } else {
+        String::new()
+    };
     format!(
-        "{} routes ({}d) · {} · p95 {}ms · index {}",
+        "{} routes ({}d) · {}{} · p95 {}ms · index {}",
         stats.period.route_calls,
         stats.period_days,
         savings,
+        supervisor,
         stats.period.p95_latency_ms,
         stats.index.total_indexed
     )

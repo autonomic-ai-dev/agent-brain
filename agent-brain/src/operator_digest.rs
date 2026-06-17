@@ -18,6 +18,8 @@ pub struct WeeklyDigest {
     pub avg_saved_pct: f64,
     pub total_saved_tokens: u64,
     pub avg_routed_tokens: f64,
+    pub routes_with_constraints: usize,
+    pub total_must_apply: usize,
     pub feedback: FeedbackSummary,
 }
 
@@ -65,6 +67,8 @@ pub fn weekly_digest(store: &BrainStore, days: u32) -> Result<WeeklyDigest> {
         avg_saved_pct: stats.avg_saved_pct,
         total_saved_tokens: stats.total_saved_tokens,
         avg_routed_tokens: stats.avg_routed_tokens,
+        routes_with_constraints: stats.routes_with_constraints,
+        total_must_apply: stats.total_must_apply,
         feedback: FeedbackSummary {
             items_tracked: feedback.items_tracked,
             total_useful: feedback.total_useful,
@@ -104,6 +108,12 @@ pub fn format_weekly_digest(digest: &WeeklyDigest) -> String {
             digest.routes_with_savings,
             digest.total_saved_tokens,
             digest.avg_routed_tokens
+        ));
+    }
+    if digest.routes_with_constraints > 0 {
+        out.push_str(&format!(
+            "- Supervisor constraints: {} routes with must_apply · {} total constraints\n",
+            digest.routes_with_constraints, digest.total_must_apply
         ));
     }
     out.push('\n');

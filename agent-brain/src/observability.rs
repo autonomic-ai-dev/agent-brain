@@ -70,6 +70,7 @@ pub fn log_route(
         resp.latency_ms,
         index_total,
         saved_pct,
+        Some(resp.must_apply.len()),
     )?;
     crate::adoption::record_first_route(store)
 }
@@ -132,6 +133,7 @@ pub fn log_upstream_call(
         truncated,
         false,
         latency_ms,
+        None,
         None,
         None,
     )

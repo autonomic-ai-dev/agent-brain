@@ -1,25 +1,25 @@
 {
-  "generated_at": "2026-06-16T16:24:07.648327+00:00",
+  "generated_at": "2026-06-17T07:14:26.723086+00:00",
   "environment": "isolated-fixture",
   "embedder": "deterministic",
   "fixture_skills": 500,
   "eval": {
     "memory": {
       "suite": "memory",
-      "cases": 4,
-      "passed": 4,
+      "cases": 7,
+      "passed": 7,
       "recall_at_3": 1.0,
       "failures": []
     },
     "skills": {
       "suite": "skills",
-      "cases": 6,
-      "passed": 6,
+      "cases": 13,
+      "passed": 13,
       "recall_at_3": 1.0,
       "failures": []
     },
-    "cases": 10,
-    "passed": 10,
+    "cases": 20,
+    "passed": 20,
     "recall_at_3": 1.0,
     "threshold": 0.85,
     "failures": []
@@ -32,17 +32,68 @@
       "min_ms": 0,
       "p50_ms": 0,
       "p95_ms": 0,
-      "max_ms": 3
+      "max_ms": 1
     },
     "warm_route": {
       "samples": 25,
-      "min_ms": 4,
-      "p50_ms": 4,
-      "p95_ms": 5,
-      "max_ms": 5
+      "min_ms": 1,
+      "p50_ms": 1,
+      "p95_ms": 1,
+      "max_ms": 2
     },
     "turn_cache_hit_p95_threshold_ms": 30,
     "warm_route_p95_threshold_ms": 100,
+    "passed": true
+  },
+  "supervisor": {
+    "fixture_skills": 500,
+    "scenarios": [
+      {
+        "query": "grep before cat a large log file token efficient",
+        "expect_skill": "token-efficient-ops",
+        "expect_must_apply_topic": null,
+        "skill_hit": true,
+        "must_apply_hit": true,
+        "saved_pct": 99,
+        "latency_ms": 2,
+        "bm25_fast_path_eligible": true,
+        "tokens_used": 161,
+        "must_apply_count": 1
+      },
+      {
+        "query": "read frontend build artifacts from dist folder deployment",
+        "expect_skill": null,
+        "expect_must_apply_topic": "no-read-dist",
+        "skill_hit": true,
+        "must_apply_hit": true,
+        "saved_pct": 99,
+        "latency_ms": 3,
+        "bm25_fast_path_eligible": true,
+        "tokens_used": 162,
+        "must_apply_count": 1
+      },
+      {
+        "query": "use rg head tail instead of cat huge files save tokens",
+        "expect_skill": "token-efficient-ops",
+        "expect_must_apply_topic": null,
+        "skill_hit": true,
+        "must_apply_hit": true,
+        "saved_pct": 99,
+        "latency_ms": 3,
+        "bm25_fast_path_eligible": true,
+        "tokens_used": 165,
+        "must_apply_count": 1
+      }
+    ],
+    "skill_hit_rate": 1.0,
+    "must_apply_rate": 1.0,
+    "avg_saved_pct": 99.0,
+    "bm25_fast_path_rate": 1.0,
+    "warm_route_p95_ms": 2,
+    "skill_hit_threshold": 1.0,
+    "must_apply_threshold": 1.0,
+    "warm_route_p95_threshold_ms": 100,
+    "avg_saved_pct_min": 90,
     "passed": true
   },
   "passed": true

@@ -330,7 +330,8 @@ fn proofs_ci_passes_isolated_gates() {
     agent_brain::proofs::assert_ci_proofs(&report).unwrap();
     assert!(report.eval.skills.recall_at_3 >= RECALL_AT_3_THRESHOLD);
     assert!(report.latency.passed);
-    assert!(report.eval.cases >= 19);
+    assert!(report.supervisor.passed);
+    assert!(report.eval.cases >= 20);
 }
 
 #[test]
@@ -353,11 +354,14 @@ fn stats_collects_token_savings_from_retrieval_log() {
             15,
             Some(2000),
             Some(95),
+            Some(2),
         )
         .unwrap();
 
     let snapshot = stats::collect(&store, &config, 7).unwrap();
     assert_eq!(snapshot.period.route_calls, 1);
+    assert_eq!(snapshot.period.routes_with_constraints, 1);
+    assert_eq!(snapshot.period.total_must_apply, 2);
     assert_eq!(snapshot.period.routes_with_savings, 1);
     assert!(snapshot.period.avg_saved_pct >= 95.0);
     assert!(snapshot.period.total_saved_tokens > 0);
@@ -386,5 +390,95 @@ fn adoption_milestones_record_first_route_once() {
             .get_meta(agent_brain::adoption::FIRST_ROUTE_AT)
             .unwrap(),
         first
+    );
+}
+
+#[test]
+fn supervisor_bundle_routes_token_efficient_skill() {
+    use agent_brain::packages::install_bundled;
+    use agent_brain::types::RouteLimits;
+
+    let dir = TempDir::new().unwrap();
+    let config = test_config(&dir);
+    config.ensure_dirs().unwrap();
+    install_bundled(&config, "supervisor").unwrap();
+    let store = Arc::new(BrainStore::open(&config.db_path).unwrap());
+    let engine = Arc::new(Engine::new_with_store(config, Arc::clone(&store)).unwrap());
+    let n = engine.bootstrap(None).unwrap();
+    assert!(n >= 3, "expected supervisor skills/rules indexed, got {n}");
+
+    let resp = engine
+        .route_task(
+            "grep before cat a large log file token efficient",
+            None,
+            &[],
+            500,
+            RouteLimits {
+                agents: 0,
+                skills: 3,
+                rules: 2,
+                memory: 0,
+            },
+            Some("implementing"),
+        )
+        .unwrap();
+    let skill_names: Vec<_> = resp.recommended_skills.iter().map(|s| s.name.as_str()).collect();
+    assert!(
+        skill_names.iter().any(|n| *n == "token-efficient-ops"),
+        "expected token-efficient-ops in {:?}",
+        skill_names
+    );
+}
+
+#[test]
+fn must_apply_promoted_without_memory_budget() {
+    use agent_brain::db::store::{content_hash, BrainStore};
+    use agent_brain::embed::deterministic_embedding;
+    use agent_brain::packages::install_bundled;
+    use agent_brain::types::RouteLimits;
+
+    let dir = TempDir::new().unwrap();
+    let config = test_config(&dir);
+    config.ensure_dirs().unwrap();
+    install_bundled(&config, "supervisor").unwrap();
+    let store = Arc::new(BrainStore::open(&config.db_path).unwrap());
+    let fact = "Never read dist/ or build output directories with cat or read_file";
+    let emb = deterministic_embedding(fact);
+    store
+        .store_fact(
+            "no-read-dist",
+            fact,
+            "global",
+            None,
+            0.95,
+            "eval",
+            &content_hash(fact),
+            &emb,
+            "negative",
+        )
+        .unwrap();
+    store.bump_index_version().unwrap();
+    let engine = Arc::new(Engine::new_with_store(config, Arc::clone(&store)).unwrap());
+    engine.bootstrap(None).unwrap();
+
+    let resp = engine
+        .route_task(
+            "read frontend build artifacts from dist folder deployment",
+            None,
+            &[],
+            10,
+            RouteLimits {
+                agents: 0,
+                skills: 0,
+                rules: 0,
+                memory: 1,
+            },
+            Some("implementing"),
+        )
+        .unwrap();
+    assert!(
+        resp.must_apply.iter().any(|m| m.topic == "no-read-dist"),
+        "expected no-read-dist in must_apply, got {:?}",
+        resp.must_apply
     );
 }

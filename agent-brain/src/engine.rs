@@ -353,7 +353,7 @@ impl Engine {
             .map_err(|_| anyhow::anyhow!("bm25 prefilter thread panicked"))??;
 
         let use_bm25_fast_path =
-            self.config.bm25_fast_path_enabled && bm25.fast_path_eligible();
+            self.config.bm25_fast_path_enabled && bm25.fast_path_eligible(query);
 
         let (query_emb, embed_cache_hit, embed_us) = if use_bm25_fast_path {
             (Vec::new(), false, 0)
@@ -607,6 +607,8 @@ fn build_route_response(
         .fold(0.0_f64, f64::max);
     let min_score = crate::retrieval::minimum_recommendation_score(top_non_memory);
 
+    resp.must_apply = collect_must_apply_from_scored(scored, 3);
+
     // Pass 1: agents, skills, rules — before memory consumes the token budget.
     for item in scored.iter() {
         if matches!(item.item_type, ItemType::Memory) {
@@ -716,16 +718,15 @@ fn try_add_route_item(
             if is_low_signal_memory(&item.topic, None) {
                 state.low_signal_memories += 1;
             }
-            let is_negative = item.polarity.as_deref() == Some("negative")
-                || item.text.to_lowercase().contains("do not")
-                || item.text.to_lowercase().contains("never ");
-            if (is_negative && item.score > 0.6 || item.apply_when_matched)
-                && resp.must_apply.len() < 3
-            {
-                resp.must_apply.push(MustApply {
-                    topic: item.topic.clone(),
-                    text: item.text.chars().take(200).collect(),
-                });
+            if let Some(constraint) = must_apply_for_memory(item) {
+                if resp.must_apply.len() < 3
+                    && !resp
+                        .must_apply
+                        .iter()
+                        .any(|m| m.topic == constraint.topic)
+                {
+                    resp.must_apply.push(constraint);
+                }
             }
             resp.relevant_memory.push(rec);
         }
@@ -751,4 +752,51 @@ fn is_duplicate_topic(seen: &mut HashSet<String>, item: &ScoredItem) -> bool {
         ItemType::Agent | ItemType::Skill => !seen.insert(item.topic.to_ascii_lowercase()),
         _ => false,
     }
+}
+
+fn must_apply_for_memory(item: &ScoredItem) -> Option<MustApply> {
+    if !matches!(item.item_type, ItemType::Memory) {
+        return None;
+    }
+    let is_negative = item.polarity.as_deref() == Some("negative")
+        || item.text.to_lowercase().contains("do not")
+        || item.text.to_lowercase().contains("never ");
+    let negative_threshold = if item.polarity.as_deref() == Some("negative") {
+        0.35
+    } else {
+        0.55
+    };
+    if (is_negative && item.score > negative_threshold) || item.apply_when_matched {
+        Some(MustApply {
+            topic: item.topic.clone(),
+            text: item.text.chars().take(200).collect(),
+        })
+    } else {
+        None
+    }
+}
+
+fn collect_must_apply_from_scored(scored: &[ScoredItem], max: usize) -> Vec<MustApply> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    let mut memories: Vec<&ScoredItem> = scored
+        .iter()
+        .filter(|i| matches!(i.item_type, ItemType::Memory))
+        .collect();
+    memories.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    for item in memories {
+        if out.len() >= max {
+            break;
+        }
+        if let Some(constraint) = must_apply_for_memory(item) {
+            if seen.insert(constraint.topic.clone()) {
+                out.push(constraint);
+            }
+        }
+    }
+    out
 }

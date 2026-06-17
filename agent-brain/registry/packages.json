@@ -19,6 +19,11 @@
     "rust": {
       "description": "Rust patterns, testing, and review (via ECC)",
       "packages": ["affaan-m/everything-claude-code"]
+    },
+    "supervisor": {
+      "description": "Execution supervisor — token-efficient ops, must_apply discipline, anti-pattern memory",
+      "bundle": "supervisor",
+      "packages": []
     }
   }
 }

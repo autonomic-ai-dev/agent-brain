@@ -30,7 +30,29 @@ const SYNONYM_GROUPS: &[&[&str]] = &[
     &["mcp", "stdio", "transport", "server"],
     &["postgres", "postgresql", "pg", "pooling", "pgbouncer"],
     &["rust", "cargo", "clippy", "anyhow", "thiserror"],
+    &[
+        "grep", "rg", "cat", "head", "tail", "token", "tokens", "efficient", "read", "file",
+        "large", "log", "dist", "artifact",
+    ],
 ];
+
+const SUPERVISOR_TERMS: &[&str] = &[
+    "grep", "rg", "cat", "head", "tail", "token", "tokens", "efficient", "read", "file", "large",
+    "log", "dist", "artifact", "build",
+];
+
+/// Fraction of supervisor intent terms present in the query (0.0–1.0).
+pub fn supervisor_query_strength(query: &str) -> f64 {
+    let terms = significant_terms(query);
+    if terms.is_empty() {
+        return 0.0;
+    }
+    let matched = terms
+        .iter()
+        .filter(|t| SUPERVISOR_TERMS.contains(&t.as_str()))
+        .count();
+    matched as f64 / terms.len() as f64
+}
 
 /// Significant terms from a user query (lowercased, stopwords removed, min length 2).
 pub fn significant_terms(query: &str) -> Vec<String> {

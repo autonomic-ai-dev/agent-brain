@@ -10,6 +10,7 @@ One-command skill packs via **`agent-brain add @alias`**. Aliases are embedded i
 | `@nextjs` | React / Next.js | `vercel-labs/agent-skills` |
 | `@ecc` | Full ECC library | `affaan-m/everything-claude-code` |
 | `@rust` | Rust via ECC | `affaan-m/everything-claude-code` |
+| `@supervisor` | Execution supervisor (bundled) | `bundle:supervisor` — token-efficient ops + must_apply rule |
 
 List at any time:
 
@@ -26,6 +27,7 @@ curl -fsSL https://raw.githubusercontent.com/aeswibon/agent-brain/master/scripts
 Or after install:
 
 ```bash
+agent-brain add @supervisor   # execution supervisor (no git clone)
 agent-brain add @starter
 agent-brain add @nextjs
 ```

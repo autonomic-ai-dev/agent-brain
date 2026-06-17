@@ -37,9 +37,18 @@ pub(crate) struct Bm25Prefilter {
     bm25_max: f64,
 }
 
+const SUPERVISOR_FAST_PATH_MIN_STRENGTH: f64 = 1.8;
+
 impl Bm25Prefilter {
-    pub(crate) fn fast_path_eligible(&self) -> bool {
-        !self.item_ids.is_empty() && self.bm25_max >= BM25_FAST_PATH_MIN_STRENGTH
+    pub(crate) fn fast_path_eligible(&self, query: &str) -> bool {
+        if self.item_ids.is_empty() {
+            return false;
+        }
+        if self.bm25_max >= BM25_FAST_PATH_MIN_STRENGTH {
+            return true;
+        }
+        crate::retrieval::supervisor_query_strength(query) >= 0.25
+            && self.bm25_max >= SUPERVISOR_FAST_PATH_MIN_STRENGTH
     }
 }
 
@@ -1037,12 +1046,13 @@ impl BrainStore {
         latency_ms: u64,
         index_total: Option<usize>,
         saved_pct: Option<u8>,
+        must_apply_count: Option<usize>,
     ) -> Result<()> {
         let now = chrono::Utc::now().timestamp_millis();
         self.with_conn(|conn| {
             conn.execute(
-                r#"INSERT INTO retrieval_log (id, timestamp, query_hash, phase, items_returned, tokens_used, truncated, cache_hit, latency_ms, index_total, saved_pct)
-                   VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)"#,
+                r#"INSERT INTO retrieval_log (id, timestamp, query_hash, phase, items_returned, tokens_used, truncated, cache_hit, latency_ms, index_total, saved_pct, must_apply_count)
+                   VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)"#,
                 params![
                     id,
                     now,
@@ -1055,6 +1065,7 @@ impl BrainStore {
                     latency_ms as i64,
                     index_total.map(|n| n as i64),
                     saved_pct.map(|n| n as i64),
+                    must_apply_count.map(|n| n as i64),
                 ],
             )?;
             Ok(())
@@ -1064,7 +1075,7 @@ impl BrainStore {
     pub fn get_retrieval_log(&self, id: &str) -> Result<Option<RetrievalLogRow>> {
         self.with_conn(|conn| {
             conn.query_row(
-                "SELECT id, query_hash, phase, items_returned, tokens_used, truncated, cache_hit, latency_ms, index_total, saved_pct FROM retrieval_log WHERE id = ?1",
+                "SELECT id, query_hash, phase, items_returned, tokens_used, truncated, cache_hit, latency_ms, index_total, saved_pct, must_apply_count FROM retrieval_log WHERE id = ?1",
                 params![id],
                 map_retrieval_log_row,
             )
@@ -1076,7 +1087,7 @@ impl BrainStore {
     pub fn latest_retrieval_log(&self) -> Result<Option<RetrievalLogRow>> {
         self.with_conn(|conn| {
             conn.query_row(
-                "SELECT id, query_hash, phase, items_returned, tokens_used, truncated, cache_hit, latency_ms, index_total, saved_pct FROM retrieval_log ORDER BY timestamp DESC LIMIT 1",
+                "SELECT id, query_hash, phase, items_returned, tokens_used, truncated, cache_hit, latency_ms, index_total, saved_pct, must_apply_count FROM retrieval_log ORDER BY timestamp DESC LIMIT 1",
                 [],
                 map_retrieval_log_row,
             )
@@ -1088,7 +1099,7 @@ impl BrainStore {
     pub fn list_retrieval_logs(&self, limit: usize) -> Result<Vec<RetrievalLogRow>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, query_hash, phase, items_returned, tokens_used, truncated, cache_hit, latency_ms, index_total, saved_pct FROM retrieval_log ORDER BY timestamp DESC LIMIT ?1",
+                "SELECT id, query_hash, phase, items_returned, tokens_used, truncated, cache_hit, latency_ms, index_total, saved_pct, must_apply_count FROM retrieval_log ORDER BY timestamp DESC LIMIT ?1",
             )?;
             let rows = stmt
                 .query_map(params![limit as i64], map_retrieval_log_row)?
@@ -1336,7 +1347,7 @@ impl BrainStore {
     pub fn retrieval_stats_since(&self, since_ms: i64) -> Result<RetrievalStats> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT phase, cache_hit, latency_ms, tokens_used, index_total, saved_pct FROM retrieval_log WHERE timestamp >= ?1",
+                "SELECT phase, cache_hit, latency_ms, tokens_used, index_total, saved_pct, must_apply_count FROM retrieval_log WHERE timestamp >= ?1",
             )?;
             let rows = stmt
                 .query_map(params![since_ms], |row| {
@@ -1347,6 +1358,7 @@ impl BrainStore {
                         row.get::<_, i64>(3)? as usize,
                         row.get::<_, Option<i64>>(4)?,
                         row.get::<_, Option<i64>>(5)?,
+                        row.get::<_, Option<i64>>(6)?,
                     ))
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -1360,8 +1372,10 @@ impl BrainStore {
             let mut total_saved_tokens = 0u64;
             let mut routed_token_sum = 0u64;
             let mut routed_token_rows = 0usize;
+            let mut routes_with_constraints = 0usize;
+            let mut total_must_apply = 0usize;
 
-            for (phase, cache_hit, latency, tokens_used, index_total, saved_pct) in rows {
+            for (phase, cache_hit, latency, tokens_used, index_total, saved_pct, must_apply_count) in rows {
                 if phase == "upstream_call" {
                     upstream_calls += 1;
                 } else {
@@ -1376,6 +1390,13 @@ impl BrainStore {
                                 .saturating_mul(crate::route_briefing::NAIVE_TOKENS_PER_INDEXED_ITEM);
                             let saved = naive.saturating_sub(tokens_used);
                             total_saved_tokens += saved as u64;
+                        }
+                    }
+                    if let Some(n) = must_apply_count {
+                        let n = n.max(0) as usize;
+                        if n > 0 {
+                            routes_with_constraints += 1;
+                            total_must_apply += n;
                         }
                     }
                 }
@@ -1431,6 +1452,8 @@ impl BrainStore {
                 avg_saved_pct,
                 total_saved_tokens,
                 avg_routed_tokens,
+                routes_with_constraints,
+                total_must_apply,
             })
         })
     }
@@ -1583,6 +1606,22 @@ impl BrainStore {
 
         const MAX_EXTRA_MEMORIES: usize = 12;
         let mut included_ids: HashSet<String> = candidates.iter().map(|r| r.id.clone()).collect();
+
+        const MAX_PINNED_NEGATIVE: usize = 5;
+        let mut pinned_negative = 0usize;
+        for row in &snapshot.memories {
+            if pinned_negative >= MAX_PINNED_NEGATIVE {
+                break;
+            }
+            let polarity = memory_fact_meta(snapshot, row)
+                .and_then(|m| m.polarity.as_deref())
+                .or(row.polarity.as_deref());
+            if polarity == Some("negative") && included_ids.insert(row.id.clone()) {
+                candidates.push(row);
+                pinned_negative += 1;
+            }
+        }
+
         let mut extra_memories: Vec<&CachedRow> = snapshot
             .memories
             .iter()
@@ -1639,6 +1678,15 @@ impl BrainStore {
                 score += 0.10 * lexical;
             }
 
+            if item_type == ItemType::Skill {
+                const SUPERVISOR_SKILLS: &[&str] = &["token-efficient-ops", "execution-supervisor"];
+                if SUPERVISOR_SKILLS.contains(&row.topic.as_str())
+                    && crate::retrieval::supervisor_query_strength(query) >= 0.2
+                {
+                    score += 0.18;
+                }
+            }
+
             if bm25_norm == 0.0 && lexical < 0.12 {
                 score *= 0.5;
             }
@@ -1684,6 +1732,9 @@ impl BrainStore {
 
                 if source == Some("user") || confidence >= 0.95 {
                     score += 0.08;
+                }
+                if polarity == Some("negative") {
+                    score += 0.12;
                 }
                 score += memory_source_score_adjustment(source, &row.topic);
                 if let Some(ctx) = match_ctx {
@@ -1828,7 +1879,10 @@ mod tests {
             bm25_map: HashMap::from([("a".into(), -1.0)]),
             bm25_max: 1.0,
         };
-        assert!(!weak.fast_path_eligible());
+        assert!(!weak.fast_path_eligible("unrelated query"));
+        assert!(!weak.fast_path_eligible(
+            "grep before cat large log token efficient"
+        ));
 
         let strong = Bm25Prefilter {
             item_ids: HashSet::from(["a".into()]),
@@ -1836,7 +1890,17 @@ mod tests {
             bm25_map: HashMap::from([("a".into(), -4.0)]),
             bm25_max: 4.0,
         };
-        assert!(strong.fast_path_eligible());
+        assert!(strong.fast_path_eligible("any query"));
+
+        let supervisor_medium = Bm25Prefilter {
+            item_ids: HashSet::from(["a".into()]),
+            memory_ids: HashSet::new(),
+            bm25_map: HashMap::from([("a".into(), -2.0)]),
+            bm25_max: 2.0,
+        };
+        assert!(supervisor_medium.fast_path_eligible(
+            "grep before cat large log token efficient"
+        ));
     }
 
     #[test]
@@ -1910,6 +1974,8 @@ pub struct RetrievalStats {
     pub avg_saved_pct: f64,
     pub total_saved_tokens: u64,
     pub avg_routed_tokens: f64,
+    pub routes_with_constraints: usize,
+    pub total_must_apply: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -1951,6 +2017,7 @@ pub struct RetrievalLogRow {
     pub latency_ms: u64,
     pub index_total: Option<usize>,
     pub saved_pct: Option<u8>,
+    pub must_apply_count: Option<usize>,
 }
 
 fn map_retrieval_log_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RetrievalLogRow> {
@@ -1969,6 +2036,9 @@ fn map_retrieval_log_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RetrievalL
         saved_pct: row
             .get::<_, Option<i64>>(9)?
             .map(|n| n.clamp(0, 100) as u8),
+        must_apply_count: row
+            .get::<_, Option<i64>>(10)?
+            .map(|n| n.max(0) as usize),
     })
 }
 

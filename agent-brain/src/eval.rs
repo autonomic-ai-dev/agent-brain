@@ -153,6 +153,11 @@ const SKILL_GOLDEN: &[SkillGoldenCase] = &[
         topic: "writing-skills",
         text: "Guides users through creating effective Agent Skills for Cursor with SKILL.md structure and best practices",
     },
+    SkillGoldenCase {
+        query: "grep before cat large log file token efficient",
+        topic: "token-efficient-ops",
+        text: "Token-efficient shell and file inspection — grep, head, and bounded reads before full file loads",
+    },
 ];
 
 /// Decoy skills that should not win unrelated queries.

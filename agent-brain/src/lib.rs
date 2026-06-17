@@ -35,5 +35,6 @@ pub mod fixture;
 pub mod bench;
 pub mod proofs;
 pub mod skills_sh;
+pub mod supervisor_bench;
 
 pub use engine::Engine;

@@ -178,7 +178,7 @@ pub fn assert_bench_gate(report: &LatencyBenchReport) -> Result<()> {
     );
 }
 
-fn percentiles(samples: &[u64]) -> PercentileMs {
+pub fn percentiles(samples: &[u64]) -> PercentileMs {
     let mut v: Vec<u64> = samples.to_vec();
     v.sort_unstable();
     let len = v.len();

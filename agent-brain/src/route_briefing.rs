@@ -70,6 +70,12 @@ pub fn format_briefing(resp: &RouteTaskResponse) -> String {
     if !savings.is_empty() {
         out.push_str(&format!("{savings}\n"));
     }
+    if !resp.must_apply.is_empty() {
+        out.push_str(&format!(
+            "**Supervisor:** {} constraint(s) in must_apply — follow before using tools\n",
+            resp.must_apply.len()
+        ));
+    }
     if !resp.log_id.is_empty() {
         out.push_str(&format!("Log: `{}`\n", resp.log_id));
     }
@@ -142,8 +148,14 @@ pub fn format_summary_line(resp: &RouteTaskResponse) -> String {
     let skill_names = join_top_names(resp.recommended_skills.iter().map(|s| s.name.as_str()), 3);
     let agent_names = join_top_names(resp.recommended_agents.iter().map(|a| a.name.as_str()), 2);
     let savings = token_savings(resp).map(|s| format!(" · saved ~{}%", s.saved_pct));
+    let constraints = if resp.must_apply.is_empty() {
+        String::new()
+    } else {
+        let topics = join_top_names(resp.must_apply.iter().map(|m| m.topic.as_str()), 2);
+        format!(" · must_apply: {} [{topics}]", resp.must_apply.len())
+    };
     format!(
-        "phase={} · skills: {} [{skill_names}] · agents: {} [{agent_names}] · {} rules · {} memory · {}/{} tok{} · {}ms · log={} · {}",
+        "phase={} · skills: {} [{skill_names}] · agents: {} [{agent_names}] · {} rules · {} memory · {}/{} tok{}{} · {}ms · log={} · {}",
         resp.recommended_phase,
         resp.recommended_skills.len(),
         resp.recommended_agents.len(),
@@ -152,6 +164,7 @@ pub fn format_summary_line(resp: &RouteTaskResponse) -> String {
         resp.tokens_used,
         resp.tokens_budget,
         savings.unwrap_or_default(),
+        constraints,
         resp.latency_ms,
         resp.log_id,
         briefing_path_display()
@@ -234,6 +247,25 @@ mod tests {
         assert!(summary.contains("rust-testing"));
         assert!(summary.contains("phase=debugging"));
         assert!(summary.contains("saved ~"));
+    }
+
+    #[test]
+    fn briefing_highlights_supervisor_constraints() {
+        let resp = RouteTaskResponse {
+            must_apply: vec![crate::types::MustApply {
+                topic: "no-read-dist".into(),
+                text: "Never read dist/".into(),
+            }],
+            recommended_phase: "implementing".into(),
+            tokens_used: 100,
+            tokens_budget: 500,
+            index_total: 100,
+            ..Default::default()
+        };
+        let text = format_briefing(&resp);
+        assert!(text.contains("Supervisor:"));
+        let summary = format_summary_line(&resp);
+        assert!(summary.contains("must_apply: 1"));
     }
 
     #[test]

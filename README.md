@@ -41,6 +41,27 @@ You still use Cursor Agent mode. agent-brain does not replace the model — it *
 
 ---
 
+## Execution supervisor
+
+Beyond routing context, agent-brain acts as an **execution supervisor** — keeping agents on a token-efficient leash during real work.
+
+| Layer | What it does |
+|-------|----------------|
+| **Hooks** | Block tools until `route_task` runs every turn |
+| **`must_apply`** | Hard constraints from negative memory / `apply_when` — surfaced in briefing and stats |
+| **`@supervisor` pack** | Token-efficient ops skills + always-on rule (`agent-brain add @supervisor`) |
+| **`store_memory`** | Persist anti-patterns (`polarity: "negative"`) so mistakes do not repeat |
+
+```bash
+agent-brain add @supervisor
+agent-brain briefing    # Supervisor: N constraint(s) in must_apply
+agent-brain stats         # routes with must_apply + token savings
+```
+
+Example: after the agent burns tokens reading `dist/`, store *“Never read dist/ — use rg on src/ only.”* The next similar task promotes it to **`must_apply`**.
+
+---
+
 ## How this is different from similar tools
 
 | Product / approach | What it optimizes | What it does *not* do | agent-brain |
@@ -95,13 +116,15 @@ Reproducible proof artifacts live in [`docs/benchmarks/`](docs/benchmarks/). Reg
 | Isolated skills + memory | 500 skills | 10 | **1.00** (10/10) | ≥ 0.85 | `stage-test.yml` |
 | skills.sh catalog | **2000 real** skills.sh skills | **50** | **1.00** (50/50) | ≥ 0.80 | `stage-skills-sh-eval.yml` |
 | Warm-route p95 (fixture) | 500 | — | **≤ 100 ms** | gated | `proofs --ci` |
+| Turn-cache p95 (fixture) | 500 | — | **≤ 30 ms** | gated | `proofs --ci` |
+| Execution supervisor | 500 + `@supervisor` | 3 scenarios | skill **100%** · must_apply **100%** · savings **~99%** · p95 **≤ 100 ms** | gated | `proofs --ci` |
 | Hook gate logic | — | — | **< 1 ms p95** | gated | `test_route_gate.py` |
 
 **skills.sh eval** runs against committed `fixture-2k.db` — no network, no synthetic fillers. See [docs/benchmarks/skills-sh/README.md](docs/benchmarks/skills-sh/README.md).
 
 **Token savings (every turn):** `agent-brain briefing` and `~/.agent_brain/logs/last-route.md` show routed tokens vs an estimated naive full-index load (~120 tok/item). On a 2000-skill index routing ~500 tokens, that is typically **~99% fewer tokens** than loading everything.
 
-**Curated skill packs:** `agent-brain registry list` · `agent-brain add @starter` — see [docs/registry/README.md](docs/registry/README.md).
+**Curated skill packs:** `agent-brain registry list` · `agent-brain add @supervisor` · `@starter` — see [docs/registry/README.md](docs/registry/README.md).
 
 **Before/after (2000 skills):** [docs/blog/before-and-after-agent-brain.md](docs/blog/before-and-after-agent-brain.md) · [Team workflow](docs/TEAM-WORKFLOW.md)
 
