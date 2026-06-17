@@ -156,6 +156,14 @@ pub struct SuggestedTool {
     pub score: f64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SuggestedNativeTool {
+    pub tool: String,
+    pub description: String,
+    pub rationale: String,
+    pub score: f64,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RouteTaskResponse {
     pub recommended_agents: Vec<AgentRec>,
@@ -167,6 +175,8 @@ pub struct RouteTaskResponse {
     pub warnings: Vec<RouteWarning>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub suggested_tools: Vec<SuggestedTool>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub suggested_native_tools: Vec<SuggestedNativeTool>,
     pub recommended_phase: String,
     pub tokens_used: usize,
     pub tokens_budget: usize,

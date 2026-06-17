@@ -343,6 +343,7 @@ impl Engine {
         boost_agents: bool,
         phase: &str,
         open_files: &[String],
+        user_message: &str,
     ) -> Result<RouteQueryParallelResult> {
         let query_owned = query.to_string();
         let store = Arc::clone(&self.store);
@@ -370,6 +371,7 @@ impl Engine {
             tags,
             open_files,
             repo_root,
+            user_message,
         };
         let (scored, candidates, index_total) = self.store.score_items_with_bm25(
             &snapshot,
@@ -454,6 +456,7 @@ impl Engine {
                 agent_boost_keywords(user_message),
                 &phase,
                 open_files,
+                user_message,
             )?;
 
         let build_started = Instant::now();
@@ -465,6 +468,12 @@ impl Engine {
             &settings.upstream_mcp,
             user_message,
             settings.upstream_mcp.suggest_limit,
+        );
+        resp.suggested_native_tools = crate::token_tools::suggest_native_token_tools(
+            user_message,
+            open_files,
+            &phase,
+            &resp.must_apply,
         );
         let topics: Vec<String> = resp.relevant_memory.iter().map(|m| m.topic.clone()).collect();
         for (topic, message) in self.store.scope_conflict_warnings(&topics)? {
@@ -547,6 +556,7 @@ impl Engine {
             false,
             &infer_phase(task_description),
             &[],
+            task_description,
         )?;
 
         let mut items = Vec::new();

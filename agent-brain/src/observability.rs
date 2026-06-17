@@ -75,6 +75,31 @@ pub fn log_route(
     crate::adoption::record_first_route(store)
 }
 
+pub fn log_native_tool_use(
+    store: &BrainStore,
+    tool_name: &str,
+    path: Option<&str>,
+    tokens_used: usize,
+    tokens_saved: Option<usize>,
+    savings_pct: Option<f64>,
+    must_apply_active: bool,
+    phase: Option<&str>,
+    route_log_id: Option<&str>,
+) -> Result<()> {
+    let id = uuid::Uuid::new_v4().to_string();
+    store.insert_tool_log(
+        &id,
+        tool_name,
+        path,
+        tokens_used,
+        tokens_saved,
+        savings_pct,
+        must_apply_active,
+        phase,
+        route_log_id,
+    )
+}
+
 pub fn explain_last(store: &BrainStore, log_id: Option<&str>) -> Result<Option<ExplainLastContext>> {
     let row = match log_id {
         Some(id) => store.get_retrieval_log(id)?,

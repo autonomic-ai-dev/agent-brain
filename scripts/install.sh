@@ -90,7 +90,12 @@ install_from_release() {
   tmp="$(mktemp)"
   echo "Downloading ${url} ..."
   if ! curl -fsSL "$url" -o "$tmp"; then
-    echo "Release download failed. Try --from-source or create a GitHub release first." >&2
+    echo "Release download failed for ${asset} (${target})." >&2
+    if [[ "$target" == "aarch64-unknown-linux-gnu" ]]; then
+      echo "Linux ARM64 binaries ship from v0.14.0+. Until then, use --from-source." >&2
+    fi
+    echo "Try: bash -s -- --from-source" >&2
+    echo "Or:  cargo install --git https://github.com/${REPO} agent-brain" >&2
     rm -f "$tmp"
     exit 1
   fi

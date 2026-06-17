@@ -10,6 +10,9 @@ use serde::Serialize;
 use walkdir::WalkDir;
 
 use crate::tokens::estimate_tokens;
+use crate::types::{MustApply, SuggestedNativeTool};
+
+pub const NATIVE_TOOL_SUGGEST_LIMIT: usize = 4;
 
 pub const DEFAULT_MAX_LINES: usize = 200;
 pub const DEFAULT_MAX_BYTES: usize = 32_768;
@@ -364,6 +367,113 @@ fn savings_vs_full(used: usize, full: usize) -> (Option<usize>, Option<f64>) {
     let saved = full - used;
     let pct = (saved as f64 / full as f64) * 100.0;
     (Some(saved), Some(pct))
+}
+
+/// Rank agent-brain bounded-read tools for file/log exploration queries.
+pub fn suggest_native_token_tools(
+    user_message: &str,
+    open_files: &[String],
+    phase: &str,
+    must_apply: &[MustApply],
+) -> Vec<SuggestedNativeTool> {
+    let mut candidates: Vec<SuggestedNativeTool> = Vec::new();
+    let lower = user_message.to_lowercase();
+    let supervisor = crate::retrieval::supervisor_query_strength(user_message);
+    let file_intent = file_exploration_intent(&lower, open_files);
+
+    if !file_intent && supervisor < 0.15 && phase != "debugging" {
+        return candidates;
+    }
+
+    let constraint_boost = if must_apply.is_empty() { 0.0 } else { 0.12 };
+
+    if grep_intent(&lower) || file_intent {
+        candidates.push(SuggestedNativeTool {
+            tool: "grep_search".into(),
+            description: "Search file or directory for a pattern without full reads".into(),
+            rationale: "Find strings before loading file contents".into(),
+            score: 0.88 + constraint_boost + supervisor * 0.1,
+        });
+    }
+
+    if file_intent || open_files.is_empty() {
+        candidates.push(SuggestedNativeTool {
+            tool: "file_summary".into(),
+            description: "Bytes, line count, and 5-line sample".into(),
+            rationale: "Check file size before reading".into(),
+            score: 0.82 + supervisor * 0.08,
+        });
+    }
+
+    if log_intent(&lower) || file_intent {
+        candidates.push(SuggestedNativeTool {
+            tool: "read_file_head".into(),
+            description: "First N lines (default 200, byte-capped)".into(),
+            rationale: "Bounded read for large or unknown files".into(),
+            score: 0.78 + constraint_boost,
+        });
+        if log_intent(&lower) {
+            candidates.push(SuggestedNativeTool {
+                tool: "read_file_tail".into(),
+                description: "Last N lines — useful for logs".into(),
+                rationale: "Recent log lines without full file load".into(),
+                score: 0.8 + constraint_boost,
+            });
+        }
+    }
+
+    candidates.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    candidates.dedup_by(|a, b| a.tool == b.tool);
+    candidates.truncate(NATIVE_TOOL_SUGGEST_LIMIT);
+    candidates
+}
+
+pub fn anti_pattern_topic_for_path(path: &str) -> String {
+    let lower = path.to_lowercase();
+    for segment in BLOCKED_SEGMENTS {
+        if lower.contains(segment) {
+            return format!("no-read-{segment}");
+        }
+    }
+    let name = Path::new(path)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("file");
+    format!("no-full-read-{name}")
+}
+
+pub fn anti_pattern_fact_for_path(path: &str) -> String {
+    format!(
+        "Never read {path} whole — use grep_search, file_summary, read_file_head/tail."
+    )
+}
+
+fn file_exploration_intent(lower: &str, open_files: &[String]) -> bool {
+    if !open_files.is_empty() {
+        return true;
+    }
+    [
+        "read", "file", "log", "grep", "cat", "find", "search", "debug", "error", "stack",
+        "trace", "dist", "artifact", "build",
+    ]
+    .iter()
+    .any(|k| lower.contains(k))
+}
+
+fn grep_intent(lower: &str) -> bool {
+    ["grep", "find", "search", "where", "locate", "pattern", "string"]
+        .iter()
+        .any(|k| lower.contains(k))
+}
+
+fn log_intent(lower: &str) -> bool {
+    ["log", "trace", "stderr", "tail", "error", "crash", "panic"]
+        .iter()
+        .any(|k| lower.contains(k))
 }
 
 #[derive(Debug, Clone, Serialize)]

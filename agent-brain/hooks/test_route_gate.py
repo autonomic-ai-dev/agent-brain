@@ -9,6 +9,7 @@ import time
 import unittest
 from pathlib import Path
 
+import route_gate
 from route_gate import (
     GATE_SCOPE,
     OFFLINE_SECS,
@@ -22,6 +23,7 @@ from route_gate import (
     in_grace_period,
     in_mcp_offline,
     is_route_task,
+    check_read_tool_gate,
     load_state,
     route_response_useful,
     should_gate_tool,
@@ -252,6 +254,36 @@ class RouteGateTests(unittest.TestCase):
                 self.assertLess(p95, 1.0, f"deny-path hook p95 {p95:.3f}ms")
         finally:
             route_gate.STATE_PATH = old_path
+
+
+class ReadGateTests(unittest.TestCase):
+    def test_steers_large_read(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            route_gate.STATE_PATH = Path(tmp) / "route_state.json"
+            route_gate.TOOL_EVENTS_PATH = Path(tmp) / "tool_events.jsonl"
+            route_gate.STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            route_gate.STATE_PATH.write_text(
+                json.dumps(
+                    {
+                        "must_apply": [{"topic": "no-read-dist", "text": "never"}],
+                        "suggested_native_tools": [{"tool": "grep_search"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            big = Path(tmp) / "big.log"
+            big.write_text("x" * 70000, encoding="utf-8")
+            result = check_read_tool_gate(
+                {
+                    "tool_name": "Read",
+                    "tool_input": json.dumps({"path": str(big)}),
+                }
+            )
+            self.assertIsNotNone(result)
+            assert result is not None
+            self.assertEqual(result["permission"], "allow")
+            state = load_state()
+            self.assertIn("anti_pattern_suggestion", state)
 
 
 if __name__ == "__main__":

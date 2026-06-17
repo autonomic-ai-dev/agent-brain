@@ -76,6 +76,17 @@ pub fn format_briefing(resp: &RouteTaskResponse) -> String {
             resp.must_apply.len()
         ));
     }
+    if !resp.suggested_native_tools.is_empty() {
+        let tools: Vec<_> = resp
+            .suggested_native_tools
+            .iter()
+            .map(|t| t.tool.as_str())
+            .collect();
+        out.push_str(&format!(
+            "**Token tools:** prefer {} before full Read/cat\n",
+            tools.join(", ")
+        ));
+    }
     if !resp.log_id.is_empty() {
         out.push_str(&format!("Log: `{}`\n", resp.log_id));
     }
@@ -154,8 +165,17 @@ pub fn format_summary_line(resp: &RouteTaskResponse) -> String {
         let topics = join_top_names(resp.must_apply.iter().map(|m| m.topic.as_str()), 2);
         format!(" · must_apply: {} [{topics}]", resp.must_apply.len())
     };
+    let native_tools = if resp.suggested_native_tools.is_empty() {
+        String::new()
+    } else {
+        let names = join_top_names(
+            resp.suggested_native_tools.iter().map(|t| t.tool.as_str()),
+            2,
+        );
+        format!(" · tools: [{names}]")
+    };
     format!(
-        "phase={} · skills: {} [{skill_names}] · agents: {} [{agent_names}] · {} rules · {} memory · {}/{} tok{}{} · {}ms · log={} · {}",
+        "phase={} · skills: {} [{skill_names}] · agents: {} [{agent_names}] · {} rules · {} memory · {}/{} tok{}{}{} · {}ms · log={} · {}",
         resp.recommended_phase,
         resp.recommended_skills.len(),
         resp.recommended_agents.len(),
@@ -165,6 +185,7 @@ pub fn format_summary_line(resp: &RouteTaskResponse) -> String {
         resp.tokens_budget,
         savings.unwrap_or_default(),
         constraints,
+        native_tools,
         resp.latency_ms,
         resp.log_id,
         briefing_path_display()
@@ -202,9 +223,51 @@ pub fn publish_briefing(home: &Path, resp: &RouteTaskResponse, stderr_line: bool
         let path = logs.join("last-route.md");
         let _ = fs::write(&path, &briefing);
     }
+    publish_route_state(home, resp);
     if stderr_line {
         eprintln!("{}", format_stderr_line(resp));
     }
+}
+
+pub fn publish_route_state(home: &Path, resp: &RouteTaskResponse) {
+    let hooks = home.join("hooks");
+    if fs::create_dir_all(&hooks).is_err() {
+        return;
+    }
+    let path = hooks.join("route_state.json");
+    let mut state: serde_json::Value = fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    if let Some(obj) = state.as_object_mut() {
+        obj.insert(
+            "route_log_id".into(),
+            serde_json::Value::String(resp.log_id.clone()),
+        );
+        obj.insert(
+            "route_phase".into(),
+            serde_json::Value::String(resp.recommended_phase.clone()),
+        );
+        obj.insert(
+            "must_apply".into(),
+            serde_json::to_value(&resp.must_apply).unwrap_or_default(),
+        );
+        obj.insert(
+            "suggested_native_tools".into(),
+            serde_json::to_value(&resp.suggested_native_tools).unwrap_or_default(),
+        );
+        obj.insert(
+            "route_context_at".into(),
+            serde_json::json!(chrono::Utc::now().timestamp()),
+        );
+    }
+    let _ = fs::write(&path, serde_json::to_string(&state).unwrap_or_default());
+}
+
+pub fn read_anti_pattern_suggestion(home: &Path) -> Option<serde_json::Value> {
+    let path = home.join("hooks/route_state.json");
+    let state: serde_json::Value = fs::read_to_string(path).ok()?.parse().ok()?;
+    state.get("anti_pattern_suggestion").cloned()
 }
 
 #[cfg(test)]

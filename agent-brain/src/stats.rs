@@ -64,6 +64,7 @@ pub fn collect(store: &BrainStore, config: &Config, period_days: u32) -> Result<
     adoption::ensure_installed_at(store)?;
     let now = chrono::Utc::now().timestamp_millis();
     let since = now - i64::from(period_days) * 24 * 3600 * 1000;
+    let _ = crate::tool_events::ingest_hook_events_since(store, &config.home, since);
     let period = store.retrieval_stats_since(since)?;
     let mut by_type = BTreeMap::new();
     for (item_type, count) in store.count_indexed_by_type()? {
@@ -149,6 +150,20 @@ pub fn format_text(stats: &OperatorStats) -> String {
         out.push_str(&format!(
             "- Supervisor: {} routes enforced must_apply ({} constraints total)\n",
             stats.period.routes_with_constraints, stats.period.total_must_apply
+        ));
+    }
+    if stats.period.tool_calls > 0 {
+        out.push_str(&format!(
+            "- Token tools: {} calls · ~{} tok saved (est.) · {:.0}% avg tool savings\n",
+            stats.period.tool_calls,
+            stats.period.tool_tokens_saved,
+            stats.period.tool_avg_savings_pct
+        ));
+    }
+    if stats.period.inefficient_read_events > 0 {
+        out.push_str(&format!(
+            "- Inefficient Read steers: {} (use grep_search / read_file_head)\n",
+            stats.period.inefficient_read_events
         ));
     }
 

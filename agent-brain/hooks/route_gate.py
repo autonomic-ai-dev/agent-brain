@@ -27,6 +27,10 @@ STALE_ROUTE_SECS = float(os.environ.get("AGENT_BRAIN_ROUTE_STALE_SECS", "45"))
 OFFLINE_SECS = float(os.environ.get("AGENT_BRAIN_ROUTE_OFFLINE_SECS", "1800"))
 # brain_mcp = gate only agent-brain MCP tools; all = gate every tool (legacy strict mode).
 GATE_SCOPE = os.environ.get("AGENT_BRAIN_ROUTE_GATE_SCOPE", "brain_mcp").strip().lower()
+READ_GATE_MODE = os.environ.get("AGENT_BRAIN_READ_GATE", "steer").strip().lower()
+READ_WARN_BYTES = int(os.environ.get("AGENT_BRAIN_READ_WARN_BYTES", "65536"))
+BLOCKED_PATH_SEGMENTS = ("dist", "node_modules", "target", "build", ".git", ".next", "coverage")
+TOOL_EVENTS_PATH = STATE_PATH.parent / "tool_events.jsonl"
 
 
 def disabled() -> bool:
@@ -157,6 +161,8 @@ def unwrap_mcp_payload(data: object) -> dict | None:
             "applicable_rules",
             "relevant_memory",
             "tokens_used",
+            "suggested_native_tools",
+            "must_apply",
         )
     ):
         return parsed
@@ -295,6 +301,144 @@ def grace_allow_payload(state: dict) -> dict:
     }
 
 
+def update_route_context(payload: dict) -> None:
+    state = load_state()
+    state["route_log_id"] = payload.get("log_id")
+    state["route_phase"] = payload.get("recommended_phase")
+    state["must_apply"] = payload.get("must_apply", [])
+    state["suggested_native_tools"] = payload.get("suggested_native_tools", [])
+    state["route_context_at"] = time.time()
+    save_state(state)
+
+
+def append_tool_event(record: dict) -> None:
+    TOOL_EVENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with TOOL_EVENTS_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record) + "\n")
+
+
+def write_anti_pattern_suggestion(path: str, reason: str) -> None:
+    state = load_state()
+    topic = "no-read-dist" if "dist" in path.lower() else f"no-full-read-{Path(path).name}"
+    state["anti_pattern_suggestion"] = {
+        "topic": topic,
+        "fact": f"Never read {path} whole — use grep_search, file_summary, read_file_head/tail.",
+        "polarity": "negative",
+        "reason": reason,
+        "suggested_at": time.time(),
+        "apply_with": "store_memory",
+    }
+    save_state(state)
+
+
+def is_cursor_read_tool(event: dict) -> bool:
+    tool = str(event.get("tool_name") or "").strip().lower()
+    return tool in {"read", "mcp_read"} or tool.endswith("_read")
+
+
+def extract_read_path(event: dict) -> str | None:
+    for key in ("tool_input", "arguments", "args", "input"):
+        raw = event.get(key)
+        parsed = parse_json_value(raw)
+        if isinstance(parsed, dict):
+            for field in ("path", "target_file", "file", "file_path"):
+                value = parsed.get(field)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+    return None
+
+
+def file_size_bytes(path: str) -> int | None:
+    try:
+        return Path(path).expanduser().resolve().stat().st_size
+    except OSError:
+        return None
+
+
+def path_is_blocked(path: str) -> bool:
+    lower = path.lower().replace("\\", "/")
+    return any(f"/{seg}/" in lower or lower.endswith(f"/{seg}") or lower.startswith(f"{seg}/") for seg in BLOCKED_PATH_SEGMENTS)
+
+
+def check_read_tool_gate(event: dict) -> dict | None:
+    if READ_GATE_MODE == "off":
+        return None
+    if not is_cursor_read_tool(event):
+        return None
+
+    state = load_state()
+    path = extract_read_path(event)
+    must_apply = state.get("must_apply") or []
+    suggested = state.get("suggested_native_tools") or []
+    tool_hint = ", ".join(
+        t.get("tool", "") for t in suggested if isinstance(t, dict) and t.get("tool")
+    ) or "grep_search, file_summary, read_file_head"
+
+    if path and path_is_blocked(path):
+        write_anti_pattern_suggestion(path, "blocked path segment")
+        append_tool_event(
+            {
+                "timestamp": int(time.time() * 1000),
+                "tool_name": "cursor_read",
+                "path": path,
+                "tokens_used": 0,
+                "must_apply_active": bool(must_apply),
+                "phase": state.get("route_phase"),
+            }
+        )
+        if READ_GATE_MODE == "hard":
+            return {
+                "permission": "deny",
+                "agent_message": (
+                    f"Read denied on blocked path `{path}`. Use agent-brain "
+                    f"{tool_hint} instead, or set allow_blocked_paths with user approval."
+                ),
+                "user_message": "agent-brain: blocked Read on dist/node_modules/target/build.",
+            }
+        return {
+            "permission": "allow",
+            "agent_message": (
+                f"Steer: `{path}` is blocked (dist/node_modules/target). Prefer agent-brain "
+                f"{tool_hint}. store_memory anti-pattern staged — run store_memory if user agrees."
+            ),
+        }
+
+    size = file_size_bytes(path) if path else None
+    large = size is not None and size > READ_WARN_BYTES
+    if must_apply or large:
+        reason = "must_apply active" if must_apply else f"file > {READ_WARN_BYTES} bytes"
+        if path:
+            write_anti_pattern_suggestion(path, reason)
+        append_tool_event(
+            {
+                "timestamp": int(time.time() * 1000),
+                "tool_name": "cursor_read",
+                "path": path,
+                "tokens_used": max((size or 0) // 4, 1),
+                "must_apply_active": bool(must_apply),
+                "phase": state.get("route_phase"),
+            }
+        )
+        if READ_GATE_MODE == "hard" and must_apply:
+            return {
+                "permission": "deny",
+                "agent_message": (
+                    f"Read denied while must_apply constraints are active. Use agent-brain "
+                    f"{tool_hint} first."
+                ),
+                "user_message": "agent-brain: must_apply — use bounded reads.",
+            }
+        return {
+            "permission": "allow",
+            "agent_message": (
+                f"Token steer: prefer agent-brain {tool_hint} before full Read"
+                + (f" on `{path}`" if path else "")
+                + ". Anti-pattern suggestion saved for store_memory."
+            ),
+        }
+    return None
+
+
 def try_clear_route_gate(event: dict) -> None:
     if not is_agent_brain_route_event(event):
         return
@@ -302,6 +446,18 @@ def try_clear_route_gate(event: dict) -> None:
         return
     if not route_response_useful(event):
         return
+    for key in (
+        "result_json",
+        "tool_result",
+        "tool_output",
+        "result",
+        "output",
+        "response",
+    ):
+        payload = unwrap_mcp_payload(event.get(key))
+        if payload is not None:
+            update_route_context(payload)
+            break
     state = load_state()
     state["needs_route"] = False
     state.pop("needs_route_since", None)
@@ -365,6 +521,9 @@ def gate_tool_use(event: dict) -> dict:
 
 
 def handle_pre_tool_use(event: dict) -> dict:
+    read_gate = check_read_tool_gate(event)
+    if read_gate is not None:
+        return read_gate
     return gate_tool_use(event)
 
 

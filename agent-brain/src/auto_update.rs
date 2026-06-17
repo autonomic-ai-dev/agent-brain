@@ -244,7 +244,13 @@ fn update_configured_packages(engine: &Arc<Engine>, cfg: &AutoUpdateSettings) ->
 }
 
 fn update_mcp_binary(cfg: &AutoUpdateSettings, current_version: &str) -> Result<Option<String>> {
-    let latest = fetch_latest_release_tag(&cfg.mcp.repo)?;
+    let release = fetch_latest_release(&cfg.mcp.repo).with_context(|| {
+        format!(
+            "fetch latest GitHub release for `{}` (check auto_update.mcp.repo in ~/.agent_brain/config.yaml)",
+            cfg.mcp.repo
+        )
+    })?;
+    let latest = &release.tag_name;
     let latest_version = latest.trim_start_matches('v');
     if version_is_newer(current_version, latest_version) {
         tracing::info!(
@@ -260,11 +266,8 @@ fn update_mcp_binary(cfg: &AutoUpdateSettings, current_version: &str) -> Result<
     }
 
     let target = detect_release_target().context("unsupported platform for mcp auto-update")?;
-    let asset = release_artifact_name(target);
-    let url = format!(
-        "https://github.com/{}/releases/download/{}/{}",
-        cfg.mcp.repo, latest, asset
-    );
+    let asset = resolve_release_asset(target, &release)?;
+    let url = release_download_url(&cfg.mcp.repo, latest, &asset);
 
     let bin_path = expand_home(&cfg.mcp.bin_path);
     if let Some(parent) = bin_path.parent() {
@@ -432,15 +435,72 @@ pub fn should_schedule_mcp_restart(
 }
 
 #[derive(Debug, Deserialize)]
-struct GhRelease {
-    tag_name: String,
+struct GhReleaseAsset {
+    name: String,
 }
 
-fn fetch_latest_release_tag(repo: &str) -> Result<String> {
+#[derive(Debug, Deserialize)]
+struct GhRelease {
+    tag_name: String,
+    assets: Vec<GhReleaseAsset>,
+}
+
+fn fetch_latest_release(repo: &str) -> Result<GhRelease> {
     let url = format!("https://api.github.com/repos/{repo}/releases/latest");
-    let body = curl_stdout(&["-fsSL", &url])?;
-    let release: GhRelease = serde_json::from_str(&body).context("parse GitHub release JSON")?;
-    Ok(release.tag_name)
+    let body = curl_github_api(&url)?;
+    serde_json::from_str(&body).with_context(|| {
+        format!("parse GitHub release JSON for `{repo}` (is the repo public and does it have releases?)")
+    })
+}
+
+fn release_download_url(repo: &str, tag: &str, asset: &str) -> String {
+    format!("https://github.com/{repo}/releases/download/{tag}/{asset}")
+}
+
+fn resolve_release_asset(target: &str, release: &GhRelease) -> Result<String> {
+    let asset = release_artifact_name(target);
+    if release
+        .assets
+        .iter()
+        .any(|entry| entry.name == asset)
+    {
+        return Ok(asset);
+    }
+
+    let published: Vec<&str> = release.assets.iter().map(|a| a.name.as_str()).collect();
+    let mut hint = "Install from source: scripts/install.sh --from-source or `cargo install --git https://github.com/aeswibon/agent-brain agent-brain`.".to_string();
+    if target == "aarch64-unknown-linux-gnu" {
+        hint = format!(
+            "Linux ARM64 binaries were added in v0.14.0; you are on {latest}. \
+             Until you upgrade to a release that includes `agent-brain-aarch64-unknown-linux-gnu`, \
+             use: scripts/install.sh --from-source",
+            latest = release.tag_name
+        );
+    }
+
+    bail!(
+        "no release binary for platform `{target}` (expected asset `{asset}`).\n\
+         {latest} publishes: {published}\n\
+         {hint}",
+        latest = release.tag_name,
+        published = if published.is_empty() {
+            "(no assets — release may still be publishing)".to_string()
+        } else {
+            published.join(", ")
+        },
+        hint = hint
+    );
+}
+
+fn curl_github_api(url: &str) -> Result<String> {
+    curl_stdout(&[
+        "-fsSL",
+        "-H",
+        "Accept: application/vnd.github+json",
+        "-H",
+        "User-Agent: agent-brain",
+        url,
+    ])
 }
 
 fn curl_stdout(args: &[&str]) -> Result<String> {
@@ -449,11 +509,15 @@ fn curl_stdout(args: &[&str]) -> Result<String> {
         .output()
         .context("spawn curl")?;
     if !output.status.success() {
-        bail!(
-            "curl failed ({}): {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr)
-        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let url = args.iter().rev().find(|a| a.starts_with("http")).copied();
+        if let Some(url) = url {
+            bail!(
+                "curl failed for {url} ({}): {stderr}",
+                output.status
+            );
+        }
+        bail!("curl failed ({}): {stderr}", output.status);
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
@@ -465,7 +529,10 @@ fn curl_download(url: &str, dest: &Path) -> Result<()> {
         .status()
         .context("spawn curl download")?;
     if !status.success() {
-        bail!("curl download failed for {url}");
+        bail!(
+            "curl download failed (HTTP 404?) for {url}\n\
+             Check auto_update.mcp.repo in ~/.agent_brain/config.yaml and that the release finished publishing."
+        );
     }
     Ok(())
 }
@@ -544,9 +611,28 @@ mod tests {
             "agent-brain-aarch64-apple-darwin"
         );
         assert_eq!(
+            release_artifact_name("aarch64-unknown-linux-gnu"),
+            "agent-brain-aarch64-unknown-linux-gnu"
+        );
+        assert_eq!(
             release_artifact_name("x86_64-pc-windows-msvc"),
             "agent-brain-x86_64-pc-windows-msvc.exe"
         );
+    }
+
+    #[test]
+    fn resolve_release_asset_requires_matching_platform_binary() {
+        let release = GhRelease {
+            tag_name: "v0.13.0".into(),
+            assets: vec![GhReleaseAsset {
+                name: "agent-brain-x86_64-unknown-linux-gnu".into(),
+            }],
+        };
+        let err = resolve_release_asset("aarch64-unknown-linux-gnu", &release).unwrap_err();
+        let message = err.to_string();
+        assert!(message.contains("aarch64-unknown-linux-gnu"));
+        assert!(message.contains("agent-brain-aarch64-unknown-linux-gnu"));
+        assert!(message.contains("v0.13.0"));
     }
 
     #[test]

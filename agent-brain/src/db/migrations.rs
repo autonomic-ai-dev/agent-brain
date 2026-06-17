@@ -164,6 +164,15 @@ pub fn run(conn: &Connection) -> rusqlite::Result<()> {
         conn.execute("UPDATE schema_version SET version = 8", [])?;
     }
 
+    let version: i64 = conn
+        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| r.get(0))
+        .unwrap_or(0);
+
+    if version < 9 {
+        migrate_v9(conn)?;
+        conn.execute("UPDATE schema_version SET version = 9", [])?;
+    }
+
     Ok(())
 }
 
@@ -308,5 +317,26 @@ fn migrate_v8(conn: &Connection) -> rusqlite::Result<()> {
             [],
         )?;
     }
+    Ok(())
+}
+
+fn migrate_v9(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS tool_log (
+            id TEXT PRIMARY KEY,
+            timestamp INTEGER NOT NULL,
+            tool_name TEXT NOT NULL,
+            path TEXT,
+            tokens_used INTEGER NOT NULL,
+            tokens_saved INTEGER,
+            savings_pct INTEGER,
+            must_apply_active INTEGER NOT NULL DEFAULT 0,
+            phase TEXT,
+            route_log_id TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_tool_log_timestamp ON tool_log(timestamp);
+        "#,
+    )?;
     Ok(())
 }

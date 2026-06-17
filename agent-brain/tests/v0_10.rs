@@ -482,3 +482,35 @@ fn must_apply_promoted_without_memory_budget() {
         resp.must_apply
     );
 }
+
+#[test]
+fn route_task_suggests_native_token_tools_for_file_queries() {
+    use agent_brain::packages::install_bundled;
+    use agent_brain::types::RouteLimits;
+
+    let dir = TempDir::new().unwrap();
+    let config = test_config(&dir);
+    config.ensure_dirs().unwrap();
+    install_bundled(&config, "supervisor").unwrap();
+    let store = Arc::new(BrainStore::open(&config.db_path).unwrap());
+    let engine = Arc::new(Engine::new_with_store(config, Arc::clone(&store)).unwrap());
+    engine.bootstrap(None).unwrap();
+
+    let resp = engine
+        .route_task(
+            "grep before cat a large log file for errors",
+            None,
+            &[],
+            500,
+            RouteLimits::default(),
+            Some("debugging"),
+        )
+        .unwrap();
+    assert!(
+        resp.suggested_native_tools
+            .iter()
+            .any(|t| t.tool == "grep_search"),
+        "expected grep_search suggestion, got {:?}",
+        resp.suggested_native_tools
+    );
+}

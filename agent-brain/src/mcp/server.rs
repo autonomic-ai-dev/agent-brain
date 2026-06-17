@@ -540,6 +540,7 @@ impl BrainMcp {
             .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
         let resp = crate::token_tools::file_summary(&path, p.allow_blocked_paths, p.max_tokens)
             .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        self.log_token_tool("file_summary", Some(&p.path), &resp);
         json_result(resp)
     }
 
@@ -561,6 +562,7 @@ impl BrainMcp {
             p.max_tokens,
         )
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        self.log_token_tool("read_file_head", Some(&p.path), &resp);
         json_result(resp)
     }
 
@@ -582,6 +584,7 @@ impl BrainMcp {
             p.max_tokens,
         )
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        self.log_token_tool("read_file_tail", Some(&p.path), &resp);
         json_result(resp)
     }
 
@@ -604,7 +607,47 @@ impl BrainMcp {
             p.max_tokens,
         )
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        self.log_grep_tool("grep_search", Some(&p.path), &resp);
         json_result(resp)
+    }
+
+    fn log_token_tool(
+        &self,
+        tool_name: &str,
+        path: Option<&str>,
+        resp: &crate::token_tools::TokenToolResponse,
+    ) {
+        let (must_apply_active, phase, route_log_id) = route_context_from_state(&self.engine.config.home);
+        if let Err(err) = crate::observability::log_native_tool_use(
+            &self.engine.store,
+            tool_name,
+            path,
+            resp.tokens_used,
+            resp.tokens_saved_vs_full_read,
+            resp.savings_pct_vs_full_read,
+            must_apply_active,
+            phase.as_deref(),
+            route_log_id.as_deref(),
+        ) {
+            tracing::warn!(error = %err, tool = tool_name, "tool_log write failed");
+        }
+    }
+
+    fn log_grep_tool(&self, tool_name: &str, path: Option<&str>, resp: &crate::token_tools::GrepResponse) {
+        let (must_apply_active, phase, route_log_id) = route_context_from_state(&self.engine.config.home);
+        if let Err(err) = crate::observability::log_native_tool_use(
+            &self.engine.store,
+            tool_name,
+            path,
+            resp.tokens_used,
+            resp.tokens_saved_vs_full_read,
+            resp.savings_pct_vs_full_read,
+            must_apply_active,
+            phase.as_deref(),
+            route_log_id.as_deref(),
+        ) {
+            tracing::warn!(error = %err, tool = tool_name, "tool_log write failed");
+        }
     }
 }
 
@@ -643,6 +686,29 @@ fn infer_memory_polarity(fact: &str) -> Option<String> {
     } else {
         None
     }
+}
+
+fn route_context_from_state(home: &std::path::Path) -> (bool, Option<String>, Option<String>) {
+    let path = home.join("hooks/route_state.json");
+    let Ok(body) = std::fs::read_to_string(path) else {
+        return (false, None, None);
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&body) else {
+        return (false, None, None);
+    };
+    let must_apply_active = value
+        .get("must_apply")
+        .and_then(|v| v.as_array())
+        .is_some_and(|a| !a.is_empty());
+    let phase = value
+        .get("route_phase")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let route_log_id = value
+        .get("route_log_id")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    (must_apply_active, phase, route_log_id)
 }
 
 pub async fn run_stdio(engine: Arc<Engine>) -> Result<()> {

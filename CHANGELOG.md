@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-06-17
+
+### Added
+
+- **`suggested_native_tools` in `route_task`** — steers agents to bounded-read MCP tools (`grep_search`, `file_summary`, `read_file_head`, `read_file_tail`) before full `Read`.
+- **Token tool telemetry** — `tool_log` table (schema v9), hook event ingest, and `stats` reporting for tool calls, token savings, and inefficient Read steers.
+- **Read gate hooks** — `AGENT_BRAIN_READ_GATE` (`steer`|`hard`|`off`) blocks or steers Cursor `Read` on large/blocked paths when `must_apply` is active.
+- **`apply_when` query path matching** — `path:**/dist/**` can match from user message text, not only open files.
+- **`agent-brain suggest-memory`** — surfaces hook-captured anti-pattern suggestions in briefing.
+- **Linux ARM64 release binary** — CI publishes `agent-brain-aarch64-unknown-linux-gnu` (fixes `update --force` 404 on aarch64 Linux).
+
+### Changed
+
+- **Auto-update** — validates release assets via GitHub API before download; clearer errors when platform binary is missing.
+- **`install.sh`** — better 404 guidance for Linux ARM64 before v0.14.0.
+
 ## [0.13.0] - 2026-06-17
 
 ### Added

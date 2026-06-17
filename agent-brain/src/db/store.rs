@@ -1344,8 +1344,85 @@ impl BrainStore {
         Ok(())
     }
 
-    pub fn retrieval_stats_since(&self, since_ms: i64) -> Result<RetrievalStats> {
+    pub fn insert_tool_log(
+        &self,
+        id: &str,
+        tool_name: &str,
+        path: Option<&str>,
+        tokens_used: usize,
+        tokens_saved: Option<usize>,
+        savings_pct: Option<f64>,
+        must_apply_active: bool,
+        phase: Option<&str>,
+        route_log_id: Option<&str>,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
         self.with_conn(|conn| {
+            conn.execute(
+                r#"INSERT INTO tool_log (id, timestamp, tool_name, path, tokens_used, tokens_saved, savings_pct, must_apply_active, phase, route_log_id)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"#,
+                params![
+                    id,
+                    now,
+                    tool_name,
+                    path,
+                    tokens_used as i64,
+                    tokens_saved.map(|n| n as i64),
+                    savings_pct.map(|n| n.round() as i64),
+                    must_apply_active as i64,
+                    phase,
+                    route_log_id,
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn tool_log_stats_since(&self, since_ms: i64) -> Result<(usize, u64, f64, usize)> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT tool_name, tokens_saved, savings_pct FROM tool_log WHERE timestamp >= ?1",
+            )?;
+            let rows = stmt
+                .query_map(params![since_ms], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<i64>>(1)?,
+                        row.get::<_, Option<i64>>(2)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let mut tool_calls = 0usize;
+            let mut tokens_saved = 0u64;
+            let mut savings_pcts = Vec::new();
+            let mut inefficient_reads = 0usize;
+
+            for (name, saved, pct) in rows {
+                tool_calls += 1;
+                if name == "cursor_read" {
+                    inefficient_reads += 1;
+                }
+                if let Some(s) = saved {
+                    tokens_saved += s.max(0) as u64;
+                }
+                if let Some(p) = pct {
+                    savings_pcts.push(p.max(0) as u8);
+                }
+            }
+
+            let avg_savings = if savings_pcts.is_empty() {
+                0.0
+            } else {
+                savings_pcts.iter().map(|p| *p as f64).sum::<f64>() / savings_pcts.len() as f64
+            };
+
+            Ok((tool_calls, tokens_saved, avg_savings, inefficient_reads))
+        })
+    }
+
+    pub fn retrieval_stats_since(&self, since_ms: i64) -> Result<RetrievalStats> {
+        let mut stats = self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 "SELECT phase, cache_hit, latency_ms, tokens_used, index_total, saved_pct, must_apply_count FROM retrieval_log WHERE timestamp >= ?1",
             )?;
@@ -1454,8 +1531,19 @@ impl BrainStore {
                 avg_routed_tokens,
                 routes_with_constraints,
                 total_must_apply,
+                tool_calls: 0,
+                tool_tokens_saved: 0,
+                tool_avg_savings_pct: 0.0,
+                inefficient_read_events: 0,
             })
-        })
+        })?;
+        let (tool_calls, tool_tokens_saved, tool_avg_savings_pct, inefficient_read_events) =
+            self.tool_log_stats_since(since_ms)?;
+        stats.tool_calls = tool_calls;
+        stats.tool_tokens_saved = tool_tokens_saved;
+        stats.tool_avg_savings_pct = tool_avg_savings_pct;
+        stats.inefficient_read_events = inefficient_read_events;
+        Ok(stats)
     }
 
     pub fn context_feedback_summary(&self, lowest_n: usize) -> Result<ContextFeedbackSummary> {
@@ -1976,6 +2064,22 @@ pub struct RetrievalStats {
     pub avg_routed_tokens: f64,
     pub routes_with_constraints: usize,
     pub total_must_apply: usize,
+    pub tool_calls: usize,
+    pub tool_tokens_saved: u64,
+    pub tool_avg_savings_pct: f64,
+    pub inefficient_read_events: usize,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ToolEventRecord {
+    pub timestamp: i64,
+    pub tool_name: String,
+    pub path: Option<String>,
+    pub tokens_used: usize,
+    pub tokens_saved: Option<usize>,
+    pub savings_pct: Option<f64>,
+    pub must_apply_active: bool,
+    pub phase: Option<String>,
 }
 
 #[derive(Debug, Clone)]

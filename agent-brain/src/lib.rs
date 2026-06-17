@@ -37,5 +37,6 @@ pub mod proofs;
 pub mod skills_sh;
 pub mod supervisor_bench;
 pub mod token_tools;
+pub mod tool_events;
 
 pub use engine::Engine;

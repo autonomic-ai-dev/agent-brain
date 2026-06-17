@@ -255,6 +255,19 @@ async fn main() -> Result<()> {
                 eprintln!("Briefings are written to {}", path.display());
                 std::process::exit(1);
             }
+            if let Some(suggestion) = agent_brain::route_briefing::read_anti_pattern_suggestion(&config.home) {
+                println!("\n---\nSuggested store_memory (from hook):\n{}\n", serde_json::to_string_pretty(&suggestion)?);
+            }
+        }
+        "suggest-memory" => {
+            let config = Config::load()?;
+            match agent_brain::route_briefing::read_anti_pattern_suggestion(&config.home) {
+                Some(suggestion) => println!("{}", serde_json::to_string_pretty(&suggestion)?),
+                None => {
+                    eprintln!("No anti-pattern suggestion pending.");
+                    std::process::exit(1);
+                }
+            }
         }
         "onboarding" => {
             let config = Config::load()?;
