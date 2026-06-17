@@ -259,6 +259,34 @@ async fn main() -> Result<()> {
                 println!("\n---\nSuggested store_memory (from hook):\n{}\n", serde_json::to_string_pretty(&suggestion)?);
             }
         }
+        "learn" => {
+            let config = Config::load()?;
+            let engine = Arc::new(Engine::new(config)?);
+            let sub = args.get(2).map(String::as_str).unwrap_or("");
+            match sub {
+                "url" => {
+                    let url = args
+                        .get(3)
+                        .context("usage: agent-brain learn url <https-url> [--topic NAME] [--dry-run]")?;
+                    let topic = flag_value(&args, "--topic");
+                    let dry_run = args.iter().any(|a| a == "--dry-run");
+                    let report =
+                        agent_brain::docs::learn_from_url(&engine, url, topic.as_deref(), dry_run)?;
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                }
+                "allowlist" | "domains" => {
+                    let settings = settings::AgentBrainSettings::load(&engine.config.home);
+                    for domain in &settings.docs.allowed_domains {
+                        println!("{domain}");
+                    }
+                }
+                _ => {
+                    eprintln!("Usage: agent-brain learn url <https-url> [--topic NAME] [--dry-run]");
+                    eprintln!("       agent-brain learn allowlist");
+                    std::process::exit(1);
+                }
+            }
+        }
         "graphify" => {
             let config = Config::load()?;
             let engine = Arc::new(Engine::new(config)?);
@@ -1173,6 +1201,8 @@ Usage:
   agent-brain version                         Print installed version
   agent-brain briefing                        Print last human-readable route summary
   agent-brain suggest-memory [approve|reject] Show or promote hook anti-pattern to store_memory
+  agent-brain learn url <URL> [--topic NAME] [--dry-run]  Ingest allowlisted docs into skills + memory
+  agent-brain learn allowlist                          Show docs.allowed_domains from config
   agent-brain graphify enable|disable|status|ingest|run|query  Graphify orchestration (codebase graph)
   agent-brain stats [--days N] [--json]       Index, routing, token savings, adoption milestones
   agent-brain dashboard [--days N] [--open]   Local HTML value dashboard (token ROI, memories)

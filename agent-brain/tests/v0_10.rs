@@ -547,7 +547,8 @@ fn suggest_memory_approve_stores_negative_with_apply_when() {
     )
     .unwrap();
 
-    let engine = Engine::new(config).unwrap();
+    let store = Arc::new(BrainStore::open(&config.db_path).unwrap());
+    let engine = Engine::new_with_store(config, store).unwrap();
     let report = agent_brain::suggest_memory::approve_pending(&engine).unwrap();
     assert!(report.stored);
     assert_eq!(report.polarity, "negative");

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-06-17
+
+### Added
+
+- **`learn_from_url` MCP tool** — fetch allowlisted HTTPS documentation, chunk into skills, and store a summary memory (requires `route_task` first).
+- **`agent-brain learn url <URL>`** — CLI ingest with `--topic` and `--dry-run`; **`learn allowlist`** lists configured domains.
+- **Docs module** — HTTPS domain allowlist, HTML fetch/strip, chunking, and cache under `~/.agent_brain/learned/`.
+- **`docs` settings** — `docs.enabled`, `docs.allowed_domains`, size/chunk limits in `~/.agent_brain/config.yaml`.
+
+### Fixed
+
+- **CI flake** — `suggest_memory_approve_stores_negative_with_apply_when` uses deterministic embedder (avoids HuggingFace 429 in CI).
+
 ## [0.17.3] - 2026-06-17
 
 ### Added

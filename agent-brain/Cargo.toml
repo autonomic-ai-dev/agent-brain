@@ -1,6 +1,6 @@
 [package]
 name = "agent-brain"
-version = "0.17.3"
+version = "0.18.0"
 edition = "2021"
 description = "Fast local MCP router for agents, skills, rules, and memory"
 license = "MIT"

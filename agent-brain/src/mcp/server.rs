@@ -262,6 +262,15 @@ struct GraphifyJobStatusParams {
     job_id: String,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+struct LearnFromUrlParams {
+    url: String,
+    #[serde(default)]
+    topic: Option<String>,
+    #[serde(default)]
+    dry_run: bool,
+}
+
 #[tool_router]
 impl BrainMcp {
     #[tool(description = "REQUIRED every turn before planning or edits. Returns ranked agents, skills, rules, and memory under a token budget. Pass user_message, current_working_directory, and open_files. Session digests from Cursor/OpenCode/Codex and team memory are only injected here.")]
@@ -723,6 +732,24 @@ impl BrainMcp {
         json_result(status)
     }
 
+    #[tool(description = "Fetch allowlisted HTTPS documentation, index as skills, and store a summary memory. Requires route_task first. Domain must be in docs.allowed_domains.")]
+    async fn learn_from_url(
+        &self,
+        params: Parameters<LearnFromUrlParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.require_route("learn_from_url")?;
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let report = crate::docs::learn_from_url(
+            &self.engine,
+            &p.url,
+            p.topic.as_deref(),
+            p.dry_run,
+        )
+        .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        json_result(report)
+    }
+
     fn log_token_tool(
         &self,
         tool_name: &str,
@@ -775,6 +802,7 @@ impl ServerHandler for BrainMcp {
              Use returned paths to load skills; apply applicable_rules and must_apply. \
              For file inspection prefer token-efficient tools: grep_search, file_summary, read_file_head, read_file_tail — not full-file reads. \
              When exploring code architecture in a repo with graphify enabled, use query_codebase after route_task. \
+             To ingest framework docs from an allowlisted HTTPS URL, use learn_from_url (see docs.allowed_domains in config). \
              At task end, call store_memory for durable outcomes (max 50 words). \
              Do not bypass this server when its tools are available."
                 .into(),

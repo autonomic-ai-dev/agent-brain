@@ -18,6 +18,8 @@ pub struct AgentBrainSettings {
     pub memory_gc: MemoryGcSettings,
     #[serde(default)]
     pub graphify: GraphifySettings,
+    #[serde(default)]
+    pub docs: DocsSettings,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -76,6 +78,67 @@ impl Default for GraphifySettings {
             graphify_bin: default_graphify_bin(),
             max_concurrent_jobs: default_graphify_max_jobs(),
             default_query_budget: default_graphify_query_budget(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DocsSettings {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_docs_allowed_domains")]
+    pub allowed_domains: Vec<String>,
+    #[serde(default = "default_docs_max_bytes")]
+    pub max_bytes: usize,
+    #[serde(default = "default_docs_max_chunks")]
+    pub max_chunks: usize,
+    #[serde(default = "default_docs_chunk_words")]
+    pub chunk_words: usize,
+    #[serde(default = "default_docs_summary_words")]
+    pub summary_words: usize,
+}
+
+fn default_docs_allowed_domains() -> Vec<String> {
+    vec![
+        "nextjs.org".into(),
+        "react.dev".into(),
+        "docs.vercel.com".into(),
+        "doc.rust-lang.org".into(),
+        "docs.rs".into(),
+        "tailwindcss.com".into(),
+        "docs.cursor.com".into(),
+        "developer.mozilla.org".into(),
+        "typescriptlang.org".into(),
+        "nodejs.org".into(),
+        "docs.github.com".into(),
+    ]
+}
+
+fn default_docs_max_bytes() -> usize {
+    512_000
+}
+
+fn default_docs_max_chunks() -> usize {
+    6
+}
+
+fn default_docs_chunk_words() -> usize {
+    350
+}
+
+fn default_docs_summary_words() -> usize {
+    45
+}
+
+impl Default for DocsSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            allowed_domains: default_docs_allowed_domains(),
+            max_bytes: default_docs_max_bytes(),
+            max_chunks: default_docs_max_chunks(),
+            chunk_words: default_docs_chunk_words(),
+            summary_words: default_docs_summary_words(),
         }
     }
 }
@@ -364,6 +427,7 @@ impl AgentBrainSettings {
             upstream_mcp: UpstreamMcpSettings::default(),
             memory_gc: MemoryGcSettings::default(),
             graphify: GraphifySettings::default(),
+            docs: DocsSettings::default(),
         }
     }
 
