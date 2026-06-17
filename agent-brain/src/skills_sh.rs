@@ -1,9 +1,7 @@
 //! skills.sh catalog snapshot sync and production-scale routing eval.
 //!
-//! The skills.sh catalog has 700k+ skills; CI uses a committed snapshot plus filler
-//! skills to simulate a ~2000-item production index. Sync uses public search/download APIs.
-
-use std::collections::BTreeSet;
+//! The skills.sh catalog has 700k+ skills; CI uses a committed snapshot of real skills
+//! (default ~2000) indexed into fixture-2k.db. Sync uses public search/download APIs.
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -23,6 +21,7 @@ use crate::types::{ItemType, RouteLimits};
 
 pub const SKILLS_SH_RECALL_THRESHOLD: f64 = 0.80;
 pub const SKILLS_SH_SIMULATED_INDEX: usize = 2000;
+pub const SKILLS_SH_SEARCH_LIMIT: usize = 50;
 pub const SKILLS_SH_SEARCH_BASE: &str = "https://skills.sh/api/search";
 pub const SKILLS_SH_DOWNLOAD_BASE: &str = "https://skills.sh/api/download";
 pub const SKILLS_SH_V1_BASE: &str = "https://skills.sh/api/v1/skills";
@@ -35,38 +34,43 @@ pub struct SkillsShManifest {
     pub max_skills: usize,
 }
 
+pub fn default_discovery_queries() -> Vec<String> {
+    vec![
+        "react", "vue", "angular", "svelte", "nextjs", "node", "python", "rust", "go", "java",
+        "kotlin", "swift", "flutter", "dart", "test", "tdd", "vitest", "jest", "playwright",
+        "cypress", "deploy", "docker", "kubernetes", "terraform", "aws", "azure", "gcp",
+        "security", "auth", "api", "graphql", "postgres", "mysql", "redis", "mongo", "supabase",
+        "firebase", "stripe", "seo", "marketing", "design", "ui", "ux", "video", "audio", "pdf",
+        "docx", "excel", "review", "debug", "plan", "mcp", "agent", "skill", "claude", "codex",
+        "lark", "feishu", "github", "gitlab", "linear", "jira", "remotion", "animation", "browser",
+        "scraping", "data", "ml", "ai", "writing", "copy", "email", "sales", "finance", "legal",
+        "medical", "game", "mobile", "web", "css", "html", "tailwind", "shadcn", "prisma",
+        "drizzle", "nestjs", "express", "fastapi", "django", "rails", "laravel", "php", "perl",
+        "bash", "shell", "git", "commit", "refactor", "architecture", "performance",
+        "accessibility", "i18n", "observability", "logging", "typescript", "javascript", "ruby",
+        "elixir", "scala", "csharp", "dotnet", "wordpress", "shopify", "notion", "slack",
+        "vercel", "netlify", "cloudflare", "openai", "anthropic", "gemini", "copilot", "figma",
+        "sketch", "brand", "content", "social", "twitter", "linkedin", "docs", "tutorial",
+        "onboarding", "testing", "lint", "format", "ci", "cd", "monitor", "sre", "devops",
+        "infra", "network", "linux", "macos", "windows", "android", "ios", "react-native",
+        "expo", "electron", "tauri", "wasm", "blockchain", "solidity", "ethereum", "crypto",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect()
+}
+
 impl Default for SkillsShManifest {
     fn default() -> Self {
         Self {
-            catalog_note: "skills.sh public catalog (730k+); snapshot is a searchable sample".into(),
+            catalog_note: "skills.sh public catalog (730k+); sync --target 2000 for real fixture".into(),
             required_ids: vec![
                 "vercel-labs/skills/find-skills".into(),
                 "vercel-labs/agent-skills/vercel-react-best-practices".into(),
                 "vercel-labs/agent-skills/vercel-react-native-skills".into(),
-                "expo/skills/expo-deployment".into(),
-                "supabase/agent-skills/supabase-postgres-best-practices".into(),
             ],
-            discovery_queries: vec![
-                "react".into(),
-                "nextjs".into(),
-                "deploy".into(),
-                "test".into(),
-                "review".into(),
-                "debug".into(),
-                "rust".into(),
-                "python".into(),
-                "postgres".into(),
-                "docker".into(),
-                "security".into(),
-                "typescript".into(),
-                "vitest".into(),
-                "playwright".into(),
-                "kubernetes".into(),
-                "mcp".into(),
-                "plan".into(),
-                "api".into(),
-            ],
-            max_skills: 200,
+            discovery_queries: default_discovery_queries(),
+            max_skills: SKILLS_SH_SIMULATED_INDEX,
         }
     }
 }
@@ -88,6 +92,8 @@ pub struct SkillsShSkillRecord {
     pub topic: String,
     pub text: String,
     pub installs: Option<u64>,
+    #[serde(default)]
+    pub indexed_from: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -181,11 +187,21 @@ pub fn default_skills_sh_report_path() -> PathBuf {
 }
 
 pub fn load_manifest(path: &Path) -> Result<SkillsShManifest> {
-    if path.exists() {
+    let mut manifest = if path.exists() {
         let raw = std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
-        return Ok(serde_json::from_str(&raw).context("parse skills-sh manifest")?);
+        serde_json::from_str(&raw).context("parse skills-sh manifest")?
+    } else {
+        SkillsShManifest::default()
+    };
+    if manifest.discovery_queries.len() < 50 {
+        let mut seen = std::collections::BTreeSet::from_iter(manifest.discovery_queries.iter().cloned());
+        for q in default_discovery_queries() {
+            if seen.insert(q.clone()) {
+                manifest.discovery_queries.push(q);
+            }
+        }
     }
-    Ok(SkillsShManifest::default())
+    Ok(manifest)
 }
 
 pub fn load_snapshot(path: &Path) -> Result<SkillsShSnapshot> {
@@ -207,61 +223,245 @@ pub fn write_snapshot(path: &Path, snapshot: &SkillsShSnapshot) -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug, Clone)]
+pub struct SyncOptions {
+    pub target: usize,
+    pub delay_ms: u64,
+    pub merge_path: Option<PathBuf>,
+    pub checkpoint_path: Option<PathBuf>,
+    pub checkpoint_every: usize,
+    /// Max HTTP attempts per download (search keeps 5 for rate limits).
+    pub download_max_attempts: u32,
+}
+
+impl SyncOptions {
+    pub fn from_manifest(manifest: &SkillsShManifest, max_skills: Option<usize>, delay_ms: u64) -> Self {
+        Self {
+            target: max_skills.unwrap_or(manifest.max_skills),
+            delay_ms,
+            merge_path: None,
+            checkpoint_path: None,
+            checkpoint_every: 50,
+            download_max_attempts: 1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SyncReport {
+    pub discovered_ids: usize,
+    pub downloaded: usize,
+    pub metadata_fallback: usize,
+    pub skipped_existing: usize,
+    pub failed: usize,
+    pub total_in_snapshot: usize,
+}
+
 /// Sync a snapshot from skills.sh (public search + download APIs).
 pub fn sync_snapshot(
     manifest: &SkillsShManifest,
     max_skills: Option<usize>,
     delay_ms: u64,
 ) -> Result<SkillsShSnapshot> {
-    let cap = max_skills.unwrap_or(manifest.max_skills);
-    let mut ids: BTreeSet<String> = manifest.required_ids.iter().cloned().collect();
+    sync_snapshot_with_options(manifest, SyncOptions::from_manifest(manifest, max_skills, delay_ms))
+        .map(|(snapshot, _)| snapshot)
+}
+
+pub fn sync_snapshot_with_options(
+    manifest: &SkillsShManifest,
+    options: SyncOptions,
+) -> Result<(SkillsShSnapshot, SyncReport)> {
+    let cap = options.target;
+    let mut existing: Vec<SkillsShSkillRecord> = if let Some(path) = &options.merge_path {
+        if path.exists() {
+            load_snapshot(path)?.skills
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+    let mut by_id: std::collections::BTreeMap<String, SkillsShSkillRecord> = existing
+        .drain(..)
+        .map(|s| (s.id.clone(), s))
+        .collect();
+
+    let mut meta_by_id: std::collections::BTreeMap<String, SearchSkill> = std::collections::BTreeMap::new();
+    for id in &manifest.required_ids {
+        meta_by_id.insert(
+            id.clone(),
+            SearchSkill {
+                id: id.clone(),
+                skill_id: None,
+                name: id.rsplit('/').next().unwrap_or(id).to_string(),
+                source: id.rsplit_once('/').map(|(s, _)| s.to_string()).unwrap_or_default(),
+                installs: Some(u64::MAX),
+            },
+        );
+    }
 
     for query in &manifest.discovery_queries {
-        if ids.len() >= cap {
+        if meta_by_id.len() >= cap.saturating_mul(2) {
             break;
         }
-        match search_skills(query, 50) {
+        match search_skills(query, SKILLS_SH_SEARCH_LIMIT) {
             Ok(found) => {
                 for skill in found {
-                    ids.insert(skill.id);
-                    if ids.len() >= cap {
-                        break;
-                    }
+                    meta_by_id.entry(skill.id.clone()).or_insert(skill);
                 }
             }
             Err(err) => tracing::warn!(query = query.as_str(), error = %err, "skills.sh search failed"),
         }
-        std::thread::sleep(Duration::from_millis(delay_ms));
+        std::thread::sleep(Duration::from_millis(options.delay_ms));
     }
 
-    let mut skills = Vec::new();
-    for id in ids.iter().take(cap) {
-        match download_skill(id) {
-            Ok(record) => skills.push(record),
+    let mut queue: Vec<SearchSkill> = meta_by_id.into_values().collect();
+    queue.sort_by(|a, b| {
+        b.installs
+            .unwrap_or(0)
+            .cmp(&a.installs.unwrap_or(0))
+            .then_with(|| a.id.cmp(&b.id))
+    });
+
+    let discovered_ids = queue.len();
+    let mut downloaded = 0usize;
+    let mut metadata_fallback = 0usize;
+    let mut skipped_existing = 0usize;
+    let mut attempts = 0usize;
+
+    for skill in queue {
+        if by_id.len() >= cap {
+            break;
+        }
+        if by_id.contains_key(&skill.id) {
+            skipped_existing += 1;
+            continue;
+        }
+        attempts += 1;
+        match download_skill(&skill.id, options.download_max_attempts) {
+            Ok(mut record) => {
+                record.installs = skill.installs.or(record.installs);
+                record.indexed_from = "download".into();
+                by_id.insert(record.id.clone(), record);
+                downloaded += 1;
+            }
             Err(err) => {
-                if manifest.required_ids.iter().any(|r| r == id) {
-                    bail!("required skill {id} download failed: {err}");
+                if manifest.required_ids.iter().any(|r| r == &skill.id) {
+                    bail!("required skill {} download failed: {err}", skill.id);
                 }
-                tracing::warn!(skill_id = id.as_str(), error = %err, "skip skill download");
+                tracing::warn!(skill_id = skill.id.as_str(), error = %err, "download failed; metadata fallback");
+                let record = record_from_search_meta(&skill);
+                by_id.insert(record.id.clone(), record);
+                metadata_fallback += 1;
             }
         }
-        std::thread::sleep(Duration::from_millis(delay_ms));
+        if options.checkpoint_every > 0
+            && attempts % options.checkpoint_every == 0
+            && by_id.len() != skipped_existing
+        {
+            if let Some(path) = &options.checkpoint_path {
+                let partial = snapshot_from_map(&by_id, cap);
+                write_snapshot(path, &partial)?;
+                eprintln!(
+                    "checkpoint: {} skills in snapshot ({}/{})",
+                    partial.skills.len(),
+                    partial.skills.len(),
+                    cap
+                );
+            }
+        }
+        std::thread::sleep(Duration::from_millis(options.delay_ms));
     }
 
-    skills.sort_by(|a, b| a.id.cmp(&b.id));
+    if by_id.len() < cap {
+        tracing::warn!(
+            have = by_id.len(),
+            target = cap,
+            "snapshot below target — add discovery queries or re-run with --merge"
+        );
+    }
 
-    Ok(SkillsShSnapshot {
+    let snapshot = snapshot_from_map(&by_id, cap);
+    let report = SyncReport {
+        discovered_ids,
+        downloaded,
+        metadata_fallback,
+        skipped_existing,
+        failed: metadata_fallback,
+        total_in_snapshot: snapshot.skills.len(),
+    };
+    Ok((snapshot, report))
+}
+
+fn snapshot_from_map(by_id: &std::collections::BTreeMap<String, SkillsShSkillRecord>, cap: usize) -> SkillsShSnapshot {
+    let mut skills: Vec<SkillsShSkillRecord> = by_id.values().cloned().collect();
+    skills.sort_by(|a, b| a.id.cmp(&b.id));
+    skills.truncate(cap);
+    SkillsShSnapshot {
         generated_at: chrono::Utc::now().to_rfc3339(),
         source: "skills.sh".into(),
-        catalog_size_note: "730k+ skills in catalog; snapshot is a reproducible sample for CI".into(),
+        catalog_size_note: format!(
+            "{} real skills from skills.sh catalog (730k+); target index {}",
+            skills.len(),
+            cap
+        ),
         skills,
-    })
+    }
+}
+
+fn record_from_search_meta(skill: &SearchSkill) -> SkillsShSkillRecord {
+    let slug = skill
+        .skill_id
+        .clone()
+        .unwrap_or_else(|| skill.id.rsplit('/').next().unwrap_or(&skill.id).to_string());
+    let topic = slug.clone();
+    let text = format!(
+        "{} {} {} skills.sh skill from {} installs {}",
+        skill.name,
+        topic,
+        skill.source,
+        skill.source,
+        skill.installs.unwrap_or(0)
+    );
+    SkillsShSkillRecord {
+        id: skill.id.clone(),
+        slug,
+        name: skill.name.clone(),
+        source: skill.source.clone(),
+        topic,
+        text,
+        installs: skill.installs,
+        indexed_from: "search-metadata".into(),
+    }
 }
 
 fn http_get_json<T: serde::de::DeserializeOwned>(url: &str) -> Result<T> {
-    const MAX_ATTEMPTS: u32 = 5;
-    for attempt in 0..MAX_ATTEMPTS {
-        match ureq::get(url).call() {
+    http_get_json_attempts(url, 5)
+}
+
+fn download_http_agent() -> &'static ureq::Agent {
+    use std::sync::OnceLock;
+    static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
+    AGENT.get_or_init(|| {
+        let config = ureq::config::Config::builder()
+            .timeout_global(Some(Duration::from_secs(3)))
+            .build();
+        ureq::Agent::new_with_config(config)
+    })
+}
+
+fn http_get_json_attempts<T: serde::de::DeserializeOwned>(url: &str, max_attempts: u32) -> Result<T> {
+    let agent = ureq::agent();
+    http_get_json_with_agent(&agent, url, max_attempts)
+}
+
+fn http_get_json_with_agent<T: serde::de::DeserializeOwned>(
+    agent: &ureq::Agent,
+    url: &str,
+    max_attempts: u32,
+) -> Result<T> {
+    for attempt in 0..max_attempts {
+        match agent.get(url).call() {
             Ok(resp) => {
                 let status = resp.status().as_u16();
                 if status == 429 {
@@ -285,14 +485,14 @@ fn http_get_json<T: serde::de::DeserializeOwned>(url: &str) -> Result<T> {
                 std::thread::sleep(Duration::from_secs(wait));
             }
             Err(err) => {
-                if attempt + 1 == MAX_ATTEMPTS {
+                if attempt + 1 == max_attempts {
                     return Err(err).with_context(|| format!("GET {url}"));
                 }
-                std::thread::sleep(Duration::from_secs(2 + attempt as u64));
+                std::thread::sleep(Duration::from_millis(300 + attempt as u64 * 200));
             }
         }
     }
-    bail!("GET {url} failed after {MAX_ATTEMPTS} attempts")
+    bail!("GET {url} failed after {max_attempts} attempts")
 }
 
 fn search_skills(query: &str, limit: usize) -> Result<Vec<SearchSkill>> {
@@ -304,10 +504,10 @@ fn search_skills(query: &str, limit: usize) -> Result<Vec<SearchSkill>> {
     Ok(body.skills)
 }
 
-fn download_skill(id: &str) -> Result<SkillsShSkillRecord> {
+fn download_skill(id: &str, max_attempts: u32) -> Result<SkillsShSkillRecord> {
     let (source, slug) = parse_skill_id(id)?;
     let url = format!("{SKILLS_SH_DOWNLOAD_BASE}/{source}/{slug}");
-    let body: DownloadResponse = http_get_json(&url)?;
+    let body: DownloadResponse = http_get_json_with_agent(download_http_agent(), &url, max_attempts)?;
     let skill_md = body
         .files
         .iter()
@@ -324,6 +524,7 @@ fn download_skill(id: &str) -> Result<SkillsShSkillRecord> {
         topic,
         text,
         installs: None,
+        indexed_from: "download".into(),
     })
 }
 
@@ -371,24 +572,43 @@ pub fn index_snapshot(store: &Arc<BrainStore>, snapshot: &SkillsShSnapshot) -> R
     Ok(count)
 }
 
+pub fn seed_fixture_index(
+    store: &Arc<BrainStore>,
+    snapshot: &SkillsShSnapshot,
+    index_size: usize,
+    allow_fillers: bool,
+) -> Result<usize> {
+    let indexed = index_snapshot(store, snapshot)?;
+    if indexed >= index_size {
+        return Ok(indexed.min(index_size));
+    }
+    if !allow_fillers {
+        bail!(
+            "snapshot has {} real skills but index target is {} — run: skills-sh sync --target {index_size} --merge",
+            indexed,
+            index_size
+        );
+    }
+    let filler = index_size.saturating_sub(indexed);
+    seed_filler_skills(store, filler)?;
+    store.bump_index_version()?;
+    Ok(indexed + filler)
+}
+
+/// Legacy name — uses fillers when snapshot is smaller than index_size.
 pub fn seed_simulated_production_index(
     store: &Arc<BrainStore>,
     snapshot: &SkillsShSnapshot,
     index_size: usize,
 ) -> Result<usize> {
-    let indexed = index_snapshot(store, snapshot)?;
-    let filler = index_size.saturating_sub(indexed);
-    if filler > 0 {
-        seed_filler_skills(store, filler)?;
-        store.bump_index_version()?;
-    }
-    Ok(indexed + filler)
+    seed_fixture_index(store, snapshot, index_size, true)
 }
 
 pub fn build_fixture_db(
     snapshot_path: &Path,
     index_size: usize,
     write_path: &Path,
+    allow_fillers: bool,
 ) -> Result<FixtureBuildReport> {
     let snapshot = load_snapshot(snapshot_path)?;
     let dir = tempfile::tempdir()?;
@@ -396,18 +616,26 @@ pub fn build_fixture_db(
     config.ensure_dirs()?;
     let db_path = config.db_path.clone();
     let store = Arc::new(BrainStore::open(&db_path)?);
-    let total = seed_simulated_production_index(&store, &snapshot, index_size)?;
+    let skills_to_index = if snapshot.skills.len() > index_size {
+        SkillsShSnapshot {
+            skills: snapshot.skills[..index_size].to_vec(),
+            ..snapshot.clone()
+        }
+    } else {
+        snapshot.clone()
+    };
+    let indexed = seed_fixture_index(&store, &skills_to_index, index_size, allow_fillers)?;
     stamp_fixture_meta(
         &store,
         FIXTURE_DB_KIND_SKILLS_SH,
-        total,
-        snapshot.skills.len(),
+        indexed,
+        skills_to_index.skills.len(),
     )?;
     export_fixture_db(&store, &db_path, write_path)?;
     Ok(FixtureBuildReport {
         write_path: write_path.display().to_string(),
-        index_size: total,
-        snapshot_skills: snapshot.skills.len(),
+        index_size: indexed,
+        snapshot_skills: skills_to_index.skills.len(),
         recipe_version: crate::fixture::FIXTURE_DB_RECIPE_VERSION.into(),
     })
 }

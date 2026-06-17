@@ -60,8 +60,9 @@ jobs:
       - name: Sync expanded snapshot from skills.sh
         run: |
           cargo run --release -p agent-brain -- skills-sh sync \
-            --max 100 \
-            --delay-ms 3000 \
+            --target 2000 \
+            --merge \
+            --delay-ms 400 \
             --write docs/benchmarks/skills-sh/snapshot.json
 
       - name: Rebuild fixture DB from refreshed snapshot

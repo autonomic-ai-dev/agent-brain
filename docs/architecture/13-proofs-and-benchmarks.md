@@ -49,7 +49,8 @@ cargo run --release -p agent-brain -- bench --onnx --write docs/benchmarks/onnx-
 # Hook gate latency (CI)
 python3 agent-brain/hooks/test_route_gate.py
 
-# skills.sh catalog (committed snapshot + 2000 fillers)
+# skills.sh catalog (2000 real skills from committed snapshot)
+cargo run --release -p agent-brain -- skills-sh sync --target 2000 --merge --write docs/benchmarks/skills-sh/snapshot.json
 cargo run --release -p agent-brain -- fixture build --write docs/benchmarks/fixture-2k.db
 cargo run --release -p agent-brain -- eval --skills-sh --write docs/benchmarks/skills-sh-latest.json
 

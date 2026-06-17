@@ -41,13 +41,13 @@ Production `brain.db` with thousands of real skills is **not** part of the CI pr
 
 ## skills.sh catalog (730k+ skills)
 
-Separate workflow **`stage-skills-sh-eval.yml`** gates routing against **`fixture-2k.db`** — a committed pre-indexed DB built from the skills.sh snapshot (2000 items).
+Separate workflow **`stage-skills-sh-eval.yml`** gates routing against **`fixture-2k.db`** — a committed pre-indexed DB of **2000 real** skills.sh skills.
 
 | Gate | Command | Threshold |
 |------|---------|-----------|
 | skills.sh Recall@3 | `eval --skills-sh` | ≥ 0.80 on golden cases |
 
-Index composition: **3** real skills.sh skills + **1997** `bench-filler-*` rows = **2000** total (`fixture verify`).
+Index composition: **2000** real skills.sh rows, **0** `bench-filler-*` (`fixture verify`).
 
 Rebuild after snapshot changes: `fixture build --write docs/benchmarks/fixture-2k.db`
 

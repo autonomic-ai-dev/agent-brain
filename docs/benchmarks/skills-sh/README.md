@@ -3,12 +3,12 @@
 [skills.sh](https://skills.sh) catalogs **730k+** agent skills (Vercel). agent-brain cannot index the full catalog in every CI run, so we:
 
 1. **Commit a snapshot** of real skills (`snapshot.json`) synced via public APIs
-2. **Build `fixture-2k.db`** — pre-indexed SQLite with snapshot skills + fillers to **2000 items**
+2. **Build `fixture-2k.db`** — pre-indexed SQLite with **2000 real** skills.sh skills (no synthetic fillers)
 3. **Gate routing** with golden queries (`golden.json`) at **Recall@3 ≥ 0.80**
 
 CI opens the committed DB (copied to a temp dir) — no runtime seeding.
 
-**Index composition:** 3 real skills.sh skills + 1997 synthetic `bench-filler-*` skills = 2000 rows. Verify with `fixture verify`.
+**Index composition:** 2000 real skills.sh skills (`source_path LIKE 'https://skills.sh/%'`). Verify with `fixture verify` (expect `bench_filler_rows: 0`).
 
 ## CI
 
@@ -28,8 +28,8 @@ cargo run --release -p agent-brain -- eval --skills-sh --write docs/benchmarks/s
 # Compare runtime seed vs committed DB
 cargo run --release -p agent-brain -- eval --skills-sh --seed
 
-# Refresh snapshot (rate-limited)
-cargo run --release -p agent-brain -- skills-sh sync --required-only --write docs/benchmarks/skills-sh/snapshot.json
+# Refresh snapshot (rate-limited; ~20–40 min for 2000 skills)
+cargo run --release -p agent-brain -- skills-sh sync --target 2000 --merge --delay-ms 400 --write docs/benchmarks/skills-sh/snapshot.json
 ```
 
 ## APIs used
@@ -52,9 +52,9 @@ cargo run --release -p agent-brain -- skills-sh sync --required-only --write doc
 
 ## Growing the snapshot
 
-1. Add skill ids to `manifest.json` `required_ids`
-2. Add matching cases to `golden.json`
-3. Run `skills-sh sync` with generous `--delay-ms`
-4. Run `fixture build` then `eval --skills-sh` locally before pushing
+1. Run `skills-sh sync --target 2000 --merge` (checkpoints to `snapshot.json` every 50 skills)
+2. Run `fixture build` then `eval --skills-sh` locally before pushing
+3. Add skill ids to `manifest.json` `required_ids` if they must always be present
+4. Add matching cases to `golden.json` for new routing gates
 
 See [../../architecture/13-proofs-and-benchmarks.md](../../architecture/13-proofs-and-benchmarks.md).

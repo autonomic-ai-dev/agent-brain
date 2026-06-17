@@ -684,10 +684,12 @@ async fn main() -> Result<()> {
                     let index_size = flag_value(&args, "--index-size")
                         .and_then(|v| v.parse().ok())
                         .unwrap_or(agent_brain::skills_sh::SKILLS_SH_SIMULATED_INDEX);
+                    let allow_fillers = args.iter().any(|a| a == "--allow-fillers");
                     let report = agent_brain::skills_sh::build_fixture_db(
                         &snapshot,
                         index_size,
                         &write_path,
+                        allow_fillers,
                     )?;
                     println!("{}", serde_json::to_string_pretty(&report)?);
                     eprintln!(
@@ -721,7 +723,7 @@ async fn main() -> Result<()> {
                     );
                 }
                 _ => {
-                    eprintln!("Usage: agent-brain fixture build [--snapshot PATH] [--index-size N] [--write PATH]");
+                    eprintln!("Usage: agent-brain fixture build [--snapshot PATH] [--index-size N] [--write PATH] [--allow-fillers]");
                     eprintln!("       agent-brain fixture verify [--db PATH]");
                     std::process::exit(1);
                 }
@@ -737,9 +739,11 @@ async fn main() -> Result<()> {
                     let write_path = flag_value(&args, "--write")
                         .map(PathBuf::from)
                         .unwrap_or_else(agent_brain::skills_sh::default_snapshot_path);
-                    let max = flag_value(&args, "--max")
+                    let target = flag_value(&args, "--target")
+                        .or_else(|| flag_value(&args, "--max"))
                         .and_then(|v| v.parse().ok());
                     let required_only = args.iter().any(|a| a == "--required-only");
+                    let merge = args.iter().any(|a| a == "--merge");
                     let mut manifest = agent_brain::skills_sh::load_manifest(&manifest_path)?;
                     if required_only {
                         manifest.discovery_queries.clear();
@@ -747,17 +751,30 @@ async fn main() -> Result<()> {
                     }
                     let delay_ms = flag_value(&args, "--delay-ms")
                         .and_then(|v| v.parse().ok())
-                        .unwrap_or(if required_only { 20_000 } else { 250 });
-                    let snapshot = agent_brain::skills_sh::sync_snapshot(&manifest, max, delay_ms)?;
+                        .unwrap_or(if required_only { 20_000 } else { 400 });
+                    let mut options = agent_brain::skills_sh::SyncOptions::from_manifest(
+                        &manifest,
+                        target,
+                        delay_ms,
+                    );
+                    if merge || write_path.exists() {
+                        options.merge_path = Some(write_path.clone());
+                    }
+                    options.checkpoint_path = Some(write_path.clone());
+                    let (snapshot, report) =
+                        agent_brain::skills_sh::sync_snapshot_with_options(&manifest, options)?;
                     agent_brain::skills_sh::write_snapshot(&write_path, &snapshot)?;
+                    println!("{}", serde_json::to_string_pretty(&report)?);
                     eprintln!(
-                        "Synced {} skills from skills.sh → {}",
+                        "Synced {} skills ({} downloaded, {} metadata) → {}",
                         snapshot.skills.len(),
+                        report.downloaded,
+                        report.metadata_fallback,
                         write_path.display()
                     );
                 }
                 _ => {
-                    eprintln!("Usage: agent-brain skills-sh sync [--manifest PATH] [--write PATH] [--max N] [--required-only]");
+                    eprintln!("Usage: agent-brain skills-sh sync [--target N] [--merge] [--manifest PATH] [--write PATH] [--delay-ms N] [--required-only]");
                     std::process::exit(1);
                 }
             }

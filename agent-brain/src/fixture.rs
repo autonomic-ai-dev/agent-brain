@@ -17,7 +17,7 @@ use crate::types::RouteLimits;
 pub const BENCH_FIXTURE_SKILLS: usize = 500;
 
 /// Bump when the fixture **build recipe** changes (not SQLite schema migrations).
-pub const FIXTURE_DB_RECIPE_VERSION: &str = "1";
+pub const FIXTURE_DB_RECIPE_VERSION: &str = "2";
 pub const FIXTURE_DB_KIND_SKILLS_SH: &str = "skills-sh";
 
 /// Deterministic embedder + temp SQLite — same wiring as integration tests.

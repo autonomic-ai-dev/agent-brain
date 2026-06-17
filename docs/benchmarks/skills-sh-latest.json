@@ -1,5 +1,6 @@
 {
-  "snapshot_skills": 3,
+  "snapshot_skills": 2000,
+  "filler_skills": 0,
   "simulated_index_size": 2000,
   "fixture_db": "/Volumes/Seagate/developer/personal/mcp/docs/benchmarks/fixture-2k.db",
   "index_mode": "fixture-db",
