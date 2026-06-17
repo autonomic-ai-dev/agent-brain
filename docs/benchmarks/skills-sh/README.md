@@ -4,7 +4,7 @@
 
 1. **Commit a snapshot** of real skills (`snapshot.json`) synced via public APIs
 2. **Build `fixture-2k.db`** — pre-indexed SQLite with **2000 real** skills.sh skills (no synthetic fillers)
-3. **Gate routing** with golden queries (`golden.json`) at **Recall@3 ≥ 0.80** — currently **30 cases**, **1.00** on the committed fixture (see `../skills-sh-latest.json`).
+3. **Gate routing** with golden queries (`golden.json`) at **Recall@3 ≥ 0.80** — currently **50 cases**, **1.00** on the committed fixture (see `../skills-sh-latest.json`).
 
 CI opens the committed DB (copied to a temp dir) — no runtime seeding.
 

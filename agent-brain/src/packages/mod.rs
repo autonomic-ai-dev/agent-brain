@@ -161,6 +161,12 @@ pub fn add_package(config: &Config, source_input: &str, git_ref: Option<&str>) -
     registry.packages.push(record.clone());
     registry.save(&config.home)?;
 
+    if name == "starter" || source_input.trim().trim_start_matches('@') == "starter" {
+        if let Ok(store) = crate::db::store::BrainStore::open(&config.db_path) {
+            let _ = crate::adoption::record_starter_pack(&store);
+        }
+    }
+
     Ok(record)
 }
 

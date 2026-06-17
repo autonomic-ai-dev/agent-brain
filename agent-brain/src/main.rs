@@ -634,6 +634,21 @@ async fn main() -> Result<()> {
             let digest = agent_brain::operator_digest::weekly_digest(&store, 7)?;
             println!("{}", agent_brain::operator_digest::format_weekly_digest(&digest));
         }
+        "stats" => {
+            let json = args.iter().any(|a| a == "--json");
+            let days = flag_value(&args, "--days")
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(7);
+            let config = Config::load()?;
+            config.ensure_dirs()?;
+            let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
+            let snapshot = agent_brain::stats::collect(&store, &config, days)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&snapshot)?);
+            } else {
+                print!("{}", agent_brain::stats::format_text(&snapshot));
+            }
+        }
         "eval" => {
             let live = args.iter().any(|a| a == "--live");
             let skills_sh = args.iter().any(|a| a == "--skills-sh");
@@ -898,6 +913,9 @@ async fn main() -> Result<()> {
             if let Some(path) = flag_value(&args, "--write") {
                 agent_brain::proofs::write_proof_report(PathBuf::from(path).as_path(), &report)?;
             }
+            if let Ok(config) = Config::load() {
+                let _ = agent_brain::stats::persist_proof_snapshot(&config.home, &report);
+            }
             if let Err(err) = agent_brain::proofs::assert_ci_proofs(&report) {
                 eprintln!("{err}");
                 std::process::exit(1);
@@ -963,6 +981,8 @@ Usage:
   agent-brain config show                     Print active config file
   agent-brain version                         Print installed version
   agent-brain briefing                        Print last human-readable route summary
+  agent-brain stats [--days N] [--json]       Index, routing, token savings, adoption milestones
+  agent-brain digest --weekly                 Operator digest from retrieval_log
   agent-brain onboarding                      USP + 5-minute getting started checklist
   agent-brain export [dir]                    Export sync bundle (manifest + facts.jsonl)
   agent-brain import <dir> [--policy POLICY]  Import sync bundle (newer_wins default)

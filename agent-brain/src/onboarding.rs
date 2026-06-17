@@ -18,7 +18,8 @@ pub fn print_onboarding(home: &Path, has_briefing: bool) {
     println!("  2. agent-brain add @starter          # or @nextjs, @ecc, owner/repo");
     println!("  3. Open Agent mode · send any task   # hooks require route_task first");
     println!("  4. agent-brain briefing              # skills routed + token savings");
-    println!("  5. agent-brain doctor --fix          # if MCP or hooks look wrong");
+    println!("  5. agent-brain stats                 # index + savings + adoption milestones");
+    println!("  6. agent-brain doctor --fix          # if MCP or hooks look wrong");
     println!();
     if has_briefing {
         println!("You already have a route log → agent-brain briefing");
@@ -28,7 +29,14 @@ pub fn print_onboarding(home: &Path, has_briefing: bool) {
     println!();
     println!("Curated packs:  agent-brain registry list");
     println!("Team setup:       docs/TEAM-WORKFLOW.md (github.com/aeswibon/agent-brain)");
-    println!("Proof/benchmarks: docs/benchmarks/ (30/30 Recall@3 on 2000-skill index)");
+    println!("Proof/benchmarks: docs/benchmarks/ (Recall@3 on 2000-skill index)");
+    if let Ok(config) = crate::config::Config::load() {
+        if let Ok(store) = crate::db::store::BrainStore::open(&config.db_path) {
+            if let Ok(stats) = crate::stats::collect(&store, &config, 7) {
+                println!("Metrics (7d):     {}", crate::stats::format_summary_line(&stats));
+            }
+        }
+    }
     let _ = home;
 }
 

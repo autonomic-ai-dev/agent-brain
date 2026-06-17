@@ -75,6 +75,21 @@ const MEMORY_GOLDEN: &[MemoryGoldenCase] = &[
         fact: "agent-brain MCP servers use stdio transport with rmcp",
         topic: "mcp-transport",
     },
+    MemoryGoldenCase {
+        query: "api versioning strategy for breaking changes",
+        fact: "Use URL path versioning /v1 for public APIs; never break without deprecation window",
+        topic: "api-versioning",
+    },
+    MemoryGoldenCase {
+        query: "never use jest in this repo tests",
+        fact: "Do not use Jest — Vitest only for unit and component tests",
+        topic: "no-jest",
+    },
+    MemoryGoldenCase {
+        query: "secrets in environment variables not committed",
+        fact: "Never commit API keys; load from env or secret_refs only",
+        topic: "secrets-policy",
+    },
 ];
 
 const SKILL_GOLDEN: &[SkillGoldenCase] = &[
@@ -107,6 +122,36 @@ const SKILL_GOLDEN: &[SkillGoldenCase] = &[
         query: "debug failing test with unexpected behavior",
         topic: "systematic-debugging",
         text: "When to use: encountering bugs, test failures, or unexpected behavior before proposing fixes",
+    },
+    SkillGoldenCase {
+        query: "fastapi dependency injection and pydantic schemas",
+        topic: "fastapi-patterns",
+        text: "FastAPI best practices covering Pydantic v2 schemas, dependency injection, async handlers, and testing",
+    },
+    SkillGoldenCase {
+        query: "golang table driven tests and subtests",
+        topic: "golang-testing",
+        text: "Go testing patterns including table-driven tests, subtests, benchmarks, fuzzing, and test coverage",
+    },
+    SkillGoldenCase {
+        query: "django rest framework api pagination filtering",
+        topic: "django-patterns",
+        text: "Django architecture patterns, REST API design with DRF, ORM best practices, caching, and middleware",
+    },
+    SkillGoldenCase {
+        query: "nestjs modules guards interceptors production api",
+        topic: "nestjs-patterns",
+        text: "NestJS architecture patterns for modules, controllers, providers, DTO validation, guards, and interceptors",
+    },
+    SkillGoldenCase {
+        query: "security review authentication authorization checklist",
+        topic: "security-review",
+        text: "Use when adding authentication, handling user input, secrets, API endpoints, or payment features",
+    },
+    SkillGoldenCase {
+        query: "write a new cursor agent skill SKILL.md",
+        topic: "writing-skills",
+        text: "Guides users through creating effective Agent Skills for Cursor with SKILL.md structure and best practices",
     },
 ];
 

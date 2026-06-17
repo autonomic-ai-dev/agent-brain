@@ -44,6 +44,11 @@ pub fn log_route(
     scored: &[ScoredItem],
     truncated: bool,
 ) -> Result<()> {
+    let savings = crate::route_briefing::token_savings(resp);
+    let (index_total, saved_pct) = savings
+        .map(|s| (Some(s.index_total), Some(s.saved_pct.min(100) as u8)))
+        .unwrap_or((None, None));
+
     let items: Vec<RetrievalItemLog> = scored
         .iter()
         .take(20)
@@ -63,7 +68,10 @@ pub fn log_route(
         truncated,
         resp.cache_hit,
         resp.latency_ms,
-    )
+        index_total,
+        saved_pct,
+    )?;
+    crate::adoption::record_first_route(store)
 }
 
 pub fn explain_last(store: &BrainStore, log_id: Option<&str>) -> Result<Option<ExplainLastContext>> {
@@ -124,5 +132,7 @@ pub fn log_upstream_call(
         truncated,
         false,
         latency_ms,
+        None,
+        None,
     )
 }

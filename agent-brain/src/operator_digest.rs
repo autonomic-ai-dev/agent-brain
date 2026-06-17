@@ -14,6 +14,10 @@ pub struct WeeklyDigest {
     pub avg_latency_ms: f64,
     pub p95_latency_ms: u64,
     pub phases: Vec<PhaseCount>,
+    pub routes_with_savings: usize,
+    pub avg_saved_pct: f64,
+    pub total_saved_tokens: u64,
+    pub avg_routed_tokens: f64,
     pub feedback: FeedbackSummary,
 }
 
@@ -57,6 +61,10 @@ pub fn weekly_digest(store: &BrainStore, days: u32) -> Result<WeeklyDigest> {
             .into_iter()
             .map(|(phase, count)| PhaseCount { phase, count })
             .collect(),
+        routes_with_savings: stats.routes_with_savings,
+        avg_saved_pct: stats.avg_saved_pct,
+        total_saved_tokens: stats.total_saved_tokens,
+        avg_routed_tokens: stats.avg_routed_tokens,
         feedback: FeedbackSummary {
             items_tracked: feedback.items_tracked,
             total_useful: feedback.total_useful,
@@ -82,13 +90,23 @@ pub fn format_weekly_digest(digest: &WeeklyDigest) -> String {
         digest.period_days
     ));
     out.push_str(&format!(
-        "- Route calls: {}\n- Upstream calls: {}\n- Cache hit rate: {:.1}%\n- Avg latency: {:.0}ms\n- P95 latency: {}ms\n\n",
+        "- Route calls: {}\n- Upstream calls: {}\n- Cache hit rate: {:.1}%\n- Avg latency: {:.0}ms\n- P95 latency: {}ms\n",
         digest.route_calls,
         digest.upstream_calls,
         digest.cache_hit_rate * 100.0,
         digest.avg_latency_ms,
         digest.p95_latency_ms
     ));
+    if digest.routes_with_savings > 0 {
+        out.push_str(&format!(
+            "- Token savings: ~{:.0}% avg ({} routes) · ~{} tok saved (est.)\n- Avg routed tokens: {:.0}\n",
+            digest.avg_saved_pct,
+            digest.routes_with_savings,
+            digest.total_saved_tokens,
+            digest.avg_routed_tokens
+        ));
+    }
+    out.push('\n');
     if !digest.phases.is_empty() {
         out.push_str("## Phases\n\n");
         for p in &digest.phases {

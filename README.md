@@ -93,7 +93,7 @@ Reproducible proof artifacts live in [`docs/benchmarks/`](docs/benchmarks/). Reg
 | Gate | Index size | Golden cases | Recall@3 | Threshold | CI |
 |------|------------|--------------|----------|-----------|-----|
 | Isolated skills + memory | 500 skills | 10 | **1.00** (10/10) | ≥ 0.85 | `stage-test.yml` |
-| skills.sh catalog | **2000 real** skills.sh skills | **30** | **1.00** (30/30) | ≥ 0.80 | `stage-skills-sh-eval.yml` |
+| skills.sh catalog | **2000 real** skills.sh skills | **50** | **1.00** (50/50) | ≥ 0.80 | `stage-skills-sh-eval.yml` |
 | Warm-route p95 (fixture) | 500 | — | **≤ 100 ms** | gated | `proofs --ci` |
 | Hook gate logic | — | — | **< 1 ms p95** | gated | `test_route_gate.py` |
 

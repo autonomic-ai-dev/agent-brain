@@ -167,6 +167,7 @@ pub fn run(fix: bool) -> Result<()> {
     println!();
     println!("Tips:");
     println!("  • agent-brain briefing — readable route + estimated token savings vs full index");
+    println!("  • agent-brain stats — index size, savings, latency, adoption milestones");
     println!("  • agent-brain onboarding — 5-minute getting started checklist");
     println!("  • agent-brain install --all --global — MCP + instructions for Cursor, OpenCode, Claude Code, VS Code");
     println!("  • Only Cursor has hook enforcement (route_gate); other hosts rely on instructions + MCP config");
@@ -179,6 +180,12 @@ pub fn run(fix: bool) -> Result<()> {
             bail!("doctor --fix completed with remaining issues");
         }
         std::process::exit(1);
+    }
+    if let Ok(store) = crate::db::store::BrainStore::open(&config.db_path) {
+        if let Ok(stats) = crate::stats::collect(&store, &config, 7) {
+            println!();
+            println!("Stats: {}", crate::stats::format_summary_line(&stats));
+        }
     }
     crate::onboarding::print_onboarding(&config.home, briefing_path.is_file());
     Ok(())

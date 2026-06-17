@@ -149,6 +149,106 @@
       "query": "help me with image edit",
       "expected_topic": "image-edit",
       "skill_id": "agentspace-so/runcomfy-agent-skills/image-edit"
+    },
+    {
+      "query": "nano banana 2 best practices and patterns",
+      "expected_topic": "nano-banana-2",
+      "skill_id": "agentspace-so/runcomfy-agent-skills/nano-banana-2"
+    },
+    {
+      "query": "help me with lark doc",
+      "expected_topic": "lark-doc",
+      "skill_id": "larksuite/cli/lark-doc"
+    },
+    {
+      "query": "help me with lark base",
+      "expected_topic": "lark-base",
+      "skill_id": "larksuite/cli/lark-base"
+    },
+    {
+      "query": "help me with lark drive",
+      "expected_topic": "lark-drive",
+      "skill_id": "larksuite/cli/lark-drive"
+    },
+    {
+      "query": "help me with lark im",
+      "expected_topic": "lark-im",
+      "skill_id": "larksuite/cli/lark-im"
+    },
+    {
+      "query": "vercel composition patterns best practices and patterns",
+      "expected_topic": "vercel-composition-patterns",
+      "skill_id": "vercel-labs/agent-skills/vercel-composition-patterns"
+    },
+    {
+      "query": "next best practices best practices and patterns",
+      "expected_topic": "next-best-practices",
+      "skill_id": "vercel-labs/next-skills/next-best-practices"
+    },
+    {
+      "query": "remotion to hyperframes best practices and patterns",
+      "expected_topic": "remotion-to-hyperframes",
+      "skill_id": "heygen-com/hyperframes/remotion-to-hyperframes"
+    },
+    {
+      "query": "help me with deploy to vercel",
+      "expected_topic": "deploy-to-vercel",
+      "skill_id": "vercel-labs/agent-skills/deploy-to-vercel"
+    },
+    {
+      "query": "vercel react view transitions best practices and patterns",
+      "expected_topic": "vercel-react-view-transitions",
+      "skill_id": "vercel-labs/agent-skills/vercel-react-view-transitions"
+    },
+    {
+      "query": "vercel cli with tokens best practices and patterns",
+      "expected_topic": "vercel-cli-with-tokens",
+      "skill_id": "vercel-labs/agent-skills/vercel-cli-with-tokens"
+    },
+    {
+      "query": "git guardrails claude code best practices and patterns",
+      "expected_topic": "git-guardrails-claude-code",
+      "skill_id": "mattpocock/skills/git-guardrails-claude-code"
+    },
+    {
+      "query": "help me with notion api",
+      "expected_topic": "notion-api",
+      "skill_id": "intellectronica/agent-skills/notion-api"
+    },
+    {
+      "query": "stripe best practices best practices and patterns",
+      "expected_topic": "stripe-best-practices",
+      "skill_id": "stripe/ai/stripe-best-practices"
+    },
+    {
+      "query": "help me with review",
+      "expected_topic": "review",
+      "skill_id": "mattpocock/skills/review"
+    },
+    {
+      "query": "enhance prompt best practices and patterns",
+      "expected_topic": "enhance-prompt",
+      "skill_id": "google-labs-code/stitch-skills/enhance-prompt"
+    },
+    {
+      "query": "help me with firebase firestore",
+      "expected_topic": "firebase-firestore",
+      "skill_id": "firebase/agent-skills/firebase-firestore"
+    },
+    {
+      "query": "stitch loop best practices and patterns",
+      "expected_topic": "stitch-loop",
+      "skill_id": "google-labs-code/stitch-skills/stitch-loop"
+    },
+    {
+      "query": "firebase crashlytics best practices and patterns",
+      "expected_topic": "firebase-crashlytics",
+      "skill_id": "firebase/agent-skills/firebase-crashlytics"
+    },
+    {
+      "query": "help me with browser act",
+      "expected_topic": "browser-act",
+      "skill_id": "browser-act/skills/browser-act"
     }
   ]
 }

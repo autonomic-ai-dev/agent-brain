@@ -28,6 +28,8 @@ pub mod retrieval;
 pub mod memory_gc;
 pub mod operator_digest;
 pub mod onboarding;
+pub mod adoption;
+pub mod stats;
 pub mod eval;
 pub mod fixture;
 pub mod bench;

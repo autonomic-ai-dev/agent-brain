@@ -45,7 +45,7 @@ Separate workflow **`stage-skills-sh-eval.yml`** gates routing against **`fixtur
 
 | Gate | Command | Threshold |
 |------|---------|-----------|
-| skills.sh Recall@3 | `eval --skills-sh` | ≥ 0.80 on golden cases | **30/30 (1.00)** on 2000-skill fixture |
+| skills.sh Recall@3 | `eval --skills-sh` | ≥ 0.80 on golden cases | **50/50 (1.00)** on 2000-skill fixture |
 
 Index composition: **2000** real skills.sh rows, **0** `bench-filler-*` (`fixture verify`).
 

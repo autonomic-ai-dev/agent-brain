@@ -330,4 +330,61 @@ fn proofs_ci_passes_isolated_gates() {
     agent_brain::proofs::assert_ci_proofs(&report).unwrap();
     assert!(report.eval.skills.recall_at_3 >= RECALL_AT_3_THRESHOLD);
     assert!(report.latency.passed);
+    assert!(report.eval.cases >= 19);
+}
+
+#[test]
+fn stats_collects_token_savings_from_retrieval_log() {
+    use agent_brain::stats;
+
+    let dir = TempDir::new().unwrap();
+    let config = test_config(&dir);
+    config.ensure_dirs().unwrap();
+    let store = BrainStore::open(&config.db_path).unwrap();
+    store
+        .insert_retrieval_log(
+            "log-1",
+            "abc",
+            "implementing",
+            "[]",
+            120,
+            false,
+            false,
+            15,
+            Some(2000),
+            Some(95),
+        )
+        .unwrap();
+
+    let snapshot = stats::collect(&store, &config, 7).unwrap();
+    assert_eq!(snapshot.period.route_calls, 1);
+    assert_eq!(snapshot.period.routes_with_savings, 1);
+    assert!(snapshot.period.avg_saved_pct >= 95.0);
+    assert!(snapshot.period.total_saved_tokens > 0);
+    assert!(stats::format_summary_line(&snapshot).contains("token savings"));
+}
+
+#[test]
+fn adoption_milestones_record_first_route_once() {
+    let dir = TempDir::new().unwrap();
+    let config = test_config(&dir);
+    config.ensure_dirs().unwrap();
+    let store = BrainStore::open(&config.db_path).unwrap();
+    agent_brain::adoption::ensure_installed_at(&store).unwrap();
+    assert!(store
+        .get_meta(agent_brain::adoption::INSTALLED_AT)
+        .unwrap()
+        .is_some());
+    agent_brain::adoption::record_first_route(&store).unwrap();
+    let first = store
+        .get_meta(agent_brain::adoption::FIRST_ROUTE_AT)
+        .unwrap()
+        .clone();
+    agent_brain::adoption::record_first_route(&store).unwrap();
+    assert_eq!(
+        store
+            .get_meta(agent_brain::adoption::FIRST_ROUTE_AT)
+            .unwrap(),
+        first
+    );
 }

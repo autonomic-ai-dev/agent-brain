@@ -146,6 +146,15 @@ pub fn run(conn: &Connection) -> rusqlite::Result<()> {
         conn.execute("UPDATE schema_version SET version = 6", [])?;
     }
 
+    let version: i64 = conn
+        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| r.get(0))
+        .unwrap_or(0);
+
+    if version < 7 {
+        migrate_v7(conn)?;
+        conn.execute("UPDATE schema_version SET version = 7", [])?;
+    }
+
     Ok(())
 }
 
@@ -270,5 +279,15 @@ fn migrate_v6(conn: &Connection) -> rusqlite::Result<()> {
         );
         "#,
     )?;
+    Ok(())
+}
+
+fn migrate_v7(conn: &Connection) -> rusqlite::Result<()> {
+    if !column_exists(conn, "retrieval_log", "index_total")? {
+        conn.execute("ALTER TABLE retrieval_log ADD COLUMN index_total INTEGER", [])?;
+    }
+    if !column_exists(conn, "retrieval_log", "saved_pct")? {
+        conn.execute("ALTER TABLE retrieval_log ADD COLUMN saved_pct INTEGER", [])?;
+    }
     Ok(())
 }
