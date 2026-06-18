@@ -79,8 +79,32 @@ fn install_flags_resolve_opencode() {
     );
 }
 
-#[test]
-fn merge_preserves_other_mcp_servers() {
+    #[test]
+    fn install_flags_resolve_gemini() {
+        assert_eq!(
+            HostTarget::from_args(&["install".into(), "--gemini".into(), "--global".into()]),
+            HostTarget::Gemini { user: true }
+        );
+    }
+
+    #[test]
+    fn install_flags_resolve_antigravity() {
+        assert_eq!(
+            HostTarget::from_args(&["install".into(), "--antigravity".into(), "--global".into()]),
+            HostTarget::Antigravity { user: true }
+        );
+    }
+
+    #[test]
+    fn gemini_project_uses_settings_json_at_root() {
+        let dir = TempDir::new().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+        let path = host_install::gemini_config_path(false).unwrap();
+        assert!(path.ends_with(".gemini/settings.json"));
+    }
+
+    #[test]
+    fn merge_preserves_other_mcp_servers() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("mcp.json");
     std::fs::write(

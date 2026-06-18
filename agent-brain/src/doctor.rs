@@ -187,8 +187,9 @@ pub fn run(fix: bool) -> Result<()> {
     println!("  • agent-brain stats — index size, savings, latency, adoption milestones");
     println!("  • agent-brain dashboard --open — local HTML value dashboard (screenshot-friendly ROI)");
     println!("  • agent-brain onboarding — 5-minute getting started checklist");
-    println!("  • agent-brain install --all --global — MCP + instructions for Cursor, OpenCode, Claude Code, VS Code");
-    println!("  • Only Cursor has hook enforcement on host tools (Read/Shell); all hosts gate agent-brain MCP tools until route_task");
+    println!("  • agent-brain install --all --global — MCP + instructions for Cursor, OpenCode, Claude Code, VS Code, Gemini, Antigravity");
+    println!("  • Claude Code, Gemini, Antigravity, OpenCode: route gate hooks installed via install --<host> [--global]");
+    println!("  • Cursor has the strongest host-tool gate (hooks on Read/Shell); other hosts gate agent-brain MCP tools until route_task");
     println!("  • Background auto-update during serve can exec a new binary after idle (see config auto_update.mcp.restart_after_update)");
     println!("  • macOS: linker-signed binaries are killed by taskgated — doctor --fix adhoc re-signs");
     println!("  • macOS: browser/curl downloads add quarantine xattrs — xattr -cr + adhoc codesign before Cursor MCP");
@@ -229,8 +230,33 @@ pub fn run(fix: bool) -> Result<()> {
 fn print_other_hosts(home: &Path) {
     let opencode = home.join(".config/opencode/opencode.json");
     let claude = home.join(".claude.json");
+    let claude_settings = home.join(".claude/settings.json");
+    let gemini = home.join(".gemini/settings.json");
+    let antigravity = home.join(".gemini/antigravity/mcp_config.json");
+    let antigravity_shared = home.join(".gemini/config/mcp_config.json");
     println!("  opencode (global):     {}", host_mcp_status(&opencode, "mcp", "agent-brain"));
     println!("  claude-code (global):  {}", host_mcp_status(&claude, "mcpServers", "agent-brain"));
+    println!(
+        "  claude hooks:          {}",
+        crate::host_hooks::hooks_status(&claude_settings, "route_gate.py")
+    );
+    println!("  gemini (global):       {}", host_mcp_status(&gemini, "mcpServers", "agent-brain"));
+    println!(
+        "  gemini hooks:          {}",
+        crate::host_hooks::hooks_status(&gemini, "route_gate.py")
+    );
+    println!(
+        "  antigravity (global):  {}",
+        antigravity_host_status(&antigravity, &antigravity_shared)
+    );
+}
+
+fn antigravity_host_status(primary: &Path, shared: &Path) -> &'static str {
+    let primary_status = host_mcp_status(primary, "mcpServers", "agent-brain");
+    if primary_status == "OK" {
+        return "OK";
+    }
+    host_mcp_status(shared, "mcpServers", "agent-brain")
 }
 
 fn host_mcp_status(path: &Path, servers_key: &str, server_name: &str) -> &'static str {

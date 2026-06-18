@@ -604,7 +604,7 @@ impl Engine {
         if self.config.mcp_gate_enabled {
             resp.warnings.push(crate::types::RouteWarning {
                 topic: "mcp_contract".into(),
-                message: "Session digests (Cursor/OpenCode/Codex) and team memory surface only through route_task. Other agent-brain MCP tools are gated until route_task succeeds each turn.".into(),
+                message: "Session digests (Cursor/OpenCode/Codex/Gemini/Antigravity) and team memory surface only through route_task. Other agent-brain MCP tools are gated until route_task succeeds each turn.".into(),
             });
             resp.warnings.push(crate::types::RouteWarning {
                 topic: "native_tools".into(),

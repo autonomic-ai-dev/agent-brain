@@ -10,6 +10,7 @@ pub mod graphify;
 pub mod engine;
 pub mod index;
 pub mod host_install;
+pub mod host_hooks;
 pub mod install;
 pub mod mcp;
 pub mod packages;

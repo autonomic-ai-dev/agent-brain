@@ -273,7 +273,7 @@ struct LearnFromUrlParams {
 
 #[tool_router]
 impl BrainMcp {
-    #[tool(description = "REQUIRED every turn before planning or edits. Returns ranked agents, skills, rules, and memory under a token budget. Pass user_message, current_working_directory, and open_files. Session digests from Cursor/OpenCode/Codex and team memory are only injected here.")]
+    #[tool(description = "REQUIRED every turn before planning or edits. Returns ranked agents, skills, rules, and memory under a token budget. Pass user_message, current_working_directory, and open_files. Session digests from Cursor/OpenCode/Codex/Gemini/Antigravity and team memory are only injected here.")]
     async fn route_task(
         &self,
         params: Parameters<RouteTaskParams>,

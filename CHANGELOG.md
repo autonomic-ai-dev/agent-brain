@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-06-17
+
+### Added
+
+- **`install --gemini` / `--antigravity`** — MCP wiring for Gemini CLI and Antigravity (`~/.gemini/settings.json`, `mcp_config.json`) with host instructions.
+- **Multi-host route gate hooks** — Claude Code (`PreToolUse`), Gemini/Antigravity (`BeforeTool`/`BeforeAgent`), OpenCode plugin; shared `route_gate.py` contract.
+- **`host_hooks` module** — deploy hook scripts, merge settings hooks, Copilot instructions for VS Code.
+- **`doctor`** — reports hook status for Claude, Gemini, and Antigravity.
+
+### Changed
+
+- **`route_gate.py`** — adapts deny/allow payloads for Claude Code and Gemini hook schemas; supports cross-host event names.
+- **`install --all`** — includes Gemini and Antigravity hosts.
+
+### Fixed
+
+- **CI flake** — git/cloud sync tests use deterministic embedder (avoids HuggingFace 429).
+
 ## [0.18.0] - 2026-06-17
 
 ### Added

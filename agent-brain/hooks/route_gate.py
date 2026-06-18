@@ -103,6 +103,10 @@ def is_agent_brain_mcp_tool(event: dict) -> bool:
         return True
     if tool_lower.startswith("mcp_agent_brain_"):
         return True
+    if tool_lower.startswith("mcp_agent-brain-"):
+        return True
+    if tool_lower.startswith("mcp_agent_brain-"):
+        return True
     if "agent-brain" in tool_lower and "mcp" in tool_lower:
         return True
     server = str(event.get("server") or "").strip().lower()
@@ -174,6 +178,7 @@ def route_response_useful(event: dict) -> bool:
         "result_json",
         "tool_result",
         "tool_output",
+        "tool_response",
         "result",
         "output",
         "response",
@@ -334,7 +339,13 @@ def write_anti_pattern_suggestion(path: str, reason: str) -> None:
 
 def is_cursor_read_tool(event: dict) -> bool:
     tool = str(event.get("tool_name") or "").strip().lower()
-    return tool in {"read", "mcp_read"} or tool.endswith("_read")
+    return tool in {
+        "read",
+        "mcp_read",
+        "read_file",
+        "readfile",
+        "readfiletool",
+    } or tool.endswith("_read") or tool.startswith("read_")
 
 
 def extract_read_path(event: dict) -> str | None:
@@ -451,6 +462,7 @@ def try_clear_route_gate(event: dict) -> None:
         "result_json",
         "tool_result",
         "tool_output",
+        "tool_response",
         "result",
         "output",
         "response",
@@ -532,6 +544,70 @@ def handle_before_mcp_execution(event: dict) -> dict:
     return gate_tool_use(event)
 
 
+def adapt_hook_output(event_name: str, out: dict) -> dict:
+    """Map Cursor-style permission payloads to Claude Code / Gemini hook schemas."""
+    if not out:
+        return out
+    permission = out.get("permission")
+    agent_message = out.get("agent_message") or out.get("user_message") or ""
+    if event_name in {"BeforeTool", "BeforeAgent", "BeforeModel"}:
+        if permission == "deny":
+            return {"decision": "deny", "reason": agent_message}
+        if permission == "allow" and agent_message:
+            return {"decision": "allow", "systemMessage": agent_message}
+        return {"decision": "allow"}
+    if event_name in {"PreToolUse", "beforeMCPExecution", "beforeShellExecution"}:
+        if permission == "deny":
+            return {
+                "hookSpecificOutput": {"permissionDecision": "deny"},
+                "systemMessage": agent_message,
+            }
+        if permission == "allow" and agent_message:
+            return {
+                "hookSpecificOutput": {"permissionDecision": "allow"},
+                "systemMessage": agent_message,
+            }
+        return {"hookSpecificOutput": {"permissionDecision": "allow"}}
+    if event_name in {"UserPromptSubmit", "BeforeAgent"}:
+        if out.get("continue") is False:
+            return {"decision": "deny", "reason": agent_message}
+        return {"continue": out.get("continue", True)}
+    return out
+
+
+def normalize_event_name(name: str) -> str:
+    aliases = {
+        "UserPromptSubmit": "beforeSubmitPrompt",
+        "BeforeAgent": "beforeSubmitPrompt",
+        "PreToolUse": "preToolUse",
+        "BeforeTool": "preToolUse",
+        "PostToolUse": "postToolUse",
+        "AfterTool": "postToolUse",
+        "beforeMCPExecution": "beforeMCPExecution",
+    }
+    return aliases.get(name, name)
+
+
+def normalize_tool_event(event: dict) -> dict:
+    """Copy Gemini/Claude field names onto Cursor-style keys used by gate helpers."""
+    out = dict(event)
+    if "tool_name" not in out and isinstance(event.get("tool_name"), str):
+        out["tool_name"] = event["tool_name"]
+    if "tool_name" not in out:
+        for key in ("tool", "name"):
+            if isinstance(event.get(key), str):
+                out["tool_name"] = event[key]
+                break
+    if "tool_input" not in out:
+        for key in ("tool_input", "arguments", "args", "input"):
+            if key in event:
+                out["tool_input"] = event[key]
+                break
+    if "hook_event_name" not in out:
+        out["hook_event_name"] = event.get("hook_event_name", "")
+    return out
+
+
 def main() -> int:
     if disabled():
         event_name = ""
@@ -540,10 +616,16 @@ def main() -> int:
             event_name = event.get("hook_event_name", "")
         except json.JSONDecodeError:
             event = {}
-        if event_name == "beforeSubmitPrompt":
+        if event_name in {"beforeSubmitPrompt", "UserPromptSubmit", "BeforeAgent"}:
             print(json.dumps({"continue": True}))
-        elif event_name in {"preToolUse", "beforeMCPExecution", "beforeShellExecution"}:
-            print(json.dumps({"permission": "allow"}))
+        elif event_name in {
+            "preToolUse",
+            "PreToolUse",
+            "BeforeTool",
+            "beforeMCPExecution",
+            "beforeShellExecution",
+        }:
+            print(json.dumps(adapt_hook_output(event_name, {"permission": "allow"})))
         else:
             print("{}")
         return 0
@@ -554,7 +636,9 @@ def main() -> int:
         print(json.dumps({"permission": "allow"}))
         return 0
 
-    name = event.get("hook_event_name", "")
+    raw_name = str(event.get("hook_event_name", ""))
+    event = normalize_tool_event(event)
+    name = normalize_event_name(raw_name)
 
     if name == "beforeSubmitPrompt":
         out = handle_before_submit_prompt(event)
@@ -569,6 +653,7 @@ def main() -> int:
     else:
         out = {}
 
+    out = adapt_hook_output(raw_name or name, out)
     print(json.dumps(out))
     return 0
 

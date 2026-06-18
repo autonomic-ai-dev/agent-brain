@@ -102,7 +102,7 @@ fn print_cursor_next_steps() {
     println!("  2. Confirm hooks under Settings → Hooks (route_task gate)");
     println!("  3. After rebuilds: agent-brain install --global --reload");
     println!();
-    println!("Other hosts: agent-brain install --claude-desktop | --vscode | --claude-code | --opencode [--global] | --all");
+    println!("Other hosts: agent-brain install --claude-desktop | --vscode | --claude-code | --opencode | --gemini | --antigravity [--global] | --all");
 }
 
 /// Merge MCP config and optionally refresh Cursor hooks/rule (used by install + auto-update).

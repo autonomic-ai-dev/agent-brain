@@ -13,6 +13,8 @@ pub enum HostTarget {
     VsCode { user: bool },
     ClaudeCode { user: bool },
     OpenCode { user: bool },
+    Gemini { user: bool },
+    Antigravity { user: bool },
     All,
 }
 
@@ -34,6 +36,12 @@ impl HostTarget {
         if args.iter().any(|a| a == "--opencode") {
             return Self::OpenCode { user: global };
         }
+        if args.iter().any(|a| a == "--gemini") {
+            return Self::Gemini { user: global };
+        }
+        if args.iter().any(|a| a == "--antigravity") {
+            return Self::Antigravity { user: global };
+        }
         Self::Cursor { global }
     }
 
@@ -48,6 +56,10 @@ impl HostTarget {
             Self::ClaudeCode { .. } => "claude-code (project)",
             Self::OpenCode { user: true } => "opencode (user)",
             Self::OpenCode { .. } => "opencode (project)",
+            Self::Gemini { user: true } => "gemini (user)",
+            Self::Gemini { .. } => "gemini (project)",
+            Self::Antigravity { user: true } => "antigravity (user)",
+            Self::Antigravity { .. } => "antigravity (project)",
             Self::All => "all hosts",
         }
     }
@@ -62,8 +74,10 @@ pub fn install_host(target: HostTarget, exe: &Path, quiet: bool) -> Result<Vec<P
             paths.extend(install_host(HostTarget::VsCode { user: true }, exe, true)?);
             paths.extend(install_host(HostTarget::ClaudeCode { user: true }, exe, true)?);
             paths.extend(install_host(HostTarget::OpenCode { user: true }, exe, true)?);
+            paths.extend(install_host(HostTarget::Gemini { user: true }, exe, true)?);
+            paths.extend(install_host(HostTarget::Antigravity { user: true }, exe, true)?);
             if !quiet {
-                println!("Installed agent-brain MCP for: cursor, claude-desktop, vscode, claude-code, opencode");
+                println!("Installed agent-brain MCP for: cursor, claude-desktop, vscode, claude-code, opencode, gemini, antigravity");
             }
             Ok(paths)
         }
@@ -74,6 +88,8 @@ pub fn install_host(target: HostTarget, exe: &Path, quiet: bool) -> Result<Vec<P
         HostTarget::VsCode { user } => install_vscode(exe, user, quiet),
         HostTarget::ClaudeCode { user } => install_claude_code(exe, user, quiet),
         HostTarget::OpenCode { user } => install_opencode(exe, user, quiet),
+        HostTarget::Gemini { user } => install_gemini(exe, user, quiet),
+        HostTarget::Antigravity { user } => install_antigravity(exe, user, quiet),
     }
 }
 
@@ -90,6 +106,7 @@ fn install_claude_desktop(exe: &Path, quiet: bool) -> Result<Vec<PathBuf>> {
 fn install_vscode(exe: &Path, user: bool, quiet: bool) -> Result<Vec<PathBuf>> {
     let path = vscode_mcp_path(user)?;
     write_vscode_servers_file(&path, vscode_server_entry(exe))?;
+    let _ = crate::host_hooks::install_vscode_copilot_instructions(quiet);
     if !quiet {
         println!("Installed VS Code MCP at {}", path.display());
         println!("  Run \"MCP: List Servers\" or reload the window to connect.");
@@ -192,6 +209,7 @@ fn install_opencode(exe: &Path, user: bool, quiet: bool) -> Result<Vec<PathBuf>>
     let path = opencode_config_path(user)?;
     write_opencode_config(&path, opencode_server_entry(exe))?;
     install_opencode_instructions(user, quiet)?;
+    crate::host_hooks::install_opencode_hooks(user, quiet)?;
     if !quiet {
         println!("Installed OpenCode MCP at {}", path.display());
         if user {
@@ -200,8 +218,116 @@ fn install_opencode(exe: &Path, user: bool, quiet: bool) -> Result<Vec<PathBuf>>
             println!("  Project scope: opencode.json at repository root.");
         }
         println!("  Restart OpenCode or run `opencode mcp list` to verify.");
+        println!("  Route gate plugin: agent-brain-route-gate.ts in opencode/plugin/.");
     }
     Ok(vec![path])
+}
+
+pub fn gemini_config_path(user: bool) -> Result<PathBuf> {
+    if user {
+        let home = dirs::home_dir().context("home directory")?;
+        return Ok(home.join(".gemini").join("settings.json"));
+    }
+    let cwd = std::env::current_dir().context("current working directory")?;
+    let root = crate::config::find_repo_root(&cwd).unwrap_or(cwd);
+    Ok(root.join(".gemini").join("settings.json"))
+}
+
+pub fn antigravity_config_paths(user: bool) -> Result<Vec<PathBuf>> {
+    if user {
+        let home = dirs::home_dir().context("home directory")?;
+        return Ok(vec![
+            home.join(".gemini").join("antigravity").join("mcp_config.json"),
+            home.join(".gemini").join("config").join("mcp_config.json"),
+        ]);
+    }
+    let cwd = std::env::current_dir().context("current working directory")?;
+    let root = crate::config::find_repo_root(&cwd).unwrap_or(cwd);
+    Ok(vec![
+        root.join(".gemini")
+            .join("antigravity")
+            .join("mcp_config.json"),
+    ])
+}
+
+fn install_gemini(exe: &Path, user: bool, quiet: bool) -> Result<Vec<PathBuf>> {
+    let path = gemini_config_path(user)?;
+    write_claude_json_mcp(&path, mcp_server_entry(exe))?;
+    install_gemini_instructions(user, quiet)?;
+    crate::host_hooks::install_gemini_hooks(user, &path, quiet)?;
+    if !quiet {
+        println!("Installed Gemini CLI MCP at {}", path.display());
+        if user {
+            println!("  User scope: ~/.gemini/settings.json");
+        } else {
+            println!("  Project scope: .gemini/settings.json at repository root.");
+        }
+        println!("  Restart Gemini CLI or run `gemini mcp list` to verify.");
+        println!("  Route gate hooks: BeforeAgent / BeforeTool in settings.json (`/hooks panel`).");
+    }
+    Ok(vec![path])
+}
+
+fn install_antigravity(exe: &Path, user: bool, quiet: bool) -> Result<Vec<PathBuf>> {
+    let paths = antigravity_config_paths(user)?;
+    let entry = mcp_server_entry(exe);
+    let mut written = Vec::new();
+    for path in &paths {
+        write_mcp_servers_file(path, entry.clone())?;
+        written.push(path.clone());
+    }
+    install_antigravity_instructions(user, quiet)?;
+    if let Ok(gemini_settings) = gemini_config_path(user) {
+        crate::host_hooks::install_gemini_hooks(user, &gemini_settings, quiet)?;
+    }
+    if !quiet {
+        println!("Installed Antigravity MCP at:");
+        for path in &written {
+            println!("  {}", path.display());
+        }
+        if user {
+            println!("  User scope: ~/.gemini/antigravity/mcp_config.json (+ ~/.gemini/config/mcp_config.json for Antigravity 2.0)");
+        } else {
+            println!("  Project scope: .gemini/antigravity/mcp_config.json at repository root.");
+        }
+        println!("  In Antigravity: Settings → Customizations → Refresh MCP servers (or /mcp in CLI).");
+        println!("  Route gate hooks: shared ~/.gemini/settings.json (BeforeAgent / BeforeTool).");
+    }
+    Ok(written)
+}
+
+fn install_gemini_instructions(user: bool, quiet: bool) -> Result<()> {
+    let path = if user {
+        let home = dirs::home_dir().context("home directory")?;
+        let dir = home.join(".gemini");
+        fs::create_dir_all(&dir)?;
+        dir.join("agent-brain.md")
+    } else {
+        let cwd = std::env::current_dir().context("current working directory")?;
+        let root = crate::config::find_repo_root(&cwd).unwrap_or(cwd);
+        let dir = root.join(".gemini");
+        fs::create_dir_all(&dir)?;
+        dir.join("agent-brain.md")
+    };
+    write_host_instructions(&path, HOST_AGENT_BRAIN_INSTRUCTIONS, quiet, "Gemini CLI")?;
+    Ok(())
+}
+
+fn install_antigravity_instructions(user: bool, quiet: bool) -> Result<()> {
+    let path = if user {
+        let home = dirs::home_dir().context("home directory")?;
+        let dir = home.join(".gemini").join("antigravity");
+        fs::create_dir_all(&dir)?;
+        dir.join("agent-brain.md")
+    } else {
+        let cwd = std::env::current_dir().context("current working directory")?;
+        let root = crate::config::find_repo_root(&cwd).unwrap_or(cwd);
+        let dir = root.join(".gemini").join("antigravity");
+        fs::create_dir_all(&dir)?;
+        dir.join("agent-brain.md")
+    };
+    write_host_instructions(&path, HOST_AGENT_BRAIN_INSTRUCTIONS, quiet, "Antigravity")?;
+    Ok(())
 }
 
 pub fn opencode_server_entry_public(exe: &Path) -> Value {
@@ -308,16 +434,16 @@ fn write_host_instructions(path: &Path, content: &str, quiet: bool, label: &str)
     Ok(())
 }
 
-const HOST_INSTRUCTIONS_VERSION: &str = "4";
+const HOST_INSTRUCTIONS_VERSION: &str = "5";
 
 const HOST_AGENT_BRAIN_INSTRUCTIONS: &str = r#"# agent-brain MCP (required)
-instructions-version: 4
+instructions-version: 5
 
 ## The connection contract
 
 **route_task is the only entry point** for agent-brain context on every host.
 
-- Session digests from Cursor, OpenCode, Codex, and Gemini are stored in brain.db but **only surface through route_task**.
+- Session digests from Cursor, OpenCode, Codex, Gemini, and Antigravity are stored in brain.db but **only surface through route_task**.
 - Team memory, skills, rules, and must_apply constraints are **only injected through route_task**.
 - Other agent-brain MCP tools (`grep_search`, `store_memory`, `get_context`, …) **return errors** until route_task succeeds for this turn.
 - **Install and route_task refresh session ingests** — cross-agent threads are indexed into brain.db automatically.
@@ -331,7 +457,7 @@ If the agent skips route_task, cross-agent ingest and shared memory provide **ze
 3. Use `relevant_memory` (includes session digests when relevant).
 4. At task end, call **`store_memory`** for durable outcomes (max 50 words, no secrets).
 
-## Native host tools (OpenCode / Claude Code / VS Code)
+## Native host tools (OpenCode / Claude Code / VS Code / Gemini / Antigravity)
 
 This host has **no hook gate** on Read/Shell/Grep. You must self-enforce:
 
@@ -485,6 +611,7 @@ fn install_claude_code(exe: &Path, user: bool, quiet: bool) -> Result<Vec<PathBu
         write_mcp_servers_file(&path, claude_code_server_entry(exe))?;
     }
     install_claude_code_rule(user, quiet)?;
+    let _ = crate::host_hooks::install_claude_code_hooks(user, quiet);
     if !quiet {
         println!("Installed Claude Code MCP at {}", path.display());
         if user {
@@ -493,6 +620,7 @@ fn install_claude_code(exe: &Path, user: bool, quiet: bool) -> Result<Vec<PathBu
             println!("  Project scope: .mcp.json at repository root.");
         }
         println!("  Start a new Claude Code session; run /mcp to verify.");
+        println!("  Route gate hooks: UserPromptSubmit / PreToolUse in .claude/settings.json.");
     }
     Ok(vec![path])
 }
@@ -556,13 +684,64 @@ mod tests {
         assert_eq!(merged["mcp"]["agent-brain"]["type"], "local");
     }
 
-    #[test]
     fn host_target_parses_opencode_flag() {
         let args = vec!["install".into(), "--opencode".into(), "--global".into()];
         assert_eq!(
             HostTarget::from_args(&args),
             HostTarget::OpenCode { user: true }
         );
+    }
+
+    #[test]
+    fn host_target_parses_gemini_flag() {
+        let args = vec!["install".into(), "--gemini".into(), "--global".into()];
+        assert_eq!(
+            HostTarget::from_args(&args),
+            HostTarget::Gemini { user: true }
+        );
+    }
+
+    #[test]
+    fn host_target_parses_antigravity_flag() {
+        let args = vec![
+            "install".into(),
+            "--antigravity".into(),
+            "--global".into(),
+        ];
+        assert_eq!(
+            HostTarget::from_args(&args),
+            HostTarget::Antigravity { user: true }
+        );
+    }
+
+    #[test]
+    fn gemini_project_uses_settings_json() {
+        let dir = TempDir::new().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+        let path = gemini_config_path(false).unwrap();
+        assert!(path.ends_with(".gemini/settings.json"));
+    }
+
+    #[test]
+    fn antigravity_global_paths_include_shared_config() {
+        let paths = antigravity_config_paths(true).unwrap();
+        assert_eq!(paths.len(), 2);
+        assert!(paths[0].to_string_lossy().contains("antigravity/mcp_config.json"));
+        assert!(paths[1].to_string_lossy().contains("config/mcp_config.json"));
+    }
+
+    #[test]
+    fn merges_gemini_settings_preserves_other_keys() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("settings.json");
+        fs::write(&path, r#"{"theme":"dark"}"#).unwrap();
+        let merged = merge_claude_json_mcp(
+            &path,
+            json!({"command":"/bin/agent-brain","args":["serve"]}),
+        )
+        .unwrap();
+        assert!(merged["mcpServers"]["agent-brain"].is_object());
+        assert_eq!(merged["theme"], "dark");
     }
 
     #[test]

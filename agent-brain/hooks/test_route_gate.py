@@ -287,5 +287,22 @@ class ReadGateTests(unittest.TestCase):
             self.assertEqual(state["anti_pattern_suggestion"].get("path"), str(big))
 
 
+class MultiHostHookOutputTests(unittest.TestCase):
+    def test_gemini_before_tool_deny(self) -> None:
+        out = route_gate.adapt_hook_output(
+            "BeforeTool",
+            {"permission": "deny", "agent_message": "call route_task first"},
+        )
+        self.assertEqual(out["decision"], "deny")
+        self.assertIn("route_task", out["reason"])
+
+    def test_claude_pre_tool_deny(self) -> None:
+        out = route_gate.adapt_hook_output(
+            "PreToolUse",
+            {"permission": "deny", "agent_message": "call route_task first"},
+        )
+        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+
+
 if __name__ == "__main__":
     unittest.main()
