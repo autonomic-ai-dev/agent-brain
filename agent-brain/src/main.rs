@@ -1194,6 +1194,7 @@ Usage:
   agent-brain install --vscode [--global]       VS Code workspace or user mcp.json
   agent-brain install --claude-code [--global]  Claude Code .mcp.json or ~/.claude.json
   agent-brain install --opencode [--global]     OpenCode opencode.json (project or ~/.config/opencode)
+  agent-brain install --codex [--global]        Codex config.toml + hooks.json (project or ~/.codex)
   agent-brain install --gemini [--global]       Gemini CLI settings.json (project or ~/.gemini)
   agent-brain install --antigravity [--global]  Antigravity mcp_config.json (project or ~/.gemini)
   agent-brain install --all                     All of the above (user/global scope)

@@ -151,6 +151,30 @@ pub fn opencode_plugin_dir(user: bool) -> Result<PathBuf> {
     Ok(root.join(".opencode").join("plugin"))
 }
 
+pub fn codex_hooks_dir(user: bool) -> Result<PathBuf> {
+    if user {
+        let home = dirs::home_dir().context("home directory")?;
+        return Ok(home.join(".codex").join("hooks").join("agent-brain"));
+    }
+    let cwd = std::env::current_dir().context("current working directory")?;
+    let root = crate::config::find_repo_root(&cwd).unwrap_or(cwd);
+    Ok(root.join(".codex").join("hooks").join("agent-brain"))
+}
+
+pub fn codex_hooks_path(user: bool) -> Result<PathBuf> {
+    if user {
+        let home = dirs::home_dir().context("home directory")?;
+        return Ok(home.join(".codex").join("hooks.json"));
+    }
+    let cwd = std::env::current_dir().context("current working directory")?;
+    let root = crate::config::find_repo_root(&cwd).unwrap_or(cwd);
+    Ok(root.join(".codex").join("hooks.json"))
+}
+
+fn codex_hooks_fragment(script: &Path) -> Value {
+    claude_code_hooks_fragment(script)
+}
+
 pub fn merge_settings_hooks(path: &Path, hooks_fragment: &Value) -> Result<Value> {
     let fragment_hooks = hooks_fragment
         .get("hooks")
@@ -255,6 +279,18 @@ pub fn install_opencode_hooks(user: bool, quiet: bool) -> Result<()> {
     if !quiet {
         println!("Installed OpenCode route gate plugin at {}", plugin.display());
         println!("  OpenCode loads plugins from ~/.config/opencode/plugin/ (or .opencode/plugin/).");
+    }
+    Ok(())
+}
+
+pub fn install_codex_hooks(user: bool, quiet: bool) -> Result<()> {
+    let hooks_dir = codex_hooks_dir(user)?;
+    let script = deploy_route_gate_script(&hooks_dir)?;
+    let hooks_path = codex_hooks_path(user)?;
+    write_settings_hooks(&hooks_path, &codex_hooks_fragment(&script))?;
+    if !quiet {
+        println!("Installed Codex route gate hooks at {}", hooks_path.display());
+        println!("  Review and trust hooks in Codex with `/hooks` if prompted.");
     }
     Ok(())
 }

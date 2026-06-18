@@ -13,6 +13,7 @@ pub enum HostTarget {
     VsCode { user: bool },
     ClaudeCode { user: bool },
     OpenCode { user: bool },
+    Codex { user: bool },
     Gemini { user: bool },
     Antigravity { user: bool },
     All,
@@ -36,6 +37,9 @@ impl HostTarget {
         if args.iter().any(|a| a == "--opencode") {
             return Self::OpenCode { user: global };
         }
+        if args.iter().any(|a| a == "--codex") {
+            return Self::Codex { user: global };
+        }
         if args.iter().any(|a| a == "--gemini") {
             return Self::Gemini { user: global };
         }
@@ -56,6 +60,8 @@ impl HostTarget {
             Self::ClaudeCode { .. } => "claude-code (project)",
             Self::OpenCode { user: true } => "opencode (user)",
             Self::OpenCode { .. } => "opencode (project)",
+            Self::Codex { user: true } => "codex (user)",
+            Self::Codex { .. } => "codex (project)",
             Self::Gemini { user: true } => "gemini (user)",
             Self::Gemini { .. } => "gemini (project)",
             Self::Antigravity { user: true } => "antigravity (user)",
@@ -74,10 +80,11 @@ pub fn install_host(target: HostTarget, exe: &Path, quiet: bool) -> Result<Vec<P
             paths.extend(install_host(HostTarget::VsCode { user: true }, exe, true)?);
             paths.extend(install_host(HostTarget::ClaudeCode { user: true }, exe, true)?);
             paths.extend(install_host(HostTarget::OpenCode { user: true }, exe, true)?);
+            paths.extend(install_host(HostTarget::Codex { user: true }, exe, true)?);
             paths.extend(install_host(HostTarget::Gemini { user: true }, exe, true)?);
             paths.extend(install_host(HostTarget::Antigravity { user: true }, exe, true)?);
             if !quiet {
-                println!("Installed agent-brain MCP for: cursor, claude-desktop, vscode, claude-code, opencode, gemini, antigravity");
+                println!("Installed agent-brain MCP for: cursor, claude-desktop, vscode, claude-code, opencode, codex, gemini, antigravity");
             }
             Ok(paths)
         }
@@ -88,6 +95,7 @@ pub fn install_host(target: HostTarget, exe: &Path, quiet: bool) -> Result<Vec<P
         HostTarget::VsCode { user } => install_vscode(exe, user, quiet),
         HostTarget::ClaudeCode { user } => install_claude_code(exe, user, quiet),
         HostTarget::OpenCode { user } => install_opencode(exe, user, quiet),
+        HostTarget::Codex { user } => install_codex(exe, user, quiet),
         HostTarget::Gemini { user } => install_gemini(exe, user, quiet),
         HostTarget::Antigravity { user } => install_antigravity(exe, user, quiet),
     }
@@ -418,6 +426,173 @@ fn install_opencode_instructions(user: bool, quiet: bool) -> Result<()> {
     Ok(())
 }
 
+pub fn codex_config_path(user: bool) -> Result<PathBuf> {
+    if user {
+        let home = dirs::home_dir().context("home directory")?;
+        return Ok(home.join(".codex").join("config.toml"));
+    }
+    let cwd = std::env::current_dir().context("current working directory")?;
+    let root = crate::config::find_repo_root(&cwd).unwrap_or(cwd);
+    Ok(root.join(".codex").join("config.toml"))
+}
+
+pub fn codex_mcp_toml_block(exe: &Path) -> String {
+    let entry = crate::install::mcp_server_entry(exe);
+    let command = entry
+        .get("command")
+        .and_then(|v| v.as_str())
+        .unwrap_or_else(|| exe.to_str().unwrap_or("agent-brain"));
+    let args = entry
+        .get("args")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str())
+                .map(toml_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_else(|| "\"serve\"".to_string());
+
+    let env_pairs = entry
+        .get("env")
+        .and_then(|v| v.as_object())
+        .map(|obj| {
+            obj.iter()
+                .map(|(k, v)| {
+                    let owned = v.to_string();
+                    let val = v.as_str().unwrap_or(&owned);
+                    format!("{} = {}", k, toml_string(val))
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_default();
+
+    let mut block = format!(
+        "{CODEX_MCP_MARKER}\n[mcp_servers.agent-brain]\ncommand = {}\nargs = [{args}]\nstartup_timeout_sec = 30",
+        toml_string(command)
+    );
+    if !env_pairs.is_empty() {
+        block.push_str(&format!("\nenv = {{ {env_pairs} }}"));
+    }
+    block
+}
+
+const CODEX_MCP_MARKER: &str = "# agent-brain MCP — managed by `agent-brain install --codex`";
+
+fn toml_string(value: &str) -> String {
+    if value
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '/' | '.' | ':'))
+    {
+        format!("\"{value}\"")
+    } else {
+        let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+        format!("\"{escaped}\"")
+    }
+}
+
+pub fn merge_codex_config_toml(content: &str, mcp_block: &str) -> String {
+    let lines: Vec<&str> = content.lines().collect();
+    if let Some((start, end)) = find_toml_section_range(&lines, "mcp_servers.agent-brain") {
+        let mut out: Vec<String> = lines[..start].to_vec().into_iter().map(str::to_string).collect();
+        if start > 0 && lines[start - 1].trim() == CODEX_MCP_MARKER {
+            out.pop();
+        }
+        if !out.is_empty() && !out.last().map(|l| l.is_empty()).unwrap_or(true) {
+            out.push(String::new());
+        }
+        out.extend(mcp_block.lines().map(str::to_string));
+        if end < lines.len() {
+            if !out.last().map(|l| l.is_empty()).unwrap_or(false) {
+                out.push(String::new());
+            }
+            out.extend(lines[end..].iter().map(|l| (*l).to_string()));
+        }
+        let merged = out.join("\n");
+        return normalize_trailing_newline(&merged);
+    }
+
+    let mut merged = content.trim_end().to_string();
+    if !merged.is_empty() {
+        merged.push_str("\n\n");
+    }
+    merged.push_str(mcp_block);
+    normalize_trailing_newline(&merged)
+}
+
+fn find_toml_section_range(lines: &[&str], section: &str) -> Option<(usize, usize)> {
+    let header = format!("[{section}]");
+    let start = lines.iter().position(|line| line.trim() == header)?;
+    let end = lines[(start + 1)..]
+        .iter()
+        .position(|line| line.starts_with('[') && line.ends_with(']'))
+        .map(|offset| start + 1 + offset)
+        .unwrap_or(lines.len());
+    Some((start, end))
+}
+
+fn normalize_trailing_newline(text: &str) -> String {
+    let trimmed = text.trim_end();
+    if trimmed.is_empty() {
+        String::new()
+    } else {
+        format!("{trimmed}\n")
+    }
+}
+
+fn write_codex_config(path: &Path, exe: &Path) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    let existing = if path.is_file() {
+        fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?
+    } else {
+        String::new()
+    };
+    let merged = merge_codex_config_toml(&existing, &codex_mcp_toml_block(exe));
+    fs::write(path, merged).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
+
+fn install_codex(exe: &Path, user: bool, quiet: bool) -> Result<Vec<PathBuf>> {
+    let config_path = codex_config_path(user)?;
+    write_codex_config(&config_path, exe)?;
+    install_codex_instructions(user, quiet)?;
+    crate::host_hooks::install_codex_hooks(user, quiet)?;
+    if !quiet {
+        println!("Installed Codex MCP at {}", config_path.display());
+        if user {
+            println!("  User scope: ~/.codex/config.toml");
+        } else {
+            println!("  Project scope: .codex/config.toml at repository root.");
+            println!("  Trust this project in Codex for project-local MCP to load.");
+        }
+        println!("  Route gate hooks: ~/.codex/hooks.json (or .codex/hooks.json).");
+        println!("  Restart Codex or run `/hooks` to review and trust new hooks.");
+        println!("  Verify with `codex mcp list` when available.");
+    }
+    Ok(vec![config_path])
+}
+
+fn install_codex_instructions(user: bool, quiet: bool) -> Result<()> {
+    let path = if user {
+        let home = dirs::home_dir().context("home directory")?;
+        let dir = home.join(".codex");
+        fs::create_dir_all(&dir)?;
+        dir.join("agent-brain.md")
+    } else {
+        let cwd = std::env::current_dir().context("current working directory")?;
+        let root = crate::config::find_repo_root(&cwd).unwrap_or(cwd);
+        let dir = root.join(".codex");
+        fs::create_dir_all(&dir)?;
+        dir.join("agent-brain.md")
+    };
+    write_host_instructions(&path, HOST_AGENT_BRAIN_INSTRUCTIONS, quiet, "Codex")?;
+    Ok(())
+}
+
 fn write_host_instructions(path: &Path, content: &str, quiet: bool, label: &str) -> Result<()> {
     let version_marker = format!("instructions-version: {HOST_INSTRUCTIONS_VERSION}");
     if path.is_file() {
@@ -465,7 +640,7 @@ This host has **no hook gate** on Read/Shell/Grep. You must self-enforce:
 - **Use** agent-brain `grep_search`, `file_summary`, `read_file_head`, `read_file_tail` instead.
 - Host native reads bypass routing, token savings, and cross-agent session digests.
 
-On Cursor, hooks block host tools until route_task; here **you** must follow the same discipline.
+On Cursor, hooks block host tools until route_task; on Codex and Claude Code, hooks gate MCP tools until route_task. On other hosts **you** must follow the same discipline.
 
 ## Continuing work from another IDE
 
@@ -742,6 +917,41 @@ mod tests {
         .unwrap();
         assert!(merged["mcpServers"]["agent-brain"].is_object());
         assert_eq!(merged["theme"], "dark");
+    }
+
+    #[test]
+    fn host_target_parses_codex_flag() {
+        let args = vec!["install".into(), "--codex".into(), "--global".into()];
+        assert_eq!(
+            HostTarget::from_args(&args),
+            HostTarget::Codex { user: true }
+        );
+    }
+
+    #[test]
+    fn merges_codex_config_appends_when_missing() {
+        let block = codex_mcp_toml_block(Path::new("/bin/agent-brain"));
+        let merged = merge_codex_config_toml("model = \"gpt-5\"\n", &block);
+        assert!(merged.contains("model = \"gpt-5\""));
+        assert!(merged.contains("[mcp_servers.agent-brain]"));
+        assert!(merged.contains("command = \"/bin/agent-brain\""));
+    }
+
+    #[test]
+    fn merges_codex_config_replaces_existing_section() {
+        let block = codex_mcp_toml_block(Path::new("/new/agent-brain"));
+        let existing = r#"# agent-brain MCP — managed by `agent-brain install --codex`
+[mcp_servers.agent-brain]
+command = "/old/agent-brain"
+args = ["serve"]
+
+[profiles.strict]
+approval_policy = "on-request"
+"#;
+        let merged = merge_codex_config_toml(existing, &block);
+        assert!(merged.contains("/new/agent-brain"));
+        assert!(!merged.contains("/old/agent-brain"));
+        assert!(merged.contains("[profiles.strict]"));
     }
 
     #[test]

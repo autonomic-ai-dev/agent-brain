@@ -187,8 +187,8 @@ pub fn run(fix: bool) -> Result<()> {
     println!("  • agent-brain stats — index size, savings, latency, adoption milestones");
     println!("  • agent-brain dashboard --open — local HTML value dashboard (screenshot-friendly ROI)");
     println!("  • agent-brain onboarding — 5-minute getting started checklist");
-    println!("  • agent-brain install --all --global — MCP + instructions for Cursor, OpenCode, Claude Code, VS Code, Gemini, Antigravity");
-    println!("  • Claude Code, Gemini, Antigravity, OpenCode: route gate hooks installed via install --<host> [--global]");
+    println!("  • agent-brain install --all --global — MCP + instructions for Cursor, OpenCode, Claude Code, VS Code, Codex, Gemini, Antigravity");
+    println!("  • Claude Code, Codex, Gemini, Antigravity, OpenCode: route gate hooks installed via install --<host> [--global]");
     println!("  • Cursor has the strongest host-tool gate (hooks on Read/Shell); other hosts gate agent-brain MCP tools until route_task");
     println!("  • Background auto-update during serve can exec a new binary after idle (see config auto_update.mcp.restart_after_update)");
     println!("  • macOS: linker-signed binaries are killed by taskgated — doctor --fix adhoc re-signs");
@@ -229,12 +229,19 @@ pub fn run(fix: bool) -> Result<()> {
 
 fn print_other_hosts(home: &Path) {
     let opencode = home.join(".config/opencode/opencode.json");
+    let codex = home.join(".codex/config.toml");
+    let codex_hooks = home.join(".codex/hooks.json");
     let claude = home.join(".claude.json");
     let claude_settings = home.join(".claude/settings.json");
     let gemini = home.join(".gemini/settings.json");
     let antigravity = home.join(".gemini/antigravity/mcp_config.json");
     let antigravity_shared = home.join(".gemini/config/mcp_config.json");
     println!("  opencode (global):     {}", host_mcp_status(&opencode, "mcp", "agent-brain"));
+    println!("  codex (global):        {}", codex_mcp_status(&codex));
+    println!(
+        "  codex hooks:           {}",
+        crate::host_hooks::hooks_status(&codex_hooks, "route_gate.py")
+    );
     println!("  claude-code (global):  {}", host_mcp_status(&claude, "mcpServers", "agent-brain"));
     println!(
         "  claude hooks:          {}",
@@ -257,6 +264,20 @@ fn antigravity_host_status(primary: &Path, shared: &Path) -> &'static str {
         return "OK";
     }
     host_mcp_status(shared, "mcpServers", "agent-brain")
+}
+
+fn codex_mcp_status(path: &Path) -> &'static str {
+    if !path.is_file() {
+        return "not configured";
+    }
+    let Ok(raw) = fs::read_to_string(path) else {
+        return "unreadable";
+    };
+    if raw.contains("[mcp_servers.agent-brain]") {
+        "OK"
+    } else {
+        "missing agent-brain entry"
+    }
 }
 
 fn host_mcp_status(path: &Path, servers_key: &str, server_name: &str) -> &'static str {

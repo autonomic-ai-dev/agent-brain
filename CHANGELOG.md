@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-06-18
+
+### Added
+
+- **`install --codex`** — MCP wiring for Codex (`~/.codex/config.toml` or `.codex/config.toml`) with comment-preserving TOML merge for `[mcp_servers.agent-brain]`.
+- **Codex route gate hooks** — `hooks.json` + `route_gate.py` for `UserPromptSubmit` / `PreToolUse` / `PostToolUse`.
+- **`doctor`** — reports Codex MCP and hooks status.
+
+### Changed
+
+- **`install --all`** — includes Codex host.
+
 ## [0.19.0] - 2026-06-17
 
 ### Added

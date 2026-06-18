@@ -28,6 +28,9 @@ pub fn run(target: HostTarget, print_only: bool, reload: bool) -> Result<()> {
                     }))?
                 );
             }
+            HostTarget::Codex { .. } => {
+                println!("{}", host_install::codex_mcp_toml_block(&exe));
+            }
             _ => {
                 println!(
                     "{}",
@@ -102,7 +105,7 @@ fn print_cursor_next_steps() {
     println!("  2. Confirm hooks under Settings → Hooks (route_task gate)");
     println!("  3. After rebuilds: agent-brain install --global --reload");
     println!();
-    println!("Other hosts: agent-brain install --claude-desktop | --vscode | --claude-code | --opencode | --gemini | --antigravity [--global] | --all");
+    println!("Other hosts: agent-brain install --claude-desktop | --vscode | --claude-code | --opencode | --codex | --gemini | --antigravity [--global] | --all");
 }
 
 /// Merge MCP config and optionally refresh Cursor hooks/rule (used by install + auto-update).
