@@ -131,7 +131,7 @@ pub fn run_supervisor_bench_on_engine(engine: &Engine) -> Result<SupervisorBench
 
     for i in 0..WARMUP_ROUTES {
         let q = format!("supervisor warmup route {i}");
-        engine.route_task(&q, None, &[], 500, limits, Some("implementing"))?;
+        engine.route_task(&q, None, &[], 500, limits, Some("implementing"), None)?;
     }
 
     let mut scenarios = Vec::with_capacity(SCENARIOS.len());
@@ -156,6 +156,7 @@ pub fn run_supervisor_bench_on_engine(engine: &Engine) -> Result<SupervisorBench
             500,
             limits,
             Some("implementing"),
+            None,
         )?;
 
         let saved_pct = token_savings(&resp).map(|s| s.saved_pct).unwrap_or(0);
@@ -200,7 +201,7 @@ pub fn run_supervisor_bench_on_engine(engine: &Engine) -> Result<SupervisorBench
     let mut warm_latencies = Vec::with_capacity(LATENCY_SAMPLES);
     for i in 0..LATENCY_SAMPLES {
         let q = format!("grep rg token efficient large log file scenario {i}");
-        let resp = engine.route_task(&q, None, &[], 500, limits, Some("implementing"))?;
+        let resp = engine.route_task(&q, None, &[], 500, limits, Some("implementing"), None)?;
         warm_latencies.push(resp.latency_ms);
     }
     let warm_route_p95_ms = percentiles(&warm_latencies).p95_ms;

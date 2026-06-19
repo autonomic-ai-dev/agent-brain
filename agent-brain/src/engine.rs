@@ -469,8 +469,11 @@ impl Engine {
         max_tokens: usize,
         limits: RouteLimits,
         explicit_phase: Option<&str>,
+        explicit_task_kind: Option<&str>,
     ) -> Result<RouteTaskResponse> {
         self.maybe_spawn_session_ingest();
+        let task_kind = crate::bridge::resolve_task_kind(explicit_task_kind, user_message);
+        let limits = crate::bridge::limits_for_task_kind(task_kind, limits);
         let limits = limits.normalize();
         let started = Instant::now();
         let ws = probe(cwd);
@@ -484,6 +487,7 @@ impl Engine {
         let cache_key = route_cache_key(
             &scope_key,
             &phase,
+            task_kind.as_str(),
             open_files,
             user_message,
             self.store.get_index_version(),
@@ -575,6 +579,8 @@ impl Engine {
         let p95 = self.route_latency.p95_ms();
         self.route_latency.record(timing.total_us / 1000);
         timing.log_line(p95, &phase);
+
+        crate::bridge::enrich_route_response(&mut resp, &scored, task_kind);
 
         if !is_empty_route_response(&resp) {
             self.cache.put(cache_key, resp.clone());

@@ -79,6 +79,26 @@ pub fn run(fix: bool) -> Result<()> {
         ok = false;
     }
 
+    let claude_settings = home.join(".claude/settings.json");
+    let claude_hooks = if crate::host_hooks::claude_hooks_need_refresh(&claude_settings) {
+        if claude_settings.is_file() {
+            "stale (reinstall)"
+        } else {
+            crate::host_hooks::hooks_status(&claude_settings, "route_gate.py")
+        }
+    } else {
+        "OK"
+    };
+    println!("  claude-code hooks:     {claude_hooks}");
+    if claude_hooks != "OK" {
+        ok = false;
+        if fix {
+            crate::host_hooks::install_claude_code_hooks(true, false)?;
+            println!("  claude-code hooks:     reinstalled");
+            ok = true;
+        }
+    }
+
     let mut sign_targets = vec![exe.clone()];
     if let Some(cmd) = mcp_binary.clone() {
         if !paths_same(&exe, &cmd) {

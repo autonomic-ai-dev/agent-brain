@@ -1,0 +1,7 @@
+{"query":"verify BEAM proofs pass in CI","expect_task_kind":"verification","expect_escalate":false,"expect_bundle":true}
+{"query":"run cargo test for agent-brain after routing changes","task_kind":"verification","expect_task_kind":"verification","expect_escalate":false,"expect_bundle":true}
+{"query":"implement route_task MCP bridge fields for orchestrator","expect_task_kind":"implementing","expect_bundle":true}
+{"query":"review this PR for security issues in auth handlers","expect_task_kind":"review","expect_bundle":true}
+{"query":"design workflow architecture for agent-orchestrator YAML runtime","expect_task_kind":"architecture","expect_bundle":true}
+{"query":"debug race condition in async route_task handler","expect_task_kind":"debugging","expect_bundle":true}
+{"query":"zzzz verification noop without indexed context","task_kind":"verification","expect_task_kind":"verification","expect_escalate":true,"expect_bundle":true}

@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-06-19
+
+### Added
+
+- **`store_trajectory` MCP** — records workflow node outcomes (`success` | `failure` | `escalated` | `skipped`) with optional `route_log_id` link to `retrieval_log`.
+- **Fact lineage** — `fact_lineage` table; observations link `synthesized_from` source facts; trace extract links `extracted_from` tool logs.
+- **BEAM v0.24 suites** — `escalation_signal` and `task_scoped_verification` gates in `eval --beam` / `proofs --ci`.
+
+## [0.23.1] - 2026-06-19
+
+### Added
+
+- **BEAM task-scoped suite** — `eval/task-scoped.jsonl` validates `task_kind`, `route_confidence`, `escalate_recommended`, and `context_bundle` per orchestrator contract.
+- **BEAM transcript fixtures** — `eval/transcript-queries.jsonl` from real agent-brain dev workflow queries.
+- **Trace extract v2** — `why_extracted` / `pattern` metadata, pip/go/brew/make patterns, and `agent-brain memory extract --explain`.
+- **Claude Code MCP enforcement** — PreToolUse/PostToolUse hooks match `mcp__agent-brain__.*`; `doctor --fix` reinstalls Claude hooks; Claude-specific install instructions (v6).
+
+## [0.23.0] - 2026-06-18
+
+### Added
+
+- **gRPC orchestrator bridge** — `agent-brain grpc serve` exposes `RoutingService` (`RouteTask`, `Health`) per `proto/agent_brain/v1/routing.proto`.
+- **`route_task` bridge fields** — `task_kind`, `route_confidence`, `escalate_recommended`, `context_bundle` on MCP and gRPC responses.
+- **Per-`task_kind` retrieval policy** — tighter limits for verification/review/architecture/debugging.
+- **`docs/orchestrator-contract.md`** — gRPC-first contract for `agent-orchestrator` integration.
+
 ## [0.22.1] - 2026-06-18
 
 ### Fixed

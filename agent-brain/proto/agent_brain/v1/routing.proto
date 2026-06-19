@@ -1,0 +1,108 @@
+syntax = "proto3";
+
+package agent_brain.v1;
+
+// Orchestrator bridge API (v0.23+). IDE agents continue to use MCP route_task.
+service RoutingService {
+  rpc RouteTask(RouteTaskRequest) returns (RouteTaskResponse);
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+enum TaskKind {
+  TASK_KIND_UNSPECIFIED = 0;
+  TASK_KIND_IMPLEMENTING = 1;
+  TASK_KIND_VERIFICATION = 2;
+  TASK_KIND_DEBUGGING = 3;
+  TASK_KIND_REVIEW = 4;
+  TASK_KIND_ARCHITECTURE = 5;
+}
+
+message RouteLimits {
+  uint32 agents = 1;
+  uint32 skills = 2;
+  uint32 rules = 3;
+  uint32 memory = 4;
+}
+
+message RouteTaskRequest {
+  string user_message = 1;
+  optional string current_working_directory = 2;
+  repeated string open_files = 3;
+  uint32 max_tokens = 4;
+  RouteLimits limits = 5;
+  optional string phase = 6;
+  TaskKind task_kind = 7;
+}
+
+message AgentRec {
+  string name = 1;
+  string path = 2;
+  string rationale = 3;
+  double score = 4;
+}
+
+message SkillRec {
+  string name = 1;
+  string path = 2;
+  string rationale = 3;
+  double score = 4;
+}
+
+message RuleRec {
+  string topic = 1;
+  string text = 2;
+  string source_path = 3;
+  double score = 4;
+}
+
+message MemoryRec {
+  string topic = 1;
+  string text = 2;
+  double score = 3;
+}
+
+message MustApply {
+  string topic = 1;
+  string text = 2;
+}
+
+message RouteWarning {
+  string topic = 1;
+  string message = 2;
+}
+
+message ContextBundle {
+  repeated RuleRec team_rules = 1;
+  repeated MemoryRec negative_memory = 2;
+  repeated SkillRec skill_docs = 3;
+  repeated AgentRec agents = 4;
+  repeated MemoryRec observations = 5;
+}
+
+message RouteTaskResponse {
+  repeated AgentRec recommended_agents = 1;
+  repeated SkillRec recommended_skills = 2;
+  repeated RuleRec applicable_rules = 3;
+  repeated MemoryRec relevant_memory = 4;
+  repeated MustApply must_apply = 5;
+  repeated RouteWarning warnings = 6;
+  string recommended_phase = 7;
+  uint32 tokens_used = 8;
+  uint32 tokens_budget = 9;
+  bool cache_hit = 10;
+  uint64 latency_ms = 11;
+  string log_id = 12;
+  uint32 index_total = 13;
+  string briefing = 14;
+  TaskKind task_kind = 15;
+  double route_confidence = 16;
+  bool escalate_recommended = 17;
+  ContextBundle context_bundle = 18;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  string version = 1;
+  bool ready = 2;
+}

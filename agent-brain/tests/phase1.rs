@@ -151,12 +151,12 @@ fn add_only_same_topic_facts_preserve_history() {
 
 #[test]
 fn turn_cache_ignores_open_files_when_configured() {
-    let key_a = route_cache_key("repo", "implement", &["src/a.rs".into()], "fix bug", 1, true);
-    let key_b = route_cache_key("repo", "implement", &["src/b.rs".into()], "fix bug", 1, true);
+    let key_a = route_cache_key("repo", "implement", "implementing", &["src/a.rs".into()], "fix bug", 1, true);
+    let key_b = route_cache_key("repo", "implement", "implementing", &["src/b.rs".into()], "fix bug", 1, true);
     assert_eq!(key_a.open_files_fp, key_b.open_files_fp);
     assert_eq!(key_a.query_fp, key_b.query_fp);
 
-    let key_c = route_cache_key("repo", "implement", &["src/a.rs".into()], "fix bug", 1, false);
+    let key_c = route_cache_key("repo", "implement", "implementing", &["src/a.rs".into()], "fix bug", 1, false);
     assert_ne!(key_a.open_files_fp, key_c.open_files_fp);
 }
 
@@ -169,6 +169,7 @@ fn turn_cache_returns_hit_on_repeat_query() {
         open_files_fp: fingerprint_open_files(&["src/main.rs".into()]),
         query_fp: fingerprint_query("fix the routing bug"),
         index_version: 1,
+        task_kind: "implementing".into(),
     };
     let resp = RouteTaskResponse {
         recommended_phase: "implement".into(),
@@ -260,6 +261,7 @@ fn route_task_respects_max_tokens() {
                 memory: 5,
             },
             None,
+            None,
         )
         .unwrap();
 
@@ -309,6 +311,7 @@ fn routes_skill_with_matching_description_over_unrelated_skill() {
                 rules: 0,
                 memory: 0,
             },
+            None,
             None,
         )
         .unwrap();
@@ -380,6 +383,7 @@ fn dedupes_duplicate_skill_names_in_route_task() {
                 rules: 0,
                 memory: 0,
             },
+            None,
             None,
         )
         .unwrap();
@@ -532,6 +536,7 @@ fn route_task_with_all_zero_limits_returns_skills() {
                 rules: 0,
                 memory: 0,
             },
+            None,
             None,
         )
         .unwrap();

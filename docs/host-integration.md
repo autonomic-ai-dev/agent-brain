@@ -118,13 +118,14 @@ Readable route summary: `~/.agent_brain/logs/last-route.md` or `agent-brain brie
 | Host | `route_task` gate | How enforced |
 |------|-------------------|--------------|
 | **Cursor** | Yes | `~/.cursor/hooks.json` → `route_gate.py` (installed by `install --global`) |
-| **Claude Code** | Rule template | `~/.claude/agent-brain.md` or `.claude/agent-brain.md` (installed by `install --claude-code`) |
-| **OpenCode** | Rule template | `~/.config/opencode/agent-brain.md` or `.opencode/agent-brain.md` (installed by `install --opencode`) |
+| **Claude Code** | Yes (agent-brain MCP) | `.claude/settings.json` → `route_gate.py` on `UserPromptSubmit` + `mcp__agent-brain__.*` (installed by `install --claude-code [--global]`) |
+| **Codex** | Yes (agent-brain MCP) | `~/.codex/hooks.json` → `route_gate.py` (installed by `install --codex --global`) |
+| **OpenCode** | Plugin | `~/.config/opencode/plugin/agent-brain-route-gate.ts` (installed by `install --opencode [--global]`) |
 | **VS Code** | Rule-only | Add Copilot/custom instructions (see below) |
 | **Claude Desktop** | Rule-only | Paste rule into project/system instructions |
 | **Windsurf / Zed / other** | Manual | Copy `mcpServers` block; add equivalent rule text |
 
-Cursor is the only host with **automatic pre-tool hooks** today. Other hosts rely on rules/instructions plus operator discipline.
+Cursor has the strongest host-tool gate (hooks on Read/Shell). Claude Code and Codex enforce **agent-brain MCP tools** until `route_task` via PreToolUse hooks. Other hosts rely on rules/instructions plus operator discipline.
 
 ### VS Code instructions snippet
 
@@ -144,6 +145,8 @@ skills, rules, and memory. At task end, call `store_memory` for durable outcomes
 - User-scoped servers belong in **`~/.claude.json`** (top-level `mcpServers`).
 - Project-scoped servers belong in **`.mcp.json`** at the repo root (not inside `.claude/`).
 - After editing, start a new session and run `/mcp` to verify connection.
+- Run `/hooks` and trust agent-brain route gate hooks if prompted.
+- Reinstall hooks: `agent-brain install --claude-code --global` or `agent-brain doctor --fix`.
 
 ## macOS codesign
 
@@ -171,5 +174,5 @@ No extra index configuration is required per host — installers only register t
 | Cursor | Settings → MCP shows agent-brain; hooks enabled; `route_task` in MCP log |
 | Claude Desktop | Hammer icon; Developer → MCP logs |
 | VS Code | Command Palette → “MCP: List Servers” → agent-brain connected |
-| Claude Code | `/mcp` lists agent-brain; tools appear after approval |
+| Claude Code | `/mcp` lists agent-brain; `/hooks` shows route gate; other MCP tools blocked until `route_task` |
 | OpenCode | `opencode mcp list` shows agent-brain; restart session if needed |

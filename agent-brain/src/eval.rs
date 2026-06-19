@@ -291,7 +291,7 @@ where
     let mut failures = Vec::new();
 
     for (query, expected_topic) in golden {
-        let resp = engine.route_task(query, None, &[], 500, limits, Some("implementing"))?;
+        let resp = engine.route_task(query, None, &[], 500, limits, Some("implementing"), None)?;
         let topics = got_topics(&resp);
         if topics.iter().any(|t| t == expected_topic) {
             passed += 1;

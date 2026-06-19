@@ -20,6 +20,7 @@ ROUTE_TOOL_NAMES = {
     "MCP:route_task",
     "mcp:route_task",
     "mcp_agent-brain_route_task",
+    "mcp__agent-brain__route_task",
 }
 
 GRACE_SECS = float(os.environ.get("AGENT_BRAIN_ROUTE_GRACE_SECS", "120"))
@@ -52,6 +53,25 @@ def save_state(state: dict) -> None:
     STATE_PATH.write_text(json.dumps(state), encoding="utf-8")
 
 
+def claude_mcp_parts(tool_name: str) -> tuple[str | None, str | None]:
+    """Parse Claude Code MCP tool names: mcp__<server>__<tool>."""
+    tool = tool_name.strip()
+    if not tool.lower().startswith("mcp__"):
+        return None, None
+    parts = tool.split("__", 2)
+    if len(parts) < 3 or not parts[1] or not parts[2]:
+        return None, None
+    return parts[1], parts[2]
+
+
+def is_claude_agent_brain_mcp(tool_name: str) -> bool:
+    server, _tool = claude_mcp_parts(tool_name)
+    if server is None:
+        return False
+    normalized = server.lower().replace("_", "-")
+    return normalized in {"agent-brain", "agentbrain"}
+
+
 def is_agent_brain_command(event: dict) -> bool:
     cmd = str(event.get("command") or "")
     server = str(event.get("server") or "")
@@ -71,6 +91,9 @@ def is_route_task(event: dict) -> bool:
     if tool in ROUTE_TOOL_NAMES:
         return True
     if tool_lower.endswith(":route_task") or tool_lower.endswith("_route_task"):
+        return True
+    _server, claude_tool = claude_mcp_parts(tool)
+    if claude_tool and claude_tool.lower() == "route_task" and is_claude_agent_brain_mcp(tool):
         return True
     # Cursor Agent tools: mcp_<server>_route_task
     if "route_task" in tool_lower and (
@@ -99,6 +122,8 @@ def is_agent_brain_mcp_tool(event: dict) -> bool:
         return False
     tool = str(event.get("tool_name") or "").strip()
     tool_lower = tool.lower()
+    if is_claude_agent_brain_mcp(tool):
+        return True
     if tool_lower.startswith("mcp_agent-brain_"):
         return True
     if tool_lower.startswith("mcp_agent_brain_"):
@@ -650,10 +675,14 @@ def adapt_hook_output(event_name: str, out: dict, event: dict | None = None) -> 
         return out
     if event_name == "PreToolUse":
         return adapt_pre_tool_use_output(out, event)
-    if event_name in {"UserPromptSubmit", "BeforeAgent"}:
+    if event_name == "UserPromptSubmit":
+        if out.get("continue") is False:
+            return {"decision": "block", "reason": agent_message}
+        return {}
+    if event_name == "BeforeAgent":
         if out.get("continue") is False:
             return {"decision": "deny", "reason": agent_message}
-        return {"continue": out.get("continue", True)}
+        return {"decision": "allow"}
     return out
 
 
@@ -699,7 +728,7 @@ def main() -> int:
         except json.JSONDecodeError:
             event = {}
         if event_name in {"beforeSubmitPrompt", "UserPromptSubmit", "BeforeAgent"}:
-            print(json.dumps({"continue": True}))
+            print("{}")
         elif event_name in {
             "preToolUse",
             "PreToolUse",

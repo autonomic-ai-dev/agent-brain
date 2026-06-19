@@ -13,6 +13,7 @@ pub struct CacheKey {
     pub open_files_fp: String,
     pub query_fp: String,
     pub index_version: u64,
+    pub task_kind: String,
 }
 
 pub struct TurnCache {
@@ -63,6 +64,7 @@ impl TurnCache {
 pub fn route_cache_key(
     scope_key: &str,
     phase: &str,
+    task_kind: &str,
     open_files: &[String],
     user_message: &str,
     index_version: u64,
@@ -71,6 +73,7 @@ pub fn route_cache_key(
     CacheKey {
         scope_key: scope_key.to_string(),
         phase: phase.to_string(),
+        task_kind: task_kind.to_string(),
         open_files_fp: if ignore_open_files {
             String::new()
         } else {

@@ -168,6 +168,7 @@ fn observation_surfaces_must_apply_when_tags_match() {
                 memory: 5,
             },
             Some("implementing"),
+            None,
         )
         .unwrap();
 

@@ -428,6 +428,7 @@ fn supervisor_bundle_routes_token_efficient_skill() {
                 memory: 0,
             },
             Some("implementing"),
+            None,
         )
         .unwrap();
     let skill_names: Vec<_> = resp.recommended_skills.iter().map(|s| s.name.as_str()).collect();
@@ -482,6 +483,7 @@ fn must_apply_promoted_without_memory_budget() {
                 memory: 1,
             },
             Some("implementing"),
+            None,
         )
         .unwrap();
     assert!(
@@ -512,6 +514,7 @@ fn route_task_suggests_native_token_tools_for_file_queries() {
             500,
             RouteLimits::default(),
             Some("debugging"),
+            None,
         )
         .unwrap();
     assert!(

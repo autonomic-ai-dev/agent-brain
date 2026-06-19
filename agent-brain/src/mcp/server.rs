@@ -51,6 +51,8 @@ struct RouteTaskParams {
     limits: RouteLimits,
     #[serde(default)]
     phase: Option<String>,
+    #[serde(default)]
+    task_kind: Option<String>,
 }
 
 fn default_route_limits() -> RouteLimits {
@@ -117,6 +119,20 @@ struct ListMemoryParams {
 
 fn default_limit() -> usize {
     50
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct StoreTrajectoryParams {
+    workflow_id: String,
+    node_id: String,
+    /// One of: success, failure, escalated, skipped
+    outcome: String,
+    #[serde(default)]
+    route_log_id: Option<String>,
+    #[serde(default)]
+    task_kind: Option<String>,
+    #[serde(default)]
+    notes: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -299,6 +315,7 @@ impl BrainMcp {
                 p.max_tokens,
                 p.limits.normalize(),
                 p.phase.as_deref(),
+                p.task_kind.as_deref(),
             )
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         self.route_gate.record_route(&p.user_message);
@@ -391,6 +408,26 @@ impl BrainMcp {
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         json_result(value)
+    }
+
+    #[tool(description = "Record orchestrator workflow node outcome for learning loops. Links optional route_log_id from route_task. Does not require route_task in this turn.")]
+    async fn store_trajectory(
+        &self,
+        params: Parameters<StoreTrajectoryParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let report = crate::trajectory::store_trajectory(
+            &self.engine.store,
+            &p.workflow_id,
+            &p.node_id,
+            &p.outcome,
+            p.route_log_id.as_deref(),
+            p.task_kind.as_deref(),
+            p.notes.as_deref(),
+        )
+        .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        json_result(serde_json::json!({ "trajectory": report }))
     }
 
     #[tool(description = "List stored memory facts.")]

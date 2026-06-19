@@ -36,6 +36,8 @@ fn python3_command(script: &Path) -> String {
     format!("python3 {}", script.display())
 }
 
+const CLAUDE_MCP_MATCHER: &str = "mcp__agent-brain__.*";
+
 fn claude_code_hooks_fragment(script: &Path) -> Value {
     let cmd = python3_command(script);
     json!({
@@ -48,7 +50,7 @@ fn claude_code_hooks_fragment(script: &Path) -> Value {
                 }]
             }],
             "PreToolUse": [{
-                "matcher": ".*",
+                "matcher": CLAUDE_MCP_MATCHER,
                 "hooks": [{
                     "type": "command",
                     "command": cmd,
@@ -56,7 +58,7 @@ fn claude_code_hooks_fragment(script: &Path) -> Value {
                 }]
             }],
             "PostToolUse": [{
-                "matcher": ".*",
+                "matcher": CLAUDE_MCP_MATCHER,
                 "hooks": [{
                     "type": "command",
                     "command": cmd,
@@ -229,6 +231,11 @@ fn merge_hook_events(
 }
 
 fn is_agent_brain_hook_entry(entry: &Value, marker: &str) -> bool {
+    if let Some(matcher) = entry.get("matcher").and_then(|v| v.as_str()) {
+        if matcher.contains("agent-brain") || matcher == ".*" {
+            return true;
+        }
+    }
     if let Some(cmd) = entry.get("command").and_then(|v| v.as_str()) {
         if cmd.contains(marker) || cmd.contains("agent-brain-route-gate") {
             return true;
@@ -342,6 +349,16 @@ pub fn hooks_status(path: &Path, marker: &str) -> &'static str {
     }
 }
 
+pub fn claude_hooks_need_refresh(path: &Path) -> bool {
+    if hooks_status(path, "route_gate.py") != "OK" {
+        return true;
+    }
+    let Ok(raw) = fs::read_to_string(path) else {
+        return true;
+    };
+    raw.contains("mcp__agent-brain__.*")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -358,6 +375,18 @@ mod tests {
         let merged = merge_settings_hooks(&path, &fragment).unwrap();
         assert_eq!(merged["theme"], "dark");
         assert!(merged["hooks"]["BeforeTool"].is_array());
+    }
+
+    #[test]
+    fn claude_hooks_target_agent_brain_mcp_tools() {
+        let dir = TempDir::new().unwrap();
+        let script = dir.path().join("route_gate.py");
+        fs::write(&script, "#!/usr/bin/env python3\n").unwrap();
+        let fragment = claude_code_hooks_fragment(&script);
+        let pre = fragment["hooks"]["PreToolUse"][0]["matcher"]
+            .as_str()
+            .unwrap();
+        assert_eq!(pre, "mcp__agent-brain__.*");
     }
 
     #[test]

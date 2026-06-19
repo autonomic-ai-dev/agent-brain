@@ -23,6 +23,10 @@ pub struct BeamEvalReport {
     pub must_apply: SuiteResult,
     pub observation: SuiteResult,
     pub jsonl: SuiteResult,
+    pub transcript: SuiteResult,
+    pub task_scoped: SuiteResult,
+    pub escalation_signal: SuiteResult,
+    pub task_scoped_verification: SuiteResult,
     pub overall_cases: usize,
     pub overall_passed: usize,
     pub overall_score: f64,
@@ -33,8 +37,24 @@ pub struct BeamEvalReport {
 struct JsonlCase {
     query: String,
     #[serde(default)]
-    cwd_hint: Option<String>,
+    _cwd_hint: Option<String>,
     expect_types: Vec<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct TaskScopedCase {
+    query: String,
+    #[serde(default)]
+    task_kind: Option<String>,
+    expect_task_kind: String,
+    #[serde(default)]
+    expect_escalate: Option<bool>,
+    #[serde(default = "default_true")]
+    expect_bundle: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 pub fn run_beam_eval_isolated() -> Result<BeamEvalReport> {
@@ -52,8 +72,21 @@ pub fn run_beam_eval(engine: &Engine) -> Result<BeamEvalReport> {
     let must_apply = run_must_apply_suite(engine)?;
     let observation = run_observation_suite(engine)?;
     let jsonl = run_jsonl_suite(engine)?;
+    let transcript = run_transcript_suite(engine)?;
+    let task_scoped = run_task_scoped_suite(engine)?;
+    let escalation_signal = run_escalation_signal_suite(engine)?;
+    let task_scoped_verification = run_task_scoped_verification_suite(engine)?;
 
-    let suites = [&temporal, &must_apply, &observation, &jsonl];
+    let suites = [
+        &temporal,
+        &must_apply,
+        &observation,
+        &jsonl,
+        &transcript,
+        &task_scoped,
+        &escalation_signal,
+        &task_scoped_verification,
+    ];
     let extension_cases: usize = suites.iter().map(|s| s.cases).sum();
     let extension_passed: usize = suites.iter().map(|s| s.passed).sum();
     let overall_cases = recall.cases + extension_cases;
@@ -70,6 +103,10 @@ pub fn run_beam_eval(engine: &Engine) -> Result<BeamEvalReport> {
         must_apply,
         observation,
         jsonl,
+        transcript,
+        task_scoped,
+        escalation_signal,
+        task_scoped_verification,
         overall_cases,
         overall_passed,
         overall_score,
@@ -84,6 +121,10 @@ pub fn assert_beam_gate(report: &BeamEvalReport) -> Result<()> {
         &report.must_apply,
         &report.observation,
         &report.jsonl,
+        &report.transcript,
+        &report.task_scoped,
+        &report.escalation_signal,
+        &report.task_scoped_verification,
     ] {
         if suite.cases > 0 && suite.recall_at_3 < BEAM_THRESHOLD {
             bail!(
@@ -123,6 +164,7 @@ fn run_temporal_suite(engine: &Engine) -> Result<SuiteResult> {
         500,
         limits,
         Some("implementing"),
+        None,
     )?;
     let topics: Vec<String> = resp
         .relevant_memory
@@ -148,6 +190,7 @@ fn run_temporal_suite(engine: &Engine) -> Result<SuiteResult> {
         500,
         limits,
         Some("implementing"),
+        None,
     )?;
     let topics: Vec<String> = resp
         .relevant_memory
@@ -183,7 +226,7 @@ fn run_must_apply_suite(engine: &Engine) -> Result<SuiteResult> {
     let mut passed = 0usize;
     let mut failures = Vec::new();
     for (query, expected_topic) in cases {
-        let resp = engine.route_task(query, None, &[], 500, limits, Some("debugging"))?;
+        let resp = engine.route_task(query, None, &[], 500, limits, Some("debugging"), None)?;
         let hit = resp
             .must_apply
             .iter()
@@ -229,6 +272,7 @@ fn run_observation_suite(engine: &Engine) -> Result<SuiteResult> {
             500,
             limits,
             Some("implementing"),
+            None,
         )?;
         let hit = resp.must_apply.iter().any(|m| m.topic.starts_with("obs/"))
             || resp
@@ -253,9 +297,201 @@ fn run_observation_suite(engine: &Engine) -> Result<SuiteResult> {
 }
 
 fn run_jsonl_suite(engine: &Engine) -> Result<SuiteResult> {
-    let path = jsonl_fixture_path();
-    let raw = fs::read_to_string(&path)
-        .with_context(|| format!("read {}", path.display()))?;
+    run_jsonl_file_suite(engine, jsonl_fixture_path(), "jsonl")
+}
+
+fn run_transcript_suite(engine: &Engine) -> Result<SuiteResult> {
+    run_jsonl_file_suite(engine, transcript_fixture_path(), "transcript")
+}
+
+fn run_task_scoped_suite(engine: &Engine) -> Result<SuiteResult> {
+    let path = task_scoped_fixture_path();
+    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let cases: Vec<TaskScopedCase> = raw
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let limits = RouteLimits::default();
+    let mut passed = 0usize;
+    let mut failures = Vec::new();
+    for case in &cases {
+        let resp = engine.route_task(
+            &case.query,
+            None,
+            &[],
+            500,
+            limits,
+            None,
+            case.task_kind.as_deref(),
+        )?;
+        let kind_ok = resp.task_kind.as_deref() == Some(case.expect_task_kind.as_str());
+        let bundle_ok = !case.expect_bundle || resp.context_bundle.is_some();
+        let escalate_ok = case
+            .expect_escalate
+            .map(|want| resp.escalate_recommended == want)
+            .unwrap_or(true);
+        let confidence_ok = resp.route_confidence > 0.0
+            || case.expect_escalate == Some(true)
+            || resp.escalate_recommended;
+        if kind_ok && bundle_ok && escalate_ok && confidence_ok {
+            passed += 1;
+        } else {
+            failures.push(crate::eval::EvalFailure {
+                suite: "task_scoped",
+                query: case.query.clone(),
+                expected_topics: vec![
+                    format!("task_kind={}", case.expect_task_kind),
+                    format!("escalate={:?}", case.expect_escalate),
+                ],
+                got_topics: vec![
+                    format!("task_kind={:?}", resp.task_kind),
+                    format!("escalate={}", resp.escalate_recommended),
+                    format!("confidence={:.2}", resp.route_confidence),
+                ],
+            });
+        }
+    }
+    Ok(suite_result("task_scoped", cases.len(), passed, failures))
+}
+
+fn run_escalation_signal_suite(engine: &Engine) -> Result<SuiteResult> {
+    seed_escalation_fixture(&engine.store)?;
+    engine.store.bump_index_version()?;
+    let mut passed = 0usize;
+    let mut failures = Vec::new();
+
+    let (empty_engine, _dir) = crate::fixture::new_isolated_engine()?;
+    let empty_resp = empty_engine.route_task(
+        "zzzz verification noop without indexed context",
+        None,
+        &[],
+        500,
+        RouteLimits::default(),
+        None,
+        Some("verification"),
+    )?;
+    if empty_resp.escalate_recommended {
+        passed += 1;
+    } else {
+        failures.push(crate::eval::EvalFailure {
+            suite: "escalation_signal",
+            query: "empty index verification".into(),
+            expected_topics: vec!["escalate=true".into()],
+            got_topics: vec![format!(
+                "escalate={} confidence={:.2}",
+                empty_resp.escalate_recommended, empty_resp.route_confidence
+            )],
+        });
+    }
+
+    let resp = engine.route_task(
+        "verify BEAM proofs and eval --beam in CI before merge",
+        None,
+        &[],
+        500,
+        RouteLimits::default(),
+        None,
+        Some("verification"),
+    )?;
+    if !resp.escalate_recommended {
+        passed += 1;
+    } else {
+        failures.push(crate::eval::EvalFailure {
+            suite: "escalation_signal",
+            query: "verify BEAM proofs and eval --beam in CI before merge".into(),
+            expected_topics: vec!["escalate=false".into()],
+            got_topics: vec![format!(
+                "escalate={} confidence={:.2} rules={} memory={}",
+                resp.escalate_recommended,
+                resp.route_confidence,
+                resp.applicable_rules.len(),
+                resp.relevant_memory.len()
+            )],
+        });
+    }
+
+    Ok(suite_result("escalation_signal", 2, passed, failures))
+}
+
+fn run_task_scoped_verification_suite(engine: &Engine) -> Result<SuiteResult> {
+    seed_escalation_fixture(&engine.store)?;
+    engine.store.bump_index_version()?;
+    let limits = RouteLimits {
+        agents: 2,
+        skills: 3,
+        rules: 2,
+        memory: 5,
+    };
+    let mut passed = 0usize;
+    let mut failures = Vec::new();
+    let resp = engine.route_task(
+        "verify BEAM proofs and eval --beam in CI before merge",
+        None,
+        &[],
+        500,
+        limits,
+        None,
+        Some("verification"),
+    )?;
+    let mut ok = resp.task_kind.as_deref() == Some("verification")
+        && resp.recommended_agents.len() <= 1
+        && resp.recommended_skills.len() <= 2
+        && resp.relevant_memory.len() <= 3;
+    if ok {
+        passed += 1;
+    } else {
+        failures.push(crate::eval::EvalFailure {
+            suite: "task_scoped_verification",
+            query: "verify BEAM proofs pass in CI".into(),
+            expected_topics: vec![
+                "agents<=1".into(),
+                "skills<=2".into(),
+                "memory<=3".into(),
+            ],
+            got_topics: vec![
+                format!("agents={}", resp.recommended_agents.len()),
+                format!("skills={}", resp.recommended_skills.len()),
+                format!("memory={}", resp.relevant_memory.len()),
+            ],
+        });
+    }
+
+    let (empty_engine, _dir) = crate::fixture::new_isolated_engine()?;
+    let empty = empty_engine.route_task(
+        "zzzz verification noop without indexed context",
+        None,
+        &[],
+        500,
+        RouteLimits::default(),
+        None,
+        Some("verification"),
+    )?;
+    if empty.escalate_recommended && empty.context_bundle.is_some() {
+        passed += 1;
+    } else {
+        failures.push(crate::eval::EvalFailure {
+            suite: "task_scoped_verification",
+            query: "empty verification context".into(),
+            expected_topics: vec!["escalate=true".into(), "bundle=some".into()],
+            got_topics: vec![
+                format!("escalate={}", empty.escalate_recommended),
+                format!("bundle={}", empty.context_bundle.is_some()),
+            ],
+        });
+    }
+
+    Ok(suite_result(
+        "task_scoped_verification",
+        2,
+        passed,
+        failures,
+    ))
+}
+
+fn run_jsonl_file_suite(engine: &Engine, path: std::path::PathBuf, suite: &'static str) -> Result<SuiteResult> {
+    let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
     let cases: Vec<JsonlCase> = raw
         .lines()
         .filter(|l| !l.trim().is_empty())
@@ -278,6 +514,7 @@ fn run_jsonl_suite(engine: &Engine) -> Result<SuiteResult> {
             500,
             limits,
             Some("implementing"),
+            None,
         )?;
         let present = response_types(&resp);
         let ok = case
@@ -288,14 +525,14 @@ fn run_jsonl_suite(engine: &Engine) -> Result<SuiteResult> {
             passed += 1;
         } else {
             failures.push(crate::eval::EvalFailure {
-                suite: "jsonl",
+                suite,
                 query: case.query.clone(),
                 expected_topics: case.expect_types.clone(),
                 got_topics: present.into_iter().collect(),
             });
         }
     }
-    Ok(suite_result("jsonl", cases.len(), passed, failures))
+    Ok(suite_result(suite, cases.len(), passed, failures))
 }
 
 fn suite_result(
@@ -336,6 +573,14 @@ fn response_types(resp: &RouteTaskResponse) -> HashSet<String> {
 
 fn jsonl_fixture_path() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("eval/queries.jsonl")
+}
+
+fn transcript_fixture_path() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("eval/transcript-queries.jsonl")
+}
+
+fn task_scoped_fixture_path() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("eval/task-scoped.jsonl")
 }
 
 fn seed_beam_extensions(store: &Arc<BrainStore>) -> Result<()> {
@@ -429,6 +674,11 @@ fn seed_observation_inputs(store: &Arc<BrainStore>) -> Result<()> {
 }
 
 fn seed_jsonl_fixture(store: &Arc<BrainStore>) -> Result<()> {
+    upsert_rule(
+        store,
+        "verify-ci-beam",
+        "Run BEAM proofs and eval --beam in CI before merge for routing changes",
+    )?;
     upsert_skill(
         store,
         "rust-testing",
@@ -503,6 +753,38 @@ fn seed_jsonl_fixture(store: &Arc<BrainStore>) -> Result<()> {
         0.92,
         "eval",
         &content_hash(store_mem),
+        &emb,
+        "positive",
+    )?;
+    Ok(())
+}
+
+fn seed_escalation_fixture(store: &Arc<BrainStore>) -> Result<()> {
+    upsert_rule(
+        store,
+        "verify-ci-beam",
+        "Run BEAM proofs and eval --beam in CI before merge for routing changes",
+    )?;
+    upsert_skill(
+        store,
+        "beam-ci",
+        "BEAM eval harness runs proofs CI regression gates for agent-brain routing",
+    )?;
+    upsert_agent(
+        store,
+        "ci-verifier",
+        "Verifies BEAM proofs and eval --beam pass before merge",
+    )?;
+    let mem = "Always run agent-brain eval --beam in CI before merging routing changes";
+    let emb = deterministic_embedding(mem);
+    store.store_fact(
+        "ci-beam",
+        mem,
+        "global",
+        None,
+        0.95,
+        "eval",
+        &content_hash(mem),
         &emb,
         "positive",
     )?;

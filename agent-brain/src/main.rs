@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use agent_brain::{
-    auto_update, config::Config, doctor, engine::Engine, host_install, install, mcp, packages,
+    auto_update, config::Config, doctor, engine::Engine, grpc, host_install, install, mcp, packages,
     serve_meta, settings,
 };
 use anyhow::{Context, Result};
@@ -42,6 +42,24 @@ async fn main() -> Result<()> {
                 tracing::warn!(error = %err, "write serve_meta.json failed");
             }
             mcp::run_stdio(engine).await?;
+        }
+        "grpc" => {
+            let sub = args.get(2).map(String::as_str).unwrap_or("serve");
+            if sub != "serve" {
+                anyhow::bail!("usage: agent-brain grpc serve [--addr HOST:PORT]");
+            }
+            let addr = flag_value(&args, "--addr")
+                .unwrap_or_else(|| "127.0.0.1:7842".to_string());
+            let addr: std::net::SocketAddr = addr.parse().context("invalid --addr")?;
+            let config = Config::load()?;
+            let engine = Arc::new(Engine::new(config)?);
+            if engine.config.bootstrap_background {
+                engine.spawn_bootstrap(None);
+            } else {
+                let n = engine.bootstrap(None)?;
+                tracing::info!("indexed {n} items");
+            }
+            grpc::serve(engine, addr).await?;
         }
         "index" => {
             let mut config = Config::load()?;
@@ -739,11 +757,19 @@ async fn main() -> Result<()> {
                 }
                 "extract" => {
                     let dry_run = args.iter().any(|a| a == "--dry-run");
+                    let explain = args.iter().any(|a| a == "--explain");
+                    if explain {
+                        let explanations =
+                            agent_brain::trace_extract::explain_pending_traces(&store, &config.home)?;
+                        println!("{}", serde_json::to_string_pretty(&explanations)?);
+                        return Ok(());
+                    }
                     let embedder = agent_brain::embed::Embedder::with_model(
                         agent_brain::embed::parse_embedding_model(&config.embedding_model),
                     )?;
                     let cfg = agent_brain::trace_extract::TraceExtractConfig {
                         confidence: brain_settings.trace_extract.confidence,
+                        explain: false,
                     };
                     let report = agent_brain::trace_extract::run_trace_extract(
                         &store,
@@ -759,7 +785,7 @@ async fn main() -> Result<()> {
                         "Usage: agent-brain memory gc [--apply] [--force] [--stale-days N] [--very-stale-days N]"
                     );
                     eprintln!("       agent-brain memory observe [--dry-run]");
-                    eprintln!("       agent-brain memory extract [--dry-run]");
+                    eprintln!("       agent-brain memory extract [--dry-run] [--explain]");
                     std::process::exit(1);
                 }
             }
@@ -1220,6 +1246,7 @@ fn print_usage() {
 
 Usage:
   agent-brain serve                         Start MCP server (stdio)
+  agent-brain grpc serve [--addr HOST:PORT] Orchestrator bridge API (gRPC, default 127.0.0.1:7842)
   agent-brain index                         Reindex local agents/skills/rules/memory
   agent-brain add <@alias|owner/repo|url>   Install package(s) and index
   agent-brain add @supervisor               Execution supervisor pack (token-efficient ops)

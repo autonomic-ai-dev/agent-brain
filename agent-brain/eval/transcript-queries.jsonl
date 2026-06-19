@@ -1,0 +1,8 @@
+{"query":"lets complete the next phase of the orchestrator bridge","expect_types":["skill","rule","agent"]}
+{"query":"route_task must run before other agent-brain MCP tools each turn","expect_types":["rule","memory"]}
+{"query":"implement gRPC RoutingService for agent-orchestrator integration","expect_types":["skill","agent"]}
+{"query":"run BEAM proofs and eval --beam after routing changes","expect_types":["skill","rule"]}
+{"query":"audit MCP hooks install paths and route gate on macOS","expect_types":["skill","rule"]}
+{"query":"review this PR for security issues in MCP server handlers","expect_types":["skill","agent"]}
+{"query":"what did we decide about ADD-only memory dedup by content_hash","expect_types":["memory"]}
+{"query":"fix failing cargo test in agent-brain bridge module","expect_types":["skill","rule"]}

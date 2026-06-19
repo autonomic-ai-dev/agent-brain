@@ -653,6 +653,50 @@ When the user says "continue" or references work elsewhere:
 Readable summary: `~/.agent_brain/logs/last-route.md` or `agent-brain briefing`.
 "#;
 
+const CLAUDE_CODE_AGENT_BRAIN_INSTRUCTIONS: &str = r#"# agent-brain MCP (required)
+instructions-version: 6
+
+## The connection contract
+
+**route_task is the only entry point** for agent-brain context on every host.
+
+- Session digests from Cursor, OpenCode, Codex, Gemini, and Antigravity are stored in brain.db but **only surface through route_task**.
+- Team memory, skills, rules, and must_apply constraints are **only injected through route_task**.
+- Other agent-brain MCP tools (`grep_search`, `store_memory`, `get_context`, …) **return errors** until route_task succeeds for this turn.
+- **Install and route_task refresh session ingests** — cross-agent threads are indexed into brain.db automatically.
+
+If the agent skips route_task, cross-agent ingest and shared memory provide **zero value**.
+
+## Every user turn
+
+1. Call **`route_task`** with `user_message`, `current_working_directory`, and `open_files`.
+2. Load skills/agents from returned paths; apply `applicable_rules` and `must_apply`.
+3. Use `relevant_memory` (includes session digests when relevant).
+4. At task end, call **`store_memory`** for durable outcomes (max 50 words, no secrets).
+
+## Claude Code enforcement (hooks)
+
+`agent-brain install --claude-code [--global]` installs route gate hooks in `.claude/settings.json`:
+
+- **UserPromptSubmit** — marks each new prompt as needing `route_task`.
+- **PreToolUse** (`mcp__agent-brain__.*`) — blocks other agent-brain MCP tools until `route_task` succeeds.
+- **PostToolUse** — clears the gate after a successful `mcp__agent-brain__route_task`.
+
+Native Claude tools (Read, Bash, Grep, …) are not blocked by the gate. Prefer agent-brain `grep_search`, `file_summary`, `read_file_head`, and `read_file_tail` for exploration.
+
+Run `/hooks` to verify hooks are trusted. Re-run `agent-brain install --claude-code --global` or `agent-brain doctor --fix` if enforcement stops working.
+
+## Continuing work from another IDE
+
+When the user says "continue" or references work elsewhere:
+
+1. Call **`route_task`** first — digests and memory may already describe the in-progress task.
+2. Read **`agent-brain briefing`** or `~/.agent_brain/logs/last-route.md`.
+3. Treat as in-progress work unless the user clearly changes direction.
+
+Readable summary: `~/.agent_brain/logs/last-route.md` or `agent-brain briefing`.
+"#;
+
 fn write_mcp_servers_file(path: &Path, server_entry: Value) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
@@ -734,7 +778,7 @@ fn install_claude_code_rule(user: bool, quiet: bool) -> Result<()> {
         fs::create_dir_all(&rules_dir)?;
         rules_dir.join("agent-brain.md")
     };
-    write_host_instructions(&path, HOST_AGENT_BRAIN_INSTRUCTIONS, quiet, "Claude Code")?;
+    write_host_instructions(&path, CLAUDE_CODE_AGENT_BRAIN_INSTRUCTIONS, quiet, "Claude Code")?;
     Ok(())
 }
 
@@ -786,7 +830,7 @@ fn install_claude_code(exe: &Path, user: bool, quiet: bool) -> Result<Vec<PathBu
         write_mcp_servers_file(&path, claude_code_server_entry(exe))?;
     }
     install_claude_code_rule(user, quiet)?;
-    let _ = crate::host_hooks::install_claude_code_hooks(user, quiet);
+    crate::host_hooks::install_claude_code_hooks(user, quiet)?;
     if !quiet {
         println!("Installed Claude Code MCP at {}", path.display());
         if user {
@@ -795,7 +839,8 @@ fn install_claude_code(exe: &Path, user: bool, quiet: bool) -> Result<Vec<PathBu
             println!("  Project scope: .mcp.json at repository root.");
         }
         println!("  Start a new Claude Code session; run /mcp to verify.");
-        println!("  Route gate hooks: UserPromptSubmit / PreToolUse in .claude/settings.json.");
+        println!("  Route gate hooks: UserPromptSubmit + PreToolUse/PostToolUse on mcp__agent-brain__.* in .claude/settings.json.");
+        println!("  Trust hooks with /hooks if Claude Code prompts you.");
     }
     Ok(vec![path])
 }

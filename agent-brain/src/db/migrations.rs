@@ -200,6 +200,15 @@ pub fn run(conn: &Connection) -> rusqlite::Result<()> {
         conn.execute("UPDATE schema_version SET version = 12", [])?;
     }
 
+    let version: i64 = conn
+        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| r.get(0))
+        .unwrap_or(0);
+
+    if version < 13 {
+        migrate_v13(conn)?;
+        conn.execute("UPDATE schema_version SET version = 13", [])?;
+    }
+
     Ok(())
 }
 
@@ -455,6 +464,37 @@ fn migrate_v12(conn: &Connection) -> rusqlite::Result<()> {
             extracted_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_trace_extract_at ON trace_extract_log(extracted_at);
+        "#,
+    )?;
+    Ok(())
+}
+
+fn migrate_v13(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS workflow_trajectory (
+            id TEXT PRIMARY KEY,
+            workflow_id TEXT NOT NULL,
+            node_id TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            route_log_id TEXT,
+            task_kind TEXT,
+            notes TEXT,
+            recorded_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_trajectory_workflow ON workflow_trajectory(workflow_id, recorded_at);
+        CREATE INDEX IF NOT EXISTS idx_trajectory_route_log ON workflow_trajectory(route_log_id);
+
+        CREATE TABLE IF NOT EXISTS fact_lineage (
+            id TEXT PRIMARY KEY,
+            fact_id TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            source_id TEXT NOT NULL,
+            relation TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_fact_lineage_fact ON fact_lineage(fact_id);
+        CREATE INDEX IF NOT EXISTS idx_fact_lineage_source ON fact_lineage(source_type, source_id);
         "#,
     )?;
     Ok(())

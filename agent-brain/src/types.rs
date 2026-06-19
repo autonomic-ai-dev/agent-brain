@@ -128,6 +128,49 @@ pub struct RuleRec {
     pub score: f64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum TaskKind {
+    #[default]
+    Implementing,
+    Verification,
+    Debugging,
+    Review,
+    Architecture,
+}
+
+impl TaskKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TaskKind::Implementing => "implementing",
+            TaskKind::Verification => "verification",
+            TaskKind::Debugging => "debugging",
+            TaskKind::Review => "review",
+            TaskKind::Architecture => "architecture",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_lowercase().as_str() {
+            "implementing" | "implementation" => Some(TaskKind::Implementing),
+            "verification" | "verify" | "testing" => Some(TaskKind::Verification),
+            "debugging" | "debug" => Some(TaskKind::Debugging),
+            "review" | "reviewing" => Some(TaskKind::Review),
+            "architecture" | "architect" | "planning" => Some(TaskKind::Architecture),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ContextBundle {
+    pub team_rules: Vec<RuleRec>,
+    pub negative_memory: Vec<MemoryRec>,
+    pub skill_docs: Vec<SkillRec>,
+    pub agents: Vec<AgentRec>,
+    pub observations: Vec<MemoryRec>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryRec {
     pub topic: String,
@@ -188,6 +231,14 @@ pub struct RouteTaskResponse {
     pub index_total: usize,
     /// One-line human summary (full markdown: `agent-brain briefing` or logs/last-route.md)
     pub briefing: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_kind: Option<String>,
+    #[serde(default)]
+    pub route_confidence: f64,
+    #[serde(default)]
+    pub escalate_recommended: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_bundle: Option<ContextBundle>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_context: Option<crate::graphify::CodeContext>,
 }

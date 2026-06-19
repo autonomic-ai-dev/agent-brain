@@ -115,6 +115,67 @@ pub fn infer_phase(message: &str) -> String {
     "unknown".into()
 }
 
+pub fn infer_task_kind(message: &str) -> crate::types::TaskKind {
+    let lower = message.to_lowercase();
+    if [
+        "verify",
+        "verification",
+        "test suite",
+        "run tests",
+        "ci ",
+        "proofs",
+        "beam",
+        "regression",
+    ]
+    .iter()
+    .any(|k| lower.contains(k))
+    {
+        return crate::types::TaskKind::Verification;
+    }
+    if [
+        "review",
+        "audit",
+        "pr ",
+        "pull request",
+        "lint",
+        "checklist",
+    ]
+    .iter()
+    .any(|k| lower.contains(k))
+    {
+        return crate::types::TaskKind::Review;
+    }
+    if [
+        "architect",
+        "architecture",
+        "roadmap",
+        "design doc",
+        "system design",
+        "blueprint",
+    ]
+    .iter()
+    .any(|k| lower.contains(k))
+    {
+        return crate::types::TaskKind::Architecture;
+    }
+    if [
+        "fix",
+        "debug",
+        "error",
+        "bug",
+        "fail",
+        "broken",
+        "crash",
+        "issue",
+    ]
+    .iter()
+    .any(|k| lower.contains(k))
+    {
+        return crate::types::TaskKind::Debugging;
+    }
+    crate::types::TaskKind::Implementing
+}
+
 pub fn is_low_signal_memory(topic: &str, source: Option<&str>) -> bool {
     let topic_lower = topic.to_lowercase();
     topic_lower.starts_with("legacy-")
@@ -144,6 +205,13 @@ mod tests {
         assert_eq!(infer_phase("fix the route gate hook"), "debugging");
         assert_eq!(infer_phase("update the roadmap and VERSIONING"), "planning");
         assert_eq!(infer_phase("implement sync git push"), "implementing");
+    }
+
+    #[test]
+    fn infer_task_kind_maps_verification() {
+        use crate::types::TaskKind;
+        assert_eq!(infer_task_kind("run BEAM proofs in CI"), TaskKind::Verification);
+        assert_eq!(infer_task_kind("implement grpc server"), TaskKind::Implementing);
     }
 
     #[test]

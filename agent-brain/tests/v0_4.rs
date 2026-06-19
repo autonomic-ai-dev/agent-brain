@@ -83,6 +83,7 @@ fn negative_memory_surfaces_in_must_apply() {
                 memory: 5,
             },
             Some("implementing"),
+            None,
         )
         .unwrap();
 
@@ -163,6 +164,7 @@ fn retrieval_log_persisted_on_route() {
             &[],
             500,
             RouteLimits::default(),
+            None,
             None,
         )
         .unwrap();

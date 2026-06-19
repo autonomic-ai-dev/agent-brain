@@ -176,8 +176,17 @@ class RouteGateTests(unittest.TestCase):
             json.dumps({"needs_route": True, "needs_route_since": time.time()}),
             encoding="utf-8",
         )
-        out = handle_pre_tool_use({"tool_name": "mcp_agent-brain_store_memory"})
-        self.assertEqual(out.get("permission"), "deny")
+        for tool_name in (
+            "mcp_agent-brain_store_memory",
+            "mcp__agent-brain__store_memory",
+        ):
+            out = handle_pre_tool_use({"tool_name": tool_name})
+            self.assertEqual(out.get("permission"), "deny", tool_name)
+
+    def test_claude_route_task_name(self) -> None:
+        self.assertTrue(
+            is_route_task({"tool_name": "mcp__agent-brain__route_task"}),
+        )
 
     def test_offline_skips_new_prompt_gate(self) -> None:
         from route_gate import STATE_PATH
@@ -300,11 +309,19 @@ class MultiHostHookOutputTests(unittest.TestCase):
         out = route_gate.adapt_hook_output(
             "PreToolUse",
             {"permission": "deny", "agent_message": "call route_task first"},
+            {"tool_name": "mcp__agent-brain__store_memory"},
         )
         self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
         self.assertEqual(
             out["hookSpecificOutput"]["permissionDecisionReason"], "call route_task first"
         )
+
+    def test_claude_user_prompt_submit_allow(self) -> None:
+        out = route_gate.adapt_hook_output(
+            "UserPromptSubmit",
+            {"continue": True},
+        )
+        self.assertEqual(out, {})
 
     def test_codex_pre_tool_use_allow_empty(self) -> None:
         out = route_gate.adapt_hook_output(

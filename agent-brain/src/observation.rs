@@ -78,7 +78,7 @@ pub fn run_observations(
             "positive"
         };
         let embedding = embedder.embed_one(&format!("{obs_topic} {fact}"))?;
-        store.store_fact_full(
+        let res = store.store_fact_full(
             &obs_topic,
             &fact,
             &group.scope,
@@ -91,6 +91,7 @@ pub fn run_observations(
             apply_when.as_deref(),
             None,
         )?;
+        link_observation_sources(store, &res.id, &group)?;
         synthesized += 1;
     }
 
@@ -109,6 +110,26 @@ fn synthesize_fact(group: &RecurringMemoryTopic) -> String {
         "Recurring pattern ({} facts on '{}'): {}",
         group.fact_count, group.topic, snippet
     )
+}
+
+fn link_observation_sources(store: &BrainStore, obs_fact_id: &str, group: &RecurringMemoryTopic) -> Result<()> {
+    let source_ids = store.list_active_fact_ids_for_topic(
+        &group.topic,
+        &group.scope,
+        group.scope_key.as_deref(),
+    )?;
+    for source_id in source_ids {
+        if source_id == obs_fact_id {
+            continue;
+        }
+        store.insert_fact_lineage(
+            obs_fact_id,
+            "fact",
+            &source_id,
+            "synthesized_from",
+        )?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

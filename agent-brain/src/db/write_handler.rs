@@ -117,6 +117,7 @@ impl WriteHandlerCtx {
             if settings.trace_extract.enabled {
                 let cfg = crate::trace_extract::TraceExtractConfig {
                     confidence: settings.trace_extract.confidence,
+                    explain: false,
                 };
                 if let Err(err) = crate::trace_extract::run_trace_extract(
                     &self.store,

@@ -724,6 +724,7 @@ fn run_skills_sh_eval_on_engine(
             500,
             limits,
             Some("implementing"),
+            None,
         )?;
         let got: Vec<String> = resp
             .recommended_skills
@@ -878,6 +879,7 @@ pub fn probe_golden_cases(
                 500,
                 limits,
                 Some("implementing"),
+                None,
             )?;
             let hit = resp
                 .recommended_skills

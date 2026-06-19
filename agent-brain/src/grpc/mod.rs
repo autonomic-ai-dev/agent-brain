@@ -1,0 +1,8 @@
+pub mod convert;
+pub mod server;
+
+pub mod pb {
+    tonic::include_proto!("agent_brain.v1");
+}
+
+pub use server::serve;

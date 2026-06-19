@@ -89,6 +89,7 @@ fn apply_when_surfaces_in_must_apply_when_phase_matches() {
                 memory: 5,
             },
             Some("debugging"),
+            None,
         )
         .unwrap();
 
@@ -146,6 +147,7 @@ fn global_vs_project_conflict_emits_warning() {
                 rules: 0,
                 memory: 5,
             },
+            None,
             None,
         )
         .unwrap();

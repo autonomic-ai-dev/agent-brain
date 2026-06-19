@@ -1,6 +1,6 @@
 [package]
 name = "agent-brain"
-version = "0.22.1"
+version = "0.24.0"
 edition = "2021"
 description = "Fast local MCP router for agents, skills, rules, and memory"
 license = "MIT"
@@ -8,6 +8,7 @@ repository = "https://github.com/aeswibon/agent-brain"
 readme = "README.md"
 keywords = ["mcp", "cursor", "agent", "router"]
 categories = ["command-line-utilities"]
+build = "build.rs"
 
 [[bin]]
 name = "agent-brain"
@@ -23,6 +24,7 @@ glob = "0.3"
 keyring = "3"
 opendal = { version = "0.52", features = ["services-s3", "services-fs", "layers-blocking"] }
 lru = "0.16.3"
+prost = "0.13"
 regex = "1"
 rmcp = { version = "1.5.1", features = ["server", "transport-io", "macros", "client", "transport-child-process"] }
 rusqlite = { version = "0.32", features = ["bundled", "functions"] }
@@ -35,6 +37,7 @@ sha2 = "0.10"
 tar = "0.4"
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }
+tonic = "0.12"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 ureq = { version = "3", features = ["json"] }
@@ -43,9 +46,14 @@ walkdir = "2"
 zstd = "0.13"
 tempfile = "3"
 
+[build-dependencies]
+tonic-build = "0.12"
+
 [dev-dependencies]
 tempfile = "3"
 criterion = { version = "0.5", features = ["html_reports"] }
+tonic = "0.12"
+prost = "0.13"
 
 [[bench]]
 name = "route_task"

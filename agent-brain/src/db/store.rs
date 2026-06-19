@@ -1586,6 +1586,111 @@ impl BrainStore {
         })
     }
 
+    pub fn list_active_fact_ids_for_topic(
+        &self,
+        topic: &str,
+        scope: &str,
+        scope_key: Option<&str>,
+    ) -> Result<Vec<String>> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            let sql = format!(
+                "SELECT id FROM facts
+                 WHERE topic = ?1 AND scope = ?2 AND IFNULL(scope_key,'') = IFNULL(?3,'')
+                   AND superseded_by IS NULL AND {}
+                 ORDER BY updated_at DESC",
+                crate::temporal::active_fact_sql("?4")
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let ids = stmt
+                .query_map(params![topic, scope, scope_key, now], |row| row.get(0))?
+                .filter_map(|r| r.ok())
+                .collect();
+            Ok(ids)
+        })
+    }
+
+    pub fn insert_fact_lineage(
+        &self,
+        fact_id: &str,
+        source_type: &str,
+        source_id: &str,
+        relation: &str,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            conn.execute(
+                r#"INSERT INTO fact_lineage (id, fact_id, source_type, source_id, relation, created_at)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6)"#,
+                params![
+                    Uuid::new_v4().to_string(),
+                    fact_id,
+                    source_type,
+                    source_id,
+                    relation,
+                    now
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn count_fact_lineage(&self, fact_id: &str) -> Result<usize> {
+        self.with_conn(|conn| {
+            let count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM fact_lineage WHERE fact_id = ?1",
+                params![fact_id],
+                |row| row.get(0),
+            )?;
+            Ok(count as usize)
+        })
+    }
+
+    pub fn insert_workflow_trajectory(
+        &self,
+        workflow_id: &str,
+        node_id: &str,
+        outcome: &str,
+        route_log_id: Option<&str>,
+        task_kind: Option<&str>,
+        notes: Option<&str>,
+    ) -> Result<TrajectoryRecord> {
+        if route_log_id.is_some_and(|id| !id.trim().is_empty()) {
+            let id = route_log_id.unwrap().trim();
+            if self.get_retrieval_log(id)?.is_none() {
+                anyhow::bail!("route_log_id not found: {id}");
+            }
+        }
+        let id = Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            conn.execute(
+                r#"INSERT INTO workflow_trajectory
+                   (id, workflow_id, node_id, outcome, route_log_id, task_kind, notes, recorded_at)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"#,
+                params![
+                    id,
+                    workflow_id,
+                    node_id,
+                    outcome,
+                    route_log_id,
+                    task_kind,
+                    notes,
+                    now
+                ],
+            )?;
+            Ok(())
+        })?;
+        Ok(TrajectoryRecord {
+            id,
+            workflow_id: workflow_id.to_string(),
+            node_id: node_id.to_string(),
+            outcome: outcome.to_string(),
+            route_log_id: route_log_id.map(str::to_string),
+            recorded_at: now,
+        })
+    }
+
     pub fn tool_log_stats_since(&self, since_ms: i64) -> Result<(usize, u64, f64, usize)> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
@@ -2266,6 +2371,16 @@ pub struct StoreFactResult {
     pub id: String,
     pub stored: bool,
     pub deduplicated: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TrajectoryRecord {
+    pub id: String,
+    pub workflow_id: String,
+    pub node_id: String,
+    pub outcome: String,
+    pub route_log_id: Option<String>,
+    pub recorded_at: i64,
 }
 
 #[derive(Debug, Clone)]
