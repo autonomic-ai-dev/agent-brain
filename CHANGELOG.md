@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-06-20
+
+### Added
+
+- **agent-body-core dependency** — shared types (ExecutionId, BrainProvenance) across ecosystem repos
+- **Workflow YAML indexer** — discovers and indexes `.yaml` workflow definitions from `~/.agent_brain/workflows/`
+- **`get_context_for_node` MCP tool** — fetches rules/skills/agents for workflow node prompt hydration
+- **Workflow auto-trigger** — indexed workflows returned as `must_apply` entries for spine to execute
+- **Dataset export CLI** — `agent-brain dataset export` and `dataset stats` for trajectory-based training data
+- **tree-sitter AST indexing** — parses Rust/TS/Python/Go source to index function/struct/class definitions
+- **Automated distillation** — `agent-brain distill` writes ARCHITECTURE.md from stored brain facts
+- **Auto-wire daemon** — patches MCP config files (Claude Desktop, Cursor, Codex) on `serve` startup
+
+### Changed
+
+- `ItemType::Workflow` variant added for workflow entries
+- `Config.workflow_dirs` field for workflow discovery paths
+- Engine handles `ItemType::Workflow` in route_task responses
+- Version bumped from `0.24.0` to `0.25.0`
+
 ## [0.24.0] - 2026-06-19
 
 ### Added

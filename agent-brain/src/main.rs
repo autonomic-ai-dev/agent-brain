@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -40,6 +41,12 @@ async fn main() -> Result<()> {
             }
             if let Err(err) = serve_meta::write_current(&engine.config.home) {
                 tracing::warn!(error = %err, "write serve_meta.json failed");
+            }
+            if let Err(e) = agent_brain::autowire::auto_wire(
+                &std::env::current_exe()?.display().to_string(),
+                env!("CARGO_PKG_VERSION"),
+            ) {
+                tracing::warn!("Auto-wire failed: {}", e);
             }
             mcp::run_stdio(engine).await?;
         }
@@ -804,6 +811,52 @@ async fn main() -> Result<()> {
                 }
             }
         }
+        "dataset" => {
+            let config = Config::load()?;
+            let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
+            let sub = args.get(2).map(String::as_str).unwrap_or("help");
+            match sub {
+                "export" => {
+                    let min_confidence = flag_value(&args, "--min-confidence")
+                        .and_then(|v| v.parse::<f64>().ok())
+                        .unwrap_or(0.8);
+                    let only_successful = !args.iter().any(|a| a == "--all-outcomes");
+                    let out = flag_value(&args, "--out")
+                        .map(std::path::PathBuf::from)
+                        .unwrap_or_else(|| std::path::PathBuf::from("dataset.jsonl"));
+                    let entries = agent_brain::dataset::export_dataset(
+                        &store,
+                        min_confidence,
+                        only_successful,
+                    )?;
+                    let file = std::fs::File::create(&out)?;
+                    let mut writer = std::io::BufWriter::new(file);
+                    for entry in &entries {
+                        let line = serde_json::to_string(entry)?;
+                        writeln!(writer, "{line}")?;
+                    }
+                    writer.flush()?;
+                    println!("Exported {} entries to {}", entries.len(), out.display());
+                }
+                "stats" => {
+                    let min_confidence = flag_value(&args, "--min-confidence")
+                        .and_then(|v| v.parse::<f64>().ok())
+                        .unwrap_or(0.8);
+                    let entries = agent_brain::dataset::export_dataset(
+                        &store,
+                        min_confidence,
+                        true,
+                    )?;
+                    let stats = agent_brain::dataset::compute_stats(&entries);
+                    println!("{}", serde_json::to_string_pretty(&stats)?);
+                }
+                _ => {
+                    eprintln!("Usage: agent-brain dataset export [--out PATH] [--min-confidence N] [--all-outcomes]");
+                    eprintln!("       agent-brain dataset stats [--min-confidence N]");
+                    std::process::exit(1);
+                }
+            }
+        }
         "digest" => {
             if !args.iter().any(|a| a == "--weekly") {
                 eprintln!("Usage: agent-brain digest --weekly");
@@ -1204,6 +1257,17 @@ async fn main() -> Result<()> {
                 std::process::exit(1);
             }
         }
+        "distill" => {
+            let config = Config::load()?;
+            config.ensure_dirs()?;
+            let out = flag_value(&args, "--out")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| std::path::PathBuf::from("ARCHITECTURE.md"));
+            let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
+            let distilled = agent_brain::distill::distill(&store)?;
+            agent_brain::distill::write_architecture_md(&distilled, &out)?;
+            println!("Architecture written to {}", out.display());
+        }
         "help" | "--help" | "-h" => {
             print_usage();
         }
@@ -1294,6 +1358,8 @@ Usage:
   agent-brain graphify enable|disable|status|ingest|run|query  Graphify orchestration (codebase graph)
   agent-brain stats [--days N] [--json]       Index, routing, token savings, adoption milestones
   agent-brain dashboard [--days N] [--open]   Local HTML value dashboard (token ROI, memories)
+  agent-brain dataset export [--out PATH]     Export trajectories as JSONL training dataset
+  agent-brain dataset stats                   Compute stats on exported trajectories
   agent-brain digest --weekly                 Operator digest from retrieval_log
   agent-brain onboarding                      USP + 5-minute getting started checklist
   agent-brain export [dir]                    Export sync bundle (manifest + facts.jsonl)

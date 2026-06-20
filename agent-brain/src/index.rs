@@ -46,6 +46,36 @@ pub fn sync_index(
                     count += 1;
                 }
             }
+            if let Ok(ast_symbols) = crate::ast_indexer::index_file(path) {
+                for symbol in &ast_symbols {
+                    let text = format!(
+                        "{} {} {} {}",
+                        symbol.symbol_name, symbol.symbol_kind, symbol.language, symbol.content
+                    );
+                    let hash = content_hash(&text);
+                    let source_path = symbol.file_path.clone();
+                    if store
+                        .indexed_item_current_hash(&source_path)?
+                        .as_deref()
+                        == Some(hash.as_str())
+                    {
+                        continue;
+                    }
+                    let ast_text = format!("{} {}", symbol.symbol_name, symbol.symbol_kind);
+                    let embedding = embedder.embed_one(&ast_text)?;
+                    store.upsert_indexed_item(
+                        crate::types::ItemType::Skill,
+                        &format!("{}/{}", symbol.language, symbol.symbol_name),
+                        &text.chars().take(800).collect::<String>(),
+                        &source_path,
+                        "project",
+                        path.to_str(),
+                        &hash,
+                        Some(&embedding),
+                    )?;
+                    count += 1;
+                }
+            }
         }
     }
 

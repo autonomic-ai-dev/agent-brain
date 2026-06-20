@@ -46,6 +46,11 @@ uuid = { version = "1", features = ["v4"] }
 walkdir = "2"
 zstd = "0.13"
 tempfile = "3"
+tree-sitter = "0.24"
+tree-sitter-rust = { git = "https://github.com/tree-sitter/tree-sitter-rust" }
+tree-sitter-typescript = { git = "https://github.com/tree-sitter/tree-sitter-typescript" }
+tree-sitter-python = { git = "https://github.com/tree-sitter/tree-sitter-python" }
+tree-sitter-go = { git = "https://github.com/tree-sitter/tree-sitter-go" }
 
 [build-dependencies]
 tonic-build = "0.12"

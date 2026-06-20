@@ -1,13 +1,17 @@
 pub mod adoption;
 pub mod ann;
+pub mod ast_indexer;
 pub mod auto_update;
+pub mod autowire;
 pub mod beam_eval;
 pub mod bench;
 pub mod bridge;
 pub mod cache;
 pub mod config;
 pub mod dashboard;
+pub mod dataset;
 pub mod db;
+pub mod distill;
 pub mod docs;
 pub mod doctor;
 pub mod embed;

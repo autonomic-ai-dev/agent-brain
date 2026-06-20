@@ -1686,7 +1686,33 @@ impl BrainStore {
             node_id: node_id.to_string(),
             outcome: outcome.to_string(),
             route_log_id: route_log_id.map(str::to_string),
+            task_kind: task_kind.map(str::to_string),
+            notes: notes.map(str::to_string),
             recorded_at: now,
+        })
+    }
+
+    pub fn query_trajectories(&self) -> Result<Vec<TrajectoryRecord>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, workflow_id, node_id, outcome, route_log_id, task_kind, notes, recorded_at
+                 FROM workflow_trajectory ORDER BY recorded_at ASC",
+            )?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok(TrajectoryRecord {
+                        id: row.get(0)?,
+                        workflow_id: row.get(1)?,
+                        node_id: row.get(2)?,
+                        outcome: row.get(3)?,
+                        route_log_id: row.get(4)?,
+                        task_kind: row.get(5)?,
+                        notes: row.get(6)?,
+                        recorded_at: row.get(7)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
         })
     }
 
@@ -2381,6 +2407,8 @@ pub struct TrajectoryRecord {
     pub node_id: String,
     pub outcome: String,
     pub route_log_id: Option<String>,
+    pub task_kind: Option<String>,
+    pub notes: Option<String>,
     pub recorded_at: i64,
 }
 
