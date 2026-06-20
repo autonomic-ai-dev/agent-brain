@@ -15,7 +15,7 @@ on:
 
 concurrency:
   group: ${{ github.repository }}-pipeline
-  cancel-in-progress: ${{ github.workflow != 'Release' && github.workflow != 'Stage release publish' }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always

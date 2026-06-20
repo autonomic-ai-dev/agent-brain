@@ -13,10 +13,6 @@ on:
       - "docs/benchmarks/fixture-2k.db"
       - ".github/workflows/stage-skills-sh-eval.yml"
 
-concurrency:
-  group: ${{ github.repository }}-pipeline
-  cancel-in-progress: ${{ github.workflow != 'Release' && github.workflow != 'Stage release publish' }}
-
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
