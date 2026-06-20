@@ -14,6 +14,20 @@ use crate::embed::{batch_dot_products, normalize_embedding};
 use crate::intelligence::{matches_apply_when, parse_apply_when, MatchContext};
 use crate::types::{ItemType, ScoredItem};
 
+/// A single item queued for batch index insertion.
+/// Pre-computed fields avoid re-hashing and re-embedding during the transaction.
+pub(crate) struct IndexBatchItem {
+    pub id: String,
+    pub item_type: ItemType,
+    pub topic: String,
+    pub text: String,
+    pub source_path: String,
+    pub scope: String,
+    pub scope_key: Option<String>,
+    pub content_hash: String,
+    pub embedding: Vec<f32>,
+}
+
 const BM25_ITEMS_TOP: usize = 150;
 const BM25_FACTS_TOP: usize = 40;
 const MIN_CANDIDATES: usize = 15;
@@ -340,6 +354,48 @@ impl BrainStore {
             Ok(())
         })?;
         Ok(())
+    }
+
+    /// Batch upsert in a single SQLite transaction — ~100x faster than individual upserts.
+    pub(crate) fn upsert_indexed_items_batch(&self, items: &[IndexBatchItem]) -> Result<()> {
+        if items.is_empty() {
+            return Ok(());
+        }
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            conn.execute_batch("BEGIN")?;
+            for item in items {
+                let blob: Vec<u8> = item
+                    .embedding
+                    .iter()
+                    .flat_map(|f| f.to_le_bytes())
+                    .collect();
+                conn.execute(
+                    "DELETE FROM indexed_items WHERE source_path = ?1 AND content_hash != ?2",
+                    params![item.source_path, item.content_hash],
+                )?;
+                conn.execute(
+                    r#"INSERT INTO indexed_items (id, item_type, topic, text, source_path, scope, scope_key, content_hash, embedding, updated_at)
+                       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
+                       ON CONFLICT(source_path, content_hash) DO UPDATE SET
+                         topic=excluded.topic, text=excluded.text, embedding=excluded.embedding, updated_at=excluded.updated_at"#,
+                    params![
+                        item.id,
+                        item.item_type.as_str(),
+                        item.topic,
+                        item.text,
+                        item.source_path,
+                        item.scope,
+                        item.scope_key,
+                        item.content_hash,
+                        blob,
+                        now
+                    ],
+                )?;
+            }
+            conn.execute_batch("COMMIT")?;
+            Ok(())
+        })
     }
 
     pub fn delete_indexed_items_under_prefix(&self, path_prefix: &str) -> Result<u64> {

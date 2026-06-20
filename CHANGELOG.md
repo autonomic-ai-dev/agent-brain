@@ -5,7 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.28.3] - 2026-06-21
+
+### Fixed
+
+- Index rebuild performance — batch embeddings in chunks of 64 with single SQLite transaction instead of per-item upsert
+- `agent-brain install --all` now continues on individual host failures instead of aborting
+- `merge_claude_json_mcp` handles non-object and malformed JSON gracefully instead of bailing with error
 
 ## [0.28.2] - 2026-06-20
 

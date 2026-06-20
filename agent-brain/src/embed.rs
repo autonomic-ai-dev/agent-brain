@@ -112,6 +112,23 @@ impl Embedder {
         l2_normalize(&mut emb);
         Ok(emb)
     }
+
+    /// Embed multiple texts in a single ONNX forward pass.
+    /// Significantly faster than calling `embed_one` in a loop because
+    /// fastembed processes batched inputs more efficiently.
+    pub fn embed_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+        if texts.is_empty() {
+            return Ok(vec![]);
+        }
+        if self.deterministic {
+            return Ok(texts.iter().map(|t| deterministic_embedding(t)).collect());
+        }
+        let mut embeddings = self.embed(texts)?;
+        for emb in &mut embeddings {
+            l2_normalize(emb);
+        }
+        Ok(embeddings)
+    }
 }
 
 /// Stable unit vector from text — used by `Embedder::deterministic`.

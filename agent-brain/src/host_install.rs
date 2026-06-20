@@ -75,33 +75,42 @@ pub fn install_host(target: HostTarget, exe: &Path, quiet: bool) -> Result<Vec<P
     match target {
         HostTarget::All => {
             let mut paths = Vec::new();
-            paths.extend(install_host(
-                HostTarget::Cursor { global: true },
-                exe,
-                true,
-            )?);
-            paths.extend(install_host(HostTarget::ClaudeDesktop, exe, true)?);
-            paths.extend(install_host(HostTarget::VsCode { user: true }, exe, true)?);
-            paths.extend(install_host(
-                HostTarget::ClaudeCode { user: true },
-                exe,
-                true,
-            )?);
-            paths.extend(install_host(
-                HostTarget::OpenCode { user: true },
-                exe,
-                true,
-            )?);
-            paths.extend(install_host(HostTarget::Codex { user: true }, exe, true)?);
-            paths.extend(install_host(HostTarget::Gemini { user: true }, exe, true)?);
-            paths.extend(install_host(
-                HostTarget::Antigravity { user: true },
-                exe,
-                true,
-            )?);
-            if !quiet {
-                println!("Installed agent-brain MCP for: cursor, claude-desktop, vscode, claude-code, opencode, codex, gemini, antigravity");
+            let mut ok_hosts = Vec::new();
+            let mut errors = Vec::new();
+
+            let hosts: &[(HostTarget, &str)] = &[
+                (HostTarget::Cursor { global: true }, "cursor"),
+                (HostTarget::ClaudeDesktop, "claude-desktop"),
+                (HostTarget::VsCode { user: true }, "vscode"),
+                (HostTarget::ClaudeCode { user: true }, "claude-code"),
+                (HostTarget::OpenCode { user: true }, "opencode"),
+                (HostTarget::Codex { user: true }, "codex"),
+                (HostTarget::Gemini { user: true }, "gemini"),
+                (HostTarget::Antigravity { user: true }, "antigravity"),
+            ];
+
+            for (target, name) in hosts {
+                match install_host(target.clone(), exe, true) {
+                    Ok(p) => {
+                        paths.extend(p);
+                        ok_hosts.push(*name);
+                    }
+                    Err(e) => errors.push(format!("  ✗ {name}: {e}")),
+                }
             }
+
+            if !quiet {
+                if !ok_hosts.is_empty() {
+                    println!("Installed agent-brain MCP for: {}", ok_hosts.join(", "));
+                }
+                for err in &errors {
+                    eprintln!("{err}");
+                }
+                if !errors.is_empty() {
+                    eprintln!("Note: some hosts failed — typically because the integration is not installed. Use `agent-brain install <host>` for individual retries.");
+                }
+            }
+
             Ok(paths)
         }
         HostTarget::Cursor { global } => crate::install::configure_cursor(global, exe, quiet)
@@ -819,14 +828,26 @@ fn install_claude_code_rule(user: bool, quiet: bool) -> Result<()> {
 pub fn merge_claude_json_mcp(path: &Path, server_entry: Value) -> Result<Value> {
     let mut root = if path.exists() {
         let raw = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
-        serde_json::from_str(&raw).with_context(|| format!("parse {}", path.display()))?
+        match serde_json::from_str::<Value>(&raw) {
+            Ok(v) if v.is_object() => v,
+            Ok(_) => {
+                eprintln!(
+                    "warning: {} is not a JSON object — overwriting",
+                    path.display()
+                );
+                json!({})
+            }
+            Err(e) => {
+                eprintln!(
+                    "warning: {} parse error ({e}) — overwriting",
+                    path.display()
+                );
+                json!({})
+            }
+        }
     } else {
         json!({})
     };
-
-    if !root.is_object() {
-        bail!("{} must be a JSON object", path.display());
-    }
 
     let servers = root
         .as_object_mut()

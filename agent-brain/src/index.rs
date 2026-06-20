@@ -2,12 +2,18 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::Result;
+use uuid::Uuid;
 use walkdir::WalkDir;
 
 use crate::config::Config;
-use crate::db::store::{content_hash, BrainStore};
+use crate::db::store::{content_hash, BrainStore, IndexBatchItem};
 use crate::embed::Embedder;
 use crate::types::ItemType;
+
+/// Maximum batch size for ONNX embedding calls.
+/// fastembed's internal batching handles larger sizes efficiently;
+/// this prevents unbounded memory from an enormous single batch.
+const EMBED_BATCH_SIZE: usize = 64;
 
 pub fn sync_index(
     store: &BrainStore,
@@ -16,13 +22,19 @@ pub fn sync_index(
     cwd: Option<&Path>,
 ) -> Result<usize> {
     let roots = config.default_index_roots(cwd);
-    let mut count = 0;
+    let mut batch: Vec<UnembeddedItem> = Vec::new();
 
-    for root in roots {
+    // Phase 1: walk files, parse, hash-check, collect changed items
+    for root in &roots {
         if root.is_file() {
-            if let Some(item) = parse_file(&root, None, package_context(&root, &config.home)) {
-                if index_item(store, embedder, &item)? {
-                    count += 1;
+            if let Some(item) = parse_file(root, None, package_context(root, &config.home)) {
+                let hash = content_hash(&item.text);
+                if store
+                    .indexed_item_current_hash(&item.source_path)?
+                    .as_deref()
+                    != Some(hash.as_str())
+                {
+                    batch.push(UnembeddedItem { item, hash });
                 }
             }
             continue;
@@ -30,8 +42,8 @@ pub fn sync_index(
         if !root.exists() {
             continue;
         }
-        let pkg_ctx = package_context(&root, &config.home);
-        for entry in WalkDir::new(&root)
+        let pkg_ctx = package_context(root, &config.home);
+        for entry in WalkDir::new(root)
             .into_iter()
             .filter_map(|e| e.ok())
             .filter(|e| e.file_type().is_file())
@@ -42,8 +54,13 @@ pub fn sync_index(
             }
             let repo = cwd.and_then(crate::config::find_repo_root);
             if let Some(item) = parse_file(path, repo.as_deref(), pkg_ctx.clone()) {
-                if index_item(store, embedder, &item)? {
-                    count += 1;
+                let hash = content_hash(&item.text);
+                if store
+                    .indexed_item_current_hash(&item.source_path)?
+                    .as_deref()
+                    != Some(hash.as_str())
+                {
+                    batch.push(UnembeddedItem { item, hash });
                 }
             }
             if let Ok(ast_symbols) = crate::ast_indexer::index_file(path) {
@@ -54,24 +71,25 @@ pub fn sync_index(
                     );
                     let hash = content_hash(&text);
                     let source_path = symbol.file_path.clone();
-                    if store.indexed_item_current_hash(&source_path)?.as_deref()
+                    if store
+                        .indexed_item_current_hash(&source_path)?
+                        .as_deref()
                         == Some(hash.as_str())
                     {
                         continue;
                     }
-                    let ast_text = format!("{} {}", symbol.symbol_name, symbol.symbol_kind);
-                    let embedding = embedder.embed_one(&ast_text)?;
-                    store.upsert_indexed_item(
-                        crate::types::ItemType::Skill,
-                        &format!("{}/{}", symbol.language, symbol.symbol_name),
-                        &text.chars().take(800).collect::<String>(),
-                        &source_path,
-                        "project",
-                        path.to_str(),
-                        &hash,
-                        Some(&embedding),
-                    )?;
-                    count += 1;
+                    let item = ParsedItem {
+                        item_type: ItemType::Skill,
+                        topic: format!("{}/{}", symbol.language, symbol.symbol_name),
+                        text: text.chars().take(800).collect(),
+                        source_path,
+                        scope: "project".into(),
+                        scope_key: path.to_str().map(|s| s.to_string()),
+                    };
+                    batch.push(UnembeddedItem {
+                        item,
+                        hash,
+                    });
                 }
             }
         }
@@ -82,30 +100,65 @@ pub fn sync_index(
     let workflows = crate::workflow_indexer::discover_workflows(workflow_dirs);
     for (path, wf) in &workflows {
         let source_path = path.display().to_string();
-        let content_hash = content_hash(&serde_json::to_string(wf).unwrap_or_default());
-        if store.indexed_item_current_hash(&source_path)?.as_deref() == Some(content_hash.as_str())
+        let hash = content_hash(&serde_json::to_string(wf).unwrap_or_default());
+        if store
+            .indexed_item_current_hash(&source_path)?
+            .as_deref()
+            == Some(hash.as_str())
         {
             continue;
         }
         let text = serde_json::to_string_pretty(wf).unwrap_or_default();
-        let embedding = embedder.embed_one(&format!("workflow {} {}", wf.name, text))?;
-        store.upsert_indexed_item(
-            crate::types::ItemType::Workflow,
-            &wf.name,
-            &text,
-            &source_path,
-            "global",
-            None,
-            &content_hash,
-            Some(&embedding),
-        )?;
-        count += 1;
+        let item = ParsedItem {
+            item_type: ItemType::Workflow,
+            topic: wf.name.clone(),
+            text,
+            source_path,
+            scope: "global".into(),
+            scope_key: None,
+        };
+        batch.push(UnembeddedItem { item, hash });
     }
 
-    if count > 0 {
-        store.bump_index_version()?;
+    if batch.is_empty() {
+        return Ok(0);
     }
-    Ok(count)
+
+    // Phase 2: batch-embed all collected items
+    // Process in sub-batches of EMBED_BATCH_SIZE to keep memory bounded
+    let mut db_items: Vec<IndexBatchItem> = Vec::with_capacity(batch.len());
+    for chunk in batch.chunks(EMBED_BATCH_SIZE) {
+        let texts: Vec<String> = chunk
+            .iter()
+            .map(|ub| format!("{} {}", ub.item.topic, ub.item.text))
+            .collect();
+        let embeddings = embedder.embed_batch(&texts)?;
+        for (ub, embedding) in chunk.iter().zip(embeddings.into_iter()) {
+            db_items.push(IndexBatchItem {
+                id: Uuid::new_v4().to_string(),
+                item_type: ub.item.item_type,
+                topic: ub.item.topic.clone(),
+                text: ub.item.text.clone(),
+                source_path: ub.item.source_path.clone(),
+                scope: ub.item.scope.clone(),
+                scope_key: ub.item.scope_key.clone(),
+                content_hash: ub.hash.clone(),
+                embedding,
+            });
+        }
+    }
+
+    // Phase 3: batch-upsert in a single SQLite transaction
+    store.upsert_indexed_items_batch(&db_items)?;
+    store.bump_index_version()?;
+
+    Ok(db_items.len())
+}
+
+/// Internal helper pairing a parsed item with its content hash.
+struct UnembeddedItem {
+    item: ParsedItem,
+    hash: String,
 }
 
 fn should_skip(path: &Path) -> bool {
@@ -298,25 +351,4 @@ fn extract_agent_text(content: &str, name: &str) -> String {
     format!("{name} {summary}").chars().take(800).collect()
 }
 
-fn index_item(store: &BrainStore, embedder: &Embedder, item: &ParsedItem) -> Result<bool> {
-    let hash = content_hash(&item.text);
-    if store
-        .indexed_item_current_hash(&item.source_path)?
-        .as_deref()
-        == Some(hash.as_str())
-    {
-        return Ok(false);
-    }
-    let embedding = embedder.embed_one(&format!("{} {}", item.topic, item.text))?;
-    store.upsert_indexed_item(
-        item.item_type,
-        &item.topic,
-        &item.text,
-        &item.source_path,
-        &item.scope,
-        item.scope_key.as_deref(),
-        &hash,
-        Some(&embedding),
-    )?;
-    Ok(true)
-}
+
