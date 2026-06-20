@@ -14,6 +14,13 @@ Part of the **[Autonomic AI](https://github.com/autonomic-ai-dev/agent-body)** e
 
 ## Why agent-brain?
 
+```mermaid
+flowchart LR
+    MCP[MCP Client] --> Gate{route_task<br>Hook Gate}
+    Gate --> Engine[(Memory Engine<br>SQLite + filterable HNSW)]
+    Engine --> Context[Right Skills & Rules<br>~500 tokens]
+```
+
 Three problems every power-user hits with large skill libraries:
 
 1. **Context bloat** — hundreds of skills and rules cannot all fit in one turn. Stuffing them in degrades reasoning and burns tokens.
