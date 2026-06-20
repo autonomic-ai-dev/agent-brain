@@ -1,19 +1,14 @@
 # agent-brain
 
-**Local context & memory engine — route ~500 tokens of the right skills from thousands, with hooks that make it mandatory.**
+**Local context and memory engine for AI agents — routing, hooks, and durable memory.**
 
-agent-brain is a token-efficient context engine: skills/rules routing, temporal memory, multi-signal retrieval, and hook-enforced `route_task` — all in one binary, zero external vector DB.
+Part of the **[Autonomic AI](https://github.com/autonomic-ai-dev/agent-body)** ecosystem. Works standalone (MCP + CLI) or integrated via `autonomic brain …`, shared `~/.autonomic/config.toml`, and agent-spine workflows.
 
-Rust is the brain; agents are the hands.
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/autonomic-ai-dev/agent-brain/master/scripts/install.sh | bash -s -- --global --with-starter
-agent-brain onboarding
-```
-
-**MCP is live immediately** — `serve` starts stdio first; index sync, session ingest, and prewarm run in a background thread by default.
-
-**Proof narrative:** [before/after blog](docs/blog/before-and-after-agent-brain.md) · [benchmarks](docs/benchmarks/) · [team workflow](docs/TEAM-WORKFLOW.md)
+| Standalone | Integrated |
+|------------|------------|
+| `agent-brain serve` (MCP stdio) | `autonomic brain serve` |
+| `agent-brain doctor` | agent-spine BrainRouter |
+| Own config / hooks | `[brain]` in unified config |
 
 ---
 
