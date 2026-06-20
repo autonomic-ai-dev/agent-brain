@@ -18,6 +18,7 @@ pub mod embed;
 pub mod engine;
 pub mod eval;
 pub mod fixture;
+pub mod gc;
 pub mod graphify;
 pub mod graphify_bench;
 pub mod grpc;

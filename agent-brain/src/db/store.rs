@@ -781,6 +781,15 @@ impl BrainStore {
         })
     }
 
+    pub fn invalidate_fact(&self, fact_id: &str) -> Result<()> {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let sql = "UPDATE facts SET invalid_at = ?1 WHERE id = ?2 AND invalid_at IS NULL";
+        self.with_conn(|conn| {
+            conn.execute(sql, rusqlite::params![now_ms, fact_id])?;
+            Ok(())
+        })
+    }
+
     pub fn list_facts(&self, limit: usize) -> Result<Vec<serde_json::Value>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
@@ -2578,7 +2587,7 @@ fn phase_match_boost(phase: &str, topic: &str, text: &str) -> f64 {
     }
 }
 
-fn bytes_to_f32(blob: &[u8]) -> Vec<f32> {
+pub(crate) fn bytes_to_f32(blob: &[u8]) -> Vec<f32> {
     blob.chunks_exact(4)
         .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
         .collect()
