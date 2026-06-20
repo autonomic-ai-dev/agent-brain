@@ -7,7 +7,7 @@ agent-brain is a token-efficient context engine: skills/rules routing, temporal 
 Rust is the brain; agents are the hands.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/aeswibon/agent-brain/master/scripts/install.sh | bash -s -- --global --with-starter
+curl -fsSL https://raw.githubusercontent.com/autonomic-ai-dev/agent-brain/master/scripts/install.sh | bash -s -- --global --with-starter
 agent-brain onboarding
 ```
 
@@ -46,13 +46,13 @@ agent-brain does not replace the model — it **chooses context and enforces the
 ## Quick Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/aeswibon/agent-brain/master/scripts/install.sh | bash -s -- --global
+curl -fsSL https://raw.githubusercontent.com/autonomic-ai-dev/agent-brain/master/scripts/install.sh | bash -s -- --global
 ```
 
 Or from source:
 
 ```bash
-cargo install --git https://github.com/aeswibon/agent-brain --locked agent-brain
+cargo install --git https://github.com/autonomic-ai-dev/agent-brain --locked agent-brain
 agent-brain install --global
 ```
 
