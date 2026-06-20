@@ -8,6 +8,7 @@ pub enum ItemType {
     Skill,
     Agent,
     Memory,
+    Workflow,
 }
 
 impl ItemType {
@@ -17,6 +18,7 @@ impl ItemType {
             ItemType::Skill => "skill",
             ItemType::Agent => "agent",
             ItemType::Memory => "memory",
+            ItemType::Workflow => "workflow",
         }
     }
 
@@ -26,6 +28,7 @@ impl ItemType {
             "skill" => Some(ItemType::Skill),
             "agent" => Some(ItemType::Agent),
             "memory" => Some(ItemType::Memory),
+            "workflow" => Some(ItemType::Workflow),
             _ => None,
         }
     }

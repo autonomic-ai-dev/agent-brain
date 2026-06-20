@@ -34,6 +34,7 @@ pub struct Config {
     pub ann_enabled: bool,
     pub ann_min_index: usize,
     pub ann_top_k: usize,
+    pub workflow_dirs: Vec<PathBuf>,
     /// Write human-readable route summary to ~/.agent_brain/logs/last-route.md
     pub route_briefing_enabled: bool,
     /// One-line route summary on stderr (visible in Cursor MCP output)
@@ -101,6 +102,7 @@ impl Config {
             ann_enabled: env_bool("AGENT_BRAIN_ANN", true),
             ann_min_index: env_usize("AGENT_BRAIN_ANN_MIN_INDEX", crate::ann::DEFAULT_ANN_MIN_INDEX),
             ann_top_k: env_usize("AGENT_BRAIN_ANN_TOP_K", crate::ann::DEFAULT_ANN_TOP_K),
+            workflow_dirs: vec![home.join("workflows")],
             home,
             data_dir,
         })
@@ -139,6 +141,7 @@ impl Config {
             ann_enabled: true,
             ann_min_index: crate::ann::DEFAULT_ANN_MIN_INDEX,
             ann_top_k: crate::ann::DEFAULT_ANN_TOP_K,
+            workflow_dirs: vec![],
         }
     }
 
@@ -150,6 +153,7 @@ impl Config {
         std::fs::create_dir_all(&self.data_dir).context("create data dir")?;
         std::fs::create_dir_all(self.home.join("logs")).ok();
         std::fs::create_dir_all(self.home.join("export")).ok();
+        std::fs::create_dir_all(self.home.join("workflows")).ok();
         std::fs::create_dir_all(self.home.join("packages")).ok();
         Ok(())
     }

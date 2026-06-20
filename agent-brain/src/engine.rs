@@ -803,6 +803,20 @@ fn try_add_route_item(
             let t = estimate_json_tokens(&serde_json::to_value(&rec).unwrap_or_default());
             (PendingRec::Memory(rec), t)
         }
+        ItemType::Workflow => {
+            if resp.must_apply.len() < 3 {
+                let rec = MustApply {
+                    topic: "trigger_workflow".to_string(),
+                    text: item.text.clone(),
+                };
+                let t = estimate_json_tokens(&serde_json::to_value(&rec).unwrap_or_default());
+                if resp.tokens_used + t <= max_tokens {
+                    resp.tokens_used += t;
+                    resp.must_apply.push(rec);
+                }
+            }
+            return;
+        }
         _ => return,
     };
 

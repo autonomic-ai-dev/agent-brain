@@ -293,6 +293,21 @@ struct LearnFromUrlParams {
     dry_run: bool,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+struct GetContextForNodeParams {
+    node_kind: String,
+    node_name: String,
+    node_description: String,
+    workflow_name: String,
+    task_description: String,
+    #[serde(default = "default_node_tokens")]
+    max_tokens: usize,
+}
+
+fn default_node_tokens() -> usize {
+    300
+}
+
 #[tool_router]
 impl BrainMcp {
     #[tool(description = "REQUIRED every turn before planning or edits. Returns ranked agents, skills, rules, and memory under a token budget. Pass user_message, current_working_directory, and open_files. Session digests from Cursor/OpenCode/Codex/Gemini/Antigravity and team memory are only injected here.")]
@@ -348,6 +363,30 @@ impl BrainMcp {
                 &types,
             )
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        json_result(resp)
+    }
+
+    #[tool(description = "Fetch specialized rules/skills/agents for a workflow node. Call from agent-spine before executing a node to hydrate subagent prompts with brain context.")]
+    async fn get_context_for_node(
+        &self,
+        params: Parameters<GetContextForNodeParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.require_route("get_context_for_node")?;
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let ctx_params = crate::node_context::NodeContextParams {
+            node_kind: p.node_kind,
+            node_name: p.node_name,
+            node_description: p.node_description,
+            workflow_name: p.workflow_name,
+            task_description: p.task_description,
+        };
+        let resp = crate::node_context::get_context_for_node(
+            &self.engine,
+            &ctx_params,
+            p.max_tokens,
+        )
+        .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         json_result(resp)
     }
 

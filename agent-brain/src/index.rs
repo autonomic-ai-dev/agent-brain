@@ -49,6 +49,30 @@ pub fn sync_index(
         }
     }
 
+    // Index workflow definitions
+    let workflow_dirs = &config.workflow_dirs;
+    let workflows = crate::workflow_indexer::discover_workflows(workflow_dirs);
+    for (path, wf) in &workflows {
+        let source_path = path.display().to_string();
+        let content_hash = content_hash(&serde_json::to_string(wf).unwrap_or_default());
+        if store.indexed_item_current_hash(&source_path)?.as_deref() == Some(content_hash.as_str()) {
+            continue;
+        }
+        let text = serde_json::to_string_pretty(wf).unwrap_or_default();
+        let embedding = embedder.embed_one(&format!("workflow {} {}", wf.name, text))?;
+        store.upsert_indexed_item(
+            crate::types::ItemType::Workflow,
+            &wf.name,
+            &text,
+            &source_path,
+            "global",
+            None,
+            &content_hash,
+            Some(&embedding),
+        )?;
+        count += 1;
+    }
+
     if count > 0 {
         store.bump_index_version()?;
     }
