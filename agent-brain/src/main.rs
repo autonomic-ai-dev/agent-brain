@@ -1265,6 +1265,19 @@ async fn main() -> Result<()> {
             agent_brain::distill::write_architecture_md(&distilled, &out)?;
             println!("Architecture written to {}", out.display());
         }
+        "gc" => {
+            let config = Config::load()?;
+            config.ensure_dirs()?;
+            let min_confidence = flag_value(&args, "--min-confidence")
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.3);
+            let max_age_days = flag_value(&args, "--max-age-days")
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(90);
+            let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
+            let stats = agent_brain::gc::run_gc(&store, min_confidence, max_age_days)?;
+            println!("{}", serde_json::to_string_pretty(&stats)?);
+        }
         "help" | "--help" | "-h" => {
             print_usage();
         }
@@ -1378,6 +1391,7 @@ Usage:
   agent-brain sessions ingest [--source SRCS] [--legacy]  Import session digests (cursor/codex/gemini/opencode)
   agent-brain sessions status                 Discoverable vs stored session digests
   agent-brain promote list|approve|reject     Skill promotion workflow (human approval required)
+  agent-brain gc [--min-confidence N] [--max-age-days N]  Run GC: dedup, prune, vacuum
   agent-brain memory gc [--apply] [--force] [--stale-days N] [--very-stale-days N]  Archive stale facts (dry-run by default)
   agent-brain digest --weekly                 Operator digest from retrieval_log
   agent-brain eval --ci [--live]                 Recall@3 gate (isolated fixture; --live uses brain.db)

@@ -11,6 +11,7 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::db::store::{looks_like_secret, word_count};
+use crate::gc;
 use crate::db::write_queue::{store_memory_payload, WriteOp};
 use crate::engine::Engine;
 use crate::mcp::route_gate::McpRouteGate;
@@ -136,6 +137,22 @@ struct StoreTrajectoryParams {
     task_kind: Option<String>,
     #[serde(default)]
     notes: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct GcParams {
+    #[serde(default = "default_min_confidence")]
+    min_confidence: f64,
+    #[serde(default = "default_max_age_days")]
+    max_age_days: u64,
+}
+
+fn default_min_confidence() -> f64 {
+    0.3
+}
+
+fn default_max_age_days() -> u64 {
+    90
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -470,6 +487,18 @@ impl BrainMcp {
         )
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
         json_result(serde_json::json!({ "trajectory": report }))
+    }
+
+    #[tool(description = "Run garbage collection: dedup, prune, vacuum")]
+    async fn brain_gc(
+        &self,
+        params: Parameters<GcParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let stats = gc::run_gc(&self.engine.store, p.min_confidence, p.max_age_days)
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        json_result(stats)
     }
 
     #[tool(description = "List stored memory facts.")]
