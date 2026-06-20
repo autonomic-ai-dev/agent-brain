@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.1] - 2026-06-20
+
+### Added
+
+- **Dataset pipeline gates** — `--verify-ui` and `--verify-memory-script` invoke agent-eyes/agent-immune before merge
+
 ## [0.28.0] - 2026-06-20
 
 ### Added

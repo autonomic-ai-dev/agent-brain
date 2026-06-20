@@ -10,6 +10,7 @@ pub mod cache;
 pub mod config;
 pub mod dashboard;
 pub mod dataset;
+pub mod dataset_pipeline;
 pub mod db;
 pub mod distill;
 pub mod docs;
