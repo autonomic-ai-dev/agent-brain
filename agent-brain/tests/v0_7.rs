@@ -15,6 +15,7 @@ fn test_config(home: &std::path::Path) -> Config {
     Config {
         home: home.to_path_buf(),
         data_dir: home.join("data"),
+        logs_dir: home.join("logs"),
         db_path: home.join("data").join("brain.db"),
         vectors_path: home.join("data").join("vectors.bin"),
         turn_ttl_secs: 60,

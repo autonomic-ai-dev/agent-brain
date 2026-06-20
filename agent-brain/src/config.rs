@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 pub struct Config {
     pub home: PathBuf,
     pub data_dir: PathBuf,
+    pub logs_dir: PathBuf,
     pub db_path: PathBuf,
     pub vectors_path: PathBuf,
     pub turn_ttl_secs: u64,
@@ -47,15 +48,24 @@ pub struct Config {
 
 impl Config {
     pub fn load() -> Result<Self> {
-        let home = std::env::var("AGENT_BRAIN_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| {
-                dirs::home_dir()
-                    .unwrap_or_else(|| PathBuf::from("."))
-                    .join(".agent_brain")
-            });
+        let explicit_home = std::env::var("AGENT_BRAIN_HOME").ok().map(PathBuf::from);
+        let legacy_home = dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".agent_brain");
+        let home = explicit_home.clone().unwrap_or_else(|| legacy_home.clone());
 
-        let data_dir = home.join("data");
+        let (data_dir, logs_dir) = if explicit_home.is_some() {
+            let data = home.join("data");
+            (data.clone(), home.join("logs"))
+        } else {
+            let memory = crate::global_workspace::memory_dir();
+            if let Err(err) = crate::global_workspace::migrate_legacy_storage(&legacy_home, &memory)
+            {
+                tracing::warn!(error = %err, "legacy memory migration skipped");
+            }
+            (memory.clone(), memory.join("logs"))
+        };
+
         Ok(Self {
             db_path: data_dir.join("brain.db"),
             vectors_path: data_dir.join("vectors.bin"),
@@ -112,6 +122,7 @@ impl Config {
             workflow_dirs: vec![home.join("workflows")],
             home,
             data_dir,
+            logs_dir,
         })
     }
 
@@ -121,6 +132,7 @@ impl Config {
         Self {
             home: home.clone(),
             data_dir: data_dir.clone(),
+            logs_dir: home.join("logs"),
             db_path: data_dir.join("brain.db"),
             vectors_path: data_dir.join("vectors.bin"),
             turn_ttl_secs: 60,
@@ -158,7 +170,7 @@ impl Config {
         std::fs::create_dir_all(self.home.join("skills")).ok();
         std::fs::create_dir_all(self.home.join("agents")).ok();
         std::fs::create_dir_all(&self.data_dir).context("create data dir")?;
-        std::fs::create_dir_all(self.home.join("logs")).ok();
+        std::fs::create_dir_all(&self.logs_dir).ok();
         std::fs::create_dir_all(self.home.join("export")).ok();
         std::fs::create_dir_all(self.home.join("workflows")).ok();
         std::fs::create_dir_all(self.home.join("packages")).ok();

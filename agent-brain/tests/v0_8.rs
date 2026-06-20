@@ -12,6 +12,7 @@ fn test_config(home: &std::path::Path) -> Config {
     let mut config = Config::load().unwrap();
     config.home = home.to_path_buf();
     config.data_dir = home.join("data");
+    config.logs_dir = home.join("logs");
     config.db_path = config.data_dir.join("brain.db");
     config.vectors_path = config.data_dir.join("vectors.bin");
     config

@@ -153,8 +153,9 @@ mod tests {
         let home = dir.path().to_path_buf();
         Config {
             home: home.clone(),
-            data_dir: home.join("data"),
-            db_path: home.join("data").join("brain.db"),
+        data_dir: home.join("data"),
+        logs_dir: home.join("logs"),
+        db_path: home.join("data").join("brain.db"),
             vectors_path: home.join("data").join("vectors.bin"),
             turn_ttl_secs: 60,
             auto_capture_enabled: true,

@@ -20,7 +20,7 @@ pub fn run(fix: bool) -> Result<()> {
     let home = dirs::home_dir().context("home dir")?;
     let mcp_path = home.join(".cursor/mcp.json");
     let hooks_path = home.join(".cursor/hooks.json");
-    let briefing_path = config.home.join("logs/last-route.md");
+    let briefing_path = config.logs_dir.join("last-route.md");
 
     let mcp_binary = mcp_binary_path(&mcp_path)?;
 

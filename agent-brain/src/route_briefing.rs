@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use chrono::Local;
@@ -213,18 +213,21 @@ pub fn format_stderr_line(resp: &RouteTaskResponse) -> String {
 }
 
 fn briefing_path_display() -> String {
-    let home = std::env::var("AGENT_BRAIN_HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| {
-            dirs::home_dir()
-                .unwrap_or_else(|| std::path::PathBuf::from("."))
-                .join(".agent_brain")
-        });
-    home.join("logs/last-route.md").display().to_string()
+    if let Ok(home) = std::env::var("AGENT_BRAIN_HOME") {
+        return PathBuf::from(home)
+            .join("logs/last-route.md")
+            .display()
+            .to_string();
+    }
+    crate::global_workspace::memory_logs_dir()
+        .join("last-route.md")
+        .display()
+        .to_string()
 }
 
 pub fn publish_briefing(
     home: &Path,
+    logs_dir: &Path,
     resp: &RouteTaskResponse,
     stderr_line: bool,
     store: Option<&crate::db::store::BrainStore>,
@@ -233,9 +236,8 @@ pub fn publish_briefing(
     if let Some(store) = store {
         briefing.push_str(&format_supervisor_period_section(home, store));
     }
-    let logs = home.join("logs");
-    if fs::create_dir_all(&logs).is_ok() {
-        let path = logs.join("last-route.md");
+    if fs::create_dir_all(logs_dir).is_ok() {
+        let path = logs_dir.join("last-route.md");
         let _ = fs::write(&path, &briefing);
     }
     publish_route_state(home, resp);

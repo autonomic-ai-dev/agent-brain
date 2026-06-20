@@ -625,6 +625,7 @@ impl Engine {
         if self.config.route_briefing_enabled {
             route_briefing::publish_briefing(
                 &self.config.home,
+                &self.config.logs_dir,
                 &resp,
                 self.config.route_briefing_stderr,
                 Some(&self.store),

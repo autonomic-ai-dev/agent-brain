@@ -17,6 +17,7 @@ fn test_config(dir: &TempDir) -> Config {
     Config {
         home: home.clone(),
         data_dir: home.join("data"),
+        logs_dir: home.join("logs"),
         db_path: home.join("data").join("brain.db"),
         vectors_path: home.join("data").join("vectors.bin"),
         turn_ttl_secs: 60,

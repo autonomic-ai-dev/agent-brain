@@ -267,7 +267,7 @@ async fn main() -> Result<()> {
         }
         "briefing" => {
             let config = Config::load()?;
-            let path = config.home.join("logs").join("last-route.md");
+            let path = config.logs_dir.join("last-route.md");
             if path.exists() {
                 print!("{}", std::fs::read_to_string(&path)?);
             } else {
@@ -375,7 +375,7 @@ async fn main() -> Result<()> {
         }
         "onboarding" => {
             let config = Config::load()?;
-            let briefing = config.home.join("logs").join("last-route.md");
+            let briefing = config.logs_dir.join("last-route.md");
             agent_brain::onboarding::print_onboarding(&config.home, briefing.is_file());
         }
         "export" => {
