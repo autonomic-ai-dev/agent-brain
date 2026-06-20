@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-06-20
+
+### Added
+
+- **Global workspace migration** — `brain.db`, vectors, and route logs default to `~/.autonomic/memory/` via `agent-body-core`
+- **`migrate_legacy_storage()`** — copies data from `~/.agent_brain` when the global memory dir is empty
+
+### Changed
+
+- Config defaults and route briefing paths use the global workspace layout
+- Version bumped from `0.26.0` to `0.27.0`
+
 ## [0.26.0] - 2026-06-20
 
 ### Added
