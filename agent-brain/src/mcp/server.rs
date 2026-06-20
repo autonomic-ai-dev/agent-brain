@@ -11,9 +11,9 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 use crate::db::store::{looks_like_secret, word_count};
-use crate::gc;
 use crate::db::write_queue::{store_memory_payload, WriteOp};
 use crate::engine::Engine;
+use crate::gc;
 use crate::mcp::route_gate::McpRouteGate;
 use crate::types::{deserialize_route_limits, ItemType, RouteLimits};
 
@@ -490,10 +490,7 @@ impl BrainMcp {
     }
 
     #[tool(description = "Run garbage collection: dedup, prune, vacuum")]
-    async fn brain_gc(
-        &self,
-        params: Parameters<GcParams>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn brain_gc(&self, params: Parameters<GcParams>) -> Result<CallToolResult, McpError> {
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
         let stats = gc::run_gc(&self.engine.store, p.min_confidence, p.max_age_days)

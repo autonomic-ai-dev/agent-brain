@@ -35,7 +35,11 @@ fn dedup_facts(store: &crate::db::store::BrainStore) -> Result<u64> {
     let rows = store.list_facts(10_000)?;
     let mut by_topic: HashMap<String, Vec<serde_json::Value>> = HashMap::new();
     for row in &rows {
-        let topic = row.get("topic").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let topic = row
+            .get("topic")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         by_topic.entry(topic).or_default().push(row.clone());
     }
 
@@ -61,7 +65,10 @@ fn dedup_indexed_items(store: &crate::db::store::BrainStore) -> Result<u64> {
     let items = store.load_searchable_items()?;
     let mut topic_groups: HashMap<String, Vec<usize>> = HashMap::new();
     for (idx, item) in items.iter().enumerate() {
-        topic_groups.entry(item.topic.clone()).or_default().push(idx);
+        topic_groups
+            .entry(item.topic.clone())
+            .or_default()
+            .push(idx);
     }
 
     let mut count = 0u64;
@@ -88,7 +95,10 @@ fn prune_low_confidence(store: &crate::db::store::BrainStore, min_confidence: f6
     let rows = store.list_facts(10_000)?;
     let mut count = 0u64;
     for row in &rows {
-        let conf = row.get("confidence").and_then(|v| v.as_f64()).unwrap_or(1.0);
+        let conf = row
+            .get("confidence")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(1.0);
         let id = row.get("id").and_then(|v| v.as_str()).unwrap_or("");
         if conf < min_confidence && !id.is_empty() {
             let _ = store.invalidate_fact(id);
@@ -111,8 +121,7 @@ fn prune_stale_index(store: &crate::db::store::BrainStore) -> Result<u64> {
 }
 
 fn db_file_size(store: &crate::db::store::BrainStore) -> Result<u64> {
-    let db_path: String = store.with_conn(|c| {
-        Ok(c.query_row("PRAGMA database_list", [], |row| row.get(2))?)
-    })?;
+    let db_path: String =
+        store.with_conn(|c| Ok(c.query_row("PRAGMA database_list", [], |row| row.get(2))?))?;
     Ok(std::fs::metadata(&db_path).map(|m| m.len()).unwrap_or(0))
 }

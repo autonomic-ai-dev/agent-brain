@@ -1,10 +1,10 @@
 # agent-brain
 
-**Local context & memory engine for IDE agents — route ~500 tokens of the right skills from thousands, with hooks that make it mandatory.**
+**Local context & memory engine — route ~500 tokens of the right skills from thousands, with hooks that make it mandatory.**
 
-agent-brain is evolving from a fast local **router** into a **token-efficient context engine**: skills/rules routing, temporal memory, multi-signal retrieval, and hook-enforced `route_task` — all in one binary, zero external vector DB.
+agent-brain is a token-efficient context engine: skills/rules routing, temporal memory, multi-signal retrieval, and hook-enforced `route_task` — all in one binary, zero external vector DB.
 
-Rust is the brain; Cursor/Codex/Claude are the hands.
+Rust is the brain; agents are the hands.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/aeswibon/agent-brain/master/scripts/install.sh | bash -s -- --global --with-starter
@@ -19,10 +19,10 @@ agent-brain onboarding
 
 ## Why agent-brain?
 
-Three problems every power-user hits with Cursor skills and rules:
+Three problems every power-user hits with large skill libraries:
 
 1. **Context bloat** — hundreds of skills and rules cannot all fit in one turn. Stuffing them in degrades reasoning and burns tokens.
-2. **Soft enforcement** — telling the model “use skills first” in a rule is optional. The agent can still grep, edit, or guess.
+2. **Soft enforcement** — telling the model "use skills first" in a rule is optional. The agent can still grep, edit, or guess.
 3. **No durable routing memory** — decisions from last week are not automatically surfaced as constraints on the next similar task.
 
 **agent-brain fixes this with a local context engine:**
@@ -30,155 +30,20 @@ Three problems every power-user hits with Cursor skills and rules:
 | Problem | agent-brain answer |
 |---------|-------------------|
 | Too much to load | **`route_task`** returns ~500 tokens of the *right* skills/rules/memory for *this* message |
-| Model skips skills | **IDE hooks** block agent-brain MCP tools until `route_task` succeeds each turn |
+| Model skips skills | **Hooks** block agent-brain MCP tools until `route_task` succeeds each turn |
 | Forgotten conventions | **ADD-only `store_memory`** + **`must_apply`** + temporal validity windows |
 | Memory loses history | **Temporal KG** in SQLite (`memory_kg_edges`, `valid_from` / `invalid_at`) — facts evolve, not erase |
 | Slow vector search under scope filters | **Filterable HNSW** (embedded, Qdrant-inspired) — scope-aware ANN with bridge edges |
 | Skill library sprawl | **`agent-brain add owner/repo`** installs and indexes packages (ECC, team rules) |
 | Two laptops / backup | **Git + encrypted cloud sync** for `brain.db` bundles |
-| MCP disconnects block you | **Scoped gate (v0.7.1+)** — Shell/Read keep working; offline cooldown instead of hard-lock |
+| MCP disconnects block you | **Scoped gate (v0.7.1+)** — other tools keep working; offline cooldown instead of hard-lock |
 | CLI asks MCP approval every run | **`permissions.json`** (v0.7.2+) — one-time `agent-brain:*` allowlist |
 
-You still use Cursor Agent mode. agent-brain does not replace the model — it **chooses context and enforces the gate** before the agent acts.
+agent-brain does not replace the model — it **chooses context and enforces the gate** before the agent acts.
 
 ---
 
-## Execution supervisor
-
-Beyond routing context, agent-brain acts as an **execution supervisor** — keeping agents on a token-efficient leash during real work.
-
-| Layer | What it does |
-|-------|----------------|
-| **Hooks** | Block tools until `route_task` runs every turn |
-| **`must_apply`** | Hard constraints from negative memory / `apply_when` — surfaced in briefing and stats |
-| **`@supervisor` pack** | Token-efficient ops skills + always-on rule (`agent-brain add @supervisor`) |
-| **Token MCP tools** | `grep_search`, `file_summary`, `read_file_head`, `read_file_tail` — bounded reads instead of full-file loads |
-| **`store_memory`** | Persist anti-patterns (`polarity: "negative"`) so mistakes do not repeat |
-
-```bash
-agent-brain add @supervisor
-agent-brain briefing    # Supervisor: N constraint(s) in must_apply
-agent-brain stats         # routes with must_apply + token savings
-```
-
-Prefer agent-brain **`grep_search`** / **`read_file_head`** over Cursor **Read** on large or unknown files. Blocked by default: `dist/`, `node_modules/`, `target/`, `build/`.
-
-Example: after the agent burns tokens reading `dist/`, store *“Never read dist/ — use rg on src/ only.”* The next similar task promotes it to **`must_apply`**.
-
----
-
-## How this is different from similar tools
-
-| Product / approach | What it optimizes | What it does *not* do | agent-brain |
-|--------------------|-------------------|------------------------|-------------|
-| **Cursor skills / rules (static)** | Authoring & discovery | Per-turn budget, hard enforcement, ranked retrieval | Routes + hooks + token cap every message |
-| **Memory SaaS** (Mem0, Zep, etc.) | Long-term chat / user memory | Local skill libraries, IDE hooks, package installs | Local SQLite memory *plus* skill/agent/rule routing |
-| **Agent frameworks** (LangGraph, CrewAI) | Multi-step agent runtime in *your app* | Drop-in MCP gate for the IDE | Zero app code — MCP + hooks in Cursor |
-| **Vector / RAG** (Chroma, Qdrant, etc.) | Document search at scale | Phase-aware skills, `must_apply`, negative memory, IDE hooks | **Filterable HNSW** + BM25 + embeddings + entity fusion — tuned for *skills*, not generic docs |
-| **“Just add a rule”** | Free | Cannot stop the model from ignoring it | Hooks deny tools until `route_task` runs |
-
-### Inspirations & Credits
-
-agent-brain draws architectural inspiration from these projects (adapted inside our single-binary SQLite stack):
-
-- **[Zep](https://github.com/getzep/zep)**: Temporal knowledge graph and observation engine concepts (`valid_from` / `invalid_at`, memory KG edges).
-- **[Mem0](https://github.com/mem0ai/mem0)**: Hybrid middleware for agents — ADD-only memory, first-class agent facts, multi-signal retrieval fusion.
-- **[LangGraph](https://github.com/langchain-ai/langgraph)**: Stateful, phase-aware cyclic workflow modeling (`route_task` phases).
-- **[CrewAI](https://github.com/joaomdmoura/crewAI)**: Dynamic role and tool delegation (recommended agents + skills).
-- **[Qdrant](https://github.com/qdrant/qdrant)** & **[Chroma](https://github.com/chroma-core/chroma)**: Filterable HNSW and embedded-first vector search (custom in-memory index, zero external deps).
-
-**V1 graph decision:** Native SQLite node/edge tables + recursive CTEs in `brain.db` — no embedded graph DB — preserving zero-setup sync and single-binary releases.
-
----
-
-## Memory engine (v0.21+)
-
-Token-efficient memory adapted from Zep & Mem0, implemented inside `brain.db` (no SaaS API per turn):
-
-| Layer | What it does |
-|-------|----------------|
-| **ADD-only facts** | `store_memory` appends; same-topic updates link via `evolved_from` KG edges instead of destructive overwrite |
-| **Temporal validity** | `valid_from` / `invalid_at` windows; `temporal::prune_expired` archives stale facts |
-| **Multi-signal retrieval** | Semantic (embeddings) + BM25 + lexical + **entity overlap** fused per candidate |
-| **Filterable HNSW** | In-memory scope-aware ANN (≥256 nodes) with per-filter bridge edges — p95 ≤ 50ms on 2k index |
-| **Session digests** | Cross-IDE transcripts (Cursor, Codex, Gemini, OpenCode) surface only through `route_task` |
-| **Stateful hooks** | `must_apply` + phase persist across prompts until the next route |
-| **Observation engine** | Recurring facts (≥3/topic) auto-synthesize `obs/{topic}` must_apply candidates (Zep-inspired) |
-| **Temporal MCP** | `store_memory` accepts optional `valid_from` / `invalid_at` (unix ms) |
-| **BEAM eval** | `agent-brain eval --beam` — recall, temporal, must_apply, observation, jsonl routing suites |
-| **Trace extraction** | Mem0-style ADD-only facts from shell/package-manager traces (`memory extract`) |
-
-**Roadmap (next):** deeper tool-trace NLP extraction, cross-session BEAM fixtures from real transcripts.
-
----
-
-- **“I have 200 ECC skills and the agent keeps using the wrong ones”** → agent-brain ranks by message + phase and returns paths to load.
-- **“The agent skips `route_task` and greps the repo”** → hooks deny Shell/Read until routing succeeds (scoped to agent-brain MCP tools by default).
-- **“We agreed to use Vitest, but next week it suggested Jest again”** → `store_memory` + negative/`must_apply` memory resurfaces on test-related prompts.
-- **“Mem0 remembers chat; I need *project conventions* in the IDE”** → structured facts in local `brain.db`, synced optionally via git/cloud — no API key per turn.
-- **“I want skills on laptop + desktop”** → `sync git` or encrypted `sync cloud` bundles, not copy-pasting `.cursor/rules`.
-
-**When to use it:** you have (or want) a large skill library — ECC, superpowers, team rules — and need **fast, repeatable, enforced** context every turn.
-
-**When not to use it:** a handful of project rules already work; you only need chat recall (not skill routing); you do not use Agent mode or MCP.
-
----
-
-## What you get (main features)
-
-| Feature | Copy-paste setup | Why use it |
-|---------|------------------|------------|
-| **Turn routing** | MCP `route_task` (automatic via hooks) | Right skills under token budget every message |
-| **Hook enforcement** | `agent-brain install --global` | Hard gate — not “please follow the rule” |
-| **Skill packages** | `agent-brain add @nextjs` or `owner/repo` | Curated aliases + one-command installs |
-| **Durable memory** | Agent calls `store_memory` at task end | Conventions persist across sessions |
-| **Git sync** | `config.yaml` + `sync git init` | Second machine pulls same brain bundle |
-| **Cloud sync** | `config.yaml` + `AGENT_BRAIN_SYNC_KEY` | Encrypted off-site backup (S3/R2/MinIO) |
-| **Auto-update** | `~/.agent_brain/config.yaml` | Package + MCP binary updates while `serve` runs |
-| **CLI MCP allowlist** | `~/.cursor/permissions.json` | Cursor CLI stops prompting every agent session |
-| **Resilience** | Default hook scope `brain_mcp` | MCP down ≠ entire session frozen |
-| **Observability** | `agent-brain briefing`, `last-route.md` | See what was routed + est. token savings vs full index |
-
-**Full operator guide:** [docs/USAGE.md](docs/USAGE.md)
-
-**Architecture deep dive (series):** [docs/architecture/README.md](docs/architecture/README.md) — design goals, rationale, and alternatives for each major component.
-
----
-
-## Published benchmarks (CI)
-
-Reproducible proof artifacts live in [`docs/benchmarks/`](docs/benchmarks/). Regenerate locally with `cargo run --release -p agent-brain -- proofs --ci`.
-
-| Gate | Index size | Golden cases | Recall@3 | Threshold | CI |
-|------|------------|--------------|----------|-----------|-----|
-| Isolated skills + memory | 500 skills | 10 | **1.00** (10/10) | ≥ 0.85 | `stage-test.yml` |
-| skills.sh catalog | **2000 real** skills.sh skills | **50** | **1.00** (50/50) | ≥ 0.80 | `stage-skills-sh-eval.yml` |
-| Warm-route p95 (fixture) | 500 | — | **≤ 100 ms** | gated | `proofs --ci` |
-| ANN scale warm-route p95 | 1k / 5k / 10k | — | **≤ 50 ms** each | gated (1k CI) | `bench --scale --full` |
-| Graphify ingest | 1k nodes | — | **≤ 2 s** | gated (CI) | `bench --graphify` |
-| Graphify `code_context` route p95 | 1k nodes + 500 skills | — | **≤ 65 ms** | gated (CI) | `bench --graphify` |
-| MCP tool latency | 500 skills | route + context + token tools | see `bench --mcp` | informational | `bench --mcp` |
-| Turn-cache p95 (fixture) | 500 | — | **≤ 30 ms** | gated | `proofs --ci` |
-| Filterable HNSW p95 | 2k scoped | — | **≤ 50 ms** | gated (unit test) | `ann` tests |
-| Execution supervisor | 500 + `@supervisor` | 3 scenarios | skill **100%** · must_apply **100%** · savings **~99%** · p95 **≤ 100 ms** | gated | `proofs --ci` |
-| Token MCP tools | synthetic 2k-line file | 4 tools | **≥ 80%** savings vs full read | gated | `proofs --ci` |
-| Supervisor telemetry | hook + tool_log | 24h window | tool savings + Read steers in briefing | informational | `agent-brain stats` |
-| Anti-pattern loop | hook steer | — | `suggest-memory approve` → negative memory | manual | CLI |
-| Hook gate logic | — | — | **< 1 ms p95** | gated | `test_route_gate.py` |
-
-**skills.sh eval** runs against committed `fixture-2k.db` — no network, no synthetic fillers. See [docs/benchmarks/skills-sh/README.md](docs/benchmarks/skills-sh/README.md).
-
-**Token savings (every turn):** `agent-brain briefing` and `~/.agent_brain/logs/last-route.md` show routed tokens vs an estimated naive full-index load (~120 tok/item). On a 2000-skill index routing ~500 tokens, that is typically **~99% fewer tokens** than loading everything.
-
-**Curated skill packs:** `agent-brain registry list` · `agent-brain add @supervisor` · `@starter` — see [docs/registry/README.md](docs/registry/README.md).
-
-**Before/after (2000 skills):** [docs/blog/before-and-after-agent-brain.md](docs/blog/before-and-after-agent-brain.md) · [Team workflow](docs/TEAM-WORKFLOW.md)
-
----
-
-## Complete setup (copy & paste)
-
-### 1. Install the binary
+## Quick Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/aeswibon/agent-brain/master/scripts/install.sh | bash -s -- --global
@@ -191,363 +56,94 @@ cargo install --git https://github.com/aeswibon/agent-brain --locked agent-brain
 agent-brain install --global
 ```
 
-`install --global` writes MCP config, hooks, permissions, and the project rule. **You do not run `serve` manually** — Cursor spawns it.
+`install --global` writes MCP config, hooks, permissions, and the project rule. You do not run `serve` manually — your MCP host spawns it.
 
-### 2. Cursor MCP — `~/.cursor/mcp.json`
-
-Replace `/Users/you/.local/bin/agent-brain` with your path (`which agent-brain`). If the file already exists, merge the `agent-brain` entry under `mcpServers`:
-
-```json
-{
-  "mcpServers": {
-    "agent-brain": {
-      "command": "/Users/you/.local/bin/agent-brain",
-      "args": ["serve"],
-      "env": {
-        "RUST_LOG": "agent_brain=warn",
-        "AGENT_BRAIN_BOOTSTRAP_BG": "1",
-        "AGENT_BRAIN_BOOTSTRAP_DELAY_SEC": "2",
-        "AGENT_BRAIN_BOOTSTRAP_INTERVAL_SEC": "3600",
-        "AGENT_BRAIN_AUTO_UPDATE_DELAY_SEC": "300",
-        "AGENT_BRAIN_SESSION_INGEST_DELAY_SEC": "180",
-        "AGENT_BRAIN_ROUTE_GATE_SCOPE": "brain_mcp",
-        "AGENT_BRAIN_ROUTE_OFFLINE_SECS": "1800"
-      }
-    }
-  }
-}
-```
-
-| Env var | Default | Purpose |
-|---------|---------|---------|
-| `AGENT_BRAIN_ROUTE_GATE_SCOPE` | `brain_mcp` | Gate only agent-brain MCP tools (`all` = legacy strict mode) |
-| `AGENT_BRAIN_ROUTE_OFFLINE_SECS` | `1800` | After MCP disconnect, stop blocking other tools for 30m |
-| `AGENT_BRAIN_BM25_FAST_PATH` | `1` | Skip query embed when BM25 prefilter is strong (lower latency) |
-
-Or re-run (merges safely):
-
-```bash
-agent-brain install --global
-```
-
-### 3. CLI MCP auto-approve — `~/.cursor/permissions.json`
-
-Required for **Cursor CLI** agents (separate from hooks). Merge into existing file or create new:
-
-```json
-{
-  "mcpAllowlist": ["agent-brain:*"]
-}
-```
-
-Then in Cursor: **Settings → enable Run Mode** (allowlist only applies with Run Mode on).
-
-`install --global` appends `agent-brain:*` without removing entries like `github:*`.
-
-One-off CLI scripts: `cursor agent --approve-mcps` or `--force`.
-
-### 4. Hooks + rule (automatic)
-
-`install --global` installs:
-
-- `~/.cursor/hooks/agent-brain/route_gate.py`
-- Merged entries in `~/.cursor/hooks.json` (`beforeSubmitPrompt`, `preToolUse`, `beforeMCPExecution`, …)
-- `.cursor/rules/agent-brain.mdc` in each project (requires `route_task` every turn)
-
-Example hook entries (for reference — installer merges these):
-
-```json
-{
-  "version": 1,
-  "hooks": {
-    "beforeSubmitPrompt": [
-      { "command": "./hooks/agent-brain/route_gate.py", "matcher": "UserPromptSubmit" }
-    ],
-    "preToolUse": [
-      { "command": "./hooks/agent-brain/route_gate.py" }
-    ],
-    "beforeMCPExecution": [
-      { "command": "./hooks/agent-brain/route_gate.py", "failClosed": true }
-    ],
-    "afterMCPExecution": [
-      { "command": "./hooks/agent-brain/route_gate.py" }
-    ]
-  }
-}
-```
-
-Requires `python3` on PATH. Disable hooks for debugging only: `"AGENT_BRAIN_ROUTE_HOOKS": "0"` in MCP env.
-
-### 5. Enable in Cursor (checklist)
-
-1. **Restart Cursor** (or Reload Window) after install
-2. **Settings → MCP** → enable **agent-brain** (green status)
-3. **Settings → Hooks** → confirm agent-brain hooks listed
-4. **Settings → Rules** → confirm `agent-brain.mdc` (always apply)
-5. **Settings → Run Mode** → on (for CLI MCP allowlist)
-6. Open chat in **Agent mode** (not Ask-only)
-
-### 6. Verify
+Verify:
 
 ```bash
 agent-brain version
 agent-brain doctor
-agent-brain briefing    # after first route_task in Cursor
 ```
 
-Expected: MCP path matches binary, hooks present, permissions include `agent-brain:*`. If `doctor` reports stale serve after a local rebuild:
-
-```bash
-agent-brain install --global --reload
-```
+Full setup and configuration guide: [docs/USAGE.md](docs/USAGE.md)
 
 ---
 
-## Enable main features (copy & paste)
+## Main features
 
-### Skill packages (ECC)
+| Feature | Setup | Why use it |
+|---------|-------|------------|
+| **Turn routing** | MCP `route_task` (automatic via hooks) | Right skills under token budget every message |
+| **Hook enforcement** | `agent-brain install --global` | Hard gate — not "please follow the rule" |
+| **Skill packages** | `agent-brain add @nextjs` or `owner/repo` | Curated aliases + one-command installs |
+| **Durable memory** | Agent calls `store_memory` at task end | Conventions persist across sessions |
+| **Git sync** | `config.yaml` + `sync git init` | Second machine pulls same brain bundle |
+| **Cloud sync** | `config.yaml` + `AGENT_BRAIN_SYNC_KEY` | Encrypted off-site backup (S3/R2/MinIO) |
+| **Auto-update** | `~/.agent_brain/config.yaml` | Package + MCP binary updates while `serve` runs |
+| **CLI MCP allowlist** | `permissions.json` | Stops prompting every agent session |
+| **Resilience** | Default hook scope `brain_mcp` | MCP down does not freeze your session |
+| **Observability** | `agent-brain briefing`, `last-route.md` | See what was routed + est. token savings |
 
-```bash
-agent-brain add affaan-m/ecc
-agent-brain package list
-agent-brain package update ecc
-```
+**Memory engine (v0.21+):** ADD-only facts with temporal validity windows; multi-signal retrieval fusion (semantic + BM25 + lexical + entity overlap); filterable HNSW in-memory ANN; session digests across MCP hosts; observation engine that auto-synthesizes must_apply candidates from recurring facts; BEAM eval for recall, temporal, and must_apply suites; trace extraction from shell and package-manager logs.
 
-Clones to `~/.agent_brain/packages/ecc/` and indexes skills, agents, rules, commands. Re-index after updates: `agent-brain index` (optional — bootstrap also indexes on MCP start).
+**Operator loop:** `agent-brain promote list/approve/reject` stages skill drafts from memory facts. `agent-brain memory gc --apply` deduplicates, prunes stale facts, and vacuum-packs the KG. `agent-brain digest --weekly` generates operator summaries from retrieval logs. `agent-brain eval --ci` runs the retrieval quality gate.
 
-### Durable memory
+Skill packages: `agent-brain registry list` · `agent-brain add @supervisor` · `@starter` — see [docs/registry/README.md](docs/registry/README.md).
 
-The **agent** calls this at task end (you do not run it manually in normal use). Example MCP payload:
-
-```json
-{
-  "topic": "testing",
-  "fact": "Use Vitest, not Jest, for this monorepo.",
-  "scope": "project",
-  "scope_key": "/path/to/repo",
-  "confidence": 0.9
-}
-```
-
-Rules: max 50 words, no secrets. **ADD-only:** new facts append; same-topic updates create KG evolution links (history preserved). Sync conflicts use `agent-brain sync status` and `sync restore <conflict-id>`.
-
-### v0.10 operator loop (promote, gc, digest, eval)
-
-```bash
-# 1) Stage skill drafts from memory facts (human approval required)
-agent-brain promote list
-agent-brain promote approve <staging-id>
-agent-brain promote reject <staging-id>
-
-# 2) Memory garbage collection (dry-run by default)
-agent-brain memory gc          # JSON report: reason_buckets, top_topics
-agent-brain memory gc --apply
-
-# 3) Weekly operator digest from retrieval logs
-agent-brain digest --weekly
-
-# 4) CI retrieval quality gate
-agent-brain eval --ci
-```
-
-Promotion writes draft `SKILL.md` files to `~/.agent_brain/staging/` first; approval is explicit before files land in `.cursor/skills/`.
-
-### Auto-update — `~/.agent_brain/config.yaml`
-
-```bash
-agent-brain config init   # optional helper
-```
-
-```yaml
-auto_update:
-  enabled: true
-  interval_hours: 24
-  packages:
-    enabled: true
-  mcp:
-    enabled: true
-    repo: aeswibon/agent-brain
-    bin_path: ~/.local/bin/agent-brain
-    refresh_cursor: true
-    restart_after_update: true
-    recheck_interval_minutes: 15
-    restart_idle_secs: 10
-    restart_max_wait_secs: 300
-    restart_min_delay_secs: 2
-
-sync:
-  git:
-    remote: git@github.com:you/agent-brain-sync.git
-    branch: main
-    auto_push: true
-  cloud:
-    enabled: false
-    provider: s3
-    bucket: my-agent-brain-backup
-    key: brain-sync.tar.zst.age
-    encrypt: true
-    encryption_key_env: AGENT_BRAIN_SYNC_KEY
-    region: auto
-    auto_push: false
-
-memory_gc:
-  stale_days: 90
-  very_stale_days: 180
-```
-
-MCP `serve` checks updates in the background; after a binary update it restarts when idle so Cursor reconnects.
-
-### Git sync (two machines)
-
-**Machine A** — init and push:
-
-```bash
-export AGENT_BRAIN_HOME=~/.agent_brain   # default
-
-agent-brain sync git init --remote git@github.com:you/agent-brain-sync.git
-agent-brain sync git push
-```
-
-**Machine B** — clone and pull (branch from `config.yaml` → `sync.git.branch`):
-
-```bash
-agent-brain sync git clone --remote git@github.com:you/agent-brain-sync.git
-agent-brain sync git pull
-```
-
-Status and conflicts:
-
-```bash
-agent-brain sync status
-agent-brain sync restore <conflict-id>
-```
-
-With `sync.git.auto_push: true` in config, successful `store_memory` can push automatically.
-
-### Encrypted cloud sync (S3 / R2 / MinIO)
-
-```bash
-# 32+ char passphrase — store in OS keychain or env
-export AGENT_BRAIN_SYNC_KEY='your-long-random-passphrase-here!!'
-
-agent-brain secrets setup AGENT_BRAIN_SYNC_KEY
-```
-
-`~/.agent_brain/config.yaml` (cloud section):
-
-```yaml
-sync:
-  cloud:
-    enabled: true
-    provider: s3
-    bucket: my-bucket
-    key: brain-sync.tar.zst.age
-    encrypt: true
-    encryption_key_env: AGENT_BRAIN_SYNC_KEY
-    region: auto
-    endpoint: ""          # set for R2/MinIO, e.g. https://<account>.r2.cloudflarestorage.com
-    auto_push: true
-```
-
-Push / pull:
-
-```bash
-agent-brain sync cloud push
-agent-brain sync cloud pull
-```
-
-Bundle is tar.zst + age encryption. Secret **names** sync in bundles; values stay in the OS keychain (`agent-brain secrets status`).
-
-### Observability
-
-After any routed turn:
-
-```bash
-cat ~/.agent_brain/logs/last-route.md
-agent-brain briefing
-```
-
-### Session digests (Cursor, Codex, Gemini, OpenCode)
-
-Background ingest runs during MCP bootstrap. Manual ingest:
-
-```bash
-agent-brain sessions status
-agent-brain sessions ingest
-agent-brain sessions ingest --source gemini,opencode
-```
-
-Sources scanned:
-
-| Source | Path |
-|--------|------|
-| Cursor | `~/.cursor/projects/**/agent-transcripts/**/*.jsonl` |
-| Codex | `~/.codex/sessions/**/*.jsonl` |
-| Gemini | `~/.gemini/**/transcript.jsonl` |
-| OpenCode | `~/.local/share/opencode/opencode.db` |
-
-Each session becomes one low-priority memory fact: `session-digest-{source}-{slug}`.
-
-In Cursor: **View → Output → MCP** (select `agent-brain`) for one-line stderr summaries (`latency_ms`, `cache_hit`, `briefing`).
-
-### After a local rebuild
-
-```bash
-cargo install --path agent-brain --force
-agent-brain install --global --reload
-# Reload Cursor window or toggle MCP once
-agent-brain doctor
-```
+Full operator guide: [docs/USAGE.md](docs/USAGE.md) · Architecture deep dive: [docs/architecture/README.md](docs/architecture/README.md)
 
 ---
 
-## How each turn works
+## Commands
 
-```text
-user message
-  → hook marks turn “needs route_task” (must_apply + phase persist)
-  → agent calls route_task (agent-brain MCP gated until this succeeds)
-  → BM25 prefilter → filterable HNSW / embed → multi-signal fusion → token budget
-  → agent loads recommended skills/agents from returned paths
-  → agent applies rules + must_apply memory
-  → agent does work (Shell, Read, Edit, …)
-  → agent calls store_memory for durable decisions (ADD-only append)
-```
-
-| Action | Who |
-|--------|-----|
-| Start MCP | Cursor spawns `agent-brain serve` |
-| Index skills/rules | agent-brain on startup (background) |
-| Route each turn | Agent → `route_task` (hook-gated) |
-| Persist decisions | Agent → `store_memory` at task end |
-
-**Write safety (v0.7.2+):** all DB mutations serialize through one write queue — imports and sync pulls cannot corrupt active stores. [agent-brain/docs/concurrency.md](agent-brain/docs/concurrency.md)
+| Command | Description |
+|---------|-------------|
+| `agent-brain install --global` | MCP + hooks + permissions + project rule |
+| `agent-brain install --global --reload` | Same + bump MCP build stamp after rebuild |
+| `agent-brain add <owner/repo>` | Install skill package |
+| `agent-brain package list\|update\|remove` | Manage packages |
+| `agent-brain sync git\|cloud ...` | Multi-machine brain sync |
+| `agent-brain secrets setup\|status` | Keychain-backed secret refs |
+| `agent-brain doctor` | MCP path, hooks, stale serve, sync health |
+| `agent-brain briefing` | Last route summary |
+| `agent-brain index` | Force reindex |
+| `agent-brain version` | Installed version |
+| `agent-brain serve` | Manual MCP (debug only) |
 
 ---
 
-## Lower latency
+## Benchmarks
 
-**Design target:** under 50ms warm `route_task` on real ONNX with a typical index (not CI-gated).
+Reproducible proof artifacts in [`docs/benchmarks/`](docs/benchmarks/). Regenerate locally with `cargo run --release -p agent-brain -- proofs --ci`.
 
-**Proven in CI** (isolated 500-skill fixture, deterministic embedder): turn-cache p95 ≤ 30ms, warm-route p95 ≤ 100ms — see [`docs/benchmarks/latest.json`](docs/benchmarks/latest.json).
+| Gate | Index size | Golden cases | Recall@3 | Threshold | CI |
+|------|------------|--------------|----------|-----------|-----|
+| Isolated skills + memory | 500 skills | 10 | **1.00** (10/10) | >= 0.85 | `stage-test.yml` |
+| skills.sh catalog | **2000 real** skills.sh skills | **50** | **1.00** (50/50) | >= 0.80 | `stage-skills-sh-eval.yml` |
+| Warm-route p95 (fixture) | 500 | — | **<= 100 ms** | gated | `proofs --ci` |
+| ANN scale warm-route p95 | 1k / 5k / 10k | — | **<= 50 ms** each | gated (1k CI) | `bench --scale --full` |
+| Graphify ingest | 1k nodes | — | **<= 2 s** | gated (CI) | `bench --graphify` |
+| Graphify `code_context` route p95 | 1k nodes + 500 skills | — | **<= 65 ms** | gated (CI) | `bench --graphify` |
+| MCP tool latency | 500 skills | route + context + token tools | see `bench --mcp` | informational | `bench --mcp` |
+| Turn-cache p95 (fixture) | 500 | — | **<= 30 ms** | gated | `proofs --ci` |
+| Filterable HNSW p95 | 2k scoped | — | **<= 50 ms** | gated (unit test) | `ann` tests |
+| Execution supervisor | 500 + `@supervisor` | 3 scenarios | skill **100%** · must_apply **100%** · savings **~99%** · p95 **<= 100 ms** | gated | `proofs --ci` |
+| Token MCP tools | synthetic 2k-line file | 4 tools | **>= 80%** savings vs full read | gated | `proofs --ci` |
+| Supervisor telemetry | hook + tool_log | 24h window | tool savings + Read steers in briefing | informational | `agent-brain stats` |
+| Anti-pattern loop | hook steer | — | `suggest-memory approve` -> negative memory | manual | CLI |
+| Hook gate logic | — | — | **< 1 ms p95** | gated | `test_route_gate.py` |
 
-| Mechanism | Effect |
-|-----------|--------|
-| Turn cache (60s LRU) | Repeat queries skip embed + score |
-| BM25 + filterable HNSW | Lexical prefilter then scope-aware vector candidates on large indexes |
-| Multi-signal fusion | Semantic + BM25 + lexical + entity overlap per candidate |
-| Bootstrap prewarm | Warm index + embedder before first route |
-| Query embedding cache | Persisted in SQLite across restarts |
+**skills.sh eval** runs against committed `fixture-2k.db` — no network, no synthetic fillers. See [docs/benchmarks/skills-sh/README.md](docs/benchmarks/skills-sh/README.md).
 
-Regenerate proofs: `cargo run --release -p agent-brain -- proofs --ci --write docs/benchmarks/latest.json`
+**Token savings (every turn):** `agent-brain briefing` and `~/.agent_brain/logs/last-route.md` show routed tokens vs an estimated naive full-index load (~120 tok/item). On a 2000-skill index routing ~500 tokens, that is typically **~99% fewer tokens** than loading everything.
 
-Tune via MCP `env` in `mcp.json` — see [docs/USAGE.md](docs/USAGE.md#environment-variables).
+**Before/after (2000 skills):** [docs/blog/before-and-after-agent-brain.md](docs/blog/before-and-after-agent-brain.md) · [Team workflow](docs/TEAM-WORKFLOW.md)
 
 ---
 
 ## Other MCP hosts
 
-Same binary works with **Cursor, Claude Code, Codex, OpenCode, Claude Desktop, and VS Code**. Use host installers:
+Same binary works with Cursor, Claude Code, Codex, OpenCode, Claude Desktop, and VS Code:
 
 ```bash
 agent-brain install --claude-desktop
@@ -562,37 +158,6 @@ agent-brain install --all --global
 
 Skills under `~/.claude/` and `~/.codex/` are already indexed.
 
-```json
-{
-  "mcpServers": {
-    "agent-brain": {
-      "command": "/absolute/path/to/agent-brain",
-      "args": ["serve"]
-    }
-  }
-}
-```
-
-Add a host rule: call **`route_task`** every turn before other tools.
-
----
-
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `agent-brain install --global` | MCP + hooks + permissions + project rule |
-| `agent-brain install --global --reload` | Same + bump MCP build stamp after rebuild |
-| `agent-brain add <owner/repo>` | Install skill package |
-| `agent-brain package list\|update\|remove` | Manage packages |
-| `agent-brain sync git\|cloud …` | Multi-machine brain sync |
-| `agent-brain secrets setup\|status` | Keychain-backed secret refs |
-| `agent-brain doctor` | MCP path, hooks, stale serve, sync health |
-| `agent-brain briefing` | Last route summary |
-| `agent-brain index` | Force reindex |
-| `agent-brain version` | Installed version |
-| `agent-brain serve` | Manual MCP (debug only) |
-
 ---
 
 ## Data directory
@@ -605,7 +170,7 @@ Add a host rule: call **`route_task`** every turn before other tools.
 
 ```bash
 cargo test --release -p agent-brain
-make release-macos             # macOS: build + adhoc sign (required for Cursor MCP)
+make release-macos             # macOS: build + adhoc sign
 cargo build --release -p agent-brain
 python3 agent-brain/hooks/test_route_gate.py
 ```

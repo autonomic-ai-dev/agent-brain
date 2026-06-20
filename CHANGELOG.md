@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-06-20
+
+### Added
+
+- **Memory GC** — `agent-brain gc` CLI with `--min-confidence` (default 0.3) and `--max-age-days` (default 90) flags; deduplicates facts by text hash and indexed items by cosine similarity; prunes low-confidence and stale entries; reports GcStats (bytes freed, per-category counts)
+- **`brain_gc` MCP tool** — triggers GC from any MCP host with optional `min_confidence` and `max_age_days` parameters
+- **`invalidate_fact()`** — store method for soft-deleting facts by ID
+
+### Changed
+
+- Version bumped from `0.25.0` to `0.26.0`
+
 ## [0.25.0] - 2026-06-20
 
 ### Added
