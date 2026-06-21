@@ -29,6 +29,7 @@ pub mod host_install;
 pub mod index;
 pub mod install;
 pub mod intelligence;
+pub mod log;
 pub mod mcp;
 pub mod mcp_activity;
 pub mod mcp_bench;

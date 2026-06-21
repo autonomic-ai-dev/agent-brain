@@ -1336,6 +1336,28 @@ async fn main() -> Result<()> {
             let stats = agent_brain::gc::run_gc(&store, min_confidence, max_age_days)?;
             println!("{}", serde_json::to_string_pretty(&stats)?);
         }
+        "log" => {
+            let list = args.iter().any(|a| a == "--list" || a == "-l");
+            let follow = args.iter().any(|a| a == "--follow" || a == "-f");
+            if list {
+                let logs = agent_brain::log::list_logs()?;
+                if logs.is_empty() {
+                    println!("No log files found.");
+                } else {
+                    println!("Available logs:");
+                    for log in &logs {
+                        println!("  {log}");
+                    }
+                }
+            } else {
+                let name = args.get(2).context("usage: agent-brain log <name> [--follow] [--list]")?;
+                if follow {
+                    agent_brain::log::follow_log(name)?;
+                } else {
+                    agent_brain::log::print_log(name)?;
+                }
+            }
+        }
         "help" | "--help" | "-h" => {
             print_usage();
         }
