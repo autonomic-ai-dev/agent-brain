@@ -71,9 +71,7 @@ pub fn sync_index(
                     );
                     let hash = content_hash(&text);
                     let source_path = symbol.file_path.clone();
-                    if store
-                        .indexed_item_current_hash(&source_path)?
-                        .as_deref()
+                    if store.indexed_item_current_hash(&source_path)?.as_deref()
                         == Some(hash.as_str())
                     {
                         continue;
@@ -86,10 +84,7 @@ pub fn sync_index(
                         scope: "project".into(),
                         scope_key: path.to_str().map(|s| s.to_string()),
                     };
-                    batch.push(UnembeddedItem {
-                        item,
-                        hash,
-                    });
+                    batch.push(UnembeddedItem { item, hash });
                 }
             }
         }
@@ -101,11 +96,7 @@ pub fn sync_index(
     for (path, wf) in &workflows {
         let source_path = path.display().to_string();
         let hash = content_hash(&serde_json::to_string(wf).unwrap_or_default());
-        if store
-            .indexed_item_current_hash(&source_path)?
-            .as_deref()
-            == Some(hash.as_str())
-        {
+        if store.indexed_item_current_hash(&source_path)?.as_deref() == Some(hash.as_str()) {
             continue;
         }
         let text = serde_json::to_string_pretty(wf).unwrap_or_default();
@@ -350,5 +341,3 @@ fn extract_agent_text(content: &str, name: &str) -> String {
     let summary = content.lines().take(15).collect::<Vec<_>>().join(" ");
     format!("{name} {summary}").chars().take(800).collect()
 }
-
-

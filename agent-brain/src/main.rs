@@ -1350,7 +1350,9 @@ async fn main() -> Result<()> {
                     }
                 }
             } else {
-                let name = args.get(2).context("usage: agent-brain log <name> [--follow] [--list]")?;
+                let name = args
+                    .get(2)
+                    .context("usage: agent-brain log <name> [--follow] [--list]")?;
                 if follow {
                     agent_brain::log::follow_log(name)?;
                 } else {

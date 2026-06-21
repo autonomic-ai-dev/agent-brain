@@ -36,7 +36,10 @@ pub fn list_logs() -> Result<Vec<String>> {
 pub fn print_log(name: &str) -> Result<()> {
     let path = log_dir().join(format!("{name}.log"));
     if !path.exists() {
-        anyhow::bail!("no log found for '{name}'. Available: {}", list_logs()?.join(", "));
+        anyhow::bail!(
+            "no log found for '{name}'. Available: {}",
+            list_logs()?.join(", ")
+        );
     }
     let content = fs::read_to_string(&path)?;
     print!("{content}");
@@ -46,7 +49,10 @@ pub fn print_log(name: &str) -> Result<()> {
 pub fn follow_log(name: &str) -> Result<()> {
     let path = log_dir().join(format!("{name}.log"));
     if !path.exists() {
-        anyhow::bail!("no log found for '{name}'. Available: {}", list_logs()?.join(", "));
+        anyhow::bail!(
+            "no log found for '{name}'. Available: {}",
+            list_logs()?.join(", ")
+        );
     }
     let file = fs::File::open(&path)?;
     let mut reader = BufReader::new(file);
