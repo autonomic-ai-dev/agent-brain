@@ -25,18 +25,10 @@ pub fn sync_index(
     let mut batch: Vec<UnembeddedItem> = Vec::new();
 
     // Phase 1: walk files, parse, hash-check, collect changed items
+    let mut file_tasks = Vec::new();
     for root in &roots {
         if root.is_file() {
-            if let Some(item) = parse_file(root, None, package_context(root, &config.home)) {
-                let hash = content_hash(&item.text);
-                if store
-                    .indexed_item_current_hash(&item.source_path)?
-                    .as_deref()
-                    != Some(hash.as_str())
-                {
-                    batch.push(UnembeddedItem { item, hash });
-                }
-            }
+            file_tasks.push((root.to_path_buf(), None, package_context(root, &config.home)));
             continue;
         }
         if !root.exists() {
@@ -53,17 +45,20 @@ pub fn sync_index(
                 continue;
             }
             let repo = cwd.and_then(crate::config::find_repo_root);
-            if let Some(item) = parse_file(path, repo.as_deref(), pkg_ctx.clone()) {
+            file_tasks.push((path.to_path_buf(), repo, pkg_ctx.clone()));
+        }
+    }
+
+    use rayon::prelude::*;
+    let parsed_items: Vec<UnembeddedItem> = file_tasks
+        .into_par_iter()
+        .flat_map(|(path, repo, pkg_ctx)| {
+            let mut items = Vec::new();
+            if let Some(item) = parse_file(&path, repo.as_deref(), pkg_ctx) {
                 let hash = content_hash(&item.text);
-                if store
-                    .indexed_item_current_hash(&item.source_path)?
-                    .as_deref()
-                    != Some(hash.as_str())
-                {
-                    batch.push(UnembeddedItem { item, hash });
-                }
+                items.push(UnembeddedItem { item, hash });
             }
-            if let Ok(ast_symbols) = crate::ast_indexer::index_file(path) {
+            if let Ok(ast_symbols) = crate::ast_indexer::index_file(&path) {
                 for symbol in &ast_symbols {
                     let text = format!(
                         "{} {} {} {}",
@@ -71,11 +66,6 @@ pub fn sync_index(
                     );
                     let hash = content_hash(&text);
                     let source_path = symbol.file_path.clone();
-                    if store.indexed_item_current_hash(&source_path)?.as_deref()
-                        == Some(hash.as_str())
-                    {
-                        continue;
-                    }
                     let item = ParsedItem {
                         item_type: ItemType::Skill,
                         topic: format!("{}/{}", symbol.language, symbol.symbol_name),
@@ -84,9 +74,20 @@ pub fn sync_index(
                         scope: "project".into(),
                         scope_key: path.to_str().map(|s| s.to_string()),
                     };
-                    batch.push(UnembeddedItem { item, hash });
+                    items.push(UnembeddedItem { item, hash });
                 }
             }
+            items
+        })
+        .collect();
+
+    for unemb in parsed_items {
+        if store
+            .indexed_item_current_hash(&unemb.item.source_path)?
+            .as_deref()
+            != Some(unemb.hash.as_str())
+        {
+            batch.push(unemb);
         }
     }
 
