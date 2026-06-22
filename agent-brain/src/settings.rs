@@ -221,7 +221,7 @@ fn default_registry_remote_repo() -> String {
 }
 
 fn default_registry_remote_ref() -> String {
-    "main".into()
+    "master".into()
 }
 
 fn default_registry_subpath() -> String {

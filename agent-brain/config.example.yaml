@@ -38,7 +38,7 @@ auto_update:
 # registry:
 #   enabled: true
 #   remote_repo: autonomic-ai-dev/agent-registry
-#   remote_ref: main
+#   remote_ref: master
 #   registry_subpath: ""
 #   sync_interval_hours: 24
 #   sync_on_doctor: true
