@@ -109,6 +109,15 @@ mod tests {
     }
 
     #[test]
+    fn resolves_autonomic_core_bundle_alias() {
+        let resolved = lookup_alias("@autonomic-core").unwrap().unwrap();
+        assert_eq!(
+            resolved,
+            ResolvedAlias::Bundle("autonomic-core".into())
+        );
+    }
+
+    #[test]
     fn embedded_registry_has_nextjs() {
         let aliases = list_aliases().unwrap();
         assert!(aliases.iter().any(|a| a.alias == "nextjs"));

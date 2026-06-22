@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "kinds": ["skill_package", "workflow", "utility"],
+  "default_bootstrap": ["@autonomic-core", "@supervisor"]
+}
