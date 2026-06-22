@@ -482,7 +482,7 @@ const OPENCODE_ROUTE_RULE: &str = r"## HARD RULES (never skip)
 - Call `agent-brain_route_task` at the start of EVERY turn, before any other tool, skill, or action. Pass `user_message`, `current_working_directory`, and `open_files`. This is non-negotiable.
 ";
 
-const OPENCODE_MODE_SNIPPET: &str = r"# agent-brain mode
+const OPENCODE_MODE_SNIPPET: &str = r#"# agent-brain mode
 
 Enforces route_task before every turn — memory, skills, and cross-session context are injected automatically.
 
@@ -492,10 +492,10 @@ Enforces route_task before every turn — memory, skills, and cross-session cont
 - Call `store_memory` at task end for durable outcomes
 
 ## Autonomic utilities (delegate, don't improvise)
-- Workflows: `agent-spine run --meta \"...\"` or `agent-spine init --with @workflow`
+- Workflows: `agent-spine run --meta "..."` or `agent-spine init --with @workflow`
 - Discovery: `agent-brain registry list` (skills + utilities)
 - Upstream MCP: `route_to_mcp` when `suggested_tools` appears in route_task
-";
+"#;
 
 fn write_opencode_config(path: &Path, server_entry: Value, user: bool) -> Result<()> {
     if let Some(parent) = path.parent() {
