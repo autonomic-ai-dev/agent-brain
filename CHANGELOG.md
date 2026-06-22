@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.9] - 2026-06-22
+
+### Added
+
+- `@autonomic-core` bundled find-skills meta-skill; `@official` and `@claude-skills` registry aliases
+- Autonomic utility catalog (`utilities.json`); `agent-brain registry list` shows skills and utilities
+- OpenCode install merges `instructions` and `agent-brain-route-gate` plugin; writes route rule and agent-brain mode
+
+### Changed
+
+- Host instructions v6: delegate to agent-spine, agent-heart, and `route_to_mcp` when agent-brain mode is on
+- CI: upgrade pipeline-compose to v1.17.1 so PR pipelines dispatch on head branch refs
+
+### Fixed
+
+- OpenCode route-gate plugin registers on `chat.message` (was `message`), so turn-start gate runs
+
 ## [0.28.8] - 2026-06-21
 
 ### Added
