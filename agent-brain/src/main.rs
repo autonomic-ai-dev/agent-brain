@@ -133,13 +133,22 @@ async fn main() -> Result<()> {
         }
         "registry" => match args.get(2).map(String::as_str).unwrap_or("list") {
             "list" => {
+                println!("skill_packages:");
                 for entry in packages::list_aliases()? {
                     let source = if let Some(bundle) = &entry.bundle {
                         format!("bundle:{bundle}")
                     } else {
                         entry.packages.join(", ")
                     };
-                    println!("@{:<10}  {}  [{}]", entry.alias, entry.description, source);
+                    println!("  @{:<14}  {}  [{}]", entry.alias, entry.description, source);
+                }
+                println!("\nutilities:");
+                for util in packages::list_utilities()? {
+                    let invoke = util.invoke.join("; ");
+                    println!(
+                        "  {:<14}  ({})  {}  [{}]",
+                        util.name, util.alias, util.description, invoke
+                    );
                 }
             }
             other => {

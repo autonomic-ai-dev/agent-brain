@@ -482,7 +482,7 @@ const OPENCODE_ROUTE_RULE: &str = r"## HARD RULES (never skip)
 - Call `agent-brain_route_task` at the start of EVERY turn, before any other tool, skill, or action. Pass `user_message`, `current_working_directory`, and `open_files`. This is non-negotiable.
 ";
 
-const OPENCODE_MODE_SNIPPET: &str = r"# agent-brain mode
+const OPENCODE_MODE_SNIPPET: &str = r#"# agent-brain mode
 
 Enforces route_task before every turn — memory, skills, and cross-session context are injected automatically.
 
@@ -490,7 +490,12 @@ Enforces route_task before every turn — memory, skills, and cross-session cont
 - Call `agent-brain_route_task` with `user_message`, `current_working_directory`, `open_files` at the start of every turn
 - Use agent-brain `grep_search`, `file_summary`, `read_file_head`, `read_file_tail` instead of native Read/Grep
 - Call `store_memory` at task end for durable outcomes
-";
+
+## Autonomic utilities (delegate, don't improvise)
+- Workflows: `agent-spine run --meta "..."` or `agent-spine init --with @workflow`
+- Discovery: `agent-brain registry list` (skills + utilities)
+- Upstream MCP: `route_to_mcp` when `suggested_tools` appears in route_task
+"#;
 
 fn write_opencode_config(path: &Path, server_entry: Value, user: bool) -> Result<()> {
     if let Some(parent) = path.parent() {
@@ -728,10 +733,10 @@ fn write_host_instructions(path: &Path, content: &str, quiet: bool, label: &str)
     Ok(())
 }
 
-const HOST_INSTRUCTIONS_VERSION: &str = "5";
+const HOST_INSTRUCTIONS_VERSION: &str = "6";
 
 const HOST_AGENT_BRAIN_INSTRUCTIONS: &str = r#"# agent-brain MCP (required)
-instructions-version: 5
+instructions-version: 6
 
 ## The connection contract
 
@@ -750,6 +755,20 @@ If the agent skips route_task, cross-agent ingest and shared memory provide **ze
 2. Load skills/agents from returned paths; apply `applicable_rules` and `must_apply`.
 3. Use `relevant_memory` (includes session digests when relevant).
 4. At task end, call **`store_memory`** for durable outcomes (max 50 words, no secrets).
+
+## Autonomic utility ecosystem
+
+When agent-brain mode is on, **delegate** to sibling utilities instead of improvising multi-step work:
+
+| Utility | When | Invoke |
+|---------|------|--------|
+| **agent-spine** | Repeatable workflows (release notes, stacked PRs, bugfix loops) | `agent-spine run --meta "..."` or `agent-spine init --with @workflow` |
+| **agent-heart** | Budget-sensitive or long runs | `agent-heart status` |
+| **agent-body** | Route to any organ | `autonomic spine run`, `autonomic brain briefing` |
+
+- `agent-brain registry list` — skill @aliases and utility catalog
+- `route_to_mcp` — forward to configured upstream MCP tools (`suggested_tools` in route_task)
+- Bootstrap: `agent-brain add @autonomic-core` + `agent-brain add @supervisor`
 
 ## Native host tools (OpenCode / Claude Code / VS Code / Gemini / Antigravity)
 

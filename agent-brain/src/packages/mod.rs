@@ -11,7 +11,8 @@ mod bundles;
 mod curated;
 pub use bundles::install_bundled;
 pub use curated::{
-    list_aliases, lookup_alias, resolve_package_inputs, CuratedAliasInfo, ResolvedAlias,
+    list_aliases, list_utilities, lookup_alias, resolve_package_inputs, CuratedAliasInfo,
+    ResolvedAlias, UtilityInfo,
 };
 
 const REGISTRY_FILE: &str = "packages.json";

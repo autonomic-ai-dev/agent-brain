@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "utilities": {
+    "agent-brain": {
+      "alias": "brain",
+      "description": "Routing, memory, skills, and MCP federation",
+      "invoke": ["agent-brain route_task", "agent-brain registry list", "agent-brain add @alias"],
+      "mcp_tools": ["route_task", "store_memory", "route_to_mcp", "grep_search"]
+    },
+    "agent-spine": {
+      "alias": "spine",
+      "description": "Deterministic YAML workflow DAG execution",
+      "invoke": ["agent-spine run --meta \"task\"", "agent-spine init --with @workflow"],
+      "when": "Multi-step repeatable tasks (release notes, stacked PRs, bugfix loops)"
+    },
+    "agent-heart": {
+      "alias": "heart",
+      "description": "Token budget and cost guardrails",
+      "invoke": ["agent-heart status", "agent-heart budget"],
+      "when": "Long runs or budget-sensitive work"
+    },
+    "agent-body": {
+      "alias": "body",
+      "description": "Organ supervisor — routes to brain/spine/heart/nerves",
+      "invoke": ["autonomic spine run", "autonomic brain briefing", "autonomic doctor"]
+    }
+  }
+}
