@@ -75,6 +75,7 @@ fn merge_opencode_preserves_other_keys() {
             "command": ["/bin/agent-brain", "serve"],
             "enabled": true
         }),
+        false,
     )
     .unwrap();
     assert_eq!(merged["model"], "test/model");
