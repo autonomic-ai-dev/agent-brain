@@ -78,7 +78,7 @@ dependencies = [
 
 [[package]]
 name = "agent-brain"
-version = "0.28.7"
+version = "0.28.9"
 dependencies = [
  "age",
  "agent-body-core",
