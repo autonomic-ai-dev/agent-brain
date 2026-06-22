@@ -70,7 +70,7 @@ export const AgentBrainRouteGate = async () => {
         throw new Error(denyMessage(out));
       }
     },
-    "message": async (
+    "chat.message": async (
       input: { role?: string },
       _output: unknown,
     ) => {
