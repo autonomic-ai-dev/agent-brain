@@ -1,6 +1,23 @@
 {
   "version": 1,
   "aliases": {
+    "autonomic-core": {
+      "description": "Registry discovery — find-skills meta-skill for skills and workflows",
+      "bundle": "autonomic-core",
+      "packages": []
+    },
+    "official": {
+      "description": "Official skill repos — awesome-copilot, anthropics/skills, azure-skills",
+      "packages": [
+        "github/awesome-copilot",
+        "anthropics/skills",
+        "microsoft/azure-skills"
+      ]
+    },
+    "claude-skills": {
+      "description": "Jeff Allan curated Claude skills library",
+      "packages": ["jeffallan/claude-skills"]
+    },
     "starter": {
       "description": "Lightweight onboarding — skill discovery + Vercel React patterns",
       "packages": [

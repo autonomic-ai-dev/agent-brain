@@ -2,6 +2,7 @@ use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
 const EMBEDDED_REGISTRY: &str = include_str!("../../registry/packages.json");
+const EMBEDDED_UTILITIES: &str = include_str!("../../registry/utilities.json");
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct CuratedRegistryFile {
@@ -24,6 +25,48 @@ pub struct CuratedAliasInfo {
     pub description: String,
     pub bundle: Option<String>,
     pub packages: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct UtilityInfo {
+    pub name: String,
+    pub alias: String,
+    pub description: String,
+    pub invoke: Vec<String>,
+    pub when: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct UtilitiesRegistryFile {
+    #[allow(dead_code)]
+    version: u32,
+    utilities: std::collections::BTreeMap<String, UtilityEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct UtilityEntry {
+    alias: String,
+    description: String,
+    #[serde(default)]
+    invoke: Vec<String>,
+    #[serde(default)]
+    when: Option<String>,
+}
+
+pub fn list_utilities() -> Result<Vec<UtilityInfo>> {
+    let reg: UtilitiesRegistryFile =
+        serde_json::from_str(EMBEDDED_UTILITIES).context("parse embedded utilities registry")?;
+    Ok(reg
+        .utilities
+        .into_iter()
+        .map(|(name, entry)| UtilityInfo {
+            name,
+            alias: entry.alias,
+            description: entry.description,
+            invoke: entry.invoke,
+            when: entry.when,
+        })
+        .collect())
 }
 
 pub fn load_curated_registry() -> Result<CuratedRegistryFile> {
@@ -106,6 +149,15 @@ mod tests {
     fn passes_through_owner_repo() {
         let sources = resolve_package_inputs("foo/bar").unwrap();
         assert_eq!(sources, vec!["foo/bar"]);
+    }
+
+    #[test]
+    fn resolves_autonomic_core_bundle_alias() {
+        let resolved = lookup_alias("@autonomic-core").unwrap().unwrap();
+        assert_eq!(
+            resolved,
+            ResolvedAlias::Bundle("autonomic-core".into())
+        );
     }
 
     #[test]
