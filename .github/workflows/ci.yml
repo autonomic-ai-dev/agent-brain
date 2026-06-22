@@ -12,6 +12,7 @@ concurrency:
   cancel-in-progress: ${{ github.workflow != 'Release' }}
 permissions:
   actions: write
+  statuses: write
 
 jobs:
   run-pipeline:
@@ -20,7 +21,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: aeswibon/pipeline-compose-run@v1.1.0
+      - uses: aeswibon/pipeline-compose-run@v1.17.1
         with:
           pipeline_file: .github/pipelines/ci.yml
           github_token: ${{ github.token }}
+          ref: ${{ github.head_ref || github.ref_name }}

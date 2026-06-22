@@ -62,7 +62,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - uses: aeswibon/pipeline-compose-export@v1.1.0
+      - uses: aeswibon/pipeline-compose-export@v1.17.1
         if: success()
         with:
           stage_id: test

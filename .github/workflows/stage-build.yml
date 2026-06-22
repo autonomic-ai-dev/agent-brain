@@ -27,7 +27,7 @@ jobs:
     if: success()
     runs-on: ubuntu-latest
     steps:
-      - uses: aeswibon/pipeline-compose-export@v1.1.0
+      - uses: aeswibon/pipeline-compose-export@v1.17.1
         with:
           stage_id: build
           outputs: >-
