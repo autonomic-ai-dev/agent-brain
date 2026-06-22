@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use uuid::Uuid;
 
-use crate::cache::{fingerprint_query, route_cache_key, QueryEmbeddingCache, TurnCache};
+use crate::cache::{fingerprint_query, route_cache_key, session_route_cache_key, QueryEmbeddingCache, TurnCache};
 use crate::config::Config;
 use crate::db::store::{content_hash, BrainStore};
 use crate::db::{send_and_recv, spawn_write_handler, WriteOp, WriteQueue};
@@ -519,6 +519,29 @@ impl Engine {
             }
         }
 
+        if self.config.session_stickiness_secs > 0 {
+            let session_key = session_route_cache_key(
+                &scope_key,
+                &phase,
+                task_kind.as_str(),
+                open_files,
+                self.store.get_index_version(),
+                self.config.turn_cache_ignore_open_files,
+            );
+            let session_ttl = Duration::from_secs(self.config.session_stickiness_secs);
+            if let Some(mut cached) = self.cache.get_with_ttl(&session_key, session_ttl) {
+                if let Some(repo) = ws.repo_root.as_deref() {
+                    cached.repo_snapshot = crate::repo_snapshot::capture(
+                        std::path::Path::new(repo),
+                        &self.config.home,
+                    );
+                }
+                let total_us = started.elapsed().as_micros() as u64;
+                cached.latency_ms = total_us / 1000;
+                return Ok(self.finish_route_response(cached));
+            }
+        }
+
         let query = format!("{} {}", user_message, ws.tags.join(" "));
         let message_fp = fingerprint_query(user_message);
         let (scored, candidates, index_total, embed_us, score_us, embed_cache_hit, bm25_fast_path) =
@@ -599,6 +622,17 @@ impl Engine {
 
         if !is_empty_route_response(&resp) {
             self.cache.put(cache_key, resp.clone());
+            if self.config.session_stickiness_secs > 0 {
+                let session_key = session_route_cache_key(
+                    &scope_key,
+                    &phase,
+                    task_kind.as_str(),
+                    open_files,
+                    self.store.get_index_version(),
+                    self.config.turn_cache_ignore_open_files,
+                );
+                self.cache.put(session_key, resp.clone());
+            }
         }
 
         if let Err(err) = crate::observability::log_route(
@@ -793,6 +827,7 @@ fn try_add_route_item(
                 path: item.source_path.clone().unwrap_or_default(),
                 rationale: rationale_for(item, phase),
                 score: item.score,
+                text: None,
             };
             let t = estimate_json_tokens(&serde_json::to_value(&rec).unwrap_or_default());
             (PendingRec::Skill(rec), t)

@@ -217,7 +217,7 @@ pub struct RegistrySettings {
 }
 
 fn default_registry_remote_repo() -> String {
-    "autonomic-ai-dev/agent-brain".into()
+    "autonomic-ai-dev/agent-registry".into()
 }
 
 fn default_registry_remote_ref() -> String {
@@ -225,7 +225,7 @@ fn default_registry_remote_ref() -> String {
 }
 
 fn default_registry_subpath() -> String {
-    "agent-brain/registry".into()
+    String::new()
 }
 
 fn default_registry_sync_interval_hours() -> u32 {

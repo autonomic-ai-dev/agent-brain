@@ -423,9 +423,9 @@ async fn main() -> Result<()> {
                 "reject" => {
                     let config = Config::load()?;
                     agent_brain::suggest_memory::reject_pending(&config.home)?;
-                    println!("Dismissed pending anti-pattern suggestion");
+                    println!("Dismissed pending memory suggestion");
                 }
-                "show" | _ => match agent_brain::route_briefing::read_anti_pattern_suggestion(
+                "show" | _ => match agent_brain::route_briefing::read_pending_memory_suggestion(
                     &Config::load()?.home,
                 ) {
                     Some(suggestion) => {
@@ -433,7 +433,7 @@ async fn main() -> Result<()> {
                         println!("\nApprove: agent-brain suggest-memory approve");
                     }
                     None => {
-                        eprintln!("No anti-pattern suggestion pending.");
+                        eprintln!("No memory suggestion pending.");
                         std::process::exit(1);
                     }
                 },

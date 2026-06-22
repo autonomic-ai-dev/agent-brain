@@ -54,8 +54,30 @@ pub fn enrich_route_response(
 ) {
     resp.task_kind = Some(task_kind.as_str().to_string());
     resp.route_confidence = compute_route_confidence(resp, scored);
+    hydrate_high_confidence_skills(resp);
     resp.context_bundle = Some(build_context_bundle(resp, scored));
     resp.escalate_recommended = should_escalate(resp, task_kind);
+}
+
+const SKILL_AUTOLOAD_MIN_SCORE: f64 = 0.8;
+const SKILL_AUTOLOAD_MAX_CHARS: usize = 4000;
+
+fn hydrate_high_confidence_skills(resp: &mut RouteTaskResponse) {
+    for skill in &mut resp.recommended_skills {
+        if skill.score < SKILL_AUTOLOAD_MIN_SCORE {
+            continue;
+        }
+        if skill.text.is_some() {
+            continue;
+        }
+        let path = std::path::Path::new(&skill.path);
+        if !path.is_file() {
+            continue;
+        }
+        if let Ok(raw) = std::fs::read_to_string(path) {
+            skill.text = Some(raw.chars().take(SKILL_AUTOLOAD_MAX_CHARS).collect());
+        }
+    }
 }
 
 fn compute_route_confidence(resp: &RouteTaskResponse, scored: &[ScoredItem]) -> f64 {
@@ -269,6 +291,7 @@ mod tests {
                 path: "/s.md".into(),
                 rationale: "r".into(),
                 score: 0.9,
+                text: None,
             }],
             ..Default::default()
         };

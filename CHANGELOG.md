@@ -11,12 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Phase 1: lightweight `repo_snapshot` in `route_task`; cross-host agent-brain mode; doctor OpenCode integration checks; registry workflow presets (`release-notes`, `stacked-pr`, `bugfix`)
 - Phase 2: `registry_sync` cache at `~/.agent_brain/registry-cache/` (embedded seed + remote fetch); `agent-brain registry sync [--local]`; `opencode_integration_bench.py` (GAP-MET-01)
-- `RegistrySettings` in config (`remote_repo`, `remote_ref`, `registry_subpath`, sync interval)
+- Phase 3: session routing stickiness (`AGENT_BRAIN_SESSION_STICKINESS_SECS`); high-confidence skill body auto-inject (score ≥ 0.8); edit-memory suggestions from hook file edits
+- `RegistrySettings` defaults point at `autonomic-ai-dev/agent-registry` (embedded fallback offline)
 
 ### Changed
 
 - `packages/curated` reads registry JSON from cache with embedded fallback
 - `doctor --fix` seeds registry cache via `ensure_cached` before bundle bootstrap
+- `suggest-memory` approves anti-pattern or edit suggestions from hooks
 
 ## [0.28.9] - 2026-06-22
 

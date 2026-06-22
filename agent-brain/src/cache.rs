@@ -30,9 +30,13 @@ impl TurnCache {
     }
 
     pub fn get(&self, key: &CacheKey) -> Option<RouteTaskResponse> {
+        self.get_with_ttl(key, self.ttl)
+    }
+
+    pub fn get_with_ttl(&self, key: &CacheKey, ttl: Duration) -> Option<RouteTaskResponse> {
         let mut guard = self.inner.lock().ok()?;
         let (resp, ts) = guard.get(key)?;
-        if ts.elapsed() > self.ttl {
+        if ts.elapsed() > ttl {
             return None;
         }
         let mut out = resp.clone();
@@ -82,6 +86,29 @@ pub fn route_cache_key(
     }
 }
 
+/// Session-scoped cache key — same repo/phase/files, any user message in the session.
+pub fn session_route_cache_key(
+    scope_key: &str,
+    phase: &str,
+    task_kind: &str,
+    open_files: &[String],
+    index_version: u64,
+    ignore_open_files: bool,
+) -> CacheKey {
+    CacheKey {
+        scope_key: scope_key.to_string(),
+        phase: phase.to_string(),
+        task_kind: task_kind.to_string(),
+        open_files_fp: if ignore_open_files {
+            String::new()
+        } else {
+            fingerprint_open_files(open_files)
+        },
+        query_fp: "__session__".into(),
+        index_version,
+    }
+}
+
 pub fn fingerprint_open_files(files: &[String]) -> String {
     use sha2::{Digest, Sha256};
     let mut sorted = files.to_vec();
@@ -123,4 +150,15 @@ pub fn fingerprint_query(message: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ");
     format!("{:x}", Sha256::digest(normalized.as_bytes()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_key_uses_sentinel_query_fp() {
+        let key = session_route_cache_key("repo", "implementing", "implementing", &[], 1, true);
+        assert_eq!(key.query_fp, "__session__");
+    }
 }

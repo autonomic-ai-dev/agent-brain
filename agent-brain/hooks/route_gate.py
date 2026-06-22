@@ -347,6 +347,19 @@ def append_tool_event(record: dict) -> None:
         handle.write(json.dumps(record) + "\n")
 
 
+def write_edit_memory_suggestion(path: str) -> None:
+    state = load_state()
+    name = Path(path).name
+    state["edit_memory_suggestion"] = {
+        "topic": f"session-edit-{name}",
+        "fact": f"Edited {path} this session — capture conventions if durable.",
+        "path": path,
+        "suggested_at": time.time(),
+        "apply_with": "store_memory",
+    }
+    save_state(state)
+
+
 def write_anti_pattern_suggestion(path: str, reason: str) -> None:
     state = load_state()
     topic = "no-read-dist" if "dist" in path.lower() else f"no-full-read-{Path(path).name}"
@@ -569,6 +582,7 @@ def maybe_log_tool_trace(event: dict) -> None:
         path = extract_read_path(event)
         if path:
             detail = f"edited {path}"
+            write_edit_memory_suggestion(path)
     if not detail and not path:
         return
     state = load_state()

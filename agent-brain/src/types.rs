@@ -121,6 +121,8 @@ pub struct SkillRec {
     pub path: String,
     pub rationale: String,
     pub score: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

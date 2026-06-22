@@ -44,6 +44,8 @@ pub struct Config {
     pub mcp_gate_enabled: bool,
     /// Seconds a successful route_task unlocks other agent-brain MCP tools.
     pub mcp_gate_ttl_secs: u64,
+    /// Reuse prior route results within a session when scope/phase/files match (0 = off).
+    pub session_stickiness_secs: u64,
 }
 
 impl Config {
@@ -113,6 +115,7 @@ impl Config {
             route_briefing_stderr: env_bool("AGENT_BRAIN_ROUTE_BRIEFING_STDERR", true),
             mcp_gate_enabled: env_bool("AGENT_BRAIN_MCP_GATE", true),
             mcp_gate_ttl_secs: env_u64("AGENT_BRAIN_MCP_GATE_TTL", 600),
+            session_stickiness_secs: env_u64("AGENT_BRAIN_SESSION_STICKINESS_SECS", 1800),
             ann_enabled: env_bool("AGENT_BRAIN_ANN", true),
             ann_min_index: env_usize(
                 "AGENT_BRAIN_ANN_MIN_INDEX",
@@ -157,6 +160,7 @@ impl Config {
             route_briefing_stderr: false,
             mcp_gate_enabled: false,
             mcp_gate_ttl_secs: 600,
+            session_stickiness_secs: 0,
             ann_enabled: true,
             ann_min_index: crate::ann::DEFAULT_ANN_MIN_INDEX,
             ann_top_k: crate::ann::DEFAULT_ANN_TOP_K,

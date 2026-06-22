@@ -1,4 +1,4 @@
-//! Promote hook-captured anti-pattern suggestions into durable memory.
+//! Promote hook-captured memory suggestions into durable store.
 
 use std::path::Path;
 
@@ -21,6 +21,8 @@ pub struct ApproveReport {
     pub deduplicated: bool,
     pub id: Option<String>,
     pub apply_when: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -29,13 +31,19 @@ struct ParsedSuggestion {
     fact: String,
     polarity: String,
     path: Option<String>,
+    source: &'static str,
 }
 
 pub fn approve_pending(engine: &Engine) -> Result<ApproveReport> {
     let home = &engine.config.home;
-    let raw = route_briefing::read_anti_pattern_suggestion(home)
-        .context("no anti-pattern suggestion pending — hook stages one after Read steer")?;
-    let parsed = parse_suggestion(&raw)?;
+    let (raw, source) = if let Some(v) = route_briefing::read_anti_pattern_suggestion(home) {
+        (v, "anti_pattern")
+    } else if let Some(v) = route_briefing::read_edit_memory_suggestion(home) {
+        (v, "edit")
+    } else {
+        bail!("no memory suggestion pending — hooks stage one after Read steer or file edits");
+    };
+    let parsed = parse_suggestion(&raw, source)?;
     let apply_when = apply_when_for_path(parsed.path.as_deref());
     let scope_key = std::env::current_dir()
         .ok()
@@ -49,7 +57,7 @@ pub fn approve_pending(engine: &Engine) -> Result<ApproveReport> {
             fact: parsed.fact.clone(),
             scope: "project".into(),
             scope_key,
-            confidence: 0.95,
+            confidence: if parsed.source == "edit" { 0.75 } else { 0.95 },
             polarity: Some(parsed.polarity.clone()),
             apply_when: if apply_when.is_empty() {
                 None
@@ -61,7 +69,7 @@ pub fn approve_pending(engine: &Engine) -> Result<ApproveReport> {
         },
     })?;
 
-    route_briefing::clear_anti_pattern_suggestion(home)?;
+    clear_suggestion(home, parsed.source)?;
 
     Ok(ApproveReport {
         topic: parsed.topic,
@@ -77,18 +85,31 @@ pub fn approve_pending(engine: &Engine) -> Result<ApproveReport> {
             .unwrap_or(false),
         id: value.get("id").and_then(|v| v.as_str()).map(str::to_string),
         apply_when,
+        source: Some(parsed.source.to_string()),
     })
 }
 
 pub fn reject_pending(home: &Path) -> Result<()> {
-    if route_briefing::read_anti_pattern_suggestion(home).is_none() {
-        bail!("no anti-pattern suggestion pending");
+    if route_briefing::read_anti_pattern_suggestion(home).is_some() {
+        route_briefing::clear_anti_pattern_suggestion(home)?;
+        return Ok(());
     }
-    route_briefing::clear_anti_pattern_suggestion(home)?;
-    Ok(())
+    if route_briefing::read_edit_memory_suggestion(home).is_some() {
+        route_briefing::clear_edit_memory_suggestion(home)?;
+        return Ok(());
+    }
+    bail!("no memory suggestion pending");
 }
 
-fn parse_suggestion(raw: &Value) -> Result<ParsedSuggestion> {
+fn clear_suggestion(home: &Path, source: &str) -> Result<()> {
+    match source {
+        "anti_pattern" => route_briefing::clear_anti_pattern_suggestion(home),
+        "edit" => route_briefing::clear_edit_memory_suggestion(home),
+        _ => Ok(()),
+    }
+}
+
+fn parse_suggestion(raw: &Value, source: &'static str) -> Result<ParsedSuggestion> {
     let topic = raw
         .get("topic")
         .and_then(|v| v.as_str())
@@ -104,7 +125,7 @@ fn parse_suggestion(raw: &Value) -> Result<ParsedSuggestion> {
     let polarity = raw
         .get("polarity")
         .and_then(|v| v.as_str())
-        .unwrap_or("negative")
+        .unwrap_or(if source == "edit" { "positive" } else { "negative" })
         .to_string();
     let path = raw.get("path").and_then(|v| v.as_str()).map(str::to_string);
     Ok(ParsedSuggestion {
@@ -112,6 +133,7 @@ fn parse_suggestion(raw: &Value) -> Result<ParsedSuggestion> {
         fact,
         polarity,
         path,
+        source,
     })
 }
 

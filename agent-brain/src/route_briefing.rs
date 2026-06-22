@@ -323,7 +323,7 @@ pub fn format_supervisor_period_section(
     let since = chrono::Utc::now().timestamp_millis() - 24 * 3600 * 1000;
     let _ = crate::tool_events::ingest_hook_events_since(store, home, since);
     let stats = store.retrieval_stats_since(since).ok();
-    let pending = read_anti_pattern_suggestion(home).is_some();
+    let pending = read_pending_memory_suggestion(home).is_some();
     let mut out = String::from("## Supervisor (24h)\n\n");
     out.push_str(&format!("- Read gate: **{}**\n", read_gate_mode()));
     if let Some(stats) = stats {
@@ -347,7 +347,7 @@ pub fn format_supervisor_period_section(
         }
     }
     if pending {
-        out.push_str("- **Pending anti-pattern** — `agent-brain suggest-memory approve`\n");
+        out.push_str("- **Pending memory suggestion** — `agent-brain suggest-memory approve`\n");
     }
     if out.ends_with("## Supervisor (24h)\n\n") {
         out.push_str("_no supervisor telemetry in last 24h_\n");
@@ -360,6 +360,30 @@ pub fn read_anti_pattern_suggestion(home: &Path) -> Option<serde_json::Value> {
     let path = home.join("hooks/route_state.json");
     let state: serde_json::Value = fs::read_to_string(path).ok()?.parse().ok()?;
     state.get("anti_pattern_suggestion").cloned()
+}
+
+pub fn read_edit_memory_suggestion(home: &Path) -> Option<serde_json::Value> {
+    let path = home.join("hooks/route_state.json");
+    let state: serde_json::Value = fs::read_to_string(path).ok()?.parse().ok()?;
+    state.get("edit_memory_suggestion").cloned()
+}
+
+pub fn read_pending_memory_suggestion(home: &Path) -> Option<serde_json::Value> {
+    read_anti_pattern_suggestion(home).or_else(|| read_edit_memory_suggestion(home))
+}
+
+pub fn clear_edit_memory_suggestion(home: &Path) -> Result<()> {
+    let path = home.join("hooks/route_state.json");
+    let mut state: serde_json::Value = fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    if let Some(obj) = state.as_object_mut() {
+        obj.remove("edit_memory_suggestion");
+    }
+    fs::write(&path, serde_json::to_string(&state)?)
+        .with_context(|| format!("write {}", path.display()))?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -381,6 +405,7 @@ mod tests {
                 path: "/skill".into(),
                 rationale: "matched".into(),
                 score: 0.8,
+                text: None,
             }],
             recommended_phase: "debugging".into(),
             tokens_used: 100,

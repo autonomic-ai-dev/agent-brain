@@ -37,8 +37,8 @@ auto_update:
 # Registry cache (embedded snapshot + optional remote sync)
 # registry:
 #   enabled: true
-#   remote_repo: autonomic-ai-dev/agent-brain   # future: autonomic-ai-dev/agent-registry
+#   remote_repo: autonomic-ai-dev/agent-registry
 #   remote_ref: master
-#   registry_subpath: agent-brain/registry
+#   registry_subpath: ""
 #   sync_interval_hours: 24
 #   sync_on_doctor: true
