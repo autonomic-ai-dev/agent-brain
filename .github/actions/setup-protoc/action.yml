@@ -4,6 +4,26 @@ description: Install protoc for tonic/prost codegen (build.rs)
 runs:
   using: composite
   steps:
-    - uses: arduino/setup-protoc@v3
-      with:
-        repo-token: ${{ github.token }}
+    - name: Install protoc
+      shell: bash
+      run: |
+        if command -v protoc &>/dev/null; then
+          echo "protoc already installed: $(protoc --version)"
+          exit 0
+        fi
+        OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+        ARCH=$(uname -m)
+        case "$ARCH" in
+          x86_64) ARCH="x86_64" ;;
+          aarch64|arm64) ARCH="aarch_64" ;;
+        esac
+        if [ "$OS" = "darwin" ]; then
+          brew install protobuf
+        elif [ "$OS" = "linux" ]; then
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq protobuf-compiler
+        else
+          echo "Unsupported OS: $OS"
+          exit 1
+        fi
+        protoc --version
