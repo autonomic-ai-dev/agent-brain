@@ -1,8 +1,10 @@
 # agent-brain
 
-**Local context and memory engine for AI agents — routing, hooks, and durable memory.**
+**Cloud-Native role: Memory store** (PersistentVolume + ConfigMap analog) — durable context, skills, and temporal knowledge for AI agents.
 
-Part of the **[Autonomic AI](https://github.com/autonomic-ai-dev/agent-body)** ecosystem. Works standalone (MCP + CLI) or integrated via `autonomic brain …`, shared `~/.autonomic/config.toml`, and agent-spine workflows.
+Part of the **[Autonomic AI](https://github.com/autonomic-ai-dev/agent-body)** stack. Works standalone (MCP + CLI) or integrated via `autonomic brain …`, shared `~/.autonomic/config.toml`, and agent-spine workflows.
+
+> Codename: *brain organ*. Mapping: [cloud-native-platform.md](https://github.com/autonomic-ai-dev/agent-body/blob/master/docs/cloud-native-platform.md)
 
 | Standalone | Integrated |
 |------------|------------|
