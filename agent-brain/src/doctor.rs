@@ -481,10 +481,7 @@ pub fn macos_has_quarantine_attrs(path: &Path) -> bool {
 pub fn adhoc_sign(path: &Path) -> Result<()> {
     #[cfg(target_os = "macos")]
     {
-        let _ = Command::new("xattr")
-            .args(["-cr", &path.display().to_string()])
-            .status()
-            .context("xattr -cr")?;
+        clear_quarantine_attrs(path)?;
         let status = Command::new("codesign")
             .args(["--force", "--sign", "-", &path.display().to_string()])
             .status()
@@ -498,6 +495,48 @@ pub fn adhoc_sign(path: &Path) -> Result<()> {
             .context("codesign --verify")?;
         if !verify.success() {
             bail!("codesign verify failed for {}", path.display());
+        }
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        Ok(())
+    }
+}
+
+/// Clear download quarantine. Warns instead of failing when the prefix is not writable (e.g. Homebrew Cellar).
+pub fn clear_quarantine_attrs(path: &Path) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        if !macos_has_quarantine_attrs(path) {
+            return Ok(());
+        }
+        let path_s = path.display().to_string();
+        let out = Command::new("xattr")
+            .args(["-cr", &path_s])
+            .output()
+            .context("xattr -cr")?;
+        if out.status.success() {
+            return Ok(());
+        }
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let _ = Command::new("xattr")
+            .args(["-d", "com.apple.quarantine", &path_s])
+            .output();
+        if macos_has_quarantine_attrs(path) {
+            if stderr.to_ascii_lowercase().contains("permission denied") {
+                bail!(
+                    "xattr permission denied on {} (common for Homebrew). \
+                     Run `agent-brain install --global` again — it copies a signed binary to ~/.local/bin/agent-brain for MCP.",
+                    path.display()
+                );
+            }
+            bail!(
+                "could not clear com.apple.quarantine on {}: {}",
+                path.display(),
+                stderr.trim()
+            );
         }
         Ok(())
     }
