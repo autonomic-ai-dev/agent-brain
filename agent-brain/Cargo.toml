@@ -1,6 +1,6 @@
 [package]
 name = "agent-brain"
-version = "0.29.2"
+version = "0.30.0"
 edition = "2021"
 description = "Fast local MCP router for agents, skills, rules, and memory"
 license = "MIT"
@@ -15,7 +15,7 @@ name = "agent-brain"
 path = "src/main.rs"
 
 [dependencies]
-agent-body-core = { git = "https://github.com/autonomic-ai-dev/agent-body" }
+agent-body-core = { git = "https://github.com/autonomic-ai-dev/agent-body", tag = "v0.5.13" }
 age = "0.11"
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
@@ -37,6 +37,7 @@ secrecy = "0.10"
 sha2 = "0.10"
 tar = "0.4"
 thiserror = "2"
+toml = "0.8"
 tokio = { version = "1", features = ["full"] }
 tonic = "0.12"
 tracing = "0.1"
