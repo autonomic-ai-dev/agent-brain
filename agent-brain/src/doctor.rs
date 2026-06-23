@@ -26,13 +26,59 @@ pub fn run(fix: bool) -> Result<()> {
     let mcp_binary = mcp_binary_path(&mcp_path)?;
 
     let mut progress =
-        ProgressRun::new("agent-brain health check").with_total_hint(7);
+        ProgressRun::new("agent-brain health check").with_total_hint(9);
 
     println!("agent-brain doctor\n");
     println!("  version (this binary): {version}");
     println!("  binary path:           {}", exe.display());
 
     let mut ok = true;
+
+    let cfg_step = progress.step("unified config");
+    let unified = agent_body_core::config_path();
+    if unified.is_file() {
+        if agent_body_core::read_organ_section_raw("brain")
+            .ok()
+            .flatten()
+            .is_some()
+        {
+            println!("  unified config:        OK ({})", unified.display());
+            cfg_step.done();
+        } else {
+            println!("  unified config:        missing [brain] section");
+            ok = false;
+            if fix {
+                let _ = agent_body_core::run_legacy_migrations();
+                let _ = crate::settings::AgentBrainSettings::save_default(&config.home);
+                println!("  unified config:        migrated [brain]");
+                cfg_step.done();
+                ok = true;
+            } else {
+                cfg_step.warn("missing [brain]");
+            }
+        }
+    } else {
+        println!("  unified config:        not found — run `autonomic init`");
+        ok = false;
+        cfg_step.warn("missing ~/.autonomic/config.toml");
+    }
+
+    let agents_step = progress.step("AGENTS.md");
+    let agents_md = agent_body_core::agents_md_path();
+    if agents_md.is_file() {
+        println!("  AGENTS.md:             {}", agents_md.display());
+        agents_step.done();
+    } else {
+        println!("  AGENTS.md:             missing — run `agent-brain mode install --global`");
+        ok = false;
+        if fix {
+            let _ = crate::host_install::install_agent_brain_modes(true, true);
+            agents_step.done();
+            ok = true;
+        } else {
+            agents_step.warn("missing AGENTS.md");
+        }
+    }
 
     let mcp_step = progress.step("MCP path alignment");
     if let Some(cmd) = &mcp_binary {

@@ -488,20 +488,7 @@ const OPENCODE_ROUTE_RULE: &str = r"## HARD RULES (never skip)
 - Call `agent-brain_route_task` at the start of EVERY turn, before any other tool, skill, or action. Pass `user_message`, `current_working_directory`, and `open_files`. This is non-negotiable.
 ";
 
-pub const AGENT_BRAIN_MODE_SNIPPET: &str = r#"# agent-brain mode
-
-Enforces route_task before every turn — memory, skills, and cross-session context are injected automatically.
-
-## Rules
-- Call `agent-brain_route_task` with `user_message`, `current_working_directory`, `open_files` at the start of every turn
-- Use agent-brain `grep_search`, `file_summary`, `read_file_head`, `read_file_tail` instead of native Read/Grep
-- Call `store_memory` at task end for durable outcomes
-
-## Autonomic utilities (delegate, don't improvise)
-- Workflows: `agent-spine run --meta "..."` or `agent-spine init --with @workflow`
-- Discovery: `agent-brain registry list` (skills + utilities)
-- Upstream MCP: `route_to_mcp` when `suggested_tools` appears in route_task
-"#;
+pub const AGENT_BRAIN_MODE_SNIPPET: &str = agent_body_core::BASE_AGENT_MODE;
 
 fn write_agent_brain_mode(dir: &Path, quiet: bool, label: &str) -> Result<PathBuf> {
     fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
@@ -546,23 +533,19 @@ pub fn agent_brain_mode_locations(user: bool) -> Vec<(&'static str, PathBuf)> {
         Some(h) => h,
         None => return Vec::new(),
     };
+    let canonical = agent_body_core::agents_md_path();
     vec![
         ("cursor (User Rules)", home.join(".agent_brain/cursor-agent-brain-mode.mdc")),
-        ("codex", home.join(".codex/agent-brain-mode.md")),
-        ("claude-code", home.join(".claude/agent-brain-mode.md")),
-        ("gemini", home.join(".gemini/agent-brain-mode.md")),
+        ("canonical", canonical.clone()),
+        ("opencode", home.join(".config/opencode/AGENTS.md")),
+        ("claude", home.join(".claude/AGENTS.md")),
+        ("codex", home.join(".codex/AGENTS.md")),
+        ("gemini", home.join(".gemini/AGENTS.md")),
         (
             "antigravity",
-            home.join(".gemini/antigravity/agent-brain-mode.md"),
+            home.join(".gemini/antigravity/AGENTS.md"),
         ),
-        (
-            "opencode",
-            home
-                .join(".config/opencode/modes")
-                .join("agent-brain.md"),
-        ),
-        ("vscode", home.join(".vscode/agent-brain-mode.md")),
-        ("reference", home.join(".agent_brain/agent-brain-mode.md")),
+        ("vscode", home.join(".vscode/AGENTS.md")),
     ]
 }
 
@@ -577,32 +560,21 @@ pub fn install_agent_brain_modes(user: bool, quiet: bool) -> Result<()> {
     let home = dirs::home_dir().context("home directory")?;
     let brain_home = home.join(".agent_brain");
 
+    agent_body_core::ensure_default_ecosystem_sections().ok();
+    agent_body_core::scaffold_agents_dir().context("scaffold agents fragments")?;
+    if let Some(content) = agent_body_core::default_fragment("brain") {
+        agent_body_core::write_fragment("brain", content)?;
+    }
+    let links = agent_body_core::install_host_agents_md_links()?;
+    let composed = agent_body_core::agents_md_path();
+
     write_cursor_agent_brain_mode_mdc(&brain_home, quiet)?;
-    write_agent_brain_mode_file(&brain_home.join("agent-brain-mode.md"), quiet, "reference")?;
-    write_agent_brain_mode(&home.join(".codex"), quiet, "Codex")?;
-    write_agent_brain_mode(&home.join(".claude"), quiet, "Claude Code")?;
-    write_agent_brain_mode(&home.join(".gemini"), quiet, "Gemini CLI")?;
-    write_agent_brain_mode(
-        &home.join(".gemini").join("antigravity"),
-        quiet,
-        "Antigravity",
-    )?;
-
-    let oc_modes = home.join(".config").join("opencode").join("modes");
-    fs::create_dir_all(&oc_modes)?;
-    write_agent_brain_mode_file(
-        &oc_modes.join("agent-brain.md"),
-        quiet,
-        "OpenCode",
-    )?;
-
-    write_agent_brain_mode_file(
-        &home.join(".vscode").join("agent-brain-mode.md"),
-        quiet,
-        "VS Code",
-    )?;
 
     if !quiet {
+        println!("Composed AGENTS.md at {}", composed.display());
+        for link in &links {
+            println!("  AGENTS.md link: {}", link.display());
+        }
         println!();
         println!("agent-brain mode installed for all hosts. Run `agent-brain mode paths` to list files.");
         println!("  Cursor: paste ~/.agent_brain/cursor-user-rules.mdc AND cursor-agent-brain-mode.mdc into User Rules.");

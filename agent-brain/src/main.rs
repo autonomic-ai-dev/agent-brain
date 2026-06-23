@@ -286,7 +286,7 @@ async fn main() -> Result<()> {
             let config = Config::load()?;
             let brain_settings = settings::AgentBrainSettings::load(&config.home);
             if !brain_settings.auto_update.enabled {
-                eprintln!("Auto-update is disabled. Enable it in ~/.agent_brain/config.yaml or set AGENT_BRAIN_AUTO_UPDATE=1");
+                eprintln!("Auto-update is disabled. Enable it in ~/.autonomic/config.toml [brain] or [update.brain], or set AGENT_BRAIN_AUTO_UPDATE=1");
                 std::process::exit(1);
             }
             let mut run_config = config.clone();
