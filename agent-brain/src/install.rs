@@ -8,7 +8,12 @@ use crate::host_install::{self, HostTarget};
 
 pub fn run(target: HostTarget, print_only: bool, reload: bool) -> Result<()> {
     let exe = std::env::current_exe().context("resolve agent-brain binary path")?;
-    let snippet = mcp_server_entry(&exe);
+    let mcp_exe = if print_only {
+        exe.clone()
+    } else {
+        ensure_mcp_runnable_binary(&exe, false)?
+    };
+    let snippet = mcp_server_entry(&mcp_exe);
 
     if print_only {
         match target {
@@ -49,9 +54,12 @@ pub fn run(target: HostTarget, print_only: bool, reload: bool) -> Result<()> {
         }
     }
 
-    let paths = host_install::install_host(target, &exe, false)?;
+    let paths = host_install::install_host(target, &mcp_exe, false)?;
     println!("agent-brain MCP configured for {}", target.label());
     println!("Binary: {}", exe.display());
+    if mcp_exe != exe {
+        println!("MCP spawn path: {} (signed copy for Cursor)", mcp_exe.display());
+    }
     for path in paths {
         println!("  {}", path.display());
     }
@@ -75,8 +83,10 @@ pub fn run(target: HostTarget, print_only: bool, reload: bool) -> Result<()> {
 
     #[cfg(target_os = "macos")]
     {
-        if let Err(err) = crate::doctor::adhoc_sign(&exe) {
-            eprintln!("Warning: adhoc codesign failed: {err}");
+        if mcp_exe == exe {
+            if let Err(err) = crate::doctor::adhoc_sign(&exe) {
+                eprintln!("Warning: adhoc codesign failed: {err}");
+            }
         }
     }
 
@@ -103,21 +113,88 @@ pub fn run_post_install_warmup(quiet: bool) -> Result<()> {
 
 fn print_cursor_next_steps() {
     println!("Cursor next steps:");
-    println!("  1. Restart Cursor or toggle agent-brain under Settings → MCP");
-    println!("  2. Confirm hooks under Settings → Hooks (route_task gate)");
-    println!("  3. After rebuilds: agent-brain install --global --reload");
+    println!("  1. Paste User Rules from ~/.agent_brain/cursor-user-rules.mdc");
+    println!("     Optional mode: ~/.agent_brain/cursor-agent-brain-mode.mdc");
+    println!("     (Settings → Rules, Memories, and Commands → User Rules)");
+    println!("  2. Restart Cursor or toggle agent-brain under Settings → MCP");
+    println!("  3. Confirm hooks under Settings → Hooks (route_task gate)");
+    println!("  4. Other hosts: agent-brain mode paths");
+    println!("  5. After rebuilds or brew upgrade: agent-brain install --global --reload");
     println!();
     println!("Other hosts: agent-brain install --claude-desktop | --vscode | --claude-code | --opencode | --codex | --gemini | --antigravity [--global] | --all");
 }
 
+/// macOS MCP path: Homebrew Cellar blocks xattr/codesign — copy to ~/.local/bin (user-writable).
+pub fn ensure_mcp_runnable_binary(exe: &Path, quiet: bool) -> Result<PathBuf> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = quiet;
+        return Ok(exe.to_path_buf());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let canonical = fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
+        if !needs_mcp_binary_copy(&canonical) {
+            if let Err(err) = crate::doctor::adhoc_sign(&canonical) {
+                if !quiet {
+                    eprintln!("Warning: adhoc codesign on {}: {err}", canonical.display());
+                }
+            }
+            return Ok(canonical);
+        }
+
+        let dest = dirs::home_dir()
+            .context("home directory")?
+            .join(".local/bin/agent-brain");
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+        }
+        fs::copy(&canonical, &dest)
+            .with_context(|| format!("copy MCP binary to {}", dest.display()))?;
+        crate::doctor::adhoc_sign(&dest).with_context(|| {
+            format!(
+                "sign MCP binary at {} (required for Cursor on macOS)",
+                dest.display()
+            )
+        })?;
+        if !quiet {
+            println!(
+                "MCP binary: {} (copy of {} — Homebrew/cellar paths cannot be re-signed in place)",
+                dest.display(),
+                canonical.display()
+            );
+        }
+        Ok(dest)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn needs_mcp_binary_copy(path: &Path) -> bool {
+    is_homebrew_managed(path) || crate::doctor::macos_has_quarantine_attrs(path)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn needs_mcp_binary_copy(_path: &Path) -> bool {
+    false
+}
+
+pub fn is_homebrew_managed(path: &Path) -> bool {
+    let s = path.to_string_lossy();
+    s.contains("/Cellar/")
+        || s.contains("/opt/homebrew/")
+        || s.contains("/usr/local/Cellar/")
+}
+
 /// Merge MCP config and optionally refresh Cursor hooks/rule (used by install + auto-update).
 pub fn configure_cursor(global: bool, exe: &Path, quiet: bool) -> Result<()> {
+    let mcp_exe = ensure_mcp_runnable_binary(exe, quiet)?;
     let config_path = mcp_config_path(global)?;
     if let Some(parent) = config_path.parent() {
         fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
 
-    let merged = merge_mcp_config(&config_path, mcp_server_entry(exe))?;
+    let merged = merge_mcp_config(&config_path, mcp_server_entry(&mcp_exe))?;
     let pretty = serde_json::to_string_pretty(&merged)?;
     fs::write(&config_path, format!("{pretty}\n"))
         .with_context(|| format!("write MCP config to {}", config_path.display()))?;
@@ -125,23 +202,35 @@ pub fn configure_cursor(global: bool, exe: &Path, quiet: bool) -> Result<()> {
     if global {
         install_cursor_hooks(quiet)?;
         install_cursor_permissions(quiet)?;
-    }
-    install_project_cursor_rules(quiet)?;
-
-    #[cfg(target_os = "macos")]
-    {
-        if let Err(err) = crate::doctor::adhoc_sign(exe) {
-            if !quiet {
-                eprintln!("Warning: adhoc codesign failed: {err}");
-            }
-        }
+        install_cursor_user_rules_snippet(quiet)?;
+        host_install::install_agent_brain_modes(true, quiet)?;
+    } else {
+        install_project_cursor_rules(quiet)?;
     }
 
     Ok(())
 }
 
 /// Cursor loads **project** rules from `<workspace>/.cursor/rules/*.mdc` only.
-/// `~/.cursor/rules/` is not read by Cursor — use Settings → Rules for User Rules.
+/// For global installs, write a User Rules snippet under ~/.agent_brain/.
+pub fn install_cursor_user_rules_snippet(quiet: bool) -> Result<()> {
+    let home = dirs::home_dir().context("home directory")?;
+    let brain_home = home.join(".agent_brain");
+    fs::create_dir_all(&brain_home)
+        .with_context(|| format!("create {}", brain_home.display()))?;
+    let path = brain_home.join("cursor-user-rules.mdc");
+    fs::write(&path, CURSOR_RULE).with_context(|| format!("write {}", path.display()))?;
+    if !quiet {
+        println!();
+        println!("Cursor User Rules (paste manually — Cursor does not load ~/.cursor/rules/ globally):");
+        println!("  File: {}", path.display());
+        println!("  Cursor → Settings → Rules, Memories, and Commands → User Rules → paste file contents");
+        println!("  Hooks in ~/.cursor/hooks.json are installed globally (route_task gate).");
+    }
+    Ok(())
+}
+
+/// Project-scoped Cursor rules (only when not using --global).
 pub fn install_project_cursor_rules(quiet: bool) -> Result<()> {
     let cwd = std::env::current_dir().context("current working directory")?;
     let root = crate::config::find_repo_root(&cwd).unwrap_or(cwd);
@@ -159,9 +248,6 @@ pub fn install_project_cursor_rules(quiet: bool) -> Result<()> {
     if !quiet {
         println!("Installed project Cursor rule at {}", rule_path.display());
         println!("Installed project Cursor mode at {}", mode_path.display());
-        println!(
-            "Note: Cursor does not load ~/.cursor/rules/. For global text rules, use Cursor Settings → Rules → User Rules."
-        );
     }
     Ok(())
 }
@@ -460,6 +546,14 @@ mod tests {
         assert!(text.contains("github:*"));
         assert!(text.contains("agent-brain:*"));
         assert!(text.contains("terminalAllowlist"));
+    }
+
+    #[test]
+    fn detects_homebrew_managed_paths() {
+        assert!(is_homebrew_managed(Path::new(
+            "/opt/homebrew/Cellar/autonomic-stack/0.5.12/bin/agent-brain"
+        )));
+        assert!(!is_homebrew_managed(Path::new("/Users/me/.local/bin/agent-brain")));
     }
 
     #[test]

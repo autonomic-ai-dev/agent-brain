@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use agent_body_core::ui::ProgressRun;
 use anyhow::{bail, Context, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,18 +25,24 @@ pub fn run(fix: bool) -> Result<()> {
 
     let mcp_binary = mcp_binary_path(&mcp_path)?;
 
+    let mut progress =
+        ProgressRun::new("agent-brain health check").with_total_hint(7);
+
     println!("agent-brain doctor\n");
     println!("  version (this binary): {version}");
     println!("  binary path:           {}", exe.display());
 
     let mut ok = true;
 
+    let mcp_step = progress.step("MCP path alignment");
     if let Some(cmd) = &mcp_binary {
         println!("  mcp.json command:      {}", cmd.display());
         if paths_same(&exe, cmd) {
             println!("  mcp path:              OK");
+            mcp_step.done();
         } else if fs::canonicalize(cmd).ok() == fs::canonicalize(&exe).ok() {
             println!("  mcp path:              OK (same binary, different path spelling)");
+            mcp_step.done();
         } else {
             println!("  mcp path:              MISMATCH");
             ok = false;
@@ -49,22 +56,28 @@ pub fn run(fix: bool) -> Result<()> {
                 );
                 println!("  mcp path:              realigned to {}", exe.display());
                 ok = true;
+                mcp_step.done();
             } else {
                 println!("                         run: agent-brain doctor --fix");
+                mcp_step.warn("MCP path mismatch");
             }
         }
     } else if mcp_path.exists() {
         println!("  mcp.json:              missing agent-brain entry");
         ok = false;
+        mcp_step.warn("missing agent-brain entry in mcp.json");
     } else {
         println!("  mcp.json:              not found — run: agent-brain install --global");
         ok = false;
+        mcp_step.warn("mcp.json not found");
     }
 
+    let hooks_step = progress.step("Cursor hooks");
     if hooks_path.exists() {
         let raw = fs::read_to_string(&hooks_path)?;
         if raw.contains("route_gate.py") {
             println!("  hooks:                 OK (route_gate installed)");
+            hooks_step.done();
         } else {
             println!("  hooks:                 route_gate not found");
             ok = false;
@@ -72,13 +85,18 @@ pub fn run(fix: bool) -> Result<()> {
                 crate::install::configure_cursor(true, &exe, false)?;
                 println!("  hooks:                 reinstalled");
                 ok = true;
+                hooks_step.done();
+            } else {
+                hooks_step.warn("route_gate not found");
             }
         }
     } else {
         println!("  hooks:                 not found");
         ok = false;
+        hooks_step.warn("hooks.json not found");
     }
 
+    let claude_step = progress.step("Claude Code hooks");
     let claude_settings = home.join(".claude/settings.json");
     let claude_hooks = if crate::host_hooks::claude_hooks_need_refresh(&claude_settings) {
         if claude_settings.is_file() {
@@ -96,9 +114,15 @@ pub fn run(fix: bool) -> Result<()> {
             crate::host_hooks::install_claude_code_hooks(true, false)?;
             println!("  claude-code hooks:     reinstalled");
             ok = true;
+            claude_step.done();
+        } else {
+            claude_step.warn(claude_hooks.to_string());
         }
+    } else {
+        claude_step.done();
     }
 
+    let sign_step = progress.step("macOS codesign & quarantine");
     let mut sign_targets = vec![exe.clone()];
     if let Some(cmd) = mcp_binary.clone() {
         if !paths_same(&exe, &cmd) {
@@ -165,14 +189,19 @@ pub fn run(fix: bool) -> Result<()> {
         }
     }
 
+    if ok {
+        sign_step.done();
+    } else {
+        sign_step.warn("codesign or quarantine issues remain");
+    }
+
     if briefing_path.is_file() {
         println!("  last route briefing:   {}", briefing_path.display());
     } else {
         println!("  last route briefing:   not yet (appears after first route_task)");
     }
 
-    print_other_hosts(&home);
-
+    let serve_step = progress.step("serve process");
     let serve = crate::serve_meta::assess(&config.home, mcp_binary.as_deref());
     if let Some(meta) = &serve.meta {
         let alive = if serve.process_alive {
@@ -197,13 +226,24 @@ pub fn run(fix: bool) -> Result<()> {
             println!("  fixing:                agent-brain install --global --reload");
             crate::install::configure_cursor(true, &exe, false)?;
             println!("  reload nudge:          mcp.json refreshed (toggle MCP if still stale)");
+            serve_step.done();
         } else {
             println!("                         run: agent-brain install --global --reload");
             println!("                         or toggle agent-brain under Settings → MCP");
+            serve_step.warn("stale serve process");
         }
     } else if serve.meta.is_some() && serve.process_alive {
         println!("  serve stale:           no");
+        serve_step.done();
+    } else {
+        serve_step.done();
     }
+
+    let _hosts = progress.step("other host integrations");
+    print_other_hosts(&home);
+    _hosts.done();
+
+    let _ = progress.finish();
 
     println!();
     println!("Tips:");
@@ -441,10 +481,7 @@ pub fn macos_has_quarantine_attrs(path: &Path) -> bool {
 pub fn adhoc_sign(path: &Path) -> Result<()> {
     #[cfg(target_os = "macos")]
     {
-        let _ = Command::new("xattr")
-            .args(["-cr", &path.display().to_string()])
-            .status()
-            .context("xattr -cr")?;
+        clear_quarantine_attrs(path)?;
         let status = Command::new("codesign")
             .args(["--force", "--sign", "-", &path.display().to_string()])
             .status()
@@ -458,6 +495,48 @@ pub fn adhoc_sign(path: &Path) -> Result<()> {
             .context("codesign --verify")?;
         if !verify.success() {
             bail!("codesign verify failed for {}", path.display());
+        }
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        Ok(())
+    }
+}
+
+/// Clear download quarantine. Warns instead of failing when the prefix is not writable (e.g. Homebrew Cellar).
+pub fn clear_quarantine_attrs(path: &Path) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        if !macos_has_quarantine_attrs(path) {
+            return Ok(());
+        }
+        let path_s = path.display().to_string();
+        let out = Command::new("xattr")
+            .args(["-cr", &path_s])
+            .output()
+            .context("xattr -cr")?;
+        if out.status.success() {
+            return Ok(());
+        }
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        let _ = Command::new("xattr")
+            .args(["-d", "com.apple.quarantine", &path_s])
+            .output();
+        if macos_has_quarantine_attrs(path) {
+            if stderr.to_ascii_lowercase().contains("permission denied") {
+                bail!(
+                    "xattr permission denied on {} (common for Homebrew). \
+                     Run `agent-brain install --global` again — it copies a signed binary to ~/.local/bin/agent-brain for MCP.",
+                    path.display()
+                );
+            }
+            bail!(
+                "could not clear com.apple.quarantine on {}: {}",
+                path.display(),
+                stderr.trim()
+            );
         }
         Ok(())
     }

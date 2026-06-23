@@ -63,8 +63,7 @@ dependencies = [
 
 [[package]]
 name = "agent-body-core"
-version = "0.1.0"
-source = "git+https://github.com/autonomic-ai-dev/agent-body#e7b03fc8d02ca2783c526c81771839d9080ded10"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "dirs 5.0.1",

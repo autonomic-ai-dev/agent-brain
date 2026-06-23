@@ -16,7 +16,7 @@ async fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
-    let args: Vec<String> = std::env::args().collect();
+    let args = agent_body_core::cli::strip_progress_argv(std::env::args().collect());
     if args.iter().any(|a| a == "--version" || a == "-V") {
         println!("{}", env!("CARGO_PKG_VERSION"));
         return Ok(());
@@ -249,6 +249,21 @@ async fn main() -> Result<()> {
                 }
             }
         }
+        "mode" => {
+            let sub = args.get(2).map(String::as_str).unwrap_or("paths");
+            match sub {
+                "show" => println!("{}", host_install::AGENT_BRAIN_MODE_SNIPPET),
+                "install" => {
+                    let global = args.iter().any(|a| a == "--global");
+                    host_install::install_agent_brain_modes(global, false)?;
+                }
+                "paths" => host_install::print_agent_brain_mode_paths(),
+                _ => {
+                    eprintln!("Usage: agent-brain mode [paths|show|install [--global]]");
+                    std::process::exit(1);
+                }
+            }
+        }
         "install" => {
             let target = host_install::HostTarget::from_args(&args);
             let reload = args.iter().any(|a| a == "--reload");
@@ -256,6 +271,8 @@ async fn main() -> Result<()> {
             let global = args.iter().any(|a| a == "--global");
             install::run(target, print_only, reload)?;
             if (global || matches!(target, host_install::HostTarget::All)) && !print_only {
+                let user_scope = global || matches!(target, host_install::HostTarget::All);
+                host_install::install_agent_brain_modes(user_scope, true)?;
                 let config = Config::load()?;
                 if settings::config_path_optional(&config.home).is_none() {
                     let path = settings::AgentBrainSettings::save_default(&config.home)?;
@@ -1510,6 +1527,9 @@ Usage:
   agent-brain install --gemini [--global]       Gemini CLI settings.json (project or ~/.gemini)
   agent-brain install --antigravity [--global]  Antigravity mcp_config.json (project or ~/.gemini)
   agent-brain install --all                     All of the above (user/global scope)
+  agent-brain mode paths                        List agent-brain mode files per host
+  agent-brain mode show                         Print mode snippet (markdown)
+  agent-brain mode install [--global]           Install mode files for all hosts
   agent-brain update [--force] [--mcp-only]     Run auto-update (MCP uses release redirect; API fallback respects GITHUB_TOKEN/GH_TOKEN)
   agent-brain config init                     Write ~/.agent_brain/config.yaml defaults
   agent-brain config show                     Print active config file

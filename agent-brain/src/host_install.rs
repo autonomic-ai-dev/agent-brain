@@ -503,18 +503,120 @@ Enforces route_task before every turn — memory, skills, and cross-session cont
 - Upstream MCP: `route_to_mcp` when `suggested_tools` appears in route_task
 "#;
 
-fn write_agent_brain_mode(dir: &Path, quiet: bool, label: &str) -> Result<()> {
+fn write_agent_brain_mode(dir: &Path, quiet: bool, label: &str) -> Result<PathBuf> {
     fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
     let path = dir.join("agent-brain-mode.md");
-    fs::write(&path, AGENT_BRAIN_MODE_SNIPPET)
+    write_agent_brain_mode_file(&path, quiet, label)
+}
+
+pub fn write_agent_brain_mode_file(path: &Path, quiet: bool, label: &str) -> Result<PathBuf> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    fs::write(path, AGENT_BRAIN_MODE_SNIPPET)
         .with_context(|| format!("write {}", path.display()))?;
     if !quiet {
+        println!("Installed {label} agent-brain mode at {}", path.display());
+    }
+    Ok(path.to_path_buf())
+}
+
+pub fn write_cursor_agent_brain_mode_mdc(brain_home: &Path, quiet: bool) -> Result<PathBuf> {
+    fs::create_dir_all(brain_home).with_context(|| format!("create {}", brain_home.display()))?;
+    let path = brain_home.join("cursor-agent-brain-mode.mdc");
+    let body = format!(
+        "---\ndescription: agent-brain mode — delegate to Autonomic utilities\nalwaysApply: false\n---\n\n{AGENT_BRAIN_MODE_SNIPPET}",
+    );
+    fs::write(&path, body).with_context(|| format!("write {}", path.display()))?;
+    if !quiet {
         println!(
-            "Installed {label} agent-brain mode at {}",
+            "Installed Cursor agent-brain mode snippet at {} (paste into User Rules or enable per project)",
             path.display()
         );
     }
+    Ok(path)
+}
+
+/// Canonical agent-brain mode file locations (global user scope).
+pub fn agent_brain_mode_locations(user: bool) -> Vec<(&'static str, PathBuf)> {
+    if !user {
+        return Vec::new();
+    }
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return Vec::new(),
+    };
+    vec![
+        ("cursor (User Rules)", home.join(".agent_brain/cursor-agent-brain-mode.mdc")),
+        ("codex", home.join(".codex/agent-brain-mode.md")),
+        ("claude-code", home.join(".claude/agent-brain-mode.md")),
+        ("gemini", home.join(".gemini/agent-brain-mode.md")),
+        (
+            "antigravity",
+            home.join(".gemini/antigravity/agent-brain-mode.md"),
+        ),
+        (
+            "opencode",
+            home
+                .join(".config/opencode/modes")
+                .join("agent-brain.md"),
+        ),
+        ("vscode", home.join(".vscode/agent-brain-mode.md")),
+        ("reference", home.join(".agent_brain/agent-brain-mode.md")),
+    ]
+}
+
+/// Install agent-brain mode files for every supported host (idempotent).
+pub fn install_agent_brain_modes(user: bool, quiet: bool) -> Result<()> {
+    if !user {
+        if !quiet {
+            println!("agent-brain mode: project scope uses per-repo paths (.cursor/rules, .github/, etc.)");
+        }
+        return Ok(());
+    }
+    let home = dirs::home_dir().context("home directory")?;
+    let brain_home = home.join(".agent_brain");
+
+    write_cursor_agent_brain_mode_mdc(&brain_home, quiet)?;
+    write_agent_brain_mode_file(&brain_home.join("agent-brain-mode.md"), quiet, "reference")?;
+    write_agent_brain_mode(&home.join(".codex"), quiet, "Codex")?;
+    write_agent_brain_mode(&home.join(".claude"), quiet, "Claude Code")?;
+    write_agent_brain_mode(&home.join(".gemini"), quiet, "Gemini CLI")?;
+    write_agent_brain_mode(
+        &home.join(".gemini").join("antigravity"),
+        quiet,
+        "Antigravity",
+    )?;
+
+    let oc_modes = home.join(".config").join("opencode").join("modes");
+    fs::create_dir_all(&oc_modes)?;
+    write_agent_brain_mode_file(
+        &oc_modes.join("agent-brain.md"),
+        quiet,
+        "OpenCode",
+    )?;
+
+    write_agent_brain_mode_file(
+        &home.join(".vscode").join("agent-brain-mode.md"),
+        quiet,
+        "VS Code",
+    )?;
+
+    if !quiet {
+        println!();
+        println!("agent-brain mode installed for all hosts. Run `agent-brain mode paths` to list files.");
+        println!("  Cursor: paste ~/.agent_brain/cursor-user-rules.mdc AND cursor-agent-brain-mode.mdc into User Rules.");
+    }
     Ok(())
+}
+
+pub fn print_agent_brain_mode_paths() {
+    println!("agent-brain mode files (global / --global):\n");
+    for (host, path) in agent_brain_mode_locations(true) {
+        let status = if path.is_file() { "ok" } else { "missing" };
+        println!("  {host:<14} {status:<7} {}", path.display());
+    }
+    println!("\nSnippet: `agent-brain mode show`");
 }
 
 fn write_opencode_config(path: &Path, server_entry: Value, user: bool) -> Result<()> {
@@ -1202,5 +1304,15 @@ approval_policy = "on-request"
             HostTarget::from_args(&args),
             HostTarget::ClaudeCode { user: true }
         );
+    }
+
+    #[test]
+    fn agent_brain_mode_locations_include_all_hosts() {
+        let locs = agent_brain_mode_locations(true);
+        let hosts: Vec<_> = locs.iter().map(|(h, _)| *h).collect();
+        assert!(hosts.iter().any(|h| h.contains("cursor")));
+        assert!(hosts.iter().any(|h| *h == "codex"));
+        assert!(hosts.iter().any(|h| *h == "opencode"));
+        assert_eq!(locs.len(), 8);
     }
 }
