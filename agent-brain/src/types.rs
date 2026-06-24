@@ -246,6 +246,9 @@ pub struct RouteTaskResponse {
     pub context_bundle: Option<ContextBundle>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_context: Option<crate::graphify::CodeContext>,
+    /// Cross-agent scratchpad entries (most recent first).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scratchpad: Vec<crate::graphify::ScratchpadEntry>,
     /// Lightweight git ambient state when cwd is inside a repository.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repo_snapshot: Option<String>,

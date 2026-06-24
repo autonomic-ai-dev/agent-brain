@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.31.0] - 2026-06-24
+
+### Added
+
+- **KG Phase 6: cross-agent scratchpad** — `code_scratchpad` table (migration v16), 3 MCP tools (`write_scratchpad`, `read_scratchpad`, `recent_symbols`), scratchpad entries included in `route_task` response briefing
+- **KG Phase 5: embedding + BM25 semantic search** — `search_code_context_hybrid()` does BM25 FTS5 on `indexed_items` scoped to repo; `route_code_context()` merges SQL LIKE + BM25 results for relevant code nodes in `route_task`
+- **KG Phase 4: in-process graph building** — `build_code_graph_from_ast()` replaces separate node+edge upserts; `graphify_id = "{language}.{symbol_name}"` format ensures edge JOINs resolve correctly; external `graphify` binary now optional enrichment
+- **KG Phase 3: edge extraction** — `AstEdge` struct + per-language import/call/extends/implements edge extraction (Rust, TS, Python, Go); `index_file()` returns `(Vec<AstSymbol>, Vec<AstEdge>)`
+- **KG Phase 2: symbol navigation MCP tools** — 5 tools: `search_symbols`, `get_symbol_definition`, `get_file_outline`, `find_callers`, `get_local_graph`
+- **KG Phase 1: AST symbol storage** — stores symbols in `code_graph_nodes` with `ast_symbol`, `start_line`, `end_line` columns
+
+### Fixed
+
+- `scope_key` fix for AST symbol `indexed_items` entries: uses `repo_root` (not file path) so repo-scoped ANN/BM25 filtering finds them
+- Migration v15 idempotency: `ALTER TABLE` guarded by `column_exists()` check
+
+## [0.30.0] - 2026-06-24
+
+### Added
+
+- Unified `[brain]` config section with `docs.allowed_domains`, `mcp.routing`, `session_stickiness_secs`
+- `AGENTS.md` install support — `agent-brain install` writes AGENTS.md for non-Cursor hosts
+- Cloud-native platform messaging documentation
+
+### Changed
+
+- Config migrated from flat top-level keys to `[brain]` namespace
+- Host install targets both `AGENTS.md` (Codex/OpenCode/Gemini) and `CLAUDE.md` (Claude Code)
+
 ## [0.29.2] - 2026-06-23
 
 ### Added

@@ -584,6 +584,9 @@ impl Engine {
                     user_message,
                     100,
                 );
+                if let Ok(entries) = self.store.read_scratchpad(repo, 10, None) {
+                    resp.scratchpad = entries;
+                }
             }
         }
         let topics: Vec<String> = resp

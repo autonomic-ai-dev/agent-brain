@@ -249,6 +249,17 @@ pub fn run(conn: &Connection) -> rusqlite::Result<()> {
         conn.execute("UPDATE schema_version SET version = 15", [])?;
     }
 
+    let version: i64 = conn
+        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
+            r.get(0)
+        })
+        .unwrap_or(0);
+
+    if version < 16 {
+        migrate_v16(conn)?;
+        conn.execute("UPDATE schema_version SET version = 16", [])?;
+    }
+
     Ok(())
 }
 
@@ -570,6 +581,25 @@ fn migrate_v13(conn: &Connection) -> rusqlite::Result<()> {
         );
         CREATE INDEX IF NOT EXISTS idx_fact_lineage_fact ON fact_lineage(fact_id);
         CREATE INDEX IF NOT EXISTS idx_fact_lineage_source ON fact_lineage(source_type, source_id);
+        "#,
+    )?;
+    Ok(())
+}
+
+fn migrate_v16(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS code_scratchpad (
+            id TEXT PRIMARY KEY,
+            repo_root TEXT NOT NULL,
+            agent_id TEXT,
+            content TEXT NOT NULL,
+            context_type TEXT NOT NULL DEFAULT 'note',
+            tags TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_scratchpad_repo ON code_scratchpad(repo_root, created_at);
         "#,
     )?;
     Ok(())

@@ -383,6 +383,47 @@ fn default_graph_depth() -> usize {
     2
 }
 
+// ── Phase 6: scratchpad params ────────────────────────────────
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct WriteScratchpadParams {
+    content: String,
+    #[serde(default)]
+    agent_id: Option<String>,
+    #[serde(default = "default_scratchpad_type")]
+    context_type: String,
+    #[serde(default)]
+    tags: Option<String>,
+    #[serde(default)]
+    current_working_directory: Option<String>,
+}
+
+fn default_scratchpad_type() -> String {
+    "note".into()
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct ReadScratchpadParams {
+    #[serde(default = "default_scratchpad_limit")]
+    limit: usize,
+    #[serde(default)]
+    context_type: Option<String>,
+    #[serde(default)]
+    current_working_directory: Option<String>,
+}
+
+fn default_scratchpad_limit() -> usize {
+    20
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct RecentSymbolsParams {
+    #[serde(default = "default_symbol_limit")]
+    limit: usize,
+    #[serde(default)]
+    current_working_directory: Option<String>,
+}
+
 #[tool_router]
 impl BrainMcp {
     #[tool(
@@ -1071,6 +1112,62 @@ impl BrainMcp {
             .engine
             .store
             .get_local_graph(&repo_root, &p.name, p.depth)
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        json_result(results)
+    }
+
+    // ── Phase 6: scratchpad tools ───────────────────────────
+
+    #[tool(description = "Write a note to the cross-agent scratchpad. Other agents will see this in their next route_task briefing. Use context_type='decision' for binding decisions, 'insight' for observations, 'blocker' for stuck items.")]
+    async fn write_scratchpad(
+        &self,
+        params: Parameters<WriteScratchpadParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.require_route("write_scratchpad")?;
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
+        let repo_root = path.display().to_string();
+        let id = self
+            .engine
+            .store
+            .write_scratchpad(&repo_root, p.agent_id.as_deref(), &p.content, &p.context_type, p.tags.as_deref())
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        json_result(serde_json::json!({"id": id}))
+    }
+
+    #[tool(description = "Read recent scratchpad entries for this repo. Optionally filter by context_type (note/decision/insight/blocker). Ordered newest-first.")]
+    async fn read_scratchpad(
+        &self,
+        params: Parameters<ReadScratchpadParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.require_route("read_scratchpad")?;
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
+        let repo_root = path.display().to_string();
+        let entries = self
+            .engine
+            .store
+            .read_scratchpad(&repo_root, p.limit, p.context_type.as_deref())
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        json_result(entries)
+    }
+
+    #[tool(description = "List recently indexed AST symbols (code_graph_nodes with ast_symbol), newest first. Useful to see what the indexer has discovered recently.")]
+    async fn recent_symbols(
+        &self,
+        params: Parameters<RecentSymbolsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.require_route("recent_symbols")?;
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
+        let repo_root = path.display().to_string();
+        let results = self
+            .engine
+            .store
+            .recent_symbols(&repo_root, p.limit)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         json_result(results)
     }
