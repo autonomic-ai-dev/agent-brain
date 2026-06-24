@@ -32,10 +32,29 @@ pub fn route_code_context(
         return None;
     }
     let gods = store.list_god_nodes(repo_root, 5).ok().unwrap_or_default();
-    let relevant = store
+
+    // SQL LIKE search on code_graph_nodes (fast, exact-match)
+    let label_matches = store
         .search_code_graph_labels(repo_root, user_message, 5)
         .ok()
         .unwrap_or_default();
+
+    // BM25 semantic search on indexed_items (scoped to repo)
+    let repo_str = repo_root.display().to_string();
+    let semantic_matches = store
+        .search_code_context_hybrid(&repo_str, user_message, 5)
+        .ok()
+        .unwrap_or_default();
+
+    // Merge: SQL LIKE results first, then BM25 results (deduped by label)
+    let mut seen = std::collections::HashSet::new();
+    let mut relevant_nodes = Vec::new();
+    for n in label_matches.iter().chain(semantic_matches.iter()) {
+        if seen.insert(&n.label) {
+            relevant_nodes.push(n.clone());
+        }
+    }
+
     let last_ingested = store.last_code_graph_ingest(repo_root).ok().flatten();
     let graph_path = repo_root.join("graphify-out").join("graph.json");
     let graph_mtime = graph_path
@@ -51,7 +70,7 @@ pub fn route_code_context(
     };
     let ctx = CodeContext {
         god_nodes: gods,
-        relevant_nodes: relevant,
+        relevant_nodes,
         graph_stale,
         last_ingested_at: last_ingested,
     };

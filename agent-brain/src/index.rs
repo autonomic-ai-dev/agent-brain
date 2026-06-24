@@ -122,7 +122,7 @@ pub fn sync_index_opts(
                             text: text.chars().take(800).collect(),
                             source_path,
                             scope: "project".into(),
-                            scope_key: path.to_str().map(|s| s.to_string()),
+                            scope_key: repo.as_ref().map(|r| r.display().to_string()),
                         };
                         items.push(UnembeddedItem { item, hash, mtime });
 

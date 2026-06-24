@@ -8,7 +8,7 @@ use uuid::Uuid;
 use crate::db::store::BrainStore;
 
 use super::repos::touch_ingest;
-use super::types::{node_id_str, GraphJson, GraphJsonEdge, GraphJsonNode, GraphifyAnalysis};
+use super::types::{node_id_str, CodeContextNode, GraphJson, GraphJsonEdge, GraphJsonNode, GraphifyAnalysis};
 
 pub fn ingest_repo(store: &BrainStore, home: &Path, repo_root: &Path) -> Result<IngestReport> {
     let report = ingest_graph_at_path(store, repo_root)?;
@@ -689,6 +689,74 @@ impl BrainStore {
             }
 
             Ok((nodes.len(), edges.len()))
+        })
+    }
+
+    /// Phase 5: Hybrid BM25 + vector search over code graph entries in indexed_items.
+    /// Returns up to `limit` relevant nodes for a codebase query, scoped to `repo_root`.
+    pub fn search_code_context_hybrid(
+        &self,
+        repo_root: &str,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<CodeContextNode>> {
+        let fts_query = crate::retrieval::fts_query_strict(query);
+        let loose_query = crate::retrieval::fts_query_loose(query);
+
+        self.with_conn(|conn| {
+            let mut results: Vec<(String, f64)> = Vec::new();
+
+            // Strict BM25 filtered by repo scope
+            if fts_query != "\"\"" {
+                let mut stmt = conn.prepare(
+                    r#"SELECT i.topic, bm25(items_fts) AS score
+                       FROM items_fts
+                       JOIN indexed_items i ON i.rowid = items_fts.rowid
+                       WHERE items_fts MATCH ?1
+                         AND i.scope_key = ?2
+                       ORDER BY score
+                       LIMIT ?3"#,
+                )?;
+                let rows = stmt.query_map(
+                    rusqlite::params![fts_query, repo_root, (limit * 2) as i64],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?)),
+                )?;
+                for row in rows.flatten() {
+                    results.push(row);
+                }
+            }
+
+            // Loose BM25 fallback if too few hits
+            if results.len() < 3 && loose_query != fts_query && loose_query != "\"\"" {
+                let mut stmt = conn.prepare(
+                    r#"SELECT i.topic, bm25(items_fts) AS score
+                       FROM items_fts
+                       JOIN indexed_items i ON i.rowid = items_fts.rowid
+                       WHERE items_fts MATCH ?1
+                         AND i.scope_key = ?2
+                       ORDER BY score
+                       LIMIT ?3"#,
+                )?;
+                let rows = stmt.query_map(
+                    rusqlite::params![loose_query, repo_root, (limit * 2) as i64],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?)),
+                )?;
+                for row in rows.flatten() {
+                    if !results.iter().any(|(t, _)| t == &row.0) {
+                        results.push(row);
+                    }
+                }
+            }
+
+            Ok(results
+                .into_iter()
+                .take(limit)
+                .map(|(label, _)| CodeContextNode {
+                    label,
+                    relation: None,
+                    target: None,
+                })
+                .collect())
         })
     }
 }
