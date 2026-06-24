@@ -557,6 +557,50 @@ impl BrainStore {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct AstEdgeRow {
+    pub repo_root: String,
+    pub source_id: String,
+    pub target_id: String,
+    pub relation: String,
+    pub source_file: String,
+    pub start_line: usize,
+}
+
+impl BrainStore {
+    /// Upsert AST-derived edges into code_graph_edges.
+    /// Uses INSERT OR IGNORE to avoid duplicates on (repo_root, source_id, target_id, relation).
+    pub fn upsert_ast_edges(
+        &self,
+        repo_root: &str,
+        edges: &[AstEdgeRow],
+        ingested_at: i64,
+    ) -> Result<()> {
+        self.with_conn(|conn| {
+            for e in edges {
+                let id = format!("{repo_root}:{}:{}:{}", e.source_id, e.target_id, e.relation);
+                conn.execute(
+                    "INSERT OR IGNORE INTO code_graph_edges (id, repo_root, source_id, target_id, relation, confidence, ingested_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, 'ast', ?6)",
+                    rusqlite::params![id, repo_root, e.source_id, e.target_id, e.relation, ingested_at],
+                )?;
+            }
+            Ok(())
+        })
+    }
+
+    /// Delete all AST-derived edges for a repo (relation = 'ast').
+    pub fn delete_ast_edges(&self, repo_root: &str) -> Result<usize> {
+        self.with_conn(|conn| {
+            let n = conn.execute(
+                "DELETE FROM code_graph_edges WHERE repo_root = ?1 AND confidence = 'ast'",
+                [repo_root],
+            )?;
+            Ok(n)
+        })
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct SymbolMatch {
     pub label: String,

@@ -10,8 +10,8 @@ mod types;
 
 pub use cli::{run_cli, GraphifyCli};
 pub use ingest::{
-    ingest_graph_at_path, ingest_repo, AstCodeNodeRow, CodeGraphEdgeRow, CodeGraphNodeRow,
-    LocalGraphEdge, SymbolMatch,
+    ingest_graph_at_path, ingest_repo, AstCodeNodeRow, AstEdgeRow, CodeGraphEdgeRow,
+    CodeGraphNodeRow, LocalGraphEdge, SymbolMatch,
 };
 pub use jobs::{enqueue_job, job_status, JobMode, JobTrigger};
 pub use query::query_codebase;

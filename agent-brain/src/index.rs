@@ -10,7 +10,7 @@ use walkdir::WalkDir;
 use crate::config::Config;
 use crate::db::store::{content_hash, BrainStore, IndexBatchItem};
 use crate::embed::Embedder;
-use crate::graphify::AstCodeNodeRow;
+use crate::graphify::{AstCodeNodeRow, AstEdgeRow};
 use crate::types::ItemType;
 
 /// Maximum batch size for ONNX embedding calls.
@@ -95,6 +95,7 @@ pub fn sync_index_opts(
 
     use rayon::prelude::*;
     let ast_nodes = Mutex::new(Vec::new());
+    let ast_edges = Mutex::new(Vec::new());
     let parsed_items: Vec<UnembeddedItem> = file_tasks
         .into_par_iter()
         .flat_map(|(path, repo, pkg_ctx)| {
@@ -105,7 +106,9 @@ pub fn sync_index_opts(
                 items.push(UnembeddedItem { item, hash, mtime });
             }
             if enable_ast_index {
-                if let Ok(ast_symbols) = crate::ast_indexer::index_file(&path) {
+                if let Ok((ast_symbols, ast_extracted_edges)) =
+                    crate::ast_indexer::index_file(&path)
+                {
                     for symbol in &ast_symbols {
                         let text = format!(
                             "{} {} {} {}",
@@ -135,6 +138,20 @@ pub fn sync_index_opts(
                                     end_line: symbol.end_line,
                                     language: symbol.language.clone(),
                                     doc_comment: symbol.doc_comment.clone(),
+                                });
+                            }
+                        }
+                    }
+                    if let Some(ref repo_root) = repo {
+                        if let Ok(mut guard) = ast_edges.lock() {
+                            for edge in &ast_extracted_edges {
+                                guard.push(AstEdgeRow {
+                                    repo_root: repo_root.display().to_string(),
+                                    source_id: edge.source_symbol.clone(),
+                                    target_id: edge.target_symbol.clone(),
+                                    relation: edge.relation.clone(),
+                                    source_file: edge.source_file.clone(),
+                                    start_line: edge.start_line,
                                 });
                             }
                         }
@@ -237,6 +254,23 @@ pub fn sync_index_opts(
         let now = chrono::Utc::now().timestamp();
         for (repo_root, nodes) in &by_repo {
             store.upsert_ast_code_nodes(repo_root, nodes, now)?;
+        }
+    }
+
+    // Phase 5: store AST-derived edges in code_graph_edges
+    let ast_edge_list = ast_edges.into_inner().unwrap_or_default();
+    if !ast_edge_list.is_empty() {
+        let mut by_repo: HashMap<String, Vec<AstEdgeRow>> = HashMap::new();
+        for edge in ast_edge_list {
+            by_repo
+                .entry(edge.repo_root.clone())
+                .or_default()
+                .push(edge);
+        }
+        let now = chrono::Utc::now().timestamp();
+        for (repo_root, edges) in &by_repo {
+            store.delete_ast_edges(repo_root)?;
+            store.upsert_ast_edges(repo_root, edges, now)?;
         }
     }
 
