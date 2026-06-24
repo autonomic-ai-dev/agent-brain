@@ -424,6 +424,47 @@ struct RecentSymbolsParams {
     current_working_directory: Option<String>,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+struct GitLogParams {
+    #[serde(default)]
+    current_working_directory: Option<String>,
+    #[serde(default)]
+    range: Option<String>,
+    #[serde(default = "default_git_log_count")]
+    max_count: usize,
+}
+
+fn default_git_log_count() -> usize { 20 }
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct GitDiffParams {
+    #[serde(default)]
+    current_working_directory: Option<String>,
+    range: String,
+    #[serde(default)]
+    path: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct GitTagsParams {
+    #[serde(default)]
+    current_working_directory: Option<String>,
+    #[serde(default)]
+    pattern: Option<String>,
+    #[serde(default = "default_git_tags_count")]
+    max_count: usize,
+}
+
+fn default_git_tags_count() -> usize { 20 }
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct GitCompareParams {
+    #[serde(default)]
+    current_working_directory: Option<String>,
+    base: String,
+    head: String,
+}
+
 #[tool_router]
 impl BrainMcp {
     #[tool(
@@ -816,6 +857,7 @@ impl BrainMcp {
             .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
         let resp = crate::token_tools::file_summary(&path, p.allow_blocked_paths, p.max_tokens)
             .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        self.engine.record_file_access("file_summary", &p.path);
         self.log_token_tool("file_summary", Some(&p.path), &resp);
         json_result(resp)
     }
@@ -841,6 +883,7 @@ impl BrainMcp {
             p.max_tokens,
         )
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        self.engine.record_file_access("read_file_head", &p.path);
         self.log_token_tool("read_file_head", Some(&p.path), &resp);
         json_result(resp)
     }
@@ -866,6 +909,7 @@ impl BrainMcp {
             p.max_tokens,
         )
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        self.engine.record_file_access("read_file_tail", &p.path);
         self.log_token_tool("read_file_tail", Some(&p.path), &resp);
         json_result(resp)
     }
@@ -892,6 +936,7 @@ impl BrainMcp {
             p.max_tokens,
         )
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        self.engine.record_file_access("grep_search", &p.path);
         self.log_grep_tool("grep_search", Some(&p.path), &resp);
         json_result(resp)
     }
@@ -1171,6 +1216,90 @@ impl BrainMcp {
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         json_result(results)
     }
+
+    #[tool(
+        description = "Show commit log with optional range (e.g. v1.0..v2.0). Returns structured entries with commit hash, author, date, message."
+    )]
+    async fn brain_git_log(
+        &self,
+        params: Parameters<GitLogParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.require_route("brain_git_log")?;
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let cwd = p.current_working_directory.as_deref().map(PathBuf::from);
+        match crate::git_tools::git_log(
+            cwd.as_deref().unwrap_or_else(|| std::path::Path::new(".")),
+            p.range.as_deref(),
+            p.max_count,
+        ) {
+            Ok(entries) => json_result(entries),
+            Err(e) => Err(McpError::internal_error(e, None)),
+        }
+    }
+
+    #[tool(
+        description = "Show diff between two refs (e.g. v1.0..v2.0). Optionally filter by path. Returns diff text with file/insertion/deletion counts."
+    )]
+    async fn brain_git_diff(
+        &self,
+        params: Parameters<GitDiffParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.require_route("brain_git_diff")?;
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let cwd = p.current_working_directory.as_deref().map(PathBuf::from);
+        match crate::git_tools::git_diff(
+            cwd.as_deref().unwrap_or_else(|| std::path::Path::new(".")),
+            &p.range,
+            p.path.as_deref(),
+        ) {
+            Ok(result) => json_result(result),
+            Err(e) => Err(McpError::internal_error(e, None)),
+        }
+    }
+
+    #[tool(
+        description = "List git tags sorted by version, with optional pattern filter (e.g. v0.30.*). Returns structured tag entries."
+    )]
+    async fn brain_git_tags(
+        &self,
+        params: Parameters<GitTagsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.require_route("brain_git_tags")?;
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let cwd = p.current_working_directory.as_deref().map(PathBuf::from);
+        match crate::git_tools::git_tags(
+            cwd.as_deref().unwrap_or_else(|| std::path::Path::new(".")),
+            p.pattern.as_deref(),
+            p.max_count,
+        ) {
+            Ok(tags) => json_result(tags),
+            Err(e) => Err(McpError::internal_error(e, None)),
+        }
+    }
+
+    #[tool(
+        description = "Compare two refs (base..head). Returns commit list, diff stats, and ahead count. Useful for release diffing."
+    )]
+    async fn brain_git_compare(
+        &self,
+        params: Parameters<GitCompareParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.require_route("brain_git_compare")?;
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let cwd = p.current_working_directory.as_deref().map(PathBuf::from);
+        match crate::git_tools::git_compare(
+            cwd.as_deref().unwrap_or_else(|| std::path::Path::new(".")),
+            &p.base,
+            &p.head,
+        ) {
+            Ok(result) => json_result(result),
+            Err(e) => Err(McpError::internal_error(e, None)),
+        }
+    }
 }
 
 #[tool_handler]
@@ -1178,16 +1307,17 @@ impl ServerHandler for BrainMcp {
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::default();
         info.instructions = Some(
-            "agent-brain is the routing layer for this session. \
-             REQUIRED: call route_task at the start of every user turn before any other agent-brain tool. \
-             Skills, rules, session digests (Cursor/OpenCode/Codex/Gemini), and team memory are injected ONLY through route_task — \
-             other agent-brain tools return errors until route_task succeeds. \
-             Use returned paths to load skills; apply applicable_rules and must_apply. \
-             For file inspection prefer token-efficient tools: grep_search, file_summary, read_file_head, read_file_tail — not full-file reads. \
-             When exploring code architecture in a repo with graphify enabled, use query_codebase after route_task. \
-             To ingest framework docs from an allowlisted HTTPS URL, use learn_from_url (see docs.allowed_domains in config). \
-             At task end, call store_memory for durable outcomes (max 50 words). \
-             Do not bypass this server when its tools are available."
+             "agent-brain is the routing layer for this session. \
+              REQUIRED: call route_task at the start of every user turn before any other agent-brain tool. \
+              Skills, rules, session digests (Cursor/OpenCode/Codex/Gemini), and team memory are injected ONLY through route_task — \
+              other agent-brain tools return errors until route_task succeeds. \
+              Use returned paths to load skills; apply applicable_rules and must_apply. \
+              For inspecting unfamiliar files, prefer token-efficient tools: grep_search, file_summary, read_file_head, read_file_tail — not full-file reads. \
+              For git operations, prefer brain_git_log, brain_git_diff, brain_git_tags, brain_git_compare over raw bash. \
+              When exploring code architecture in a repo with graphify enabled, use query_codebase after route_task. \
+              To ingest framework docs from an allowlisted HTTPS URL, use learn_from_url (see docs.allowed_domains in config). \
+              At task end, call store_memory for durable outcomes (max 50 words). \
+              Native tools (read, grep, edit, write, bash, glob) are fine for operations agent-brain does not provide alternatives for."
                 .into(),
         );
         info.capabilities = ServerCapabilities::builder().enable_tools().build();

@@ -119,6 +119,8 @@ pub fn infer_task_kind(message: &str) -> crate::types::TaskKind {
         "proofs",
         "beam",
         "regression",
+        "coverage",
+        "benchmark",
     ]
     .iter()
     .any(|k| lower.contains(k))
@@ -132,6 +134,9 @@ pub fn infer_task_kind(message: &str) -> crate::types::TaskKind {
         "pull request",
         "lint",
         "checklist",
+        "inspect",
+        "diff",
+        "retrospective",
     ]
     .iter()
     .any(|k| lower.contains(k))
@@ -145,6 +150,9 @@ pub fn infer_task_kind(message: &str) -> crate::types::TaskKind {
         "design doc",
         "system design",
         "blueprint",
+        "spec",
+        "proposal",
+        "rfc",
     ]
     .iter()
     .any(|k| lower.contains(k))
@@ -153,11 +161,20 @@ pub fn infer_task_kind(message: &str) -> crate::types::TaskKind {
     }
     if [
         "fix", "debug", "error", "bug", "fail", "broken", "crash", "issue",
+        "panic",
     ]
     .iter()
     .any(|k| lower.contains(k))
     {
         return crate::types::TaskKind::Debugging;
+    }
+    if ["docker", "compose", "local-dev", "k8s", "kubernetes", "deploy", "infra",
+        "setup", "install", "configure", "migration", "sync",
+        "docker-compose"]
+        .iter()
+        .any(|k| lower.contains(k))
+    {
+        return crate::types::TaskKind::Implementing;
     }
     crate::types::TaskKind::Implementing
 }

@@ -5,6 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct McpActivity {
     in_flight: AtomicU32,
     last_complete_ms: AtomicU64,
+    last_route_ms: AtomicU64,
 }
 
 pub struct McpRequestGuard<'a> {
@@ -13,9 +14,11 @@ pub struct McpRequestGuard<'a> {
 
 impl Default for McpActivity {
     fn default() -> Self {
+        let now = now_ms();
         Self {
             in_flight: AtomicU32::new(0),
-            last_complete_ms: AtomicU64::new(now_ms()),
+            last_complete_ms: AtomicU64::new(now),
+            last_route_ms: AtomicU64::new(now),
         }
     }
 }
@@ -36,6 +39,18 @@ impl McpActivity {
         }
         let idle_ms = secs.saturating_mul(1000);
         now_ms().saturating_sub(self.last_complete_ms.load(Ordering::Relaxed)) >= idle_ms
+    }
+
+    /// Record that route_task completed. Called after the route response is built.
+    pub fn record_route(&self) {
+        self.last_route_ms
+            .store(self.last_complete_ms.load(Ordering::Relaxed), Ordering::Relaxed);
+    }
+
+    /// Returns true if any non-route MCP tool completed since the last route_task.
+    pub fn tools_used_since_last_route(&self) -> bool {
+        self.last_complete_ms.load(Ordering::Relaxed)
+            > self.last_route_ms.load(Ordering::Relaxed)
     }
 }
 

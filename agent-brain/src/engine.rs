@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
@@ -36,6 +36,9 @@ pub struct Engine {
     pub warmed: Arc<AtomicBool>,
     pub query_emb_cache: Arc<QueryEmbeddingCache>,
     pub mcp_activity: Arc<McpActivity>,
+    prev_briefing: Mutex<Option<String>>,
+    touched_files: Mutex<Vec<String>>,
+    prev_tool_names: Mutex<Vec<String>>,
     write_queue: WriteQueue,
 }
 
@@ -70,6 +73,9 @@ impl Engine {
             warmed: Arc::new(AtomicBool::new(false)),
             query_emb_cache: Arc::new(QueryEmbeddingCache::new(128)),
             mcp_activity: Arc::new(McpActivity::new()),
+            prev_briefing: Mutex::new(None),
+            touched_files: Mutex::new(Vec::new()),
+            prev_tool_names: Mutex::new(Vec::new()),
             write_queue,
         })
     }
@@ -107,6 +113,9 @@ impl Engine {
             warmed: Arc::new(AtomicBool::new(false)),
             query_emb_cache: Arc::new(QueryEmbeddingCache::new(128)),
             mcp_activity: Arc::new(McpActivity::new()),
+            prev_briefing: Mutex::new(None),
+            touched_files: Mutex::new(Vec::new()),
+            prev_tool_names: Mutex::new(Vec::new()),
             write_queue,
         })
     }
@@ -461,6 +470,38 @@ impl Engine {
         ))
     }
 
+    /// Record that a file was accessed by an MCP tool, for auto-capture at next route_task.
+    pub fn record_file_access(&self, tool: &str, path: &str) {
+        if !self.config.auto_capture_enabled {
+            return;
+        }
+        if let Ok(mut f) = self.touched_files.lock() {
+            let p = path.to_string();
+            if !f.contains(&p) {
+                f.push(p);
+            }
+        }
+        if let Ok(mut t) = self.prev_tool_names.lock() {
+            let n = tool.to_string();
+            if !t.contains(&n) {
+                t.push(n);
+            }
+        }
+    }
+
+    /// Per-phase TTL for route cache. Debugging and verification are shorter-lived;
+    /// architecture and review can cache longer since those artifacts change slowly.
+    fn phase_ttl(&self, phase: &str) -> Duration {
+        let base = Duration::from_secs(self.config.turn_ttl_secs);
+        match phase {
+            "debugging" => base.min(Duration::from_secs(30)),
+            "verification" | "testing" => base.min(Duration::from_secs(45)),
+            "reviewing" => base.max(Duration::from_secs(120)),
+            "planning" | "architecture" => base.max(Duration::from_secs(180)),
+            _ => base,
+        }
+    }
+
     pub fn route_task(
         &self,
         user_message: &str,
@@ -472,6 +513,53 @@ impl Engine {
         explicit_task_kind: Option<&str>,
     ) -> Result<RouteTaskResponse> {
         self.maybe_spawn_session_ingest();
+
+        // Auto-store memory for the previous turn if MCP tools were used since last route_task.
+        // This captures what actually happened between turns without explicit store_memory calls.
+        if self.config.auto_capture_enabled && self.mcp_activity.tools_used_since_last_route() {
+            if let Ok(prev) = self.prev_briefing.lock() {
+                if let Some(ref briefing) = *prev {
+                    if !briefing.is_empty() {
+                        let files = self.touched_files.lock().ok().map(|f| f.clone()).unwrap_or_default();
+                        let tools = self.prev_tool_names.lock().ok().map(|t| t.clone()).unwrap_or_default();
+                        let mut extras = Vec::new();
+                        if !tools.is_empty() {
+                            extras.push(format!("tools: {}", tools.join(", ")));
+                        }
+                        if !files.is_empty() {
+                            extras.push(format!("files: {}", files.join(", ")));
+                        }
+                        let fact = if extras.is_empty() {
+                            format!("Worked on: {briefing}")
+                        } else {
+                            format!("Worked on: {briefing} ({})", extras.join("; "))
+                        };
+                        let _ = self.write_queue.send(crate::db::WriteOp::StoreMemory {
+                            resp_tx: std::sync::mpsc::channel().0,
+                            payload: crate::db::write_queue::store_memory_payload::StoreMemoryRequest {
+                                topic: "auto-route".into(),
+                                fact,
+                                scope: "project".into(),
+                                scope_key: None,
+                                confidence: 0.5,
+                                polarity: None,
+                                apply_when: None,
+                                valid_from: None,
+                                invalid_at: None,
+                            },
+                        });
+                    }
+                }
+            }
+            // Clear turn-local buffers after auto-store
+            if let Ok(mut f) = self.touched_files.lock() {
+                f.clear();
+            }
+            if let Ok(mut t) = self.prev_tool_names.lock() {
+                t.clear();
+            }
+        }
+
         let task_kind = crate::bridge::resolve_task_kind(explicit_task_kind, user_message);
         let limits = crate::bridge::limits_for_task_kind(task_kind, limits);
         let limits = limits.normalize();
@@ -494,7 +582,8 @@ impl Engine {
             self.config.turn_cache_ignore_open_files,
         );
 
-        if let Some(mut cached) = self.cache.get(&cache_key) {
+        let phase_ttl = self.phase_ttl(&phase);
+        if let Some(mut cached) = self.cache.get_with_ttl(&cache_key, phase_ttl) {
             if is_empty_route_response(&cached) {
                 self.cache.remove(&cache_key);
             } else {
@@ -650,7 +739,15 @@ impl Engine {
             tracing::warn!(error = %err, "retrieval log write failed");
         }
 
-        Ok(self.finish_route_response(resp))
+        let resp = self.finish_route_response(resp);
+        let briefing = resp.briefing.clone();
+        if !briefing.is_empty() {
+            if let Ok(mut prev) = self.prev_briefing.lock() {
+                *prev = Some(briefing);
+            }
+        }
+        self.mcp_activity.record_route();
+        Ok(resp)
     }
 
     fn finish_route_response(&self, mut resp: RouteTaskResponse) -> RouteTaskResponse {

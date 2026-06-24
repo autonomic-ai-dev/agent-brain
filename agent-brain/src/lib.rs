@@ -20,6 +20,7 @@ pub mod engine;
 pub mod eval;
 pub mod fixture;
 pub mod gc;
+pub mod git_tools;
 pub mod global_workspace;
 pub mod graphify;
 pub mod graphify_bench;
