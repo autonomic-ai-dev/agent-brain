@@ -184,6 +184,13 @@ pub struct MemoryRec {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryRetrievalStat {
+    pub topic: String,
+    pub useful_count: u32,
+    pub useless_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MustApply {
     pub topic: String,
     pub text: String,
@@ -252,6 +259,9 @@ pub struct RouteTaskResponse {
     /// Lightweight git ambient state when cwd is inside a repository.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repo_snapshot: Option<String>,
+    /// Per-fact retrieval statistics (useful_count, useless_count from context_weights).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retrieval_stats: Vec<MemoryRetrievalStat>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

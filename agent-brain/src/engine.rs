@@ -712,6 +712,32 @@ impl Engine {
 
         crate::bridge::enrich_route_response(&mut resp, &scored, task_kind);
 
+        let memory_ids: Vec<String> = scored
+            .iter()
+            .filter(|s| matches!(s.item_type, crate::types::ItemType::Memory))
+            .map(|s| s.id.clone())
+            .collect();
+        if !memory_ids.is_empty() {
+            if let Ok(stats) = self.store.load_retrieval_stats(&memory_ids) {
+                let mut retrieval_stats = Vec::new();
+                for scored_item in &scored {
+                    if !matches!(scored_item.item_type, crate::types::ItemType::Memory) {
+                        continue;
+                    }
+                    if let Some(&(useful, useless)) = stats.get(&scored_item.id) {
+                        if useful > 0 || useless > 0 {
+                            retrieval_stats.push(crate::types::MemoryRetrievalStat {
+                                topic: scored_item.topic.clone(),
+                                useful_count: useful,
+                                useless_count: useless,
+                            });
+                        }
+                    }
+                }
+                resp.retrieval_stats = retrieval_stats;
+            }
+        }
+
         if !is_empty_route_response(&resp) {
             self.cache.put(cache_key, resp.clone());
             if self.config.session_stickiness_secs > 0 {

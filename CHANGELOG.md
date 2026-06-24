@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Auto-store memory at turn end** — `route_task` auto-commits a compact summary of what was worked on, including tool names and touched file paths
 - **File change capture** — `Engine::record_file_access()` tracks per-turn file/tool usage for richer auto-store facts
 - **Task kind keywords** — expanded classification for `docker`, `compose`, `deploy`, `k8s`, `local-dev`, `setup`, `migration`, `coverage`, `benchmark`, `inspect`, `spec`, `rfc`, `panic` and more
+- **Memory retrieval stats** — `route_task` response includes per-fact `retrieval_stats` with `useful_count` and `useless_count` from `context_weights`, surfaced to agents for introspection
+- **Cross-session file diff** — `repo_snapshot` lists changed filenames (top 5 with status codes, `+N more`) since the prior session, not just commit/file counts
 
 ### Changed
 

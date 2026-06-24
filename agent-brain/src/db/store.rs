@@ -2098,6 +2098,25 @@ impl BrainStore {
         })
     }
 
+    pub fn load_retrieval_stats(&self, ids: &[String]) -> Result<HashMap<String, (u32, u32)>> {
+        if ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        self.with_conn(|conn| {
+            let mut map = HashMap::new();
+            for id in ids {
+                if let Ok((u, uu)) = conn.query_row(
+                    "SELECT useful_count, useless_count FROM context_weights WHERE item_id = ?1",
+                    params![id],
+                    |r| Ok((r.get::<_, u32>(0)?, r.get::<_, u32>(1)?)),
+                ) {
+                    map.insert(id.clone(), (u, uu));
+                }
+            }
+            Ok(map)
+        })
+    }
+
     pub(crate) fn bm25_prefilter(&self, query: &str) -> Result<Bm25Prefilter> {
         let item_bm25 = self
             .bm25_search_items(query, BM25_ITEMS_TOP)
