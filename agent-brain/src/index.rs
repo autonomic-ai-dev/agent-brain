@@ -241,36 +241,28 @@ pub fn sync_index_opts(
     store.upsert_indexed_items_batch(&db_items)?;
     store.bump_index_version()?;
 
-    // Phase 4: store AST-derived nodes in code_graph_nodes
+    // Phase 4: build complete code graph from AST data (no external graphify binary needed)
     let ast_node_list = ast_nodes.into_inner().unwrap_or_default();
-    if !ast_node_list.is_empty() {
-        let mut by_repo: HashMap<String, Vec<AstCodeNodeRow>> = HashMap::new();
+    let ast_edge_list = ast_edges.into_inner().unwrap_or_default();
+    if !ast_node_list.is_empty() || !ast_edge_list.is_empty() {
+        let mut by_repo: HashMap<String, (Vec<AstCodeNodeRow>, Vec<AstEdgeRow>)> = HashMap::new();
         for node in ast_node_list {
             by_repo
                 .entry(node.repo_root.clone())
                 .or_default()
+                .0
                 .push(node);
         }
-        let now = chrono::Utc::now().timestamp();
-        for (repo_root, nodes) in &by_repo {
-            store.upsert_ast_code_nodes(repo_root, nodes, now)?;
-        }
-    }
-
-    // Phase 5: store AST-derived edges in code_graph_edges
-    let ast_edge_list = ast_edges.into_inner().unwrap_or_default();
-    if !ast_edge_list.is_empty() {
-        let mut by_repo: HashMap<String, Vec<AstEdgeRow>> = HashMap::new();
         for edge in ast_edge_list {
             by_repo
                 .entry(edge.repo_root.clone())
                 .or_default()
+                .1
                 .push(edge);
         }
         let now = chrono::Utc::now().timestamp();
-        for (repo_root, edges) in &by_repo {
-            store.delete_ast_edges(repo_root)?;
-            store.upsert_ast_edges(repo_root, edges, now)?;
+        for (repo_root, (nodes, edges)) in &by_repo {
+            store.build_code_graph_from_ast(repo_root, nodes, edges, now)?;
         }
     }
 

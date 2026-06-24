@@ -589,7 +589,7 @@ impl BrainStore {
         })
     }
 
-    /// Delete all AST-derived edges for a repo (relation = 'ast').
+    /// Delete all AST-derived edges for a repo (confidence = 'ast').
     pub fn delete_ast_edges(&self, repo_root: &str) -> Result<usize> {
         self.with_conn(|conn| {
             let n = conn.execute(
@@ -597,6 +597,98 @@ impl BrainStore {
                 [repo_root],
             )?;
             Ok(n)
+        })
+    }
+
+    /// Phase 4: Atomically replace the AST-derived portion of the code graph.
+    /// Deletes existing AST-derived nodes (ast_symbol IS NOT NULL) and edges (confidence = 'ast'),
+    /// then inserts fresh nodes and edges with graphify_id = "{language}.{symbol_name}" so that
+    /// queries joining e.source_id = n.graphify_id resolve correctly.
+    ///
+    /// Graphify-binary data (community_id, is_god_node) is left untouched.
+    pub fn build_code_graph_from_ast(
+        &self,
+        repo_root: &str,
+        nodes: &[AstCodeNodeRow],
+        edges: &[AstEdgeRow],
+        ingested_at: i64,
+    ) -> Result<(usize, usize)> {
+        fn lang_from_path(path: &str) -> Option<&'static str> {
+            let ext = std::path::Path::new(path).extension()?.to_str()?;
+            match ext {
+                "rs" => Some("rust"),
+                "ts" | "tsx" => Some("typescript"),
+                "py" => Some("python"),
+                "go" => Some("go"),
+                _ => None,
+            }
+        }
+
+        self.with_conn(|conn| {
+            // Delete existing AST-derived edges + nodes
+            conn.execute(
+                "DELETE FROM code_graph_edges WHERE repo_root = ?1 AND confidence = 'ast'",
+                [repo_root],
+            )?;
+            conn.execute(
+                "DELETE FROM code_graph_nodes WHERE repo_root = ?1 AND ast_symbol IS NOT NULL",
+                [repo_root],
+            )?;
+
+            // Insert AST-derived nodes with graphify_id = "{language}.{symbol_name}"
+            for n in nodes {
+                let graphify_id = format!("{}.{}", n.language, n.symbol_name);
+                let id = format!("{repo_root}:{graphify_id}");
+                let label = graphify_id.clone();
+                let file_type = format!("ast:{}", n.language);
+                let ast_json = serde_json::json!({
+                    "kind": n.symbol_kind,
+                    "content": n.content,
+                    "doc": n.doc_comment,
+                });
+                conn.execute(
+                    "INSERT INTO code_graph_nodes (
+                        id, repo_root, graphify_id, label, community_id, is_god_node,
+                        source_file, file_type, ingested_at, ast_symbol, start_line, end_line
+                    ) VALUES (?1, ?2, ?3, ?4, NULL, 0, ?5, ?6, ?7, ?8, ?9, ?10)
+                    ON CONFLICT(repo_root, graphify_id) DO UPDATE SET
+                        label = excluded.label,
+                        source_file = excluded.source_file,
+                        file_type = excluded.file_type,
+                        ingested_at = excluded.ingested_at,
+                        ast_symbol = excluded.ast_symbol,
+                        start_line = excluded.start_line,
+                        end_line = excluded.end_line",
+                    rusqlite::params![
+                        id,
+                        repo_root,
+                        graphify_id,
+                        label,
+                        n.source_file,
+                        file_type,
+                        ingested_at,
+                        ast_json.to_string(),
+                        n.start_line as i64,
+                        n.end_line as i64,
+                    ],
+                )?;
+            }
+
+            // Insert AST-derived edges with source_id/target_id = "{language}.{symbol_name}"
+            // so they join with code_graph_nodes.graphify_id
+            for e in edges {
+                let lang = lang_from_path(&e.source_file).unwrap_or("unknown");
+                let source_id = format!("{}.{}", lang, e.source_id);
+                let target_id = format!("{}.{}", lang, e.target_id);
+                let edge_id = format!("{repo_root}:{source_id}:{target_id}:{}", e.relation);
+                conn.execute(
+                    "INSERT OR IGNORE INTO code_graph_edges (id, repo_root, source_id, target_id, relation, confidence, ingested_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, 'ast', ?6)",
+                    rusqlite::params![edge_id, repo_root, source_id, target_id, e.relation, ingested_at],
+                )?;
+            }
+
+            Ok((nodes.len(), edges.len()))
         })
     }
 }
