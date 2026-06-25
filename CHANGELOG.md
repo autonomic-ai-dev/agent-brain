@@ -15,10 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Task kind keywords** — expanded classification for `docker`, `compose`, `deploy`, `k8s`, `local-dev`, `setup`, `migration`, `coverage`, `benchmark`, `inspect`, `spec`, `rfc`, `panic` and more
 - **Memory retrieval stats** — `route_task` response includes per-fact `retrieval_stats` with `useful_count` and `useless_count` from `context_weights`, surfaced to agents for introspection
 - **Cross-session file diff** — `repo_snapshot` lists changed filenames (top 5 with status codes, `+N more`) since the prior session, not just commit/file counts
+- **Scratchpad-aware scoring** — keywords extracted from recent cross-agent scratchpad entries (up to 12, ≥4 chars) are injected as scoring tags into `route_task`, boosting memory/rule matches related to what other agents have been working on
+- **Auto-observation on route_task** — after each `route_task`, retrieved memory topics are scanned for recurrence (≥3 facts in 90 days). If found and no `obs/<topic>` exists yet, a lightweight observation is auto-synthesized asynchronously
+- **Session digest topical relevance** — session digests are no longer blanket-excluded from the extra-memory pool. If the digest text has lexical or entity overlap ≥0.15 with the query, it can enter candidates. Penalty reduced from -0.30 to -0.10
 
 ### Changed
 
 - **Auto-tuning retrieval weights** — `useless_count ≥ 3` and exceeding `useful_count` by ≥2 penalizes score 0.5×; `useful_count ≥ 3` with zero useless boosts score 1.15×. Closes the feedback loop on `report_context_useful`.
+- **Fixed config.home pointing to legacy path** — without `AGENT_BRAIN_HOME`, `config.home` now resolves to `~/.autonomic/memory/` instead of `~/.agent_brain/`. Packages, settings, export, and workflows now install under the global workspace. Legacy data, packages, settings, and logs are auto-migrated on first use
 - **Session digest topical relevance** — session digests are no longer blanket-excluded from the extra-memory pool. If the digest text has lexical or entity overlap ≥0.15 with the query, it can enter candidates. Penalty reduced from -0.30 to -0.10 since they are now relevance-filtered.
 - **Fixed config.home pointing to legacy path** — without `AGENT_BRAIN_HOME`, `config.home` now resolves to `~/.autonomic/memory/` instead of `~/.agent_brain/`. Packages, settings, export, and workflows now install under the global workspace. Legacy data, packages, settings, and logs are auto-migrated on first use.
 - **Auto-observation on route_task** — after each `route_task`, retrieved memory topics are scanned for recurrence (≥3 facts in 90 days). If found and no `obs/<topic>` exists yet, a lightweight observation is auto-synthesized asynchronously.

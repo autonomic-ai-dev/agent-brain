@@ -631,14 +631,38 @@ impl Engine {
             }
         }
 
-        let query = format!("{} {}", user_message, ws.tags.join(" "));
+        let scratchpad_keywords: Vec<String> = if let Some(repo) = ws.repo_root.as_deref() {
+            if let Ok(entries) = self.store.read_scratchpad(repo, 10, None) {
+                let mut kws: Vec<String> = Vec::new();
+                for e in &entries {
+                    for word in e.content.split_whitespace() {
+                        let w = word.trim_matches(|c: char| !c.is_alphanumeric());
+                        if w.len() >= 4 {
+                            kws.push(w.to_lowercase());
+                        }
+                    }
+                }
+                kws.sort();
+                kws.dedup();
+                kws.truncate(12);
+                kws
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
+        let mut all_tags = ws.tags.clone();
+        all_tags.extend(scratchpad_keywords);
+
+        let query = format!("{} {}", user_message, all_tags.join(" "));
         let message_fp = fingerprint_query(user_message);
         let (scored, candidates, index_total, embed_us, score_us, embed_cache_hit, bm25_fast_path) =
             self.route_query_parallel(
                 &query,
                 &message_fp,
                 ws.repo_root.as_deref(),
-                &ws.tags,
+                &all_tags,
                 agent_boost_keywords(user_message),
                 &phase,
                 open_files,
@@ -651,6 +675,9 @@ impl Engine {
         if let Some(repo) = ws.repo_root.as_deref() {
             resp.repo_snapshot =
                 crate::repo_snapshot::capture(std::path::Path::new(repo), &self.config.home);
+            if let Ok(entries) = self.store.read_scratchpad(repo, 10, None) {
+                resp.scratchpad = entries;
+            }
         }
         let settings = crate::settings::AgentBrainSettings::load(&self.config.home);
         resp.suggested_tools = crate::upstream::suggest_upstream_tools(
@@ -673,9 +700,6 @@ impl Engine {
                     user_message,
                     100,
                 );
-                if let Ok(entries) = self.store.read_scratchpad(repo, 10, None) {
-                    resp.scratchpad = entries;
-                }
             }
         }
         let topics: Vec<String> = resp
