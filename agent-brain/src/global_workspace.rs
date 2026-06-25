@@ -34,6 +34,38 @@ pub fn migrate_legacy_storage(legacy_home: &Path, memory_dir: &Path) -> Result<(
         }
     }
 
+    for dir in &["packages", "export", "workflows"] {
+        let src = legacy_home.join(dir);
+        let dst = memory_dir.join(dir);
+        if src.is_dir() && !dst.exists() {
+            copy_dir_all(&src, &dst)
+                .with_context(|| format!("migrate {dir} from legacy"))?;
+            tracing::info!(from = %src.display(), to = %dst.display(), "migrated {dir}");
+        }
+    }
+
+    let legacy_settings = legacy_home.join("config.yaml");
+    let dst_settings = memory_dir.join("config.yaml");
+    if legacy_settings.is_file() && !dst_settings.exists() {
+        fs::copy(&legacy_settings, &dst_settings)?;
+        tracing::info!(from = %legacy_settings.display(), to = %dst_settings.display(), "migrated config");
+    }
+
+    Ok(())
+}
+
+fn copy_dir_all(src: &Path, dst: &Path) -> Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let dst_path = dst.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_dir_all(&entry.path(), &dst_path)?;
+        } else if file_type.is_file() && !dst_path.exists() {
+            fs::copy(entry.path(), &dst_path)?;
+        }
+    }
     Ok(())
 }
 
