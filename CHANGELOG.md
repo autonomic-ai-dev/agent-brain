@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Auto-tuning retrieval weights** — `useless_count ≥ 3` and exceeding `useful_count` by ≥2 penalizes score 0.5×; `useful_count ≥ 3` with zero useless boosts score 1.15×. Closes the feedback loop on `report_context_useful`.
 - **Session digest topical relevance** — session digests are no longer blanket-excluded from the extra-memory pool. If the digest text has lexical or entity overlap ≥0.15 with the query, it can enter candidates. Penalty reduced from -0.30 to -0.10 since they are now relevance-filtered.
+- **Fixed config.home pointing to legacy path** — without `AGENT_BRAIN_HOME`, `config.home` now resolves to `~/.autonomic/memory/` instead of `~/.agent_brain/`. Packages, settings, export, and workflows now install under the global workspace. Legacy data, packages, settings, and logs are auto-migrated on first use.
 - **Per-phase route cache TTL** — debugging capped at 30s, verification at 45s, review at 120s, architecture at 180s
 - **Relaxed native tool gate** — server instructions allow native tools when agent-brain has no alternative; git tools added to recommended tool list
 
