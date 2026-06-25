@@ -63,6 +63,25 @@ fn capture_inner(repo_root: &Path, brain_home: &Path) -> Result<String> {
                         parts.push(format!("{files} files touched"));
                     }
                 }
+                if let Some(changed_files) = git_output(
+                    repo_root,
+                    &["diff", "--name-status", "--diff-filter=AMDR", &range],
+                ) {
+                    let lines: Vec<&str> = changed_files.lines().filter(|l| !l.is_empty()).collect();
+                    if !lines.is_empty() {
+                        let show: Vec<String> = lines
+                            .iter()
+                            .take(5)
+                            .map(|l| l.to_string())
+                            .collect();
+                        let suffix = if lines.len() > 5 {
+                            format!(" (+{} more)", lines.len() - 5)
+                        } else {
+                            String::new()
+                        };
+                        parts.push(format!("files: {}{}", show.join(", "), suffix));
+                    }
+                }
             }
         }
     }

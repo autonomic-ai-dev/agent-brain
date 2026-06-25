@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.0] - 2026-06-24
+
+### Added
+
+- **Git MCP tools** — `brain_git_log`, `brain_git_diff`, `brain_git_tags`, `brain_git_compare` for structured git operations without raw bash
+- **Auto-store memory at turn end** — `route_task` auto-commits a compact summary of what was worked on, including tool names and touched file paths
+- **File change capture** — `Engine::record_file_access()` tracks per-turn file/tool usage for richer auto-store facts
+- **Task kind keywords** — expanded classification for `docker`, `compose`, `deploy`, `k8s`, `local-dev`, `setup`, `migration`, `coverage`, `benchmark`, `inspect`, `spec`, `rfc`, `panic` and more
+- **Memory retrieval stats** — `route_task` response includes per-fact `retrieval_stats` with `useful_count` and `useless_count` from `context_weights`, surfaced to agents for introspection
+- **Cross-session file diff** — `repo_snapshot` lists changed filenames (top 5 with status codes, `+N more`) since the prior session, not just commit/file counts
+
+### Changed
+
+- **Per-phase route cache TTL** — debugging capped at 30s, verification at 45s, review at 120s, architecture at 180s
+- **Relaxed native tool gate** — server instructions allow native tools when agent-brain has no alternative; git tools added to recommended tool list
+
 ## [0.31.0] - 2026-06-24
 
 ### Added
