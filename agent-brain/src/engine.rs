@@ -37,6 +37,7 @@ pub struct Engine {
     pub query_emb_cache: Arc<QueryEmbeddingCache>,
     pub mcp_activity: Arc<McpActivity>,
     prev_briefing: Mutex<Option<String>>,
+    prev_snapshot: Mutex<Option<ResponseSnapshot>>,
     touched_files: Mutex<Vec<String>>,
     prev_tool_names: Mutex<Vec<String>>,
     write_queue: WriteQueue,
@@ -74,6 +75,7 @@ impl Engine {
             query_emb_cache: Arc::new(QueryEmbeddingCache::new(128)),
             mcp_activity: Arc::new(McpActivity::new()),
             prev_briefing: Mutex::new(None),
+            prev_snapshot: Mutex::new(None),
             touched_files: Mutex::new(Vec::new()),
             prev_tool_names: Mutex::new(Vec::new()),
             write_queue,
@@ -114,6 +116,7 @@ impl Engine {
             query_emb_cache: Arc::new(QueryEmbeddingCache::new(128)),
             mcp_activity: Arc::new(McpActivity::new()),
             prev_briefing: Mutex::new(None),
+            prev_snapshot: Mutex::new(None),
             touched_files: Mutex::new(Vec::new()),
             prev_tool_names: Mutex::new(Vec::new()),
             write_queue,
@@ -836,11 +839,104 @@ impl Engine {
                 self.config.route_briefing_stderr,
                 Some(&self.store),
             );
+            resp.briefing = route_briefing::format_summary_line(&resp);
+
+            // Session-aware delta: compare against previous turn's response
+            if let Ok(mut prev) = self.prev_snapshot.lock() {
+                let cur_snapshot = ResponseSnapshot::from(&resp);
+                let delta = compute_delta_from_snapshot(prev.as_ref(), &cur_snapshot);
+                if !delta.is_empty() {
+                    if resp.briefing.is_empty() {
+                        resp.briefing = delta;
+                    } else {
+                        resp.briefing.push_str(" | ");
+                        resp.briefing.push_str(&delta);
+                    }
+                }
+                *prev = Some(cur_snapshot);
+            }
         }
-        resp.briefing = route_briefing::format_summary_line(&resp);
+
         resp
     }
+}
 
+#[derive(Debug, Clone)]
+struct ResponseSnapshot {
+    agent_count: usize,
+    phase: String,
+    task_kind: Option<String>,
+    cache_hit: bool,
+    confidence: f64,
+    escalate: bool,
+    latency_ms: u64,
+}
+
+impl From<&RouteTaskResponse> for ResponseSnapshot {
+    fn from(r: &RouteTaskResponse) -> Self {
+        Self {
+            agent_count: r.recommended_agents.len(),
+            phase: r.recommended_phase.clone(),
+            task_kind: r.task_kind.clone(),
+            cache_hit: r.cache_hit,
+            confidence: r.route_confidence,
+            escalate: r.escalate_recommended,
+            latency_ms: r.latency_ms,
+        }
+    }
+}
+
+fn compute_delta_from_snapshot(prev: Option<&ResponseSnapshot>, cur: &ResponseSnapshot) -> String {
+    let Some(prev) = prev else {
+        return String::new();
+    };
+
+    let mut parts: Vec<String> = Vec::new();
+
+    let agents_diff = cur.agent_count as isize - prev.agent_count as isize;
+    if agents_diff != 0 {
+        let sign = if agents_diff > 0 { "+" } else { "" };
+        parts.push(format!("{}agents: {}{}", if agents_diff > 0 { "△ " } else { "" }, sign, agents_diff));
+    }
+
+    if prev.phase != cur.phase {
+        parts.push(format!("phase: {}→{}", prev.phase, cur.phase));
+    }
+
+    if prev.task_kind != cur.task_kind {
+        match (&prev.task_kind, &cur.task_kind) {
+            (Some(p), Some(c)) => parts.push(format!("kind: {}→{}", p, c)),
+            (None, Some(c)) => parts.push(format!("kind: →{}", c)),
+            (Some(p), None) => parts.push(format!("kind: {}→", p)),
+            _ => {}
+        }
+    }
+
+    if prev.cache_hit != cur.cache_hit && cur.cache_hit {
+        parts.push("cache".into());
+    }
+
+    if (cur.confidence - prev.confidence).abs() > 0.05 {
+        parts.push(format!("conf: {:.0}%→{:.0}%", prev.confidence * 100.0, cur.confidence * 100.0));
+    }
+
+    if cur.escalate && !prev.escalate {
+        parts.push("escalate".into());
+    }
+
+    let latency_change = cur.latency_ms as isize - prev.latency_ms as isize;
+    if latency_change.abs() > 50 {
+        parts.push(format!("{:+.0}ms", latency_change as f64));
+    }
+
+    if parts.is_empty() {
+        String::new()
+    } else {
+        parts.join(", ")
+    }
+}
+
+impl Engine {
     pub fn get_context(
         &self,
         task_description: &str,
