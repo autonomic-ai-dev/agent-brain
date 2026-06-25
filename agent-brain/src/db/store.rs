@@ -2222,7 +2222,15 @@ impl BrainStore {
             .memories
             .iter()
             .filter(|row| {
-                !crate::workspace::is_low_signal_memory(&row.topic, row.source.as_deref())
+                if crate::workspace::is_low_signal_memory(&row.topic, row.source.as_deref()) {
+                    let lex =
+                        crate::retrieval::lexical_overlap_score(query, &row.topic, &row.text);
+                    let ent =
+                        crate::retrieval::entity_overlap_score(query, &row.topic, &row.text);
+                    lex >= 0.15 || ent >= 0.15
+                } else {
+                    true
+                }
             })
             .collect();
         extra_memories.sort_by_key(|row| std::cmp::Reverse(row.updated_at));
@@ -2443,6 +2451,9 @@ fn memory_fact_meta<'a>(
 
 fn memory_source_score_adjustment(source: Option<&str>, topic: &str) -> f64 {
     if crate::workspace::is_low_signal_memory(topic, source) {
+        if topic.starts_with("session-digest-") || source == Some("session_digest") {
+            return -0.10;
+        }
         return -0.30;
     }
     0.0
