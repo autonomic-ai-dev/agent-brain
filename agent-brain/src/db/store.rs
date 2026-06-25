@@ -1693,6 +1693,36 @@ impl BrainStore {
         })
     }
 
+    pub fn fact_exists_by_topic(&self, topic: &str) -> Result<bool> {
+        self.with_conn(|conn| {
+            let exists: bool = conn
+                .query_row(
+                    "SELECT 1 FROM facts WHERE topic = ?1 AND superseded_by IS NULL LIMIT 1",
+                    params![topic],
+                    |r| r.get::<_, i32>(0),
+                )
+                .optional()?
+                .is_some();
+            Ok(exists)
+        })
+    }
+
+    pub fn count_active_facts_for_topic(&self, topic: &str, since_ms: i64) -> Result<usize> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            let sql = format!(
+                "SELECT COUNT(*) FROM facts
+                 WHERE topic = ?1 AND superseded_by IS NULL
+                   AND source NOT IN ('observation')
+                   AND updated_at >= ?2
+                   AND {}",
+                crate::temporal::active_fact_sql("?3")
+            );
+            let count: i64 = conn.query_row(&sql, params![topic, since_ms, now], |r| r.get(0))?;
+            Ok(count as usize)
+        })
+    }
+
     pub fn list_active_fact_ids_for_topic(
         &self,
         topic: &str,
