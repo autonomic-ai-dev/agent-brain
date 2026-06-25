@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Task kind keywords** — expanded classification for `docker`, `compose`, `deploy`, `k8s`, `local-dev`, `setup`, `migration`, `coverage`, `benchmark`, `inspect`, `spec`, `rfc`, `panic` and more
 - **Memory retrieval stats** — `route_task` response includes per-fact `retrieval_stats` with `useful_count` and `useless_count` from `context_weights`, surfaced to agents for introspection
 - **Cross-session file diff** — `repo_snapshot` lists changed filenames (top 5 with status codes, `+N more`) since the prior session, not just commit/file counts
+- **Scratchpad-aware scoring** — keywords extracted from recent cross-agent scratchpad entries (up to 12, ≥4 chars) are injected as scoring tags into `route_task`, boosting memory/rule matches related to what other agents have been working on
 
 ### Changed
 
