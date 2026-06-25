@@ -54,18 +54,18 @@ impl Config {
         let legacy_home = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join(".agent_brain");
-        let home = explicit_home.clone().unwrap_or_else(|| legacy_home.clone());
 
-        let (data_dir, logs_dir) = if explicit_home.is_some() {
-            let data = home.join("data");
-            (data.clone(), home.join("logs"))
+        let (home, data_dir, logs_dir) = if let Some(explicit) = explicit_home.clone() {
+            let data = explicit.join("data");
+            let logs = explicit.join("logs");
+            (explicit, data, logs)
         } else {
             let memory = crate::global_workspace::memory_dir();
             if let Err(err) = crate::global_workspace::migrate_legacy_storage(&legacy_home, &memory)
             {
                 tracing::warn!(error = %err, "legacy memory migration skipped");
             }
-            (memory.clone(), memory.join("logs"))
+            (memory.clone(), memory.clone(), memory.join("logs"))
         };
 
         Ok(Self {

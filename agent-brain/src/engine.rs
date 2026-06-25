@@ -738,6 +738,18 @@ impl Engine {
             }
         }
 
+        let memory_topics: Vec<String> = resp.relevant_memory.iter().map(|m| m.topic.clone()).collect();
+        if !memory_topics.is_empty() {
+            let store = self.store.clone();
+            let embedder = self.embedder.clone();
+            let config = self.config.clone();
+            std::thread::spawn(move || {
+                if let Err(err) = auto_observe_topics(&store, &embedder, &memory_topics) {
+                    tracing::warn!(error = %err, "auto-observe failed");
+                }
+            });
+        }
+
         if !is_empty_route_response(&resp) {
             self.cache.put(cache_key, resp.clone());
             if self.config.session_stickiness_secs > 0 {
@@ -1088,4 +1100,46 @@ fn collect_must_apply_from_scored(scored: &[ScoredItem], max: usize) -> Vec<Must
         }
     }
     out
+}
+
+/// After `route_task`, check retrieved memory topics for recurrence and auto-synthesize observations.
+fn auto_observe_topics(
+    store: &crate::db::store::BrainStore,
+    embedder: &crate::embed::Embedder,
+    topics: &[String],
+) -> anyhow::Result<()> {
+    let now = chrono::Utc::now().timestamp_millis();
+    let since_ms = now - 90 * 24 * 3600 * 1000;
+    for topic in topics {
+        if topic.starts_with("obs/") || topic.starts_with("session-digest-") {
+            continue;
+        }
+        let obs_topic = crate::observation::observation_topic(topic);
+        if store.fact_exists_by_topic(&obs_topic)? {
+            continue;
+        }
+        let count = store.count_active_facts_for_topic(topic, since_ms)?;
+        if count < 3 {
+            continue;
+        }
+        let snippet: String = topic.chars().take(80).collect();
+        let fact = format!("Recurring topic across {count} facts: {snippet}");
+        let embedding = embedder.embed_one(&format!("{obs_topic} {fact}"))?;
+        let hash = crate::db::store::content_hash(&fact);
+        let _ = store.store_fact_full(
+            &obs_topic,
+            &fact,
+            "project",
+            None,
+            0.85,
+            "observation",
+            &hash,
+            &embedding,
+            "positive",
+            None,
+            None,
+        )?;
+        tracing::info!(topic = %obs_topic, facts = count, "auto-observed recurring pattern");
+    }
+    Ok(())
 }
