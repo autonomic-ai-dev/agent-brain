@@ -2235,7 +2235,7 @@ impl BrainStore {
         let candidate_count = candidates.len();
         let candidate_ids: Vec<String> = candidates.iter().map(|r| r.id.clone()).collect();
         let context_weights = self.load_context_weights(&candidate_ids)?;
-        let useful_counts = self.load_useful_counts(&candidate_ids)?;
+        let retrieval_stats = self.load_retrieval_stats(&candidate_ids)?;
         let now_ms = chrono::Utc::now().timestamp_millis();
 
         let cosine_sims: Vec<f64> = if bm25_only || query_embedding.is_empty() {
@@ -2346,7 +2346,11 @@ impl BrainStore {
                     }
                 }
 
-                let useful = useful_counts.get(&row.id).copied().unwrap_or(0);
+                let (useful, useless) = retrieval_stats
+                    .get(&row.id)
+                    .copied()
+                    .unwrap_or((0, 0));
+                score *= feedback_multiplier(useful, useless);
                 score *= crate::memory_decay::ebbinghaus_multiplier(
                     row.updated_at,
                     confidence,
@@ -2790,4 +2794,23 @@ pub fn looks_like_secret(text: &str) -> bool {
             .unwrap_or(false)
     }) || text.contains(".env")
         || text.contains(".pem")
+}
+
+/// Feedback multiplier from `report_context_useful` stats.
+///
+/// - If `useless_count >= 3` and exceeds `useful_count` by ≥2: penalty (0.5×).
+/// - If `useful_count >= 3` and `useless_count == 0`: modest boost (1.15×).
+/// - Otherwise: neutral (1.0×).
+#[must_use]
+fn feedback_multiplier(useful_count: u32, useless_count: u32) -> f64 {
+    let i_useless = i64::from(useless_count);
+    let i_useful = i64::from(useful_count);
+
+    if useless_count >= 3 && i_useless - i_useful >= 2 {
+        0.5
+    } else if useful_count >= 3 && useless_count == 0 {
+        1.15
+    } else {
+        1.0
+    }
 }

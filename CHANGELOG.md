@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Auto-tuning retrieval weights** — `useless_count ≥ 3` and exceeding `useful_count` by ≥2 penalizes score 0.5×; `useful_count ≥ 3` with zero useless boosts score 1.15×. Closes the feedback loop on `report_context_useful`.
 - **Per-phase route cache TTL** — debugging capped at 30s, verification at 45s, review at 120s, architecture at 180s
 - **Relaxed native tool gate** — server instructions allow native tools when agent-brain has no alternative; git tools added to recommended tool list
 
