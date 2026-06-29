@@ -84,6 +84,8 @@ mod tests {
         assert_eq!(record.name, "autonomic-core");
         let skill = home.join("packages/autonomic-core/.cursor/skills/find-skills/SKILL.md");
         assert!(skill.is_file(), "missing {}", skill.display());
+        let rmcp = home.join("packages/autonomic-core/.cursor/skills/rmcp-mcp-gateway/SKILL.md");
+        assert!(rmcp.is_file(), "missing {}", rmcp.display());
     }
 
     #[test]

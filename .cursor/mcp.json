@@ -13,6 +13,15 @@
         "AGENT_BRAIN_SESSION_INGEST_DELAY_SEC": "180",
         "RUST_LOG": "agent_brain=info"
       }
+    },
+    "agent-body": {
+      "args": [
+        "serve-mcp"
+      ],
+      "command": "/opt/homebrew/bin/agent-body",
+      "env": {
+        "RUST_LOG": "info"
+      }
     }
   }
 }

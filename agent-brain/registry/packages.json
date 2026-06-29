@@ -2,7 +2,7 @@
   "version": 1,
   "aliases": {
     "autonomic-core": {
-      "description": "Registry discovery — find-skills meta-skill for skills and workflows",
+      "description": "Registry discovery — find-skills and rmcp MCP gateway patterns for Autonomic stack",
       "bundle": "autonomic-core",
       "packages": []
     },

@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.3] - 2026-06-29
+
+### Added
+
+- **`rmcp-mcp-gateway` skill** — bundled in `@autonomic-core`; Rust/rmcp patterns for `agent-body serve-mcp`, `route_to_mcp`, JSON Schema `inputSchema`, Cursor/OpenCode registration
+- **MCP host task routing** — `is_mcp_host_task` + `mcp_route_expansion_tags` inject retrieval tags when messages mention MCP, `serve-mcp`, `agent-body`, Cursor, OpenCode, or `route_to_mcp`
+
+### Changed
+
+- **`route_task` query expansion** — MCP host tasks boost `mcp-server-patterns` and `rmcp-mcp-gateway` skill retrieval
+- **`suggested_tools`** — agent-body gateway tools score higher on MCP host tasks; fallback suggestions when keyword match is empty
+- **`infer_phase`** — MCP registration failures (`tools not working`, empty schema) map to `debugging`
+- **`agent_boost_keywords`** — includes `mcp` for embedding boost
+
 ## [0.33.2] - 2026-06-29
 
 ### Fixed
