@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.2] - 2026-06-29
+
+### Fixed
+
+- **tokio runtime panic on `agent-brain add` / `update`** — `refresh_upstream_index_blocking` called
+  `Runtime::new()` from within `#[tokio::main]`, which panics because tokio forbids nested
+  runtimes. Fixed by spawning the blocking call in a scoped OS thread, giving it a fresh
+  tokio context. This caused `package add` and `package update` commands to crash silently.
+- **default env vars stripped from installer template** — `AGENT_BRAIN_BOOTSTRAP_BG`,
+  `AGENT_BRAIN_BOOTSTRAP_DELAY_SEC`, `AGENT_BRAIN_BOOTSTRAP_INTERVAL_SEC`,
+  `AGENT_BRAIN_AUTO_UPDATE_DELAY_SEC`, and `AGENT_BRAIN_SESSION_INGEST_DELAY_SEC` were all
+  set to their default values in the generated MCP config, adding visual noise. Only
+  non-default overrides (`RUST_LOG`, `FASTEMBED_CACHE_DIR`, `AGENT_BRAIN_BUILD`) are now emitted.
+
 ## [0.33.1] - 2026-06-27
 
 ### Changed

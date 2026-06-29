@@ -64,7 +64,7 @@ dependencies = [
 [[package]]
 name = "agent-body-core"
 version = "0.3.6"
-source = "git+https://github.com/autonomic-ai-dev/agent-body?tag=v0.5.13#6f70d80d8ee801d1eaaf2c2113995b44e9ff9c83"
+source = "git+https://github.com/autonomic-ai-dev/agent-body?tag=v0.5.14#89c8de91b0111b071220416493fb6f891b57fcde"
 dependencies = [
  "anyhow",
  "dirs 5.0.1",
@@ -78,7 +78,7 @@ dependencies = [
 
 [[package]]
 name = "agent-brain"
-version = "0.32.0"
+version = "0.33.1"
 dependencies = [
  "age",
  "agent-body-core",

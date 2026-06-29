@@ -71,8 +71,25 @@ pub fn refresh_upstream_index_blocking(
     settings: &UpstreamMcpSettings,
     store: &BrainStore,
 ) -> Result<usize> {
-    let rt = tokio::runtime::Runtime::new().context("create tokio runtime for upstream index")?;
-    rt.block_on(refresh_upstream_index(settings, store))
+    // Spawn in a fresh OS thread via scoped thread to avoid nested
+    // tokio runtime panic.  The add/update CLI handlers call this
+    // from within #[tokio::main], where Runtime::new() would panic
+    // because tokio forbids creating a runtime inside a running
+    // runtime.  A scoped thread has no existing tokio context.
+    let settings = settings.clone();
+    let result = std::thread::scope(|s| {
+        s.spawn(|| {
+            let rt = tokio::runtime::Runtime::new()
+                .context("create tokio runtime for upstream index")?;
+            rt.block_on(refresh_upstream_index(&settings, store))
+        })
+        .join()
+    });
+    match result {
+        Ok(Ok(count)) => Ok(count),
+        Ok(Err(err)) => Err(err),
+        Err(e) => anyhow::bail!("upstream index thread panicked: {:?}", e),
+    }
 }
 
 pub async fn call_upstream_tool(

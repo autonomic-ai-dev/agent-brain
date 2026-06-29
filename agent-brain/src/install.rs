@@ -465,11 +465,6 @@ pub fn mcp_server_entry(exe: &Path) -> Value {
         "args": ["serve"],
         "env": {
             "RUST_LOG": "agent_brain=info",
-            "AGENT_BRAIN_BOOTSTRAP_BG": "1",
-            "AGENT_BRAIN_BOOTSTRAP_DELAY_SEC": "2",
-            "AGENT_BRAIN_BOOTSTRAP_INTERVAL_SEC": "3600",
-            "AGENT_BRAIN_AUTO_UPDATE_DELAY_SEC": "60",
-            "AGENT_BRAIN_SESSION_INGEST_DELAY_SEC": "180",
             "FASTEMBED_CACHE_DIR": cache_dir.display().to_string(),
             "AGENT_BRAIN_BUILD": build_id
         }
