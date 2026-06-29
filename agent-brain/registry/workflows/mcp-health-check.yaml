@@ -1,0 +1,29 @@
+name: MCP Health Check
+version: 1
+min_spine_version: "0.8.0"
+start_node: AuditSchemas
+
+nodes:
+  - name: AuditSchemas
+    kind: agent
+    description: "Run agent-brain doctor --mcp to verify agent-body serve-mcp returns JSON Schema draft 2020-12 inputSchema on tools/list."
+
+  - name: ProbeGateway
+    kind: agent
+    description: "Call muscle_execute_bash via agent-body MCP (direct or route_to_mcp) with echo probe; confirm stdout."
+
+  - name: VerifyRouting
+    kind: agent
+    description: "Call route_task with an MCP host message; confirm rmcp-mcp-gateway or mcp-server-patterns in recommended_skills and agent-body in suggested_tools."
+
+  - name: Report
+    kind: checkpoint
+    description: "Summarize MCP federation status; if failed, store_memory with topic mcp-health and open follow-up."
+
+edges:
+  - from: AuditSchemas
+    to: ProbeGateway
+  - from: ProbeGateway
+    to: VerifyRouting
+  - from: VerifyRouting
+    to: Report

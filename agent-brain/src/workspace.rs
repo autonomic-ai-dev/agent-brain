@@ -66,6 +66,10 @@ pub fn infer_phase(message: &str) -> String {
     ]
     .iter()
     .any(|k| lower.contains(k))
+    || (is_mcp_host_task(message)
+        && ["not working", "missing", "empty", "broken", "fix", "register"]
+            .iter()
+            .any(|k| lower.contains(k)))
     {
         return "debugging".into();
     }
@@ -193,14 +197,85 @@ pub fn is_low_signal_memory(topic: &str, source: Option<&str>) -> bool {
 
 pub fn agent_boost_keywords(message: &str) -> bool {
     let lower = message.to_lowercase();
-    ["review", "debug", "build", "plan", "test", "security"]
+    ["review", "debug", "build", "plan", "test", "security", "mcp"]
         .iter()
         .any(|k| lower.contains(k))
+}
+
+/// True when the user message is about MCP host integration (Cursor, OpenCode, gateways).
+pub fn is_mcp_host_task(message: &str) -> bool {
+    let lower = message.to_lowercase();
+    const SIGNALS: &[&str] = &[
+        "mcp",
+        "serve-mcp",
+        "agent-body",
+        "agent-brain",
+        "route_to_mcp",
+        "tool_router",
+        "tool_handler",
+        "inputschema",
+        "input schema",
+        "tools/list",
+        "tools/call",
+        "opencode",
+        "cursor",
+        "rmcp",
+        "mcp.json",
+        "upstream_mcp",
+        "mcp gateway",
+        "mcp server",
+        "mcp tools",
+    ];
+    SIGNALS.iter().any(|s| lower.contains(s))
+}
+
+/// Extra BM25/embedding tags so MCP integration skills rank on host-debugging tasks.
+pub fn mcp_route_expansion_tags(message: &str) -> Vec<String> {
+    if !is_mcp_host_task(message) {
+        return Vec::new();
+    }
+    vec![
+        "mcp".into(),
+        "mcp-server-patterns".into(),
+        "rmcp-mcp-gateway".into(),
+        "agent-body".into(),
+        "agent-brain".into(),
+        "serve-mcp".into(),
+        "tool_router".into(),
+        "tool_handler".into(),
+        "route_to_mcp".into(),
+        "inputschema".into(),
+        "cursor".into(),
+        "opencode".into(),
+    ]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mcp_host_task_detects_cursor_opencode() {
+        assert!(is_mcp_host_task("agent-body tools not working in Cursor"));
+        assert!(is_mcp_host_task("fix serve-mcp registration in opencode"));
+        assert!(!is_mcp_host_task("implement user login form"));
+    }
+
+    #[test]
+    fn mcp_route_expansion_injects_gateway_tags() {
+        let tags = mcp_route_expansion_tags("debug agent-body mcp tools");
+        assert!(tags.contains(&"rmcp-mcp-gateway".to_string()));
+        assert!(tags.contains(&"mcp-server-patterns".to_string()));
+        assert!(mcp_route_expansion_tags("add pagination").is_empty());
+    }
+
+    #[test]
+    fn infer_phase_mcp_registration_debugging() {
+        assert_eq!(
+            infer_phase("agent-body mcp tools not working in opencode"),
+            "debugging"
+        );
+    }
 
     #[test]
     fn infer_phase_covers_operator_workflows() {

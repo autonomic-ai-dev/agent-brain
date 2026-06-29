@@ -38,6 +38,10 @@ const EMBEDDED_FILES: &[(&str, &str)] = &[
         "workflows/bugfix.yaml",
         include_str!("../registry/workflows/bugfix.yaml"),
     ),
+    (
+        "workflows/mcp-health-check.yaml",
+        include_str!("../registry/workflows/mcp-health-check.yaml"),
+    ),
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

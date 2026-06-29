@@ -486,6 +486,7 @@ pub fn merge_mcp_config(path: &Path, server_entry: Value) -> Result<Value> {
         .context("mcp.json must contain an mcpServers object")?;
 
     servers.insert("agent-brain".to_string(), server_entry);
+    crate::mcp_federation::ensure_agent_body_cursor_server(servers);
     Ok(root)
 }
 

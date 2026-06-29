@@ -431,6 +431,7 @@ pub fn merge_opencode_config(path: &Path, server_entry: Value, user: bool) -> Re
     match mcp {
         Some(mcp) => {
             mcp.insert("agent-brain".to_string(), server_entry);
+            crate::mcp_federation::ensure_agent_body_opencode_server(mcp);
         }
         None => {
             root["mcp"] = json!({ "agent-brain": server_entry });

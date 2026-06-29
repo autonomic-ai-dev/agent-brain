@@ -2,5 +2,5 @@
   "version": 1,
   "kinds": ["skill_package", "workflow", "utility"],
   "default_bootstrap": ["@autonomic-core", "@supervisor"],
-  "workflow_aliases": ["@release-notes", "@stacked-pr", "@bugfix"]
+  "workflow_aliases": ["@release-notes", "@stacked-pr", "@bugfix", "@mcp-health-check"]
 }

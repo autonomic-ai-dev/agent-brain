@@ -22,7 +22,7 @@ use crate::types::{
     AgentRec, GetContextItem, GetContextResponse, ItemType, MemoryRec, MustApply, RouteLimits,
     RouteTaskResponse, RuleRec, ScoredItem, SkillRec,
 };
-use crate::workspace::{agent_boost_keywords, infer_phase, is_low_signal_memory, probe};
+use crate::workspace::{agent_boost_keywords, infer_phase, is_low_signal_memory, mcp_route_expansion_tags, probe};
 
 type RouteQueryParallelResult = (Vec<ScoredItem>, usize, usize, u64, u64, bool, bool);
 
@@ -657,6 +657,7 @@ impl Engine {
         };
         let mut all_tags = ws.tags.clone();
         all_tags.extend(scratchpad_keywords);
+        all_tags.extend(mcp_route_expansion_tags(user_message));
 
         let query = format!("{} {}", user_message, all_tags.join(" "));
         let message_fp = fingerprint_query(user_message);

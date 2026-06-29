@@ -34,6 +34,7 @@ pub mod log;
 pub mod mcp;
 pub mod mcp_activity;
 pub mod mcp_bench;
+pub mod mcp_federation;
 pub mod memory_decay;
 pub mod memory_gc;
 pub mod node_context;

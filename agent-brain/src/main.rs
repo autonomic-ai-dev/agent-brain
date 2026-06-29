@@ -649,7 +649,12 @@ async fn main() -> Result<()> {
         }
         "doctor" => {
             let fix = args.iter().any(|a| a == "--fix");
-            doctor::run(fix)?;
+            let mcp_only = args.iter().any(|a| a == "--mcp");
+            if mcp_only {
+                doctor::run_mcp_federation(fix)?;
+            } else {
+                doctor::run(fix)?;
+            }
         }
         "secrets" => {
             let config = Config::load()?;
@@ -1557,6 +1562,7 @@ Usage:
   agent-brain sync cloud push|pull            Encrypted cloud sync (S3 / local provider)
   agent-brain secrets status|setup|add        Keychain secret refs for upstream MCP
   agent-brain doctor                          Check MCP install, binary, hooks, codesign
+  agent-brain doctor --mcp                    Audit agent-body gateway schemas (tools/list)
   agent-brain doctor --fix                    Re-sign binary (macOS), align mcp.json, refresh hooks
   agent-brain inspect log [--last]            List retrieval logs (what route_task returned)
   agent-brain inspect fact <id>               Show a stored memory fact

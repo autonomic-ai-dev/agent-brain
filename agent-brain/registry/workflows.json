@@ -18,6 +18,12 @@
       "path": "workflows/bugfix.yaml",
       "organ": "agent-spine",
       "invoke": "agent-spine init --with @bugfix"
+    },
+    "mcp-health-check": {
+      "description": "agent-body schema audit → gateway probe → route_task MCP routing verify",
+      "path": "workflows/mcp-health-check.yaml",
+      "organ": "agent-spine",
+      "invoke": "agent-spine init --with @mcp-health-check"
     }
   }
 }
