@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.5] - 2026-06-30
+
+### Fixed
+
+- **`agent-brain update` — crash on non-git packages** — skip packages installed without a `.git` checkout (e.g. bundled `@autonomic-core`) instead of bailing with `is not a git checkout`
+- **`auto_update.rs` test cleanup** — save/restore env vars in `github_api_token_reads_standard_env_keys` to avoid polluting other tests
+
 ## [0.33.4] - 2026-06-29
 
 ### Fixed

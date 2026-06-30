@@ -214,7 +214,18 @@ pub fn update_packages(config: &Config, name: Option<&str>) -> Result<Vec<Packag
 
     let mut updated = Vec::new();
     for pkg in targets {
+        // Skip bundled packages (source starts with agent-brain/bundle:)
+        if pkg.source.starts_with("agent-brain/bundle:") {
+            continue;
+        }
         let path = PathBuf::from(&pkg.install_path);
+        if !path.join(".git").exists() {
+            tracing::warn!(
+                "{} is not a git checkout — skipping (reinstall with agent-brain add to clone from git)",
+                path.display()
+            );
+            continue;
+        }
         update_package_at(&path, &pkg.git_ref)?;
         let mut next = pkg.clone();
         next.commit = git_head(&path).ok();

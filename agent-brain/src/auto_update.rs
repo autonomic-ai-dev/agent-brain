@@ -812,9 +812,21 @@ mod tests {
 
     #[test]
     fn github_api_token_reads_standard_env_keys() {
+        let saved_github_token = std::env::var("GITHUB_TOKEN").ok();
+        let saved_gh_token = std::env::var("GH_TOKEN").ok();
+        let saved_pat = std::env::var("GITHUB_PERSONAL_ACCESS_TOKEN").ok();
+
+        std::env::remove_var("GITHUB_TOKEN");
+        std::env::remove_var("GH_TOKEN");
+        std::env::remove_var("GITHUB_PERSONAL_ACCESS_TOKEN");
+
         std::env::set_var("GH_TOKEN", "gh_test");
         assert_eq!(github_api_token().as_deref(), Some("gh_test"));
         std::env::remove_var("GH_TOKEN");
         assert!(github_api_token().is_none());
+
+        if let Some(val) = saved_github_token { std::env::set_var("GITHUB_TOKEN", val); }
+        if let Some(val) = saved_gh_token { std::env::set_var("GH_TOKEN", val); }
+        if let Some(val) = saved_pat { std::env::set_var("GITHUB_PERSONAL_ACCESS_TOKEN", val); }
     }
 }
