@@ -648,6 +648,23 @@ async fn main() -> Result<()> {
             }
         }
         "doctor" => {
+            let sub = args.get(2).map(String::as_str);
+            if sub == Some("stats") {
+                let json = args.iter().any(|a| a == "--json");
+                let days = flag_value(&args, "--days")
+                    .and_then(|v| v.parse::<u32>().ok())
+                    .unwrap_or(7);
+                let config = Config::load()?;
+                config.ensure_dirs()?;
+                let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
+                let snapshot = agent_brain::stats::collect(&store, &config, days)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&snapshot)?);
+                } else {
+                    println!("{}", agent_brain::stats::format_summary_line(&snapshot));
+                }
+                return Ok(());
+            }
             let fix = args.iter().any(|a| a == "--fix");
             let mcp_only = args.iter().any(|a| a == "--mcp");
             if mcp_only {

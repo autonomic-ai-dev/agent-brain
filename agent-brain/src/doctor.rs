@@ -396,24 +396,6 @@ pub fn run(fix: bool) -> Result<()> {
 
     let _ = progress.finish();
 
-    println!();
-    println!("Tips:");
-    println!("  • agent-brain briefing — readable route + estimated token savings vs full index");
-    println!("  • agent-brain stats — index size, savings, latency, adoption milestones");
-    println!(
-        "  • agent-brain dashboard --open — local HTML value dashboard (screenshot-friendly ROI)"
-    );
-    println!("  • agent-brain onboarding — 5-minute getting started checklist");
-    println!("  • agent-brain install --all --global — MCP + instructions for Cursor, OpenCode, Claude Code, VS Code, Codex, Gemini, Antigravity");
-    println!("  • Claude Code, Codex, Gemini, Antigravity, OpenCode: route gate hooks installed via install --<host> [--global]");
-    println!("  • Cursor has the strongest host-tool gate (hooks on Read/Shell); other hosts gate agent-brain MCP tools until route_task");
-    println!("  • Background auto-update during serve can exec a new binary after idle (see config auto_update.mcp.restart_after_update)");
-    println!(
-        "  • macOS: linker-signed binaries are killed by taskgated — doctor --fix adhoc re-signs"
-    );
-    println!("  • macOS: browser/curl downloads add quarantine xattrs — xattr -cr + adhoc codesign before Cursor MCP");
-    println!("  • spctl may reject adhoc local builds; that is OK if codesign shows adhoc, not linker-signed");
-
     if !ok {
         if fix {
             println!();
@@ -443,7 +425,6 @@ pub fn run(fix: bool) -> Result<()> {
             println!("Stats: {}", crate::stats::format_summary_line(&stats));
         }
     }
-    crate::onboarding::print_onboarding(&config.home, briefing_path.is_file());
     Ok(())
 }
 
