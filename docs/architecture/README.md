@@ -43,6 +43,8 @@ Read in order for a full picture, or jump to a topic:
 | 12 | [Routing accuracy (USP)](12-routing-accuracy.md) | Recall@3, golden suites, hybrid retrieval, feedback loop |
 | 13 | [Proofs and benchmarks](13-proofs-and-benchmarks.md) | CI gates, `latest.json`, claim types (proven vs aspirational) |
 
+| 15 | [Kernel overhaul (V2)](15-kernel-overhaul.md) | Phased organ upgrades, kernel patterns, phase tracker (superpowers copy is local-only) |
+
 ## Relationship to other docs
 
 | Document | Role |
