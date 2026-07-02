@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.9] - 2026-07-02
+
+### Changed
+
+- **`docs/superpowers/` never committed** — restore full gitignore; kernel plan authoritative copy is `docs/architecture/15-kernel-overhaul.md` only
+
+## [0.33.8] - 2026-07-02
+
+### Changed
+
+- **Kernel overhaul plan location** — authoritative implementation doc at `docs/superpowers/plans/2026-07-02-kernel-overhaul.md`; architecture §15 is now a pointer
+
+## [0.33.7] - 2026-07-02
+
+### Added
+
+- **Kernel overhaul implementation plan** — [docs/architecture/15-kernel-overhaul.md](docs/architecture/15-kernel-overhaul.md) with phased rollout tracker (Phases 1–9+), verification commands, and target benchmarks
+
 ## [0.33.6] - 2026-07-01
 
 ### Changed
