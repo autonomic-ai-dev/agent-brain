@@ -2227,6 +2227,7 @@ impl BrainStore {
             }
         }
 
+        // RRF over BM25 + ANN ranks (candidate prioritization for expansion only).
         let rrf_lists: Vec<&[(String, f64)]> = {
             let mut lists = Vec::new();
             if !bm25_ranking.is_empty() {
@@ -2237,8 +2238,17 @@ impl BrainStore {
             }
             lists
         };
-        let rrf_fused = crate::retrieval_fusion::rrf_fuse(&rrf_lists, crate::retrieval_fusion::RRF_K);
-        let rrf_norm = crate::retrieval_fusion::rrf_normalize(&rrf_fused);
+        let rrf_fused =
+            crate::retrieval_fusion::rrf_fuse(&rrf_lists, crate::retrieval_fusion::RRF_K);
+        for (id, _) in &rrf_fused {
+            if candidate_ids.insert(id.clone()) {
+                if let Some(&idx) = snapshot.indexed_by_id.get(id) {
+                    candidates.push(&snapshot.indexed[idx]);
+                } else if let Some(&idx) = snapshot.memories_by_id.get(id) {
+                    candidates.push(&snapshot.memories[idx]);
+                }
+            }
+        }
 
         if candidates.len() < MIN_CANDIDATES {
             let mut recent = scoped_fallback_rows(snapshot, repo_root);
@@ -2326,17 +2336,12 @@ impl BrainStore {
                 })
                 .unwrap_or(0.0);
 
-            let rrf = rrf_norm.get(&row.id).copied().unwrap_or(0.0);
+            // Final blend is unchanged so calibrated score deltas stay exact; RRF only
+            // expands the candidate set above.
             let mut score = if bm25_only {
                 0.60 * bm25_norm + 0.25 * lexical + 0.15 * entity
             } else {
-                // Keep cosine-primary blend (skills.sh Recall@3 gate). RRF is a mild
-                // multi-source bonus; candidate expansion already uses BM25∪ANN ranks.
-                0.50 * cosine_sim
-                    + 0.22 * bm25_norm
-                    + 0.18 * lexical
-                    + 0.10 * entity
-                    + 0.08 * rrf
+                0.50 * cosine_sim + 0.22 * bm25_norm + 0.18 * lexical + 0.10 * entity
             };
 
             if crate::retrieval_fusion::exact_symbol_match(query, &row.topic) {
