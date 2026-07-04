@@ -2330,12 +2330,13 @@ impl BrainStore {
             let mut score = if bm25_only {
                 0.60 * bm25_norm + 0.25 * lexical + 0.15 * entity
             } else {
-                // RRF fuses BM25 + HNSW ranks; cosine remains a fine-grained signal.
-                0.30 * cosine_sim
-                    + 0.28 * rrf
-                    + 0.18 * bm25_norm
-                    + 0.14 * lexical
+                // Keep cosine-primary blend (skills.sh Recall@3 gate). RRF is a mild
+                // multi-source bonus; candidate expansion already uses BM25∪ANN ranks.
+                0.50 * cosine_sim
+                    + 0.22 * bm25_norm
+                    + 0.18 * lexical
                     + 0.10 * entity
+                    + 0.08 * rrf
             };
 
             if crate::retrieval_fusion::exact_symbol_match(query, &row.topic) {
