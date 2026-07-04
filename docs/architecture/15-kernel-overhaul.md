@@ -4,7 +4,7 @@
 
 Cross-organ phased rollout: treat the agent runtime as an OS kernel — specialized organs, deterministic Rust infrastructure, and **only agent-eyes (VLM) and agent-mouth (SLM) call LLM-class models**.
 
-**Status:** Phase 4 **In progress** (agent-mouth 0.6.0). Next after release: Phase 5 muscle feedback loop.
+**Status:** Phase 4 **Done** (agent-mouth 0.6.0). Next: Phase 5 muscle feedback loop.
 
 ## Design principle
 
@@ -27,8 +27,8 @@ Cross-organ phased rollout: treat the agent runtime as an OS kernel — speciali
 | **1** | WASM sandbox + fuel metering | agent-body-core, agent-immune | core 0.3.7, immune 0.5.9 | **Done** |
 | **2** | Spine CFS critical-path DAG scheduler | agent-spine | 0.18.0 | **Done** |
 | **3** | Brain SQ8 + RRF + MinHash GC | agent-brain | 0.34.0 | **Done** |
-| **4** | Mouth local SLM inference | agent-mouth | 0.6.0 | **In progress** |
-| **5** | Muscle trace collector + auto-LoRA | agent-muscle, agent-spine | muscle 0.8.0 | Planned |
+| **4** | Mouth local SLM inference | agent-mouth | 0.6.0 | **Done** |
+| **5** | Muscle trace collector + auto-LoRA | agent-muscle, agent-spine | muscle 0.8.0 | **Next** |
 | **6** | Heart distillation + WASM fuel budget | agent-heart | 0.8.0 | Planned |
 | **7** | Nerves WASM cache + backpressure | agent-nerves, agent-body-core | nerves 0.7.0 | Planned |
 | **8** | Body health mesh + MCP hardening | agent-body | 0.6.0 | Planned |
