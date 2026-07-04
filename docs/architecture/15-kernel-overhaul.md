@@ -4,7 +4,7 @@
 
 Cross-organ phased rollout: treat the agent runtime as an OS kernel — specialized organs, deterministic Rust infrastructure, and **only agent-eyes (VLM) and agent-mouth (SLM) call LLM-class models**.
 
-**Status:** Phase 3 **In progress** (agent-brain 0.34.0). Next after release: Phase 4 mouth local SLM.
+**Status:** Phase 4 **In progress** (agent-mouth 0.6.0). Next after release: Phase 5 muscle feedback loop.
 
 ## Design principle
 
@@ -26,8 +26,8 @@ Cross-organ phased rollout: treat the agent runtime as an OS kernel — speciali
 |-------|-------|--------|----------------|--------|
 | **1** | WASM sandbox + fuel metering | agent-body-core, agent-immune | core 0.3.7, immune 0.5.9 | **Done** |
 | **2** | Spine CFS critical-path DAG scheduler | agent-spine | 0.18.0 | **Done** |
-| **3** | Brain SQ8 + RRF + MinHash GC | agent-brain | 0.34.0 | **In progress** |
-| **4** | Mouth local SLM inference | agent-mouth | 0.6.0 | Planned |
+| **3** | Brain SQ8 + RRF + MinHash GC | agent-brain | 0.34.0 | **Done** |
+| **4** | Mouth local SLM inference | agent-mouth | 0.6.0 | **In progress** |
 | **5** | Muscle trace collector + auto-LoRA | agent-muscle, agent-spine | muscle 0.8.0 | Planned |
 | **6** | Heart distillation + WASM fuel budget | agent-heart | 0.8.0 | Planned |
 | **7** | Nerves WASM cache + backpressure | agent-nerves, agent-body-core | nerves 0.7.0 | Planned |
@@ -128,10 +128,10 @@ cargo bench -p agent-brain -- gc_minhash_vs_exact
 
 ### Deliverables
 
-- [ ] `local_inference.rs` — llama.cpp HTTP client + subprocess fallback
-- [ ] `summarize.rs` — local SLM first, API second, heuristics last
-- [ ] Template fast path for structured outputs (CI summary, approval gate)
-- [ ] Hard `max_tokens = 150` cap
+- [x] `local_inference.rs` — llama.cpp HTTP client + subprocess fallback
+- [x] `summarize.rs` — local SLM first, API second, heuristics last
+- [x] Template fast path for structured outputs (CI summary, approval gate)
+- [x] Hard `max_tokens = 150` cap
 
 ### Verification
 
