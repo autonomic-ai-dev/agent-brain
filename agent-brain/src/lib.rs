@@ -47,6 +47,7 @@ pub mod promote;
 pub mod proofs;
 pub mod registry_sync;
 pub mod retrieval;
+pub mod retrieval_fusion;
 pub mod repo_snapshot;
 pub mod route_briefing;
 pub mod scale_bench;

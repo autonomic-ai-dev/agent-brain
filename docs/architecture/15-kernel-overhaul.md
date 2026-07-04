@@ -4,7 +4,7 @@
 
 Cross-organ phased rollout: treat the agent runtime as an OS kernel — specialized organs, deterministic Rust infrastructure, and **only agent-eyes (VLM) and agent-mouth (SLM) call LLM-class models**.
 
-**Status:** Phase 2 **Done** (agent-spine 0.18.0). Next: Phase 3 brain SQ8 + RRF + MinHash GC.
+**Status:** Phase 3 **In progress** (agent-brain 0.34.0). Next after release: Phase 4 mouth local SLM.
 
 ## Design principle
 
@@ -26,7 +26,7 @@ Cross-organ phased rollout: treat the agent runtime as an OS kernel — speciali
 |-------|-------|--------|----------------|--------|
 | **1** | WASM sandbox + fuel metering | agent-body-core, agent-immune | core 0.3.7, immune 0.5.9 | **Done** |
 | **2** | Spine CFS critical-path DAG scheduler | agent-spine | 0.18.0 | **Done** |
-| **3** | Brain SQ8 + RRF + MinHash GC | agent-brain | 0.34.0 | **Next** |
+| **3** | Brain SQ8 + RRF + MinHash GC | agent-brain | 0.34.0 | **In progress** |
 | **4** | Mouth local SLM inference | agent-mouth | 0.6.0 | Planned |
 | **5** | Muscle trace collector + auto-LoRA | agent-muscle, agent-spine | muscle 0.8.0 | Planned |
 | **6** | Heart distillation + WASM fuel budget | agent-heart | 0.8.0 | Planned |
@@ -104,10 +104,10 @@ cargo test -p agent-spine scheduler::tests::no_thread_starvation
 
 ### Deliverables
 
-- [ ] `ann.rs` — SQ8 scalar quantization (384 B/vector vs 1.5 KB f32)
-- [ ] `retrieval_fusion.rs` — RRF merge BM25 + HNSW (`k = 60`)
-- [ ] AST symbol-type boost (×1.5 exact match)
-- [ ] `gc.rs` — MinHash LSH dedup (O(n×128) vs O(n²))
+- [x] `ann.rs` — SQ8 scalar quantization (384 B/vector vs 1.5 KB f32)
+- [x] `retrieval_fusion.rs` — RRF merge BM25 + HNSW (`k = 60`)
+- [x] AST symbol-type boost (×1.5 exact match)
+- [x] `gc.rs` — MinHash LSH dedup (O(n×128) vs O(n²))
 - [ ] Cross-encoder rerank top-20 (ONNX, non-LLM) — Phase 3.1
 - [ ] Query decomposition for multi-intent turns — Phase 3.1
 - [ ] Reb baseline `proofs --ci` golden suites

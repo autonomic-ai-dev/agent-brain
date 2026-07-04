@@ -2199,17 +2199,26 @@ impl BrainStore {
             }
         }
 
+        // Build ranked lists for RRF (BM25 + ANN/HNSW).
+        let mut bm25_ranking: Vec<(String, f64)> = bm25
+            .bm25_map
+            .iter()
+            .map(|(id, s)| (id.clone(), *s))
+            .collect();
+        bm25_ranking.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let mut ann_ranking: Vec<(String, f64)> = Vec::new();
         if ann_settings.enabled && !bm25_only && !query_embedding.is_empty() {
             if let Some(ann) = snapshot.ann.as_ref() {
                 if ann.is_active(ann_settings.min_index) {
                     let filter = repo_root.map(|root| crate::ann::AnnFilter {
                         repo_root: Some(root),
                     });
-                    for (id, _) in
-                        ann.top_k_filtered(query_embedding, ann_settings.top_k, filter.as_ref())
-                    {
+                    ann_ranking =
+                        ann.top_k_filtered(query_embedding, ann_settings.top_k, filter.as_ref());
+                    for (id, _) in &ann_ranking {
                         if candidate_ids.insert(id.clone()) {
-                            if let Some(&idx) = snapshot.indexed_by_id.get(&id) {
+                            if let Some(&idx) = snapshot.indexed_by_id.get(id) {
                                 candidates.push(&snapshot.indexed[idx]);
                             }
                         }
@@ -2217,6 +2226,19 @@ impl BrainStore {
                 }
             }
         }
+
+        let rrf_lists: Vec<&[(String, f64)]> = {
+            let mut lists = Vec::new();
+            if !bm25_ranking.is_empty() {
+                lists.push(bm25_ranking.as_slice());
+            }
+            if !ann_ranking.is_empty() {
+                lists.push(ann_ranking.as_slice());
+            }
+            lists
+        };
+        let rrf_fused = crate::retrieval_fusion::rrf_fuse(&rrf_lists, crate::retrieval_fusion::RRF_K);
+        let rrf_norm = crate::retrieval_fusion::rrf_normalize(&rrf_fused);
 
         if candidates.len() < MIN_CANDIDATES {
             let mut recent = scoped_fallback_rows(snapshot, repo_root);
@@ -2304,11 +2326,21 @@ impl BrainStore {
                 })
                 .unwrap_or(0.0);
 
+            let rrf = rrf_norm.get(&row.id).copied().unwrap_or(0.0);
             let mut score = if bm25_only {
                 0.60 * bm25_norm + 0.25 * lexical + 0.15 * entity
             } else {
-                0.50 * cosine_sim + 0.22 * bm25_norm + 0.18 * lexical + 0.10 * entity
+                // RRF fuses BM25 + HNSW ranks; cosine remains a fine-grained signal.
+                0.30 * cosine_sim
+                    + 0.28 * rrf
+                    + 0.18 * bm25_norm
+                    + 0.14 * lexical
+                    + 0.10 * entity
             };
+
+            if crate::retrieval_fusion::exact_symbol_match(query, &row.topic) {
+                score *= crate::retrieval_fusion::AST_SYMBOL_BOOST;
+            }
 
             if matches!(item_type, ItemType::Skill | ItemType::Agent) && lexical >= 0.2 {
                 score += 0.10 * lexical;

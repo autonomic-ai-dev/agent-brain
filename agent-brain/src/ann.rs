@@ -1,13 +1,13 @@
 //! Filterable in-memory ANN for large indexes (BM25 ∪ vector hybrid).
 //!
-//! Uses brute-force for small indexes and a single-layer HNSW graph with
-//! per-filter bridge edges (Qdrant-style filterable HNSW) for larger ones.
+//! Vectors are stored as **SQ8** scalar-quantized codes (1 byte/dim + per-vector
+//! scale) — ~384 B/vector for 384-dim vs ~1.5 KB f32. Uses brute-force for small
+//! indexes and a single-layer HNSW graph with per-filter bridge edges for larger ones.
 
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
 use crate::db::store::CachedRow;
-use crate::embed::dot_product;
 
 #[derive(Debug, Clone, Copy)]
 pub struct AnnSettings {
@@ -43,7 +43,10 @@ pub struct AnnFilter<'a> {
 pub struct AnnIndex {
     ids: Vec<String>,
     dims: usize,
-    vectors: Vec<f32>,
+    /// SQ8 codes: `ids.len() * dims` bytes (i8 bit-patterns stored as u8).
+    codes: Vec<u8>,
+    /// Per-vector dequantization scale (`value = (code as i8) as f32 * scale`).
+    scales: Vec<f32>,
     filter_buckets: Vec<u32>,
     scopes: Vec<String>,
     scope_keys: Vec<Option<String>>,
@@ -55,7 +58,8 @@ pub struct AnnIndex {
 impl AnnIndex {
     pub fn from_rows(rows: &[CachedRow]) -> Option<Self> {
         let mut ids = Vec::new();
-        let mut vectors = Vec::new();
+        let mut codes = Vec::new();
+        let mut scales = Vec::new();
         let mut filter_buckets = Vec::new();
         let mut scopes = Vec::new();
         let mut scope_keys = Vec::new();
@@ -70,18 +74,20 @@ impl AnnIndex {
             if emb.len() != dims || dims == 0 {
                 continue;
             }
+            let (row_codes, scale) = quantize_sq8(emb);
             ids.push(row.id.clone());
             scopes.push(row.scope.clone());
             scope_keys.push(row.scope_key.clone());
             filter_buckets.push(filter_bucket(&row.scope, row.scope_key.as_deref()));
-            vectors.extend_from_slice(emb);
+            codes.extend_from_slice(&row_codes);
+            scales.push(scale);
         }
         if ids.is_empty() {
             return None;
         }
 
         let (graph, bridge_edges, entry) = if ids.len() >= HNSW_MIN_NODES {
-            build_filterable_hnsw(&vectors, dims, &filter_buckets)
+            build_filterable_hnsw(&codes, &scales, dims, &filter_buckets)
         } else {
             (Vec::new(), Vec::new(), 0)
         };
@@ -89,7 +95,8 @@ impl AnnIndex {
         Some(Self {
             ids,
             dims,
-            vectors,
+            codes,
+            scales,
             filter_buckets,
             scopes,
             scope_keys,
@@ -136,11 +143,7 @@ impl AnnIndex {
     ) -> Vec<(String, f64)> {
         let mut scores: Vec<(usize, f64)> = (0..self.ids.len())
             .filter(|&i| node_matches_filter(i, &self.scopes, &self.scope_keys, filter))
-            .map(|i| {
-                let start = i * self.dims;
-                let slice = &self.vectors[start..start + self.dims];
-                (i, dot_product(query, slice))
-            })
+            .map(|i| (i, self.similarity(query, i)))
             .collect();
         if scores.is_empty() {
             return Vec::new();
@@ -222,8 +225,51 @@ impl AnnIndex {
 
     fn similarity(&self, query: &[f32], node: usize) -> f64 {
         let start = node * self.dims;
-        dot_product(query, &self.vectors[start..start + self.dims])
+        sq8_dot_query(query, &self.codes[start..start + self.dims], self.scales[node])
     }
+
+    /// Bytes used by SQ8 codes (excludes scales/graph metadata).
+    pub fn codes_bytes(&self) -> usize {
+        self.codes.len()
+    }
+}
+
+/// Quantize a vector to SQ8: `code = round(v / scale)` clamped to i8, scale = max|v|/127.
+pub fn quantize_sq8(emb: &[f32]) -> (Vec<u8>, f32) {
+    let max_abs = emb
+        .iter()
+        .map(|v| v.abs())
+        .fold(0.0f32, f32::max)
+        .max(1e-12);
+    let scale = max_abs / 127.0;
+    let codes = emb
+        .iter()
+        .map(|v| {
+            let q = (*v / scale).round().clamp(-127.0, 127.0) as i8;
+            q as u8
+        })
+        .collect();
+    (codes, scale)
+}
+
+/// Asymmetric SQ8 dot: query stays f32, corpus is SQ8.
+pub fn sq8_dot_query(query: &[f32], codes: &[u8], scale: f32) -> f64 {
+    let n = query.len().min(codes.len());
+    let mut sum = 0.0f64;
+    for i in 0..n {
+        let v = (codes[i] as i8) as f32 * scale;
+        sum += query[i] as f64 * v as f64;
+    }
+    sum
+}
+
+fn sq8_sq8_dot(a: &[u8], scale_a: f32, b: &[u8], scale_b: f32) -> f64 {
+    let n = a.len().min(b.len());
+    let mut sum = 0i32;
+    for i in 0..n {
+        sum += (a[i] as i8 as i32) * (b[i] as i8 as i32);
+    }
+    sum as f64 * scale_a as f64 * scale_b as f64
 }
 
 pub fn filter_bucket(scope: &str, scope_key: Option<&str>) -> u32 {
@@ -259,18 +305,19 @@ fn node_matches_filter(
 }
 
 fn build_filterable_hnsw(
-    vectors: &[f32],
+    codes: &[u8],
+    scales: &[f32],
     dims: usize,
     filter_buckets: &[u32],
 ) -> (Vec<Vec<usize>>, Vec<Vec<usize>>, usize) {
-    let n = vectors.len() / dims;
+    let n = codes.len() / dims;
     let mut graph = vec![Vec::new(); n];
     let mut entry = 0usize;
     let mut best = f64::NEG_INFINITY;
 
     for i in 0..n {
         let mut dists: Vec<(usize, f64)> = (0..i)
-            .map(|j| (j, vector_sim(vectors, dims, i, j)))
+            .map(|j| (j, vector_sim(codes, scales, dims, i, j)))
             .collect();
         dists.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         for &(nb, _) in dists.iter().take(M) {
@@ -300,7 +347,7 @@ fn build_filterable_hnsw(
                 if node == other {
                     continue;
                 }
-                let sim = vector_sim(vectors, dims, node, other);
+                let sim = vector_sim(codes, scales, dims, node, other);
                 if sim > best_sim {
                     best_sim = sim;
                     best_nb = Some(other);
@@ -326,10 +373,15 @@ fn connect(graph: &mut [Vec<usize>], a: usize, b: usize) {
     }
 }
 
-fn vector_sim(vectors: &[f32], dims: usize, a: usize, b: usize) -> f64 {
+fn vector_sim(codes: &[u8], scales: &[f32], dims: usize, a: usize, b: usize) -> f64 {
     let sa = a * dims;
     let sb = b * dims;
-    dot_product(&vectors[sa..sa + dims], &vectors[sb..sb + dims])
+    sq8_sq8_dot(
+        &codes[sa..sa + dims],
+        scales[a],
+        &codes[sb..sb + dims],
+        scales[b],
+    )
 }
 
 #[cfg(test)]
@@ -417,5 +469,27 @@ mod tests {
             p95 <= 50.0,
             "filterable HNSW p95 {p95:.2}ms exceeds 50ms target"
         );
+    }
+
+    #[test]
+    fn sq8_uses_one_byte_per_dim() {
+        let dims = 384usize;
+        let rows: Vec<CachedRow> = (0..10)
+            .map(|i| {
+                let mut emb = vec![0.0f32; dims];
+                emb[i % dims] = 1.0;
+                row(&format!("v{i}"), emb)
+            })
+            .collect();
+        let ann = AnnIndex::from_rows(&rows).unwrap();
+        assert_eq!(ann.codes_bytes(), 10 * dims);
+        // f32 would be 4x; SQ8 must stay at 1 byte/dim.
+        assert!(ann.codes_bytes() < 10 * dims * 4);
+        let top = ann.top_k(&{
+            let mut q = vec![0.0f32; dims];
+            q[0] = 1.0;
+            q
+        }, 1);
+        assert_eq!(top[0].0, "v0");
     }
 }
