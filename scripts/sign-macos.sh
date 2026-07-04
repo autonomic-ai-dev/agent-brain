@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Adhoc-sign agent-brain after cargo build (macOS only).
-# Linker-signed release binaries are rejected by taskgated when Cursor launches MCP.
+# Sign a macOS release binary.
+# Prefers Developer ID Application when APPLE_IDENTITY is set or present in the keychain;
+# falls back to ad-hoc signing (codesign -s -) for local/dev builds.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -11,13 +12,26 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 0
 fi
 
-if [[ ! -f "$BIN" ]]; then
-  echo "sign-macos.sh: binary not found: $BIN" >&2
+
+if [[ -z "$BIN" || ! -f "$BIN" ]]; then
+  echo "sign-macos.sh: binary not found: ${BIN:-<empty>}" >&2
+  echo "Usage: $0 <path-to-binary>" >&2
   exit 1
 fi
 
-xattr -cr "$BIN"
-codesign --force --sign - "$BIN"
-codesign --verify --verbose "$BIN"
+xattr -cr "$BIN" 2>/dev/null || true
 
-echo "Signed $BIN (adhoc)"
+IDENTITY="${APPLE_IDENTITY:-}"
+if [[ -z "$IDENTITY" ]]; then
+  IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null     | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p'     | head -1 || true)"
+fi
+
+if [[ -n "$IDENTITY" ]]; then
+  codesign --force --options runtime --timestamp --sign "$IDENTITY" "$BIN"
+  codesign --verify --verbose "$BIN"
+  echo "Signed $BIN with $IDENTITY"
+else
+  codesign --force --sign - "$BIN"
+  codesign --verify --verbose "$BIN"
+  echo "Signed $BIN (adhoc)"
+fi

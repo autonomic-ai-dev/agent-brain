@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.0] - 2026-07-04
+
+### Added
+
+- **SQ8 ANN storage (Phase 3)** — scalar-quantized vectors (1 byte/dim + scale) in `ann.rs`
+- **RRF retrieval fusion** — `retrieval_fusion.rs` merges BM25 + HNSW ranks (`k = 60`)
+- **AST symbol boost** — ×1.5 score when query contains an exact symbol-like topic match
+- **MinHash LSH GC** — O(n×128) near-dup detection in `gc.rs` (replaces O(n²) scans)
+- **Developer ID macOS signing** — release builds import `APPLE_CERTIFICATE` and sign with `APPLE_IDENTITY` (ad-hoc fallback)
+
 ## [0.33.9] - 2026-07-02
 
 ### Changed

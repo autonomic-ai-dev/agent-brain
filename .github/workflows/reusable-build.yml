@@ -8,6 +8,13 @@ on:
         type: number
         required: false
         default: 30
+    secrets:
+      APPLE_CERTIFICATE:
+        required: false
+      APPLE_CERTIFICATE_PASSWORD:
+        required: false
+      APPLE_IDENTITY:
+        required: false
 
 
 env:
@@ -62,13 +69,47 @@ jobs:
             chmod +x "dist/${{ matrix.artifact }}"
           fi
 
-      - name: Adhoc sign (macOS)
+      - name: Import Apple signing certificate
         if: runner.os == 'macOS'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ github.run_id }}
         shell: bash
         run: |
-          xattr -cr "dist/${{ matrix.artifact }}"
-          codesign --force --sign - "dist/${{ matrix.artifact }}"
-          codesign --verify --verbose "dist/${{ matrix.artifact }}"
+          if [ -z "${APPLE_CERTIFICATE:-}" ]; then
+            echo "APPLE_CERTIFICATE not set; skipping Developer ID import (will ad-hoc sign)"
+            exit 0
+          fi
+          CERTIFICATE_PATH="$RUNNER_TEMP/build_certificate.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          echo -n "$APPLE_CERTIFICATE" | base64 --decode -o "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychain -d user | tr -d '"')
+
+      - name: Sign (macOS)
+        if: runner.os == 'macOS'
+        env:
+          APPLE_IDENTITY: ${{ secrets.APPLE_IDENTITY }}
+        shell: bash
+        run: |
+          BIN="dist/${{ matrix.artifact }}"
+          xattr -cr "$BIN"
+          if [ -n "${APPLE_IDENTITY:-}" ]; then
+            echo "Signing with Developer ID: $APPLE_IDENTITY"
+            codesign --force --options runtime --timestamp --sign "$APPLE_IDENTITY" "$BIN"
+          else
+            echo "APPLE_IDENTITY not set; ad-hoc signing"
+            codesign --force --sign - "$BIN"
+          fi
+          codesign --verify --verbose "$BIN"
+          codesign -dv --verbose=2 "$BIN" 2>&1 | head -20
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
