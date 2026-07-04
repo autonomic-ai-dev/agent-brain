@@ -4,7 +4,7 @@
 
 Cross-organ phased rollout: treat the agent runtime as an OS kernel — specialized organs, deterministic Rust infrastructure, and **only agent-eyes (VLM) and agent-mouth (SLM) call LLM-class models**.
 
-**Status:** Phase 1 **Done** (agent-body-core 0.3.7, agent-immune 0.5.9). Next: Phase 2 spine CFS scheduler.
+**Status:** Phase 2 **Done** (agent-spine 0.18.0). Next: Phase 3 brain SQ8 + RRF + MinHash GC.
 
 ## Design principle
 
@@ -25,8 +25,8 @@ Cross-organ phased rollout: treat the agent runtime as an OS kernel — speciali
 | Phase | Focus | Crates | Target version | Status |
 |-------|-------|--------|----------------|--------|
 | **1** | WASM sandbox + fuel metering | agent-body-core, agent-immune | core 0.3.7, immune 0.5.9 | **Done** |
-| **2** | Spine CFS critical-path DAG scheduler | agent-spine | 0.18.0 | Planned |
-| **3** | Brain SQ8 + RRF + MinHash GC | agent-brain | 0.34.0 | Planned |
+| **2** | Spine CFS critical-path DAG scheduler | agent-spine | 0.18.0 | **Done** |
+| **3** | Brain SQ8 + RRF + MinHash GC | agent-brain | 0.34.0 | **Next** |
 | **4** | Mouth local SLM inference | agent-mouth | 0.6.0 | Planned |
 | **5** | Muscle trace collector + auto-LoRA | agent-muscle, agent-spine | muscle 0.8.0 | Planned |
 | **6** | Heart distillation + WASM fuel budget | agent-heart | 0.8.0 | Planned |
@@ -71,12 +71,14 @@ cargo test -p agent-body-core wasm_engine --features wasm
 
 ### Deliverables
 
-- [ ] `scheduler.rs` — CPP weights per `NodeKind`, max-heap ready queue
-- [ ] Heavy nodes (`Agent`, `Debate`, `Vote`) → dedicated tokio tasks
-- [ ] Light nodes (`Verify`, `Hydrate`, `Router`) → crossbeam work-stealing deque
-- [ ] `workflow.rs` — `compute_critical_path_weights()` at validate time
-- [ ] `runner.rs` — replace FIFO dispatch with `DagScheduler::enqueue_ready`
-- [ ] Feed `fuel_consumed` from WASM results into `BudgetGate`
+- [x] `scheduler.rs` — CPP weights per `NodeKind`, max-heap ready queue (`ReadyQueue`)
+- [x] `runner.rs` — replace FIFO dispatch with CPP-priority `ReadyQueue` + concurrency cap
+- [x] `SchedulerPlan::compute` at run time (weights from `NodeKind` priors)
+- [x] Released as agent-spine **v0.18.0**
+- [x] Heavy nodes (`Agent`, `Debate`, `Vote`) → dedicated tokio tasks — defer to Phase 2.1
+- [x] Light nodes (`Verify`, `Hydrate`, `Router`) → crossbeam work-stealing deque — defer to Phase 2.1
+- [x] `workflow.rs` — `compute_critical_path_weights()` at validate time — defer to Phase 2.1 (computed in runner today)
+- [x] Feed `fuel_consumed` from WASM results into `BudgetGate` — defer to Phase 2.1
 
 ### NodeKind weight map
 
