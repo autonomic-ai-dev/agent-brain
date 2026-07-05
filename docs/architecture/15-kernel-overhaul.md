@@ -4,7 +4,7 @@
 
 Cross-organ phased rollout: treat the agent runtime as an OS kernel — specialized organs, deterministic Rust infrastructure, and **only agent-eyes (VLM) and agent-mouth (SLM) call LLM-class models**.
 
-**Status:** Phase 8 **Next** (body health mesh). Phase 7 **Done** (agent-nerves 0.7.0).
+**Status:** Phase 8 **In progress** (agent-body [PR #15](https://github.com/autonomic-ai-dev/agent-body/pull/15)). Phase 7 **Done** (agent-nerves 0.7.0).
 
 ## Design principle
 
@@ -31,7 +31,7 @@ Cross-organ phased rollout: treat the agent runtime as an OS kernel — speciali
 | **5** | Muscle trace collector + auto-LoRA | agent-muscle, agent-spine | muscle 0.8.0 | **Done** |
 | **6** | Heart distillation + WASM fuel budget | agent-heart | 0.8.0 | **Done** |
 | **7** | Nerves WASM cache + backpressure | agent-nerves, agent-body-core | nerves 0.7.0 | **Done** |
-| **8** | Body health mesh + MCP hardening | agent-body | 0.6.0 | **Next** |
+| **8** | Body health mesh + MCP hardening | agent-body | 0.6.0 | **In progress** ([PR #15](https://github.com/autonomic-ai-dev/agent-body/pull/15)) |
 | **9+** | Precision layer (cross-encoder, cascades, PID budget) | multi | per organ | Planned |
 
 Each phase ends with: `cargo test`, CHANGELOG entry, semver bump, git commit.
@@ -209,11 +209,11 @@ cargo bench -p agent-nerves -- wasm_filter_cached_vs_cold
 
 ### Deliverables
 
-- [ ] `supervisor.rs` — per-daemon health score 0–100 (latency, restarts, RSS)
-- [ ] `GET /organs/health` aggregated endpoint
-- [ ] Dependency-ordered boot (nats → brain index ready → spine)
-- [ ] Graceful degradation ladder (mouth → raw JSON, eyes → DOM-only)
-- [ ] MCP session crash recovery (pool exists; add reconnect + health gating)
+- [x] `supervisor.rs` — per-daemon health score 0–100 (latency, restarts, RSS)
+- [x] `GET /organs/health` aggregated endpoint (`autonomic serve-health`)
+- [x] Dependency-ordered boot (nats → brain index ready → spine)
+- [x] Graceful degradation ladder (mouth → raw JSON, eyes → DOM-only)
+- [x] MCP session crash recovery (reconnect + health gating)
 
 ### Verification
 
