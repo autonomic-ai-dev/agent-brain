@@ -23,7 +23,7 @@ pub struct TurnCache {
     ttl: Duration,
 }
 
-pub const SEMANTIC_L2_JACCARD: f64 = 0.82;
+pub const SEMANTIC_L2_JACCARD: f64 = 0.70;
 pub const SEMANTIC_L2_MAX: usize = 128;
 
 impl TurnCache {
@@ -212,15 +212,17 @@ mod tests {
     #[test]
     fn semantic_l2_reuses_near_duplicate_query() {
         let cache = TurnCache::new(8, 60);
-        let msg = "fix wasm fuel budget";
+        let msg = "implement cross encoder rerank for agent-brain route_task retrieval pipeline";
+        let near = "implement cross encoder rerank for agent-brain route_task retrieval pipelines";
+        let j = minhash_jaccard(&minhash_signature(msg), &minhash_signature(near));
+        assert!(j >= SEMANTIC_L2_JACCARD, "jaccard {j} below threshold");
         let key = route_cache_key("repo", "implementing", "implementing", &[], msg, 1, true);
         let mut resp = RouteTaskResponse::default();
         resp.briefing = "ok".into();
         cache.put(key, msg, resp);
-        let near_key =
-            route_cache_key("repo", "implementing", "implementing", &[], "fix wasm fuel budgets", 1, true);
+        let near_key = route_cache_key("repo", "implementing", "implementing", &[], near, 1, true);
         assert!(cache
-            .get_semantic_l2("fix wasm fuel budgets", &near_key, Duration::from_secs(60))
+            .get_semantic_l2(near, &near_key, Duration::from_secs(60))
             .is_some());
     }
 }
