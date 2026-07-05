@@ -4,7 +4,7 @@
 
 Cross-organ phased rollout: treat the agent runtime as an OS kernel — specialized organs, deterministic Rust infrastructure, and **only agent-eyes (VLM) and agent-mouth (SLM) call LLM-class models**.
 
-**Status:** Phase 5 **In progress** (agent-muscle 0.8.0). Next after release: Phase 6 heart homeostasis.
+**Status:** Phase 6 **In progress** ([agent-heart#12](https://github.com/autonomic-ai-dev/agent-heart/pull/12)). Phase 5 **Done** (agent-muscle 0.8.0, agent-spine 0.18.1).
 
 ## Design principle
 
@@ -28,8 +28,8 @@ Cross-organ phased rollout: treat the agent runtime as an OS kernel — speciali
 | **2** | Spine CFS critical-path DAG scheduler | agent-spine | 0.18.0 | **Done** |
 | **3** | Brain SQ8 + RRF + MinHash GC | agent-brain | 0.34.0 | **Done** |
 | **4** | Mouth local SLM inference | agent-mouth | 0.6.0 | **Done** |
-| **5** | Muscle trace collector + auto-LoRA | agent-muscle, agent-spine | muscle 0.8.0 | **In progress** |
-| **6** | Heart distillation + WASM fuel budget | agent-heart | 0.8.0 | Planned |
+| **5** | Muscle trace collector + auto-LoRA | agent-muscle, agent-spine | muscle 0.8.0 | **Done** |
+| **6** | Heart distillation + WASM fuel budget | agent-heart | 0.8.0 | **In progress** |
 | **7** | Nerves WASM cache + backpressure | agent-nerves, agent-body-core | nerves 0.7.0 | Planned |
 | **8** | Body health mesh + MCP hardening | agent-body | 0.6.0 | Planned |
 | **9+** | Precision layer (cross-encoder, cascades, PID budget) | multi | per organ | Planned |
@@ -168,9 +168,9 @@ cargo test -p agent-muscle finetune::tests::lora_round_from_500_traces
 
 ### Deliverables
 
-- [ ] `distillation.rs` — weekly HDBSCAN cluster pulse on brain embeddings
-- [ ] `token_budget.rs` — WASM fuel p95 + ceiling alongside LLM tokens
-- [ ] `wasm_executions` SQLite table (mirror `retrieval_log`)
+- [x] `distillation.rs` — weekly HDBSCAN cluster pulse on brain embeddings
+- [x] `token_budget.rs` — WASM fuel p95 + ceiling alongside LLM tokens
+- [x] `wasm_executions` SQLite table (mirror `retrieval_log`)
 - [ ] PID throttle (gradual slowdown vs binary freeze) — Phase 6.1
 - [ ] Temporal confidence decay on facts — Phase 6.1
 
