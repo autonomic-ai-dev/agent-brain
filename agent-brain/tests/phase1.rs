@@ -206,7 +206,7 @@ fn turn_cache_returns_hit_on_repeat_query() {
         tokens_budget: 500,
         ..Default::default()
     };
-    cache.put(key.clone(), resp);
+    cache.put(key.clone(), "fix the routing bug", resp);
     let hit = cache.get(&key).expect("cache hit");
     assert!(hit.cache_hit);
 }

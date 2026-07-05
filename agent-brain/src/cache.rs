@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use lru::LruCache;
 
+use crate::gc::{minhash_jaccard, minhash_signature, MINHASH_SIZE};
 use crate::types::RouteTaskResponse;
 
 #[derive(Hash, Eq, PartialEq, Clone, Debug)]
@@ -18,13 +19,18 @@ pub struct CacheKey {
 
 pub struct TurnCache {
     inner: Mutex<LruCache<CacheKey, (RouteTaskResponse, Instant)>>,
+    semantic_l2: Mutex<Vec<(CacheKey, [u64; MINHASH_SIZE])>>,
     ttl: Duration,
 }
+
+pub const SEMANTIC_L2_JACCARD: f64 = 0.82;
+pub const SEMANTIC_L2_MAX: usize = 128;
 
 impl TurnCache {
     pub fn new(capacity: usize, ttl_secs: u64) -> Self {
         Self {
             inner: Mutex::new(LruCache::new(NonZeroUsize::new(capacity.max(1)).unwrap())),
+            semantic_l2: Mutex::new(Vec::new()),
             ttl: Duration::from_secs(ttl_secs),
         }
     }
@@ -44,10 +50,48 @@ impl TurnCache {
         Some(out)
     }
 
-    pub fn put(&self, key: CacheKey, resp: RouteTaskResponse) {
+    pub fn put(&self, key: CacheKey, user_message: &str, resp: RouteTaskResponse) {
         if let Ok(mut guard) = self.inner.lock() {
-            guard.put(key, (resp, Instant::now()));
+            guard.put(key.clone(), (resp, Instant::now()));
         }
+        if let Ok(mut l2) = self.semantic_l2.lock() {
+            let sig = minhash_signature(user_message);
+            l2.push((key, sig));
+            if l2.len() > SEMANTIC_L2_MAX {
+                let drop = l2.len() - SEMANTIC_L2_MAX;
+                l2.drain(0..drop);
+            }
+        }
+    }
+
+    /// L2 semantic lookup: near-duplicate queries reuse L1 route responses.
+    pub fn get_semantic_l2(
+        &self,
+        user_message: &str,
+        template: &CacheKey,
+        ttl: Duration,
+    ) -> Option<RouteTaskResponse> {
+        let sig = minhash_signature(user_message);
+        let candidates: Vec<CacheKey> = {
+            let l2 = self.semantic_l2.lock().ok()?;
+            l2.iter()
+                .filter(|(k, entry_sig)| {
+                    k.scope_key == template.scope_key
+                        && k.phase == template.phase
+                        && k.task_kind == template.task_kind
+                        && k.index_version == template.index_version
+                        && k.open_files_fp == template.open_files_fp
+                        && minhash_jaccard(entry_sig, &sig) >= SEMANTIC_L2_JACCARD
+                })
+                .map(|(k, _)| k.clone())
+                .collect()
+        };
+        for key in candidates {
+            if let Some(resp) = self.get_with_ttl(&key, ttl) {
+                return Some(resp);
+            }
+        }
+        None
     }
 
     pub fn remove(&self, key: &CacheKey) {
@@ -59,6 +103,9 @@ impl TurnCache {
     pub fn clear(&self) {
         if let Ok(mut guard) = self.inner.lock() {
             guard.clear();
+        }
+        if let Ok(mut l2) = self.semantic_l2.lock() {
+            l2.clear();
         }
     }
 }
@@ -160,5 +207,20 @@ mod tests {
     fn session_key_uses_sentinel_query_fp() {
         let key = session_route_cache_key("repo", "implementing", "implementing", &[], 1, true);
         assert_eq!(key.query_fp, "__session__");
+    }
+
+    #[test]
+    fn semantic_l2_reuses_near_duplicate_query() {
+        let cache = TurnCache::new(8, 60);
+        let msg = "fix wasm fuel budget";
+        let key = route_cache_key("repo", "implementing", "implementing", &[], msg, 1, true);
+        let mut resp = RouteTaskResponse::default();
+        resp.briefing = "ok".into();
+        cache.put(key, msg, resp);
+        let near_key =
+            route_cache_key("repo", "implementing", "implementing", &[], "fix wasm fuel budgets", 1, true);
+        assert!(cache
+            .get_semantic_l2("fix wasm fuel budgets", &near_key, Duration::from_secs(60))
+            .is_some());
     }
 }

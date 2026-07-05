@@ -616,6 +616,21 @@ impl Engine {
             }
         }
 
+        if let Some(mut cached) = self.cache.get_semantic_l2(user_message, &cache_key, phase_ttl) {
+            if !is_empty_route_response(&cached) {
+                if let Some(repo) = ws.repo_root.as_deref() {
+                    cached.repo_snapshot = crate::repo_snapshot::capture(
+                        std::path::Path::new(repo),
+                        &self.config.home,
+                    );
+                }
+                let total_us = started.elapsed().as_micros() as u64;
+                cached.latency_ms = total_us / 1000;
+                cached.cache_hit = true;
+                return Ok(self.finish_route_response(cached));
+            }
+        }
+
         if self.config.session_stickiness_secs > 0 {
             let session_key = session_route_cache_key(
                 &scope_key,
@@ -840,7 +855,7 @@ impl Engine {
         }
 
         if !is_empty_route_response(&resp) {
-            self.cache.put(cache_key, resp.clone());
+            self.cache.put(cache_key, user_message, resp.clone());
             if self.config.session_stickiness_secs > 0 {
                 let session_key = session_route_cache_key(
                     &scope_key,
@@ -850,7 +865,7 @@ impl Engine {
                     self.store.get_index_version(),
                     self.config.turn_cache_ignore_open_files,
                 );
-                self.cache.put(session_key, resp.clone());
+                self.cache.put(session_key, user_message, resp.clone());
             }
         }
 
