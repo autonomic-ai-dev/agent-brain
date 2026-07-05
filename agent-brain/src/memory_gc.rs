@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
+use rusqlite::{params, Connection};
 
 use crate::db::store::{BrainStore, GcCandidate};
 
@@ -78,6 +79,11 @@ pub fn run_memory_gc_with_thresholds(
         }
     }
 
+    let confidence_decay = store.with_conn(|conn| {
+        apply_temporal_confidence_decay(conn, chrono::Utc::now().timestamp_millis())
+    })?;
+    let _ = confidence_decay;
+
     Ok(GcReport {
         dry_run,
         candidates: ids.len() + skipped_protected,
@@ -127,4 +133,28 @@ fn top_topics(counts: HashMap<String, usize>, limit: usize) -> Vec<GcTopicCount>
     topics.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.topic.cmp(&b.topic)));
     topics.truncate(limit);
     topics
+}
+
+
+/// Lower stale fact confidence in-place (weekly heart/distillation hook).
+pub fn apply_temporal_confidence_decay(conn: &Connection, now_ms: i64) -> Result<usize> {
+    let mut stmt = conn.prepare(
+        "SELECT id, confidence, updated_at FROM facts WHERE superseded_by IS NULL AND source != 'user'",
+    )?;
+    let rows: Vec<(String, f64, i64)> = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+        .filter_map(|r| r.ok())
+        .collect();
+    let mut updated = 0usize;
+    for (id, confidence, updated_at) in rows {
+        let next = crate::memory_decay::decay_stored_confidence(confidence, updated_at, now_ms);
+        if (next - confidence).abs() > f64::EPSILON {
+            conn.execute(
+                "UPDATE facts SET confidence = ?1, updated_at = updated_at WHERE id = ?2",
+                params![next, id],
+            )?;
+            updated += 1;
+        }
+    }
+    Ok(updated)
 }

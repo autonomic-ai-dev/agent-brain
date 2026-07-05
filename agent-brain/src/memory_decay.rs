@@ -18,6 +18,12 @@ pub fn ebbinghaus_multiplier(
     (-elapsed_days / stability.max(1.0)).exp()
 }
 
+/// Apply temporal decay to a stored fact confidence (Phase 6.1).
+#[must_use]
+pub fn decay_stored_confidence(confidence: f64, updated_at_ms: i64, now_ms: i64) -> f64 {
+    (confidence * ebbinghaus_multiplier(updated_at_ms, confidence, 0, now_ms)).clamp(0.05, 1.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -60,7 +60,7 @@ pub fn run_ci_proofs() -> Result<ProofReport> {
     let graphify = run_ci_graphify_bench()?;
     assert_graphify_bench_gate(&graphify)?;
 
-    Ok(ProofReport {
+    let report = ProofReport {
         generated_at: Utc::now().to_rfc3339(),
         environment: "isolated-fixture",
         embedder: "deterministic",
@@ -73,7 +73,9 @@ pub fn run_ci_proofs() -> Result<ProofReport> {
         token_tools,
         scale,
         graphify,
-    })
+    };
+    crate::proofs_reb_baseline::assert_reb_baseline(&report, None)?;
+    Ok(report)
 }
 
 pub fn write_proof_report(path: &Path, report: &ProofReport) -> Result<()> {
@@ -108,6 +110,7 @@ pub fn assert_ci_proofs(report: &ProofReport) -> Result<()> {
     }
     assert_scale_bench_gate(&report.scale)?;
     assert_graphify_bench_gate(&report.graphify)?;
+    crate::proofs_reb_baseline::assert_reb_baseline(report, None)?;
     if !report.passed {
         bail!("proof report marked failed");
     }
