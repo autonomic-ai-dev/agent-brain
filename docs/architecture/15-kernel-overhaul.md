@@ -4,7 +4,7 @@
 
 Cross-organ phased rollout: treat the agent runtime as an OS kernel — specialized organs, deterministic Rust infrastructure, and **only agent-eyes (VLM) and agent-mouth (SLM) call LLM-class models**.
 
-**Status:** Phase 6 **In progress** ([agent-heart#12](https://github.com/autonomic-ai-dev/agent-heart/pull/12)). Phase 5 **Done** (agent-muscle 0.8.0, agent-spine 0.18.1).
+**Status:** Phase 7 **In progress** ([agent-nerves#10](https://github.com/autonomic-ai-dev/agent-nerves/pull/10)). Phase 6 **Done** (agent-heart 0.8.0).
 
 ## Design principle
 
@@ -29,8 +29,8 @@ Cross-organ phased rollout: treat the agent runtime as an OS kernel — speciali
 | **3** | Brain SQ8 + RRF + MinHash GC | agent-brain | 0.34.0 | **Done** |
 | **4** | Mouth local SLM inference | agent-mouth | 0.6.0 | **Done** |
 | **5** | Muscle trace collector + auto-LoRA | agent-muscle, agent-spine | muscle 0.8.0 | **Done** |
-| **6** | Heart distillation + WASM fuel budget | agent-heart | 0.8.0 | **In progress** |
-| **7** | Nerves WASM cache + backpressure | agent-nerves, agent-body-core | nerves 0.7.0 | Planned |
+| **6** | Heart distillation + WASM fuel budget | agent-heart | 0.8.0 | **Done** |
+| **7** | Nerves WASM cache + backpressure | agent-nerves, agent-body-core | nerves 0.7.0 | **In progress** |
 | **8** | Body health mesh + MCP hardening | agent-body | 0.6.0 | Planned |
 | **9+** | Precision layer (cross-encoder, cascades, PID budget) | multi | per organ | Planned |
 
@@ -189,9 +189,9 @@ cargo test -p agent-heart token_budget::tests::wasm_fuel_p95_tracking
 
 ### Deliverables
 
-- [ ] `wasm_filter.rs` — use `agent-body-core::wasm_engine` (no cold Engine per message)
-- [ ] `backpressure.rs` — token-bucket JetStream consumer
-- [ ] Subject priority classes (RT / BE / IDLE)
+- [x] `wasm_filter.rs` — use `agent-body-core::wasm_engine` (no cold Engine per message)
+- [x] `backpressure.rs` — token-bucket JetStream consumer
+- [x] Subject priority classes (RT / BE / IDLE)
 - [ ] DOM diff coalescing (16 ms window) — Phase 7.1
 
 ### Verification
