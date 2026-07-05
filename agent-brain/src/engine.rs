@@ -415,12 +415,7 @@ impl Engine {
         open_files: &[String],
         user_message: &str,
     ) -> Result<RouteQueryParallelResult> {
-        let subqueries = crate::query_decompose::decompose_query(query);
-        let query_owned = if subqueries.len() == 1 {
-            subqueries[0].clone()
-        } else {
-            query.to_string()
-        };
+        let query_owned = query.to_string();
         let store = Arc::clone(&self.store);
         let bm25_handle = std::thread::spawn(move || store.bm25_prefilter(&query_owned));
 
@@ -616,21 +611,6 @@ impl Engine {
             }
         }
 
-        if let Some(mut cached) = self.cache.get_semantic_l2(user_message, &cache_key, phase_ttl) {
-            if !is_empty_route_response(&cached) {
-                if let Some(repo) = ws.repo_root.as_deref() {
-                    cached.repo_snapshot = crate::repo_snapshot::capture(
-                        std::path::Path::new(repo),
-                        &self.config.home,
-                    );
-                }
-                let total_us = started.elapsed().as_micros() as u64;
-                cached.latency_ms = total_us / 1000;
-                cached.cache_hit = true;
-                return Ok(self.finish_route_response(cached));
-            }
-        }
-
         if self.config.session_stickiness_secs > 0 {
             let session_key = session_route_cache_key(
                 &scope_key,
@@ -681,73 +661,17 @@ impl Engine {
 
         let query = format!("{} {}", user_message, all_tags.join(" "));
         let message_fp = fingerprint_query(user_message);
-        let subqueries = crate::query_decompose::decompose_query(user_message);
         let (scored, candidates, index_total, embed_us, score_us, embed_cache_hit, bm25_fast_path) =
-            if subqueries.len() > 1 {
-                let mut merged: std::collections::HashMap<String, crate::types::ScoredItem> =
-                    std::collections::HashMap::new();
-                let mut candidates = 0usize;
-                let mut index_total = 0usize;
-                let mut embed_us = 0u64;
-                let mut score_us = 0u64;
-                let mut embed_cache_hit = false;
-                let mut bm25_fast_path = true;
-                for sub in &subqueries {
-                    let sub_query = format!("{} {}", sub, all_tags.join(" "));
-                    let (part, c, idx, e_us, s_us, e_hit, fp) = self.route_query_parallel(
-                        &sub_query,
-                        &message_fp,
-                        ws.repo_root.as_deref(),
-                        &all_tags,
-                        agent_boost_keywords(user_message),
-                        &phase,
-                        open_files,
-                        sub,
-                    )?;
-                    candidates = candidates.max(c);
-                    index_total = index_total.max(idx);
-                    embed_us = embed_us.saturating_add(e_us);
-                    score_us = score_us.saturating_add(s_us);
-                    embed_cache_hit |= e_hit;
-                    bm25_fast_path &= fp;
-                    for item in part {
-                        merged
-                            .entry(item.id.clone())
-                            .and_modify(|existing| {
-                                if item.score > existing.score {
-                                    *existing = item.clone();
-                                }
-                            })
-                            .or_insert(item);
-                    }
-                }
-                let mut scored: Vec<_> = merged.into_values().collect();
-                scored.sort_by(|a, b| {
-                    b.score
-                        .partial_cmp(&a.score)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
-                (
-                    scored,
-                    candidates,
-                    index_total,
-                    embed_us,
-                    score_us,
-                    embed_cache_hit,
-                    bm25_fast_path,
-                )
-            } else {
-                self.route_query_parallel(
-                    &query,
-                    &message_fp,
-                    ws.repo_root.as_deref(),
-                    &all_tags,
-                    agent_boost_keywords(user_message),
-                    &phase,
-                    open_files,
-                    user_message,
-                )?
-            };
+            self.route_query_parallel(
+                &query,
+                &message_fp,
+                ws.repo_root.as_deref(),
+                &all_tags,
+                agent_boost_keywords(user_message),
+                &phase,
+                open_files,
+                user_message,
+            )?;
 
         let build_started = Instant::now();
         let mut resp = build_route_response(&scored, &limits, &phase, max_tokens);
@@ -855,7 +779,7 @@ impl Engine {
         }
 
         if !is_empty_route_response(&resp) {
-            self.cache.put(cache_key, user_message, resp.clone());
+            self.cache.put(cache_key, resp.clone());
             if self.config.session_stickiness_secs > 0 {
                 let session_key = session_route_cache_key(
                     &scope_key,
@@ -865,7 +789,7 @@ impl Engine {
                     self.store.get_index_version(),
                     self.config.turn_cache_ignore_open_files,
                 );
-                self.cache.put(session_key, user_message, resp.clone());
+                self.cache.put(session_key, resp.clone());
             }
         }
 
