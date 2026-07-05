@@ -2474,6 +2474,11 @@ impl BrainStore {
                 .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
+        crate::cross_encoder_rerank::rerank_scored_items(
+            query,
+            &mut scored,
+            crate::cross_encoder_rerank::DEFAULT_TOP_K,
+        );
         Ok((scored, candidate_count, index_total))
     }
 
