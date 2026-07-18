@@ -443,7 +443,7 @@ impl Engine {
             repo_root,
             user_message,
         };
-        let (scored, candidates, index_total) = self.store.score_items_with_bm25(
+        let (mut scored, candidates, index_total) = self.store.score_items_with_bm25(
             &snapshot,
             query,
             &query_emb,
@@ -460,6 +460,29 @@ impl Engine {
                 top_k: self.config.ann_top_k,
             },
         )?;
+
+        // Precision layer (Phase 9+): opt-in only. Default off so skills.sh Recall@3 stays ≥ 0.85.
+        // Enable with AGENT_BRAIN_QUERY_DECOMPOSE=1 / AGENT_BRAIN_PRECISION_RERANK=1 after eval gate.
+        if self.config.query_decompose_enabled {
+            scored = self.apply_query_decompose_fusion(
+                user_message,
+                scored,
+                repo_root,
+                tags,
+                boost_agents,
+                phase,
+                open_files,
+                use_bm25_fast_path,
+            )?;
+        }
+        if self.config.precision_rerank_enabled {
+            crate::cross_encoder_rerank::rerank_scored_items(
+                user_message,
+                &mut scored,
+                crate::cross_encoder_rerank::DEFAULT_TOP_K,
+            );
+        }
+
         let score_us = score_started.elapsed().as_micros() as u64;
 
         Ok((
@@ -471,6 +494,91 @@ impl Engine {
             embed_cache_hit,
             use_bm25_fast_path,
         ))
+    }
+
+    /// RRF-fuse primary rankings with up to two extra sub-query rankings.
+    fn apply_query_decompose_fusion(
+        &self,
+        user_message: &str,
+        primary: Vec<crate::types::ScoredItem>,
+        repo_root: Option<&str>,
+        tags: &[String],
+        boost_agents: bool,
+        phase: &str,
+        open_files: &[String],
+        use_bm25_fast_path: bool,
+    ) -> anyhow::Result<Vec<crate::types::ScoredItem>> {
+        let parts = crate::query_decompose::decompose_query(user_message);
+        if parts.len() <= 1 {
+            return Ok(primary);
+        }
+
+        let mut by_id: std::collections::HashMap<String, crate::types::ScoredItem> =
+            primary.iter().cloned().map(|s| (s.id.clone(), s)).collect();
+        let mut rankings: Vec<Vec<(String, f64)>> = vec![primary
+            .iter()
+            .map(|s| (s.id.clone(), s.score))
+            .collect()];
+
+        let snapshot = self.store.search_cache_snapshot()?;
+        let match_ctx = crate::intelligence::MatchContext {
+            phase,
+            tags,
+            open_files,
+            repo_root,
+            user_message,
+        };
+        let ann = crate::ann::AnnSettings {
+            enabled: self.config.ann_enabled,
+            min_index: self.config.ann_min_index,
+            top_k: self.config.ann_top_k,
+        };
+
+        for part in parts.iter().skip(1).take(2) {
+            let part_query = format!("{} {}", part, tags.join(" "));
+            let bm25 = self.store.bm25_prefilter(&part_query)?;
+            let query_emb = if use_bm25_fast_path {
+                Vec::new()
+            } else {
+                self.embed_query(&part_query, None)?.0
+            };
+            let (extra, _, _) = self.store.score_items_with_bm25(
+                &snapshot,
+                &part_query,
+                &query_emb,
+                &bm25,
+                repo_root,
+                tags,
+                boost_agents,
+                use_bm25_fast_path,
+                Some(phase),
+                Some(&match_ctx),
+                ann,
+            )?;
+            for item in &extra {
+                by_id.entry(item.id.clone()).or_insert_with(|| item.clone());
+            }
+            rankings.push(extra.iter().map(|s| (s.id.clone(), s.score)).collect());
+        }
+
+        let ranking_refs: Vec<&[(String, f64)]> = rankings.iter().map(|r| r.as_slice()).collect();
+        let fused = crate::retrieval_fusion::rrf_fuse(&ranking_refs, crate::retrieval_fusion::RRF_K);
+        let mut out = Vec::with_capacity(fused.len());
+        for (id, score) in fused {
+            if let Some(mut item) = by_id.remove(&id) {
+                item.score = score;
+                out.push(item);
+            }
+        }
+        // Keep any leftovers that RRF dropped (stable append by prior score).
+        let mut rest: Vec<_> = by_id.into_values().collect();
+        rest.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        out.extend(rest);
+        Ok(out)
     }
 
     /// Record that a file was accessed by an MCP tool, for auto-capture at next route_task.
