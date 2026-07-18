@@ -46,6 +46,10 @@ pub struct Config {
     pub mcp_gate_ttl_secs: u64,
     /// Reuse prior route results within a session when scope/phase/files match (0 = off).
     pub session_stickiness_secs: u64,
+    /// Lexical/ONNX-ready cross-encoder rerank of top-K (default off — must pass Recall@3 gate).
+    pub precision_rerank_enabled: bool,
+    /// Split multi-intent turns into sub-queries and RRF-fuse rankings (default off).
+    pub query_decompose_enabled: bool,
 }
 
 impl Config {
@@ -122,6 +126,8 @@ impl Config {
                 crate::ann::DEFAULT_ANN_MIN_INDEX,
             ),
             ann_top_k: env_usize("AGENT_BRAIN_ANN_TOP_K", crate::ann::DEFAULT_ANN_TOP_K),
+            precision_rerank_enabled: env_bool("AGENT_BRAIN_PRECISION_RERANK", false),
+            query_decompose_enabled: env_bool("AGENT_BRAIN_QUERY_DECOMPOSE", false),
             workflow_dirs: vec![home.join("workflows")],
             home,
             data_dir,
@@ -164,6 +170,8 @@ impl Config {
             ann_enabled: true,
             ann_min_index: crate::ann::DEFAULT_ANN_MIN_INDEX,
             ann_top_k: crate::ann::DEFAULT_ANN_TOP_K,
+            precision_rerank_enabled: false,
+            query_decompose_enabled: false,
             workflow_dirs: vec![],
         }
     }

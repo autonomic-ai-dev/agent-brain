@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.0] - 2026-07-18
+
+### Added
+
+- **Product layer MVP** — constitution/feature-spec templates, `scripts/product-init.sh`, registry `@product-layer` bundle, and `feature-from-spec` workflow
+- **Precision layer opt-in** — `AGENT_BRAIN_PRECISION_RERANK` and `AGENT_BRAIN_QUERY_DECOMPOSE` (default off). When enabled: lexical cross-encoder rerank of top-20 and multi-intent RRF fusion via `query_decompose`
+
+### Changed
+
+- Precision rerank/decompose stay **off** on the hot path until `agent-brain proofs --ci` / skills.sh Recall@3 ≥ 0.85 (ONNX cross-encoder can replace lexical later behind the same flags)
+
 ## [0.34.0] - 2026-07-04
 
 ### Added
