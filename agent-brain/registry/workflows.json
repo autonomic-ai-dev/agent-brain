@@ -2,28 +2,34 @@
   "version": 1,
   "workflows": {
     "release-notes": {
-      "description": "Tag diff → changelog → review gate",
+      "description": "Tag diff \u2192 changelog \u2192 review gate",
       "path": "workflows/release-notes.yaml",
       "organ": "agent-spine",
       "invoke": "agent-spine init --with @release-notes"
     },
     "stacked-pr": {
-      "description": "Rebase stacked branches → resolve conflicts → verify",
+      "description": "Rebase stacked branches \u2192 resolve conflicts \u2192 verify",
       "path": "workflows/stacked-pr.yaml",
       "organ": "agent-spine",
       "invoke": "agent-spine init --with @stacked-pr"
     },
     "bugfix": {
-      "description": "Reproduce → isolate → fix → verify loop",
+      "description": "Reproduce \u2192 isolate \u2192 fix \u2192 verify loop",
       "path": "workflows/bugfix.yaml",
       "organ": "agent-spine",
       "invoke": "agent-spine init --with @bugfix"
     },
     "mcp-health-check": {
-      "description": "agent-body schema audit → gateway probe → route_task MCP routing verify",
+      "description": "agent-body schema audit \u2192 gateway probe \u2192 route_task MCP routing verify",
       "path": "workflows/mcp-health-check.yaml",
       "organ": "agent-spine",
       "invoke": "agent-spine init --with @mcp-health-check"
+    },
+    "feature-from-spec": {
+      "description": "Constitution + feature spec \u2192 plan, implement, test, review",
+      "path": "workflows/feature-from-spec.yaml",
+      "organ": "agent-spine",
+      "invoke": "agent-spine init --with feature-from-spec"
     }
   }
 }
