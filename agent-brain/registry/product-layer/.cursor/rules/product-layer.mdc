@@ -1,0 +1,15 @@
+---
+description: Product layer — constitution and feature spec drive implementation
+alwaysApply: true
+---
+
+# Product layer
+
+When this repo has `CONSTITUTION.md` or `docs/features/`:
+
+1. Read `CONSTITUTION.md` before planning or editing.
+2. If the user or spine payload names `feature_spec`, read that file and treat acceptance criteria as the definition of done.
+3. Do not mark work complete until spec test plan commands pass.
+4. Call `store_memory` at task end for binding decisions.
+
+Spine workflow: `@feature-from-spec` via `agent-spine init --with feature-from-spec`.

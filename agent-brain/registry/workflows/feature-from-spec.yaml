@@ -1,0 +1,82 @@
+name: Feature From Spec
+version: 1
+min_spine_version: "0.19.0"
+start_node: LoadSpec
+
+nodes:
+  - name: LoadSpec
+    kind: agent
+    description: "Read CONSTITUTION.md and feature_spec from initial payload (paths relative to repo_root). Populate state with capability summary, acceptance criteria, constraints, interfaces, and test plan."
+    retry_policy:
+      max_attempts: 2
+      backoff_ms: 500
+
+  - name: SpecGate
+    kind: verify
+    description: "Verify the feature spec includes acceptance criteria and a test plan. Set state.spec_valid=true only when both exist and are non-empty."
+
+  - name: Hydrate
+    kind: agent
+    description: "Gather repo context scoped to the feature spec — relevant files, existing patterns, git diff, related tests."
+    retry_policy:
+      max_attempts: 3
+      backoff_ms: 500
+
+  - name: Plan
+    kind: agent
+    description: "Produce an implementation plan mapped to acceptance criteria. Reference constitution constraints and list files to touch."
+    retry_policy:
+      max_attempts: 3
+      backoff_ms: 500
+
+  - name: Write
+    kind: agent
+    description: "Implement the plan — code, tests, docs. Every acceptance criterion must have a corresponding test or verification."
+    retry_policy:
+      max_attempts: 2
+      backoff_ms: 1000
+
+  - name: TestLint
+    kind: checkpoint
+    description: "Run the test plan from the feature spec plus project linters (cargo test, clippy, fmt --check, or stack equivalent)."
+    retry_policy:
+      max_attempts: 2
+      backoff_ms: 1000
+
+  - name: QualityGate
+    kind: verify
+    description: "Evaluate test/lint output against acceptance criteria. Set state.lint_passed and state.criteria_met."
+
+  - name: ReviewGate
+    kind: approval_gate
+    description: "Human reviews changeset against the feature spec before merge."
+
+  - name: Summary
+    kind: agent
+    description: "Write PR summary, check off acceptance criteria, call store_memory for durable decisions."
+
+edges:
+  - from: LoadSpec
+    to: SpecGate
+  - from: SpecGate
+    to: Hydrate
+    condition: state.spec_valid == true
+  - from: SpecGate
+    to: LoadSpec
+    condition: state.spec_valid == false
+  - from: Hydrate
+    to: Plan
+  - from: Plan
+    to: Write
+  - from: Write
+    to: TestLint
+  - from: TestLint
+    to: QualityGate
+  - from: QualityGate
+    to: ReviewGate
+    condition: state.lint_passed == true
+  - from: QualityGate
+    to: Write
+    condition: state.lint_passed == false
+  - from: ReviewGate
+    to: Summary
