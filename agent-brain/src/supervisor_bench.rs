@@ -97,7 +97,8 @@ fn setup_supervisor_engine() -> Result<(Arc<Engine>, TempDir)> {
     let fact = "Never read dist/ or build output directories with cat or read_file";
     let emb = deterministic_embedding(fact);
     let hash = content_hash(fact);
-    store.store_fact(
+    // apply_when ties the negative to dist paths so must_apply stays scoped (noise gates).
+    store.store_fact_full(
         "no-read-dist",
         fact,
         "global",
@@ -107,6 +108,8 @@ fn setup_supervisor_engine() -> Result<(Arc<Engine>, TempDir)> {
         &hash,
         &emb,
         "negative",
+        Some(r#"["path:**/dist/**"]"#),
+        None,
     )?;
     let skills = seed_bench_fixture(&store, BENCH_FIXTURE_SKILLS)?;
     store.bump_index_version()?;
