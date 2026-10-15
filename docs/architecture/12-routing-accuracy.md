@@ -33,7 +33,7 @@ Skill-pack `references/*.md` and other non-entrypoint skill-tree docs are **not*
 
 ### Skill hit quality
 
-Skills need `score >= max(relative_floor, 0.35)`. After the top skill, additional skills must stay within **0.15** score (agents: **0.12**). MCP route tag expansion and supervisor skill boosts apply only on clear host/MCP tasks.
+Skills need `score >= max(relative_floor, 0.35)` when a strong skill hit exists (≥ 0.50); otherwise the relative floor alone applies. After the top skill, additional skills must stay within **0.25** score (agents: **0.12**). MCP route tag expansion and supervisor skill boosts apply only on clear host/MCP tasks.
 
 ### must_apply contract
 

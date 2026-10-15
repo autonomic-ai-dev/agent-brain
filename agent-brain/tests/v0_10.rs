@@ -486,7 +486,7 @@ fn must_apply_promoted_without_memory_budget() {
     let fact = "Never read dist/ or build output directories with cat or read_file";
     let emb = deterministic_embedding(fact);
     store
-        .store_fact(
+        .store_fact_full(
             "no-read-dist",
             fact,
             "global",
@@ -496,6 +496,8 @@ fn must_apply_promoted_without_memory_budget() {
             &content_hash(fact),
             &emb,
             "negative",
+            Some(r#"["path:**/dist/**"]"#),
+            None,
         )
         .unwrap();
     store.bump_index_version().unwrap();

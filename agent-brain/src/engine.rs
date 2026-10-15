@@ -1138,7 +1138,17 @@ fn build_route_response(
         .map(|i| i.score)
         .fold(0.0_f64, f64::max);
     let min_score = crate::retrieval::minimum_recommendation_score(top_non_memory);
-    let skill_floor = min_score.max(0.35);
+    let top_skill = scored
+        .iter()
+        .filter(|i| matches!(i.item_type, ItemType::Skill))
+        .map(|i| i.score)
+        .fold(0.0_f64, f64::max);
+    // Absolute skill floor when the index has a strong hit; avoid emptying weak fixtures.
+    let skill_floor = if top_skill >= 0.50 {
+        min_score.max(0.35)
+    } else {
+        min_score
+    };
     let agent_floor = min_score;
 
     resp.must_apply = collect_must_apply_from_scored(scored, 3, repo_root);
@@ -1159,7 +1169,7 @@ fn build_route_response(
         // Margin: additional skills/agents must stay close to the top hit.
         if matches!(item.item_type, ItemType::Skill) {
             if let Some(top) = resp.recommended_skills.first() {
-                if item.score < top.score - 0.15 {
+                if item.score < top.score - 0.25 {
                     continue;
                 }
             }
