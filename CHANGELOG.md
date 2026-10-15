@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Large-file edit unlock** — after MCP `file_summary` / `read_file_head|tail` / `grep_search` on a path, native Read/StrReplace is allowed on that path (no Shell+python); edit tools never hit the Read gate; deny text steers to scout→StrReplace
-- **Python Shell execution policy** — `beforeShellExecution` + Shell `preToolUse` deny `python -c` / heredoc / piped stdin (coding-policy §3 at the tool level, not instructions alone); allow `python -m pytest|…` and project `.py` runs; override `AGENT_BRAIN_ALLOW_PYTHON_SHELL=1` with user approval
+- **Python Shell execution policy (agent-agnostic)** — shared `route_gate.py` denies `python -c` / heredoc / piped stdin on Shell/Bash for Cursor (`preToolUse` + `beforeShellExecution`), Claude Code / Codex (`PreToolUse`), Gemini / Antigravity (`BeforeTool`), and OpenCode (`tool.execute.before`); allow `python -m pytest|…` and project `.py` runs; override `AGENT_BRAIN_ALLOW_PYTHON_SHELL=1` with user approval
 - **MCP mid-turn flake fix** — session-scoped route gate state + no re-arm on same `generation_id`; exclusive `serve.lock` (refuse second serve unless `AGENT_BRAIN_ALLOW_MULTI_SERVE=1`); dedupe Cursor hooks to `route_gate_run.sh` only
 - **Idle-gated MCP auto-update** — download to staging only; apply binary + refresh `mcp.json` + restart only when MCP is idle; defer (never force) when still busy after max wait
 - **@coding-policy** — synced from Downloads `coding-agent-rules-enforced 2` (no Python for large-file read/inspect workarounds)

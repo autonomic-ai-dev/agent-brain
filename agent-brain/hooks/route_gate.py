@@ -68,7 +68,9 @@ ALLOW_PYTHON_SHELL = os.environ.get("AGENT_BRAIN_ALLOW_PYTHON_SHELL", "").strip(
 # Command-position only (not prose like commit messages mentioning "python -c").
 # (?<![.\w]) avoids matching the "py" suffix of "*.py" paths in the same Shell line.
 _PY = r"(?<![.\w])(?:python3?|py)(?:\d+(?:\.\d+)*)?\b"
-_PY_CMD = rf"(?:^|[;&|`$\n(]\s*|(?:sudo\s+)|(?:env\s+[^\n]*\s)){_PY}"
+# No backtick in the prefix class: markdown/`python -c` in prose must not match.
+# $(python …) still matches via the '(' alternative.
+_PY_CMD = rf"(?:^|[;&|$\n(]\s*|(?:sudo\s+)|(?:env\s+[^\n]*\s)){_PY}"
 PYTHON_INVOKE_RE = re.compile(rf"(?i){_PY_CMD}")
 # Deny agent workarounds: -c, heredoc, stdin pipe/mode. Allow python -m pytest / foo.py runs.
 PYTHON_HEREDOC_RE = re.compile(rf"(?i){_PY_CMD}[^\n]*<<")
@@ -914,8 +916,28 @@ VERIFICATION_CMD_RE = re.compile(
 
 
 def is_shell_tool(tool: str) -> bool:
-    t = tool.lower()
-    return "shell" in t or "terminal" in t or t in {"run_terminal_cmd", "bash"}
+    """True for Shell/Bash/terminal tools across Cursor, Claude, Codex, Gemini, OpenCode."""
+    t = tool.lower().strip()
+    if not t:
+        return False
+    if t in {
+        "bash",
+        "shell",
+        "zsh",
+        "sh",
+        "terminal",
+        "run_terminal_cmd",
+        "run_terminal",
+        "run_command",
+        "shell_command",
+        "execute",
+        "exec",
+        "powershell",
+        "pwsh",
+        "cmd",
+    }:
+        return True
+    return "shell" in t or "terminal" in t or t.endswith("_bash") or t.endswith(".bash")
 
 
 def looks_like_verification(cmd: str) -> bool:
@@ -1061,7 +1083,7 @@ def handle_before_mcp_execution(event: dict) -> dict:
 
 
 def handle_before_shell_execution(event: dict) -> dict:
-    """Cursor beforeShellExecution — tool-level Python deny (failClosed in hooks.json)."""
+    """Host shell pre-hook (Cursor beforeShellExecution) — Python deny, failClosed."""
     denied = check_python_shell_policy(extract_shell_command(event, max_len=None))
     if denied is not None:
         return denied

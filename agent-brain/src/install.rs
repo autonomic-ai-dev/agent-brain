@@ -559,9 +559,10 @@ mod tests {
         let merged = merge_hooks_config(&path, AGENT_BRAIN_HOOKS_JSON).unwrap();
         let text = serde_json::to_string_pretty(&merged).unwrap();
         assert!(text.contains("custom.sh"));
-        assert!(text.contains("route_gate.py"));
+        assert!(text.contains("route_gate_run.sh"));
         assert!(text.contains("beforeSubmitPrompt"));
         assert!(text.contains("postToolUse"));
+        assert!(text.contains("beforeShellExecution"));
     }
 
     #[test]

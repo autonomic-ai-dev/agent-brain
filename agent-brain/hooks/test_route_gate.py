@@ -585,6 +585,37 @@ class ScoutUnlockTests(unittest.TestCase):
         self.assertEqual(out.get("permission"), "deny")
         self.assertIn("python -c", (out.get("user_message") or "").lower() + (out.get("agent_message") or "").lower())
 
+    def test_python_deny_is_agent_agnostic_for_bash_and_before_tool(self) -> None:
+        """Claude Bash PreToolUse + Gemini BeforeTool share route_gate.py policy."""
+        from route_gate import adapt_hook_output, is_shell_tool
+
+        self.assertTrue(is_shell_tool("Bash"))
+        self.assertTrue(is_shell_tool("bash"))
+        self.assertTrue(is_shell_tool("shell_command"))
+        self.assertFalse(is_shell_tool("Write"))
+
+        bash_denied = handle_pre_tool_use(
+            {
+                "tool_name": "Bash",
+                "tool_input": {"command": "python3 -c 'print(1)'"},
+            }
+        )
+        self.assertEqual(bash_denied.get("permission"), "deny")
+        claude = adapt_hook_output("PreToolUse", bash_denied, {})
+        self.assertEqual(
+            claude.get("hookSpecificOutput", {}).get("permissionDecision"), "deny"
+        )
+
+        gemini_event = {
+            "hook_event_name": "BeforeTool",
+            "tool_name": "run_command",
+            "tool_input": {"command": "python3 -c 'print(1)'"},
+        }
+        gemini_raw = handle_pre_tool_use(gemini_event)
+        self.assertEqual(gemini_raw.get("permission"), "deny")
+        gemini = adapt_hook_output("BeforeTool", gemini_raw, gemini_event)
+        self.assertEqual(gemini.get("decision"), "deny")
+
 
 if __name__ == "__main__":
     unittest.main()
