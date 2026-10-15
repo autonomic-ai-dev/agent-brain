@@ -10,6 +10,7 @@ use walkdir::WalkDir;
 use crate::config::Config;
 use crate::db::store::{content_hash, BrainStore, IndexBatchItem};
 use crate::embed::Embedder;
+#[cfg(feature = "extras")]
 use crate::graphify::{AstCodeNodeRow, AstEdgeRow};
 use crate::types::ItemType;
 
@@ -33,6 +34,7 @@ pub fn sync_index_opts(
     embedder: &Embedder,
     cwd: Option<&Path>,
     changed_only: bool,
+    #[cfg_attr(not(feature = "extras"), allow(unused_variables))]
     enable_ast_index: bool,
 ) -> Result<usize> {
     let roots = config.default_index_roots(cwd);
@@ -94,8 +96,10 @@ pub fn sync_index_opts(
     };
 
     use rayon::prelude::*;
-    let ast_nodes = Mutex::new(Vec::new());
-    let ast_edges = Mutex::new(Vec::new());
+    #[cfg(feature = "extras")]
+    let ast_nodes = Mutex::new(Vec::<AstCodeNodeRow>::new());
+    #[cfg(feature = "extras")]
+    let ast_edges = Mutex::new(Vec::<AstEdgeRow>::new());
     let parsed_items: Vec<UnembeddedItem> = file_tasks
         .into_par_iter()
         .flat_map(|(path, repo, pkg_ctx)| {
@@ -105,6 +109,7 @@ pub fn sync_index_opts(
                 let hash = content_hash(&item.text);
                 items.push(UnembeddedItem { item, hash, mtime });
             }
+            #[cfg(feature = "extras")]
             if enable_ast_index {
                 if let Ok((ast_symbols, ast_extracted_edges)) =
                     crate::ast_indexer::index_file(&path)
@@ -241,28 +246,31 @@ pub fn sync_index_opts(
     store.upsert_indexed_items_batch(&db_items)?;
     store.bump_index_version()?;
 
-    // Phase 4: build complete code graph from AST data (no external graphify binary needed)
-    let ast_node_list = ast_nodes.into_inner().unwrap_or_default();
-    let ast_edge_list = ast_edges.into_inner().unwrap_or_default();
-    if !ast_node_list.is_empty() || !ast_edge_list.is_empty() {
-        let mut by_repo: HashMap<String, (Vec<AstCodeNodeRow>, Vec<AstEdgeRow>)> = HashMap::new();
-        for node in ast_node_list {
-            by_repo
-                .entry(node.repo_root.clone())
-                .or_default()
-                .0
-                .push(node);
-        }
-        for edge in ast_edge_list {
-            by_repo
-                .entry(edge.repo_root.clone())
-                .or_default()
-                .1
-                .push(edge);
-        }
-        let now = chrono::Utc::now().timestamp();
-        for (repo_root, (nodes, edges)) in &by_repo {
-            store.build_code_graph_from_ast(repo_root, nodes, edges, now)?;
+    // Phase 4: build complete code graph from AST data (extras / graphify builds only).
+    #[cfg(feature = "extras")]
+    {
+        let ast_node_list = ast_nodes.into_inner().unwrap_or_default();
+        let ast_edge_list = ast_edges.into_inner().unwrap_or_default();
+        if !ast_node_list.is_empty() || !ast_edge_list.is_empty() {
+            let mut by_repo: HashMap<String, (Vec<AstCodeNodeRow>, Vec<AstEdgeRow>)> = HashMap::new();
+            for node in ast_node_list {
+                by_repo
+                    .entry(node.repo_root.clone())
+                    .or_default()
+                    .0
+                    .push(node);
+            }
+            for edge in ast_edge_list {
+                by_repo
+                    .entry(edge.repo_root.clone())
+                    .or_default()
+                    .1
+                    .push(edge);
+            }
+            let now = chrono::Utc::now().timestamp();
+            for (repo_root, (nodes, edges)) in &by_repo {
+                store.build_code_graph_from_ast(repo_root, nodes, edges, now)?;
+            }
         }
     }
 

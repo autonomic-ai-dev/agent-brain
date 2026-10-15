@@ -1,6 +1,7 @@
 pub mod at_rest;
 pub mod latency;
 pub mod migrations;
+pub mod scratchpad;
 pub mod store;
 pub mod write_handler;
 pub mod write_queue;

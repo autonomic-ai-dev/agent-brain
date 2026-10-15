@@ -948,7 +948,14 @@ impl BrainMcp {
         &self,
         params: Parameters<QueryCodebaseParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.require_route("query_codebase")?;
+        #[cfg(not(feature = "extras"))]
+        {
+            return Err(missing_extras_mcp("query_codebase"));
+        }
+
+        #[cfg(feature = "extras")]
+        {
+self.require_route("query_codebase")?;
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
         let repo = resolve_graphify_repo(p.current_working_directory.as_deref())?;
@@ -961,6 +968,7 @@ impl BrainMcp {
         )
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
         json_result(serde_json::json!({ "answer": text }))
+        }
     }
 
     #[tool(
@@ -970,7 +978,14 @@ impl BrainMcp {
         &self,
         params: Parameters<TriggerDeepAnalysisParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.require_route("trigger_deep_analysis")?;
+        #[cfg(not(feature = "extras"))]
+        {
+            return Err(missing_extras_mcp("trigger_deep_analysis"));
+        }
+
+        #[cfg(feature = "extras")]
+        {
+self.require_route("trigger_deep_analysis")?;
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
         let repo = resolve_graphify_repo(p.repo_root.as_deref())?;
@@ -992,6 +1007,7 @@ impl BrainMcp {
             "status": "queued",
             "reason": p.reason,
         }))
+        }
     }
 
     #[tool(description = "Poll status for trigger_deep_analysis job.")]
@@ -999,12 +1015,20 @@ impl BrainMcp {
         &self,
         params: Parameters<GraphifyJobStatusParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.require_route("graphify_job_status")?;
+        #[cfg(not(feature = "extras"))]
+        {
+            return Err(missing_extras_mcp("graphify_job_status"));
+        }
+
+        #[cfg(feature = "extras")]
+        {
+self.require_route("graphify_job_status")?;
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
         let status = crate::graphify::job_status(&self.engine, &p.job_id)
             .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
         json_result(status)
+        }
     }
 
     #[tool(
@@ -1076,7 +1100,14 @@ impl BrainMcp {
         &self,
         params: Parameters<SearchSymbolsParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.require_route("search_symbols")?;
+        #[cfg(not(feature = "extras"))]
+        {
+            return Err(missing_extras_mcp("search_symbols"));
+        }
+
+        #[cfg(feature = "extras")]
+        {
+self.require_route("search_symbols")?;
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
         let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
@@ -1087,6 +1118,7 @@ impl BrainMcp {
             .search_symbols(&repo_root, &p.query, p.language.as_deref(), p.file.as_deref(), p.limit)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         json_result(results)
+        }
     }
 
     #[tool(description = "Get the full definition (source + docstring) of a named symbol. Optionally scope to a file.")]
@@ -1094,7 +1126,14 @@ impl BrainMcp {
         &self,
         params: Parameters<GetSymbolDefinitionParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.require_route("get_symbol_definition")?;
+        #[cfg(not(feature = "extras"))]
+        {
+            return Err(missing_extras_mcp("get_symbol_definition"));
+        }
+
+        #[cfg(feature = "extras")]
+        {
+self.require_route("get_symbol_definition")?;
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
         let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
@@ -1105,6 +1144,7 @@ impl BrainMcp {
             .get_symbol_definition(&repo_root, &p.name, p.file.as_deref())
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         json_result(result)
+        }
     }
 
     #[tool(description = "Get all symbols defined in a file, sorted by start line. Returns label, kind, lines, and source for each symbol.")]
@@ -1112,7 +1152,14 @@ impl BrainMcp {
         &self,
         params: Parameters<GetFileOutlineParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.require_route("get_file_outline")?;
+        #[cfg(not(feature = "extras"))]
+        {
+            return Err(missing_extras_mcp("get_file_outline"));
+        }
+
+        #[cfg(feature = "extras")]
+        {
+self.require_route("get_file_outline")?;
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
         let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
@@ -1123,6 +1170,7 @@ impl BrainMcp {
             .get_file_outline(&repo_root, &p.path)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         json_result(results)
+        }
     }
 
     #[tool(description = "Find all callers of a named symbol. Returns caller symbols with source locations.")]
@@ -1130,7 +1178,14 @@ impl BrainMcp {
         &self,
         params: Parameters<FindCallersParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.require_route("find_callers")?;
+        #[cfg(not(feature = "extras"))]
+        {
+            return Err(missing_extras_mcp("find_callers"));
+        }
+
+        #[cfg(feature = "extras")]
+        {
+self.require_route("find_callers")?;
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
         let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
@@ -1141,6 +1196,7 @@ impl BrainMcp {
             .find_callers(&repo_root, &p.name)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         json_result(results)
+        }
     }
 
     #[tool(description = "Explore the local dependency graph around a symbol via BFS over code_graph_edges. Depth defaults to 2 hops (max 5).")]
@@ -1148,7 +1204,14 @@ impl BrainMcp {
         &self,
         params: Parameters<GetLocalGraphParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.require_route("get_local_graph")?;
+        #[cfg(not(feature = "extras"))]
+        {
+            return Err(missing_extras_mcp("get_local_graph"));
+        }
+
+        #[cfg(feature = "extras")]
+        {
+self.require_route("get_local_graph")?;
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
         let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
@@ -1159,6 +1222,7 @@ impl BrainMcp {
             .get_local_graph(&repo_root, &p.name, p.depth)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         json_result(results)
+        }
     }
 
     // ── Phase 6: scratchpad tools ───────────────────────────
@@ -1204,7 +1268,14 @@ impl BrainMcp {
         &self,
         params: Parameters<RecentSymbolsParams>,
     ) -> Result<CallToolResult, McpError> {
-        self.require_route("recent_symbols")?;
+        #[cfg(not(feature = "extras"))]
+        {
+            return Err(missing_extras_mcp("recent_symbols"));
+        }
+
+        #[cfg(feature = "extras")]
+        {
+self.require_route("recent_symbols")?;
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
         let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
@@ -1215,6 +1286,7 @@ impl BrainMcp {
             .recent_symbols(&repo_root, p.limit)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         json_result(results)
+        }
     }
 
     #[tool(
@@ -1333,6 +1405,16 @@ fn json_result<T: serde::Serialize>(value: T) -> Result<CallToolResult, McpError
     let text = serde_json::to_string(&value)
         .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
     Ok(CallToolResult::success(vec![Content::text(text)]))
+}
+
+#[cfg(not(feature = "extras"))]
+fn missing_extras_mcp(tool: &str) -> McpError {
+    McpError::invalid_params(
+        format!(
+            "tool `{tool}` requires a build with `--features extras` (graphify/code-nav harness)"
+        ),
+        None,
+    )
 }
 
 fn resolve_graphify_repo(cwd: Option<&str>) -> Result<PathBuf, McpError> {

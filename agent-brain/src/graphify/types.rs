@@ -35,23 +35,7 @@ pub struct GraphifyJobStatus {
     pub result: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CodeContextNode {
-    pub label: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub relation: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub target: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CodeContext {
-    pub god_nodes: Vec<String>,
-    pub relevant_nodes: Vec<CodeContextNode>,
-    pub graph_stale: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_ingested_at: Option<i64>,
-}
+pub use crate::code_nav::{CodeContext, CodeContextNode};
 
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct GraphJson {

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use agent_brain::{
-    auto_update, config::Config, doctor, engine::Engine, grpc, host_install, index, install, mcp,
+    auto_update, config::Config, doctor, engine::Engine, host_install, index, install, mcp,
     packages, registry_sync, serve_meta, settings,
 };
 use anyhow::{Context, Result};
@@ -53,6 +53,8 @@ async fn main() -> Result<()> {
             | "bench"
             | "proofs"
             | "distill"
+            | "graphify"
+            | "grpc"
     ) {
         anyhow::bail!(
             "command `{cmd}` requires a build with `--features extras`\n             rebuild: cargo install --path agent-brain --features extras"
@@ -89,6 +91,7 @@ async fn main() -> Result<()> {
             }
             mcp::run_stdio(engine).await?;
         }
+        #[cfg(feature = "extras")]
         "grpc" => {
             let sub = args.get(2).map(String::as_str).unwrap_or("serve");
             if sub != "serve" {
@@ -108,11 +111,14 @@ async fn main() -> Result<()> {
                     install::format_new_index_count(n, total)
                 );
             }
-            grpc::serve(engine, addr).await?;
+            agent_brain::grpc::serve(engine, addr).await?;
         }
         "index" => {
             let changed_only = args.iter().any(|a| a == "--changed-only" || a == "-c");
+            #[cfg(feature = "extras")]
             let no_ast = args.iter().any(|a| a == "--no-ast");
+            #[cfg(not(feature = "extras"))]
+            let no_ast = true;
             let mut config = Config::load()?;
             config.bootstrap_background = false;
             config.session_ingest_background = false;
@@ -444,6 +450,7 @@ async fn main() -> Result<()> {
                 }
             }
         }
+        #[cfg(feature = "extras")]
         "graphify" => {
             let config = Config::load()?;
             let engine = Arc::new(Engine::new(config)?);

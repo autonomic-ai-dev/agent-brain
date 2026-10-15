@@ -804,6 +804,7 @@ impl Engine {
             &phase,
             &resp.must_apply,
         );
+        #[cfg(feature = "extras")]
         if let Some(repo) = ws.repo_root.as_deref() {
             if settings.graphify.enabled {
                 resp.code_context = crate::graphify::route_code_context(

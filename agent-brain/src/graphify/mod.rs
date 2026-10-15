@@ -9,14 +9,15 @@ mod repos;
 mod types;
 
 pub use cli::{run_cli, GraphifyCli};
+pub use crate::code_nav::{ScratchpadEntry, SymbolMatch};
 pub use ingest::{
     ingest_graph_at_path, ingest_repo, AstCodeNodeRow, AstEdgeRow, CodeGraphEdgeRow,
-    CodeGraphNodeRow, LocalGraphEdge, ScratchpadEntry, SymbolMatch,
+    CodeGraphNodeRow, LocalGraphEdge,
 };
 pub use jobs::{enqueue_job, job_status, JobMode, JobTrigger};
 pub use query::query_codebase;
 pub use repos::{disable_repo, enable_repo, list_repos, repo_status, ReposRegistry};
-pub use types::{CodeContext, GraphifyJobRecord, GraphifyJobStatus, GraphifyRepoRecord};
+pub use types::{CodeContext, CodeContextNode, GraphifyJobRecord, GraphifyJobStatus, GraphifyRepoRecord};
 
 use crate::db::store::BrainStore;
 use crate::settings::GraphifySettings;

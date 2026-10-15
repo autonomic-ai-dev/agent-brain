@@ -1,5 +1,6 @@
 pub mod adoption;
 pub mod ann;
+#[cfg(feature = "extras")]
 pub mod ast_indexer;
 pub mod auto_update;
 pub mod autowire;
@@ -9,6 +10,7 @@ pub mod beam_eval;
 pub mod bench;
 pub mod bridge;
 pub mod cache;
+pub mod code_nav;
 #[cfg(feature = "extras")]
 pub mod cli_extras;
 pub mod config;
@@ -31,9 +33,11 @@ pub mod fixture;
 pub mod gc;
 pub mod git_tools;
 pub mod global_workspace;
+#[cfg(feature = "extras")]
 pub mod graphify;
 #[cfg(feature = "extras")]
 pub mod graphify_bench;
+#[cfg(feature = "extras")]
 pub mod grpc;
 pub mod host_hooks;
 pub mod host_install;
