@@ -1014,12 +1014,99 @@ async fn main() -> Result<()> {
                     )?;
                     println!("{}", serde_json::to_string_pretty(&report)?);
                 }
+                "put" => {
+                    let topic = flag_value(&args, "--topic").context("memory put requires --topic")?;
+                    let fact = flag_value(&args, "--fact").context("memory put requires --fact")?;
+                    let scope = flag_value(&args, "--scope").unwrap_or_else(|| "project".into());
+                    let scope_key = flag_value(&args, "--scope-key");
+                    let confidence = flag_value(&args, "--confidence")
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or(0.9);
+                    let embedder = agent_brain::embed::Embedder::with_model(
+                        agent_brain::embed::parse_embedding_model(&config.embedding_model),
+                    )?;
+                    let report = agent_brain::memory_pending::put_now(
+                        &store,
+                        &embedder,
+                        &topic,
+                        &fact,
+                        &scope,
+                        scope_key.as_deref(),
+                        confidence,
+                    )?;
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                }
+                "enqueue" => {
+                    let topic =
+                        flag_value(&args, "--topic").context("memory enqueue requires --topic")?;
+                    let fact =
+                        flag_value(&args, "--fact").context("memory enqueue requires --fact")?;
+                    let scope = flag_value(&args, "--scope").unwrap_or_else(|| "project".into());
+                    let scope_key = flag_value(&args, "--scope-key");
+                    let confidence = flag_value(&args, "--confidence")
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or(0.9);
+                    let path = agent_brain::memory_pending::enqueue(
+                        &config.home,
+                        &topic,
+                        &fact,
+                        &scope,
+                        scope_key.as_deref(),
+                        confidence,
+                    )?;
+                    println!("enqueued -> {}", path.display());
+                    eprintln!("Flush with: agent-brain memory flush-pending");
+                }
+                "flush-pending" => {
+                    let retries = flag_value(&args, "--retries")
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .unwrap_or(agent_brain::memory_pending::DEFAULT_RETRIES);
+                    let backoff_ms = flag_value(&args, "--backoff-ms")
+                        .and_then(|s| s.parse::<u64>().ok())
+                        .unwrap_or(agent_brain::memory_pending::DEFAULT_BACKOFF_MS);
+                    let watch = args.iter().any(|a| a == "--watch");
+                    let interval = flag_value(&args, "--interval-secs")
+                        .and_then(|s| s.parse::<u64>().ok())
+                        .unwrap_or(5);
+                    let max_rounds = flag_value(&args, "--max-rounds")
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .unwrap_or(if watch { 24 } else { 1 });
+                    let embedder = agent_brain::embed::Embedder::with_model(
+                        agent_brain::embed::parse_embedding_model(&config.embedding_model),
+                    )?;
+                    let report = if watch {
+                        agent_brain::memory_pending::flush_watch(
+                            &config.home,
+                            &store,
+                            &embedder,
+                            retries,
+                            backoff_ms,
+                            interval,
+                            max_rounds,
+                        )?
+                    } else {
+                        agent_brain::memory_pending::flush_pending(
+                            &config.home,
+                            &store,
+                            &embedder,
+                            retries,
+                            backoff_ms,
+                        )?
+                    };
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                    if report.remaining > 0 {
+                        std::process::exit(2);
+                    }
+                }
                 _ => {
                     eprintln!(
                         "Usage: agent-brain memory gc [--apply] [--force] [--stale-days N] [--very-stale-days N]"
                     );
                     eprintln!("       agent-brain memory observe [--dry-run]");
                     eprintln!("       agent-brain memory extract [--dry-run] [--explain]");
+                    eprintln!("       agent-brain memory put --topic T --fact F [--scope project|global] [--scope-key K]");
+                    eprintln!("       agent-brain memory enqueue --topic T --fact F   # MCP fallback queue");
+                    eprintln!("       agent-brain memory flush-pending [--retries N] [--watch] [--interval-secs N]");
                     std::process::exit(1);
                 }
             }

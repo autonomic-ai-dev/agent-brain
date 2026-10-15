@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.0] - 2026-10-16
+
+### Added
+
+- **Portable sync thin slice** — path-independent `project_key`, `sync_events` outbox + HLC, bundle v2 per-device events, git fetch+rebase pull, dual-read v1; `agent-brain bootstrap` / `verify` / report (#61–#66)
+- **MCP memory CLI fallback** — `agent-brain memory put`, `enqueue`, and `flush-pending` (`--watch`) so durable facts survive `Connection closed` / Not connected instead of being dropped (#68)
+- **@coding-policy refresh** — antigravity host file, comment-check scripts, and GitHub workflow in the embedded bundle
+
+### Changed
+
+- **Agent rules** — distinguish valid route-gate `Permission denied` (re-call `route_task`; never set `AGENT_BRAIN_ROUTE_HOOKS=0`) from infrastructure MCP failures (retry, then CLI writes / alternate reads)
+- **CI** — positive `paths` filter on push/PR so docs, markdown, and `.cursor`-only changes do not run the full pipeline (`workflow_dispatch` unchanged)
+- **Architecture docs** — portable sync plan and thin-slice status; phases 3–9 remain gated
+
+### Fixed
+
+- Embedded Cursor `agent-brain.mdc` / install rule text aligned with no-bypass gate recovery and memory flush-pending guidance
+
 ## [0.37.0] - 2026-10-16
 
 ### Added

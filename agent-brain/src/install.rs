@@ -440,9 +440,25 @@ Do **not** skip `route_task`. Do **not** load skills/rules from guesswork when a
 
 When a durable decision or convention is established, call **`store_memory`** once (max 50 words, no secrets).
 
-## Fallback
+## Errors: obey valid gates; recover without bypass
 
-If agent-brain MCP tools are unavailable, set `AGENT_BRAIN_ROUTE_HOOKS=0` and proceed with reduced context.
+Judge the error before acting. **Do not disable the route gate** (`AGENT_BRAIN_ROUTE_HOOKS=0`) to work around a deny.
+
+### Permission denied (route gate / hook) — valid
+
+This means `route_task` has not cleared the gate for this turn. **Do not bypass.**
+
+1. Call **`route_task`** again (same turn), then retry the gated tool.
+2. If still denied, pick another **allowed** approach that still goes through the gate (e.g. brain tools listed after a successful route; CLI only for durable writes below).
+3. Never set `AGENT_BRAIN_ROUTE_HOOKS=0` for Permission denied.
+
+### Connection closed / Not connected / `-32000` / timeout — infrastructure
+
+1. **Retry the same tool 2–3 times** with short waits (~0.5–1s). Do not skip `route_task` or `store_memory` on the first failure.
+2. **Writes** (`store_memory`, …): after MCP retries fail, **do not drop the fact** — use CLI:
+   - `agent-brain memory put --topic "…" --fact "…"`
+   - or `agent-brain memory enqueue …` then `agent-brain memory flush-pending` (`--watch` to keep retrying).
+3. **Reads**: after retries fail, use another approach (toggle/reload MCP; or host-native tools for that dig only). Tell the user context is reduced. Do **not** disable hooks unless the user explicitly asks.
 
 ## User visibility (no need to expand MCP JSON)
 
@@ -450,7 +466,7 @@ Each `route_task` writes a readable summary to **`~/.autonomic/memory/logs/last-
 
 ## macOS
 
-Linker-signed local builds are killed by taskgated when Cursor launches MCP. Use **`make release-macos`** or the GitHub release binary at `~/.local/bin/agent-brain`.
+Linker-signed local builds are killed by taskgated when Cursor launches MCP. Use **`make release-macos`**, **`agent-brain doctor --fix`**, or the GitHub release binary at `~/.local/bin/agent-brain`.
 
 **Hooks enforce this:** Cursor blocks **agent-brain MCP tools** until `route_task` succeeds each turn (default `brain_mcp` scope). Large native `Read` calls are blocked in favor of bounded brain tools.
 "#;
@@ -511,6 +527,9 @@ mod tests {
     fn cursor_rule_requires_route_task() {
         assert!(CURSOR_RULE.contains("route_task"));
         assert!(CURSOR_RULE.contains("alwaysApply: true"));
+        assert!(CURSOR_RULE.contains("Errors: obey valid gates; recover without bypass"));
+        assert!(CURSOR_RULE.contains("Never set `AGENT_BRAIN_ROUTE_HOOKS=0` for Permission denied"));
+        assert!(CURSOR_RULE.contains("memory flush-pending"));
     }
 
     #[test]

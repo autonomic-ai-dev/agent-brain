@@ -19,8 +19,30 @@ pub fn files() -> &'static [(&'static str, &'static str)] {
             include_str!("../../../registry/coding-policy/augment/AGENTS.md"),
         ),
         (
+            "antigravity/AGENTS.md",
+            include_str!("../../../registry/coding-policy/antigravity/AGENTS.md"),
+        ),
+        (
+            "AGENTS.md",
+            include_str!("../../../registry/coding-policy/AGENTS.md"),
+        ),
+        (
             "README.md",
             include_str!("../../../registry/coding-policy/README.md"),
+        ),
+        (
+            "scripts/check-added-comments.sh",
+            include_str!("../../../registry/coding-policy/scripts/check-added-comments.sh"),
+        ),
+        (
+            "scripts/install-git-hook.sh",
+            include_str!("../../../registry/coding-policy/scripts/install-git-hook.sh"),
+        ),
+        (
+            ".github/workflows/no-added-comments.yml",
+            include_str!(
+                "../../../registry/coding-policy/.github/workflows/no-added-comments.yml"
+            ),
         ),
     ]
 }

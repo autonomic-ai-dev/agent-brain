@@ -53,6 +53,7 @@ pub mod mcp_bench;
 pub mod mcp_federation;
 pub mod memory_decay;
 pub mod memory_gc;
+pub mod memory_pending;
 pub mod node_context;
 pub mod observability;
 pub mod observation;
