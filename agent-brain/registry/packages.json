@@ -54,6 +54,11 @@
       "description": "Constitution \u2192 feature spec lane \u2014 product-feature-spec skill + cursor rule",
       "bundle": "product-layer",
       "packages": []
+    },
+    "coding-policy": {
+      "description": "Strict engineering policy \u2014 inspect, implement natively, test, verify (Cursor/Claude/OpenCode/Augment)",
+      "bundle": "coding-policy",
+      "packages": []
     }
   }
 }
