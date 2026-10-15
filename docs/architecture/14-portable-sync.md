@@ -1,6 +1,6 @@
 # 14. Portable setup and memory sync
 
-**Status:** implementing thin slice (phases 0–2). **Backlog:** phases 5–9 until outcome data exists.
+**Status:** thin slice implemented (phases 0–2 stacked). **Next:** phases 3–4 after baseline outcome data. **Backlog:** phases 5–9 until justified.
 
 **Related:** [08-sync-sessions-portability.md](08-sync-sessions-portability.md).
 
@@ -61,3 +61,10 @@ Phases 3–4 after thin slice proves out. Phases 5–9 backlog.
 | Bundle v2, outbox, project_key, verify, report | agent-brain |
 | Full marketplace plugin | Separate repo (after 1b) |
 | Done-gating | agent-spine / harness |
+
+
+## Thin slice delivery (stack #63)
+
+Stacked PRs (bottom → top): docs baseline → project_key schema → wire routing → outbox/v2/git → bootstrap+verify.
+
+Stop here and reassess before phases 3–4 (scratch/handoff) or 5–9 (domains, plugin, sharing, learning, risk).
