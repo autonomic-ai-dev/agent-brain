@@ -48,6 +48,16 @@ OFFLINE_SECS = float(os.environ.get("AGENT_BRAIN_ROUTE_OFFLINE_SECS", "1800"))
 GATE_SCOPE = os.environ.get("AGENT_BRAIN_ROUTE_GATE_SCOPE", "brain_mcp").strip().lower()
 READ_GATE_MODE = os.environ.get("AGENT_BRAIN_READ_GATE", "hard").strip().lower()
 READ_WARN_BYTES = int(os.environ.get("AGENT_BRAIN_READ_WARN_BYTES", "65536"))
+# After a bounded MCP scout on a path, allow native Read/StrReplace for this long
+# (avoids Shell+python workarounds on large .rs/.md files).
+SCOUT_UNLOCK_SECS = float(os.environ.get("AGENT_BRAIN_SCOUT_UNLOCK_SECS", "3600"))
+DEFAULT_BOUNDED_READ_LINES = int(os.environ.get("AGENT_BRAIN_BOUNDED_READ_LINES", "400"))
+SCOUT_TOOL_MARKERS = (
+    "file_summary",
+    "read_file_head",
+    "read_file_tail",
+    "grep_search",
+)
 BLOCKED_PATH_SEGMENTS = ("dist", "node_modules", "target", "build", ".git", ".next", "coverage")
 TOOL_EVENTS_PATH = STATE_PATH.parent / "tool_events.jsonl"
 
@@ -497,6 +507,8 @@ def write_anti_pattern_suggestion(path: str, reason: str) -> None:
 
 def is_cursor_read_tool(event: dict) -> bool:
     tool = str(event.get("tool_name") or "").strip().lower()
+    if is_cursor_edit_tool(event):
+        return False
     return tool in {
         "read",
         "mcp_read",
@@ -506,16 +518,119 @@ def is_cursor_read_tool(event: dict) -> bool:
     } or tool.endswith("_read") or tool.startswith("read_")
 
 
+def is_cursor_edit_tool(event: dict) -> bool:
+    """Write/StrReplace/ApplyPatch — never subject to the large-file Read gate."""
+    tool = str(event.get("tool_name") or "").strip().lower()
+    return any(
+        marker in tool
+        for marker in (
+            "write",
+            "strreplace",
+            "search_replace",
+            "apply_patch",
+            "applypatch",
+            "editnotebook",
+            "edit_notebook",
+        )
+    ) or tool in {"edit", "searchreplace"}
+
+
 def extract_read_path(event: dict) -> str | None:
     for key in ("tool_input", "arguments", "args", "input"):
         raw = event.get(key)
         parsed = parse_json_value(raw)
         if isinstance(parsed, dict):
-            for field in ("path", "target_file", "file", "file_path"):
+            for field in ("path", "target_file", "file", "file_path", "filePath"):
                 value = parsed.get(field)
                 if isinstance(value, str) and value.strip():
                     return value.strip()
     return None
+
+
+def normalize_scout_path(path: str) -> str:
+    try:
+        return str(Path(path).expanduser().resolve())
+    except OSError:
+        return path.strip()
+
+
+def record_scouted_path(path: str, event: dict | None = None) -> None:
+    if not path or not path.strip():
+        return
+    state = load_state(event)
+    scouted = state.get("scouted_paths")
+    if not isinstance(scouted, dict):
+        scouted = {}
+    key = normalize_scout_path(path)
+    scouted[key] = time.time()
+    # Keep map bounded.
+    if len(scouted) > 64:
+        oldest = sorted(scouted.items(), key=lambda kv: kv[1])[: len(scouted) - 64]
+        for dead, _ in oldest:
+            scouted.pop(dead, None)
+    state["scouted_paths"] = scouted
+    save_state(state, event)
+
+
+def path_is_scouted(state: dict, path: str) -> bool:
+    scouted = state.get("scouted_paths")
+    if not isinstance(scouted, dict) or not path:
+        return False
+    key = normalize_scout_path(path)
+    now = time.time()
+    for stored, ts in scouted.items():
+        if not isinstance(ts, (int, float)):
+            continue
+        if now - ts > SCOUT_UNLOCK_SECS:
+            continue
+        if stored == key or stored.endswith("/" + Path(key).name) or key.endswith(stored):
+            return True
+        try:
+            if Path(stored).resolve() == Path(key).resolve():
+                return True
+        except OSError:
+            pass
+    return False
+
+
+def is_bounded_native_read(event: dict) -> bool:
+    """Allow native Read when the host already requested a line slice."""
+    for key in ("tool_input", "arguments", "args", "input"):
+        raw = event.get(key)
+        parsed = parse_json_value(raw)
+        if not isinstance(parsed, dict):
+            continue
+        limit = parsed.get("limit")
+        if isinstance(limit, int) and 0 < limit <= DEFAULT_BOUNDED_READ_LINES:
+            return True
+        # Cursor sometimes uses end_line/start_line or offset.
+        if parsed.get("offset") is not None and limit is not None:
+            return True
+        end_line = parsed.get("end_line") or parsed.get("endLine")
+        start_line = parsed.get("start_line") or parsed.get("startLine") or 1
+        if isinstance(end_line, int) and isinstance(start_line, int):
+            if 0 < (end_line - start_line + 1) <= DEFAULT_BOUNDED_READ_LINES:
+                return True
+    return False
+
+
+def maybe_record_scout_from_event(event: dict) -> None:
+    """Unlock a path after successful MCP file_summary / read_file_* / grep_search."""
+    if event.get("success") is False or event.get("error"):
+        return
+    tool = str(event.get("tool_name") or "").lower()
+    if not any(marker in tool for marker in SCOUT_TOOL_MARKERS):
+        return
+    if not (
+        is_agent_brain_mcp_tool(event)
+        or "agent-brain" in tool
+        or "agent_brain" in tool
+        or tool in SCOUT_TOOL_MARKERS
+    ):
+        return
+    path = extract_read_path(event)
+    if path:
+        record_scouted_path(path, event)
 
 
 def file_size_bytes(path: str) -> int | None:
@@ -533,10 +648,13 @@ def path_is_blocked(path: str) -> bool:
 def check_read_tool_gate(event: dict) -> dict | None:
     if READ_GATE_MODE == "off":
         return None
+    # Edits must never be blocked by the large-file Read policy (forces Shell+python otherwise).
+    if is_cursor_edit_tool(event):
+        return None
     if not is_cursor_read_tool(event):
         return None
 
-    state = load_state()
+    state = load_state(event)
     path = extract_read_path(event)
     must_apply = state.get("must_apply") or []
     suggested = state.get("suggested_native_tools") or []
@@ -573,6 +691,10 @@ def check_read_tool_gate(event: dict) -> dict | None:
             ),
         }
 
+    # Bounded native Read (limit/offset) or prior MCP scout → allow (enables StrReplace on large files).
+    if path and (is_bounded_native_read(event) or path_is_scouted(state, path)):
+        return None
+
     size = file_size_bytes(path) if path else None
     large = size is not None and size > READ_WARN_BYTES
     if must_apply or large:
@@ -598,9 +720,14 @@ def check_read_tool_gate(event: dict) -> dict | None:
             return {
                 "permission": "deny",
                 "agent_message": (
-                    f"Read denied ({detail}). Use agent-brain {tool_hint} instead."
+                    f"Read denied ({detail}). First call agent-brain {tool_hint} on this path "
+                    f"(unlocks native Read/StrReplace for {int(SCOUT_UNLOCK_SECS)}s). "
+                    "Do not patch via Shell+python."
                 ),
-                "user_message": "agent-brain: use bounded reads (grep_search, file_summary).",
+                "user_message": (
+                    "agent-brain: scout with file_summary/read_file_head first, then StrReplace — "
+                    "no Shell+python."
+                ),
             }
         return {
             "permission": "allow",
@@ -683,6 +810,7 @@ def handle_before_submit_prompt(event: dict) -> dict:
 
 def handle_after_mcp_execution(event: dict) -> dict:
     handle_route_outcome(event)
+    maybe_record_scout_from_event(event)
     return {}
 
 
@@ -691,6 +819,7 @@ def handle_post_tool_use(event: dict) -> dict:
     # not afterMCPExecution.
     handle_route_outcome(event)
     maybe_log_tool_trace(event)
+    maybe_record_scout_from_event(event)
     maybe_record_verify_outcome(event)
     return {}
 

@@ -33,6 +33,10 @@ from route_gate import (
     maybe_record_verify_outcome,
     session_id_from_event,
     set_active_session,
+    is_cursor_edit_tool,
+    record_scouted_path,
+    path_is_scouted,
+    maybe_record_scout_from_event,
 )
 
 
@@ -462,6 +466,71 @@ class StatefulWorkflowHookTests(unittest.TestCase):
         self.assertEqual(
             out["hookSpecificOutput"]["permissionDecisionReason"], "route_task required"
         )
+
+
+
+
+class ScoutUnlockTests(unittest.TestCase):
+    def test_edit_tools_bypass_read_gate(self) -> None:
+        self.assertTrue(is_cursor_edit_tool({"tool_name": "StrReplace"}))
+        self.assertTrue(is_cursor_edit_tool({"tool_name": "Write"}))
+        self.assertIsNone(
+            check_read_tool_gate(
+                {
+                    "tool_name": "StrReplace",
+                    "tool_input": {"path": "/tmp/huge.rs", "old_string": "a", "new_string": "b"},
+                }
+            )
+        )
+
+    def test_scout_unlocks_large_native_read(self) -> None:
+        from route_gate import STATE_PATH, READ_GATE_MODE
+        import route_gate
+
+        old = route_gate.READ_GATE_MODE
+        route_gate.READ_GATE_MODE = "hard"
+        try:
+            STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            if STATE_PATH.exists():
+                STATE_PATH.unlink()
+            big = Path(tempfile.mkdtemp()) / "big.rs"
+            big.write_bytes(b"x" * (route_gate.READ_WARN_BYTES + 10))
+            denied = check_read_tool_gate(
+                {"tool_name": "Read", "tool_input": {"path": str(big)}}
+            )
+            self.assertIsNotNone(denied)
+            self.assertEqual(denied.get("permission"), "deny")
+            msg = (denied.get("agent_message") or "") + (denied.get("user_message") or "")
+            self.assertIn("file_summary", msg)
+            self.assertIn("StrReplace", msg)
+            self.assertIn("shell+python", msg.lower())
+
+            record_scouted_path(str(big), {"conversation_id": "scout-test"})
+            allowed = check_read_tool_gate(
+                {
+                    "tool_name": "Read",
+                    "tool_input": {"path": str(big)},
+                    "conversation_id": "scout-test",
+                }
+            )
+            self.assertIsNone(allowed)
+
+            maybe_record_scout_from_event(
+                {
+                    "tool_name": "mcp_agent-brain_file_summary",
+                    "success": True,
+                    "tool_input": {"path": str(big)},
+                    "conversation_id": "scout-test-2",
+                }
+            )
+            self.assertTrue(
+                path_is_scouted(
+                    {"scouted_paths": {str(big.resolve()): time.time()}},
+                    str(big),
+                )
+            )
+        finally:
+            route_gate.READ_GATE_MODE = old
 
 
 if __name__ == "__main__":
