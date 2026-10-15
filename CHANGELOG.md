@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.0] - 2026-10-16
+
+### Added
+
+- **Stronger multi-host route gates** — Claude Code PreToolUse/PostToolUse `matcher: .*` (scope still `brain_mcp`); OpenCode/Antigravity hard route rules; doctor `--fix` for OpenCode plugin files and Antigravity shared hooks
+- **Slim agent contract** — `docs/AGENT-CONTEXT.md` for agents/orchestrators
+
+### Changed
+
+- **macOS releases** — Developer ID–signed aarch64-only builds; install/doctor/auto-update verify + clear quarantine (no local re-sign)
+- **Install defaults** — GitHub org/repo `autonomic-ai-dev/agent-brain`
+- **route_task retrieval hygiene** — architectural cut for lower routing noise (#56)
+- **Docs** — slim READMEs; remove benchmarking prose (CI fixtures under `docs/benchmarks/` retained); enforcement docs describe multi-host deny gates
+- **CLI** — debloat serve binary, honest metrics, Docker-style help (#54)
+
+### Fixed
+
+- **BEAM transcript gate** — seed `beam-ci` skill/memory in JSONL fixture path so hygiene routing still passes the 0.85 threshold
+
 ## [0.36.0] - 2026-07-18
 
 ### Added
