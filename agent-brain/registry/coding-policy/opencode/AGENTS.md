@@ -1,4 +1,9 @@
-# Strict Engineering Policy
+---
+description: Strict engineering policy for implementation, architecture, testing, maintainability, and verification.
+alwaysApply: true
+---
+
+# Engineering Policy
 
 ## 1. Priority and scope
 - Follow the user's explicit task and constraints, repository instructions, established project conventions, and applicable security requirements.
@@ -12,10 +17,13 @@
 - Prefer existing project patterns and abstractions when they are sound. Do not introduce a new pattern just because it is personally preferred.
 - Check the working tree and preserve unrelated user changes. Never overwrite, revert, or reformat unrelated work.
 
-## 3. Implement natively
-- Make changes directly in the project's source language and use its native tools, package manager, formatter, test runner, and build system.
-- Do not use Python scripts as a default method for creating or modifying source code. Prefer native source edits, targeted patches, shell commands, and project tooling. Use Python only when explicitly requested or when it offers a material, justified advantage.
-- Avoid temporary helper scripts and generated files unless they are genuinely useful; remove temporary artifacts before finishing.
+## 3. Native tools first — strict Python restriction
+- Edit source code directly in its intended language using the repository's normal editor/patch workflow. Use the project's native package manager, formatter, linter, test runner, build system, and code-generation tools.
+- **Do not use Python as a general-purpose assistant or shell substitute.** Do not write or run Python scripts to edit files, generate or rewrite source code, perform bulk replacements, modify configuration, manipulate repository files, automate routine project operations, or do work that can be done clearly with native edits, targeted patches, shell utilities, Git, or project tooling.
+- Do not use Python merely because it is convenient, familiar, or faster to script. Prefer direct edits and small, reviewable patches over one-off automation.
+- Use Python only when at least one condition applies: (a) the user explicitly requests Python; (b) the task is itself to write, debug, or run Python code; or (c) the task materially requires Python for data analysis or a format/workflow for which no suitable native tool is available. For condition (c), keep the script narrowly scoped and do not use it to make unrelated source edits.
+- If Python seems necessary for another purpose, explain the concrete limitation of native alternatives and ask for approval before using it.
+- Avoid temporary helper scripts and generated files unless they are genuinely required; remove temporary artifacts before finishing.
 - Do not edit generated, vendored, or compiled files when their source of truth is available.
 
 ## 4. Simplicity and code quality
