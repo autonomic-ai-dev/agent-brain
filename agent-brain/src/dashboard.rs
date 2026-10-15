@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use crate::stats::{format_tokens_short, OperatorStats, INPUT_TOKEN_USD_PER_MILLION};
+use crate::stats::OperatorStats;
 
 pub fn default_dashboard_path(home: &Path) -> PathBuf {
     home.join("metrics/dashboard.html")
@@ -23,9 +23,8 @@ pub fn write_dashboard_html(home: &Path, stats: &OperatorStats) -> Result<PathBu
 fn render_html(stats: &OperatorStats) -> String {
     let value = &stats.value;
     let period = stats.period_days;
-    let tokens_saved = format_tokens_short(value.combined_tokens_saved);
-    let cost = format!("${:.2}", value.estimated_api_cost_usd);
     let route_calls = stats.period.route_calls;
+    let avg_routed = stats.period.avg_routed_tokens;
     let cache_pct = stats.period.cache_hit_rate * 100.0;
     let p95 = stats.period.p95_latency_ms;
     let memories = value.memories_committed;
@@ -42,7 +41,7 @@ fn render_html(stats: &OperatorStats) -> String {
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>agent-brain — Value Dashboard</title>
+<title>agent-brain — Local metrics</title>
 <style>
   :root {{
     --bg: #0f1117;
@@ -97,12 +96,12 @@ fn render_html(stats: &OperatorStats) -> String {
 </head>
 <body>
 <div class="wrap">
-  <h1>agent-brain Value Dashboard</h1>
-  <p class="sub">Last {period} days · generated {generated}</p>
+  <h1>agent-brain local metrics</h1>
+  <p class="sub">Last {period} days · generated {generated} · live usage only (not CI fixture proofs)</p>
 
   <div class="hero">
-    <div class="big">{tokens_saved} input tokens saved</div>
-    <p class="line">Estimated API cost avoided: <strong style="color:var(--text)">{cost}</strong> (at ${INPUT_TOKEN_USD_PER_MILLION}/1M input tokens)</p>
+    <div class="big">{route_calls} routes</div>
+    <p class="line">Avg routed context ~{avg_routed:.0} tok · p95 {p95}ms · cache {cache_pct:.0}%</p>
   </div>
 
   <div class="grid">
@@ -139,8 +138,8 @@ fn render_html(stats: &OperatorStats) -> String {
   </div>
 
   <section>
-    <h2>Share this</h2>
-    <p style="color:var(--muted); font-size:0.95rem;">Screenshot the hero card to show token savings. Refresh with <code>agent-brain dashboard --open</code>.</p>
+    <h2>Note</h2>
+    <p style="color:var(--muted); font-size:0.95rem;">These are local operational metrics from your machine. CI fixture Recall@3 / dollar ROI are not shown here. Refresh with <code>agent-brain dashboard --open</code>.</p>
   </section>
 
   <p class="foot">Local only · <code>~/.agent_brain/metrics/dashboard.html</code> · not sent to any server</p>

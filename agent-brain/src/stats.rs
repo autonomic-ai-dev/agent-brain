@@ -11,9 +11,6 @@ use crate::adoption::{self, AdoptionMilestones};
 use crate::config::Config;
 use crate::db::store::{BrainStore, RetrievalStats};
 
-/// Rough USD per 1M input tokens (Sonnet-class ballpark for ROI estimates).
-pub const INPUT_TOKEN_USD_PER_MILLION: f64 = 3.0;
-
 #[derive(serde::Deserialize)]
 struct StoredProofReport {
     generated_at: String,
@@ -56,8 +53,6 @@ pub struct ProofSnapshot {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ValueSummary {
-    pub combined_tokens_saved: u64,
-    pub estimated_api_cost_usd: f64,
     pub memories_committed: usize,
     pub blocked_full_reads: usize,
 }
@@ -69,7 +64,6 @@ pub struct OperatorStats {
     pub period: RetrievalStats,
     pub value: ValueSummary,
     pub adoption: AdoptionMilestones,
-    pub proof: Option<ProofSnapshot>,
 }
 
 pub fn collect(store: &BrainStore, config: &Config, period_days: u32) -> Result<OperatorStats> {
@@ -88,13 +82,7 @@ pub fn collect(store: &BrainStore, config: &Config, period_days: u32) -> Result<
         by_type,
     };
     let adoption = adoption::load_milestones(store)?;
-    let proof = load_proof_snapshot(&config.home);
-    let combined_tokens_saved = period
-        .total_saved_tokens
-        .saturating_add(period.tool_tokens_saved);
     let value = ValueSummary {
-        combined_tokens_saved,
-        estimated_api_cost_usd: estimate_cost_usd(combined_tokens_saved),
         memories_committed: store.count_facts_created_since(since)?,
         blocked_full_reads: period.inefficient_read_events,
     };
@@ -104,12 +92,7 @@ pub fn collect(store: &BrainStore, config: &Config, period_days: u32) -> Result<
         period,
         value,
         adoption,
-        proof,
     })
-}
-
-pub fn estimate_cost_usd(tokens_saved: u64) -> f64 {
-    tokens_saved as f64 / 1_000_000.0 * INPUT_TOKEN_USD_PER_MILLION
 }
 
 pub fn format_tokens_short(n: u64) -> String {
@@ -122,6 +105,7 @@ pub fn format_tokens_short(n: u64) -> String {
     }
 }
 
+/// Fixture/CI artifact loader — not surfaced in operator stats.
 pub fn load_proof_snapshot(home: &Path) -> Option<ProofSnapshot> {
     let path = home.join("metrics/proof-latest.json");
     let body = fs::read_to_string(&path).ok()?;
@@ -135,6 +119,7 @@ pub fn load_proof_snapshot(home: &Path) -> Option<ProofSnapshot> {
     })
 }
 
+#[cfg(feature = "extras")]
 pub fn persist_proof_snapshot(home: &Path, report: &crate::proofs::ProofReport) -> Result<()> {
     let dir = home.join("metrics");
     fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
@@ -171,17 +156,14 @@ pub fn format_text(stats: &OperatorStats) -> String {
         stats.period.avg_latency_ms,
         stats.period.p95_latency_ms
     ));
-    if stats.period.routes_with_savings > 0 {
+    if stats.period.route_calls > 0 {
         out.push_str(&format!(
-            "- Token savings: ~{:.0}% avg across {} routes · ~{} tok saved (est.)\n- Avg routed tokens: {:.0}\n",
-            stats.period.avg_saved_pct,
-            stats.period.routes_with_savings,
-            stats.period.total_saved_tokens,
+            "- Avg routed tokens: {:.0} (budgeted context returned to the agent)\n",
             stats.period.avg_routed_tokens
         ));
     } else {
         out.push_str(
-            "- Token savings: no routes logged yet (send an agent turn with route_task)\n",
+            "- No routes logged yet (send an agent turn with route_task)\n",
         );
     }
     if stats.period.routes_with_constraints > 0 {
@@ -192,10 +174,8 @@ pub fn format_text(stats: &OperatorStats) -> String {
     }
     if stats.period.tool_calls > 0 {
         out.push_str(&format!(
-            "- Token tools: {} calls · ~{} tok saved (est.) · {:.0}% avg tool savings\n",
-            stats.period.tool_calls,
-            stats.period.tool_tokens_saved,
-            stats.period.tool_avg_savings_pct
+            "- Token tools: {} bounded-read calls\n",
+            stats.period.tool_calls
         ));
     }
     if stats.period.inefficient_read_events > 0 {
@@ -205,19 +185,17 @@ pub fn format_text(stats: &OperatorStats) -> String {
         ));
     }
 
-    out.push_str("\n## Value (period)\n\n");
+    out.push_str("\n## Activity (period)\n\n");
     out.push_str(&format!(
-        "- Combined token savings: ~{} tokens (route + tools)\n- Estimated API cost avoided: ${:.2}\n- Memories committed: {}\n- Full-read steers: {}\n",
-        format_tokens_short(stats.value.combined_tokens_saved),
-        stats.value.estimated_api_cost_usd,
+        "- Memories committed: {}\n- Full-read steers: {}\n",
         stats.value.memories_committed,
         stats.value.blocked_full_reads,
     ));
-    if stats.period.route_calls == 0 && stats.value.combined_tokens_saved == 0 {
-        out.push_str("- Tip: run Agent mode once so route_task logs savings, then refresh with `agent-brain dashboard --open`\n");
+    if stats.period.route_calls == 0 {
+        out.push_str("- Tip: run Agent mode once so route_task logs activity, then: `agent-brain stats`\n");
     }
 
-    out.push_str("\n## Adoption (local)\n\n");
+    out.push_str("\n## Install timeline (local)\n\n");
     out.push_str(&format!(
         "- Installed: {}\n- First route: {}\n- Starter pack: {}\n- Supervisor pack: {}\n",
         stats.adoption.installed_at.as_deref().unwrap_or("—"),
@@ -226,18 +204,6 @@ pub fn format_text(stats: &OperatorStats) -> String {
         stats.adoption.supervisor_pack_at.as_deref().unwrap_or("—"),
     ));
 
-    if let Some(proof) = &stats.proof {
-        out.push_str("\n## Last proof snapshot\n\n");
-        out.push_str(&format!(
-            "- Generated: {}\n- Recall@3: {:.1}% ({}/{} cases)\n- Fixture skills: {}\n- P95 warm route: {}ms\n",
-            proof.generated_at,
-            proof.recall_at_3 * 100.0,
-            (proof.recall_at_3 * proof.eval_cases as f64).round() as usize,
-            proof.eval_cases,
-            proof.fixture_skills,
-            proof.p95_latency_ms
-        ));
-    }
 
     out
 }
@@ -251,18 +217,10 @@ pub fn format_summary_line(stats: &OperatorStats) -> String {
             stats.period_days
         );
     }
-    let savings = if stats.period.routes_with_savings > 0 || stats.value.combined_tokens_saved > 0 {
-        if stats.value.combined_tokens_saved > 0 {
-            format!(
-                "~{} tok saved (~${:.2})",
-                format_tokens_short(stats.value.combined_tokens_saved),
-                stats.value.estimated_api_cost_usd
-            )
-        } else {
-            format!("~{:.0}% token savings", stats.period.avg_saved_pct)
-        }
+    let routed = if stats.period.route_calls > 0 {
+        format!("~{:.0} tok avg routed", stats.period.avg_routed_tokens)
     } else {
-        "savings pending".into()
+        "no routes yet".into()
     };
     let supervisor = if stats.period.routes_with_constraints > 0 {
         format!(
@@ -276,7 +234,7 @@ pub fn format_summary_line(stats: &OperatorStats) -> String {
         "{} routes ({}d) · {}{} · p95 {}ms · index {}",
         stats.period.route_calls,
         stats.period_days,
-        savings,
+        routed,
         supervisor,
         stats.period.p95_latency_ms,
         stats.index.total_indexed
