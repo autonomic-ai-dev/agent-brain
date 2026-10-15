@@ -7,6 +7,8 @@ use agent_brain::{
 use anyhow::{Context, Result};
 use tracing_subscriber::EnvFilter;
 
+mod cli_help;
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -17,6 +19,20 @@ async fn main() -> Result<()> {
     let args = agent_body_core::cli::strip_progress_argv(std::env::args().collect());
     if args.iter().any(|a| a == "--version" || a == "-V") {
         println!("{}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
+    if let Some(target) = cli_help::help_target(&args) {
+        match target {
+            None => cli_help::print_root(),
+            Some(cmd) => {
+                if !cli_help::print_command(cmd) {
+                    eprintln!("Unknown command: {cmd}");
+                    cli_help::print_root();
+                    std::process::exit(1);
+                }
+            }
+        }
         return Ok(());
     }
 
@@ -275,7 +291,7 @@ async fn main() -> Result<()> {
                 }
                 _ => {
                     eprintln!("Unknown package subcommand: {sub}");
-                    print_usage();
+                    let _ = cli_help::print_command("package");
                     std::process::exit(1);
                 }
             }
@@ -371,7 +387,7 @@ async fn main() -> Result<()> {
                 },
                 _ => {
                     eprintln!("Unknown config subcommand: {sub}");
-                    print_usage();
+                    let _ = cli_help::print_command("config");
                     std::process::exit(1);
                 }
             }
@@ -1000,12 +1016,10 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        "help" | "--help" | "-h" => {
-            print_usage();
-        }
+        "help" | "--help" | "-h" => cli_help::print_root(),
         _ => {
             eprintln!("Unknown command: {cmd}");
-            print_usage();
+            cli_help::print_root();
             std::process::exit(1);
         }
     }
@@ -1053,87 +1067,4 @@ fn parse_session_sources(args: &[String]) -> Result<Vec<agent_brain::sessions::S
         }
     }
     Ok(out)
-}
-
-fn print_usage() {
-    eprintln!(
-        r#"agent-brain — local MCP router for agents, skills, rules, and memory
-
-Usage:
-  agent-brain serve                         Start MCP server (stdio)
-  agent-brain grpc serve [--addr HOST:PORT] Orchestrator bridge API (gRPC, default 127.0.0.1:7842)
-  agent-brain index [--changed-only|-c] [--no-ast]   Reindex (--changed-only: skip files with unchanged mtime; --no-ast: skip AST symbol extraction)
-  agent-brain add <@alias|owner/repo|url>   Install package(s) and index
-  agent-brain add @coding-policy            Strict engineering policy (default bootstrap)
-  agent-brain add @supervisor               Execution supervisor pack (token-efficient ops)
-  agent-brain add @starter                  Curated onboarding pack
-  agent-brain add @nextjs                   Vercel React/Next.js skills
-  agent-brain registry list                 Show curated @aliases
-  agent-brain registry sync [--local]       Refresh registry cache (remote or embedded)
-  agent-brain package list                  List installed packages
-  agent-brain package update [name]         Update one or all packages
-  agent-brain package remove <name>         Remove an installed package
-  agent-brain install [--global] [--reload]     Cursor MCP (default)
-  agent-brain install --claude-desktop          Claude Desktop MCP config
-  agent-brain install --vscode [--global]       VS Code workspace or user mcp.json
-  agent-brain install --claude-code [--global]  Claude Code .mcp.json or ~/.claude.json
-  agent-brain install --opencode [--global]     OpenCode opencode.json (project or ~/.config/opencode)
-  agent-brain install --codex [--global]        Codex config.toml + hooks.json (project or ~/.codex)
-  agent-brain install --gemini [--global]       Gemini CLI settings.json (project or ~/.gemini)
-  agent-brain install --antigravity [--global]  Antigravity mcp_config.json (project or ~/.gemini)
-  agent-brain install --all                     All of the above (user/global scope)
-  agent-brain mode paths                        List agent-brain mode files per host
-  agent-brain mode show                         Print mode snippet (markdown)
-  agent-brain mode install [--global]           Install mode files for all hosts
-  agent-brain update [--force] [--mcp-only]     Run auto-update (MCP uses release redirect; API fallback respects GITHUB_TOKEN/GH_TOKEN)
-  agent-brain config init                     Write ~/.agent_brain/config.yaml defaults
-  agent-brain config show                     Print active config file
-  agent-brain version                         Print installed version
-  agent-brain briefing                        Print last human-readable route summary
-  agent-brain suggest-memory [approve|reject] Show or promote hook anti-pattern to store_memory
-  agent-brain learn url <URL> [--topic NAME] [--dry-run]  Ingest allowlisted docs into skills + memory
-  agent-brain learn allowlist                          Show docs.allowed_domains from config
-  agent-brain graphify enable|disable|status|ingest|run|query  Graphify orchestration (codebase graph)
-  agent-brain stats [--days N] [--json]       Index, routing, token savings, adoption milestones
-  agent-brain dashboard [--days N] [--open]   Local HTML metrics (routes, latency, activity)
-  agent-brain onboarding                      USP + 5-minute getting started checklist
-  agent-brain export [dir]                    Export sync bundle (manifest + facts.jsonl)
-  agent-brain import <dir> [--policy POLICY]  Import sync bundle (newer_wins default)
-  agent-brain sync status                     Git sync + recent conflicts summary
-  agent-brain sync restore <conflict-id>      Re-promote a fact from conflict_log
-  agent-brain sync git init [--remote URL]    Init ~/.agent_brain/sync git repo (S2)
-  agent-brain sync git clone [--remote URL]   Clone sync repo on a second machine
-  agent-brain sync git push                   Export bundle, commit, push to origin
-  agent-brain sync git pull                   Pull from origin and import bundle
-  agent-brain sync git status                 Show git sync repo state
-  agent-brain sync cloud push|pull            Encrypted cloud sync (S3 / local provider)
-  agent-brain secrets status|setup|add        Keychain secret refs for upstream MCP
-  agent-brain doctor                          Check MCP install, binary, hooks, codesign
-  agent-brain doctor --mcp                    Audit agent-body gateway schemas (tools/list)
-  agent-brain doctor --fix                    Re-sign binary (macOS), align mcp.json, refresh hooks
-  agent-brain inspect log [--last]            List retrieval logs (what route_task returned)
-  agent-brain inspect fact <id>               Show a stored memory fact
-  agent-brain inspect conflicts [--limit N]   Show topic supersession conflict log
-  agent-brain sessions ingest [--source SRCS] [--legacy]  Import session digests (cursor/codex/gemini/opencode)
-  agent-brain sessions status                 Discoverable vs stored session digests
-  agent-brain promote list|approve|reject     Skill promotion workflow (human approval required)
-  agent-brain gc [--min-confidence N] [--max-age-days N]  Run GC: dedup, prune, vacuum
-  agent-brain memory gc [--apply] [--force] [--stale-days N] [--very-stale-days N]  Archive stale facts (dry-run by default)
-  agent-brain dataset|digest|eval|bench|skills-sh|fixture|proofs|distill
-                                          Requires build with `--features extras`
-  agent-brain --version                       Same as version (prints version only)
-
-Examples:
-  agent-brain add https://github.com/affaan-m/ecc
-  agent-brain add affaan-m/ecc
-  agent-brain package update ecc
-
-Install on another machine:
-  curl -fsSL https://raw.githubusercontent.com/aeswibon/agent-brain/master/scripts/install.sh | bash -s -- --global
-  agent-brain add affaan-m/ecc
-
-Cursor starts MCP automatically — you do not run 'serve' manually.
-See docs/USAGE.md for the full guide.
-"#
-    );
 }
