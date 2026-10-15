@@ -1,6 +1,6 @@
 # awesome-agent-brain (community registry)
 
-Curated **third-party skill packs** for [`agent-brain`](https://github.com/aeswibon/agent-brain). The embedded registry (`agent-brain registry list`) stays small; this list is for community additions.
+Curated **third-party skill packs** for [`agent-brain`](https://github.com/autonomic-ai-dev/agent-brain). The embedded registry (`agent-brain registry list`) stays small; this list is for community additions.
 
 > **Publish this directory as its own GitHub repo** `awesome-agent-brain` when ready. Until then, PRs can propose entries here.
 

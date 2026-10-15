@@ -19,7 +19,7 @@ We measure **Recall@3**: for a golden query, does the expected item appear in th
 
 CI gate: **Recall@3 ≥ 0.85** for both the memory suite and the skill suite (`agent-brain proofs --ci` on an **isolated fixture**).
 
-**Proven in CI** — see [13-proofs-and-benchmarks.md](13-proofs-and-benchmarks.md) and [`docs/benchmarks/latest.json`](../benchmarks/latest.json).
+**Proven in CI** via `agent-brain proofs --ci` on an isolated fixture (Recall@3 gates).
 
 `eval --ci --live` runs against your production `brain.db` (informational; not a CI gate).
 
@@ -137,7 +137,7 @@ Do **not** add a golden case that only passes because of a query-specific boost.
 
 ## Multi-host accuracy vs enforcement
 
-Routing accuracy is independent of **enforcement** (Cursor hooks vs OpenCode instruction files). A host that skips `route_task` never benefits from good retrieval — see [07-enforcement-and-multi-host.md](07-enforcement-and-multi-host.md).
+Routing accuracy is independent of **enforcement** (deny gates vs advisory instruction hosts). A host that skips `route_task` never benefits from good retrieval — see [07-enforcement-and-multi-host.md](07-enforcement-and-multi-host.md).
 
 ## Trade-offs
 

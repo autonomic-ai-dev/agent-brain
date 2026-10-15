@@ -22,7 +22,7 @@ Power users accumulate large skill libraries (ECC, superpowers, team rules, plug
 
 Cursor rules that say “call route_task first” are suggestions. The agent can still grep, edit, or improvise without loading the right skill.
 
-**Design response:** Cursor **hooks** (`route_gate.py`) deny tool use until `route_task` succeeds for the current user turn. Rules and MCP tool descriptions are backup layers, not the primary gate.
+**Design response:** Host **hooks/plugins** (`route_gate.py`, OpenCode plugin, Claude/Gemini settings) deny other agent-brain MCP tools until `route_task` succeeds for the current user turn. Rules and MCP tool descriptions are backup layers, not the primary gate.
 
 ### 3. No durable routing memory
 
@@ -84,7 +84,7 @@ agent-brain composes **retrieval + enforcement + local structured memory** for t
 ## Trade-offs
 
 - **Complexity:** Users must install binary, MCP, and (for Cursor) hooks — more moving parts than a single rule file.
-- **Host asymmetry:** Only Cursor has hook enforcement today; other hosts rely on instructions + MCP config (see [07](07-enforcement-and-multi-host.md)).
+- **Host asymmetry:** Cursor/Claude Code/OpenCode/Codex/Gemini-Antigravity install deny gates; VS Code and Claude Desktop remain instruction-only (see [07](07-enforcement-and-multi-host.md)).
 - **Index freshness:** Skills on disk are indexed on bootstrap interval, not instantly on every file save (configurable).
 
 ## For senior engineers and principal architects
@@ -117,7 +117,7 @@ We **do not** own: chat history, workflow DAGs, code execution, model selection,
 Power users already have **hundreds of skills** and **dozens of rules**. The failure mode is not “missing one skill” — it is **wrong context at scale**: wrong skill loaded, right skill never read, repeated debates about stack choices. agent-brain bets that:
 
 1. **Ranking under budget** beats “load everything in rules”
-2. **Hard gate on Cursor** beats “please call route_task”
+2. **Hard gates on major CLIs** beat “please call route_task”
 3. **Local hybrid retrieval** beats cloud memory SaaS for IDE latency and privacy
 
 If any of those bets is false for your org (e.g. you standardize on one tiny rule set, or you forbid hooks), adoption value drops sharply.
@@ -127,7 +127,7 @@ If any of those bets is false for your org (e.g. you standardize on one tiny rul
 | Risk | Mitigation today | Residual |
 |------|------------------|----------|
 | Wrong skill routed | Hybrid retrieval + skill golden eval | Paraphrase edge cases, opaque skill names |
-| Agent bypasses router (non-Cursor) | Instruction files + doctor | No deny-hook on OpenCode/Claude |
+| Agent bypasses router | Deny gates on Cursor/Claude/OpenCode/Codex/Gemini-Antigravity; doctor `--fix` | VS Code / Claude Desktop still advisory |
 | Memory pollution | Dedup, GC, negative protection | Session ingest noise |
 | Stale index | `index_version` + bootstrap interval | Edits within TTL may lag |
 | MCP offline freezes session | Scoped gate + offline grace | User may proceed without route |
@@ -135,7 +135,7 @@ If any of those bets is false for your org (e.g. you standardize on one tiny rul
 ### Questions a PE should ask before adopting
 
 1. **Library size:** Do developers have enough skills/rules that manual @-mention does not scale?
-2. **Host mix:** Is Cursor the primary agent surface, or will most traffic be hookless hosts?
+2. **Host mix:** Are agents on gated CLIs, or mostly advisory hosts (VS Code / Claude Desktop)?
 3. **Privacy:** Are project paths and conventions allowed to stay on-device?
 4. **Ops appetite:** Will someone run `memory gc`, `eval --ci`, and sync periodically?
 5. **Accuracy bar:** Is Recall@3 ≥ 0.85 on your golden tasks acceptable, or do you need per-team eval sets?

@@ -36,7 +36,10 @@ fn python3_command(script: &Path) -> String {
     format!("python3 {}", script.display())
 }
 
-const CLAUDE_MCP_MATCHER: &str = "mcp__agent-brain__.*";
+// Match every tool so Claude Code cannot bypass the gate via renamed MCP
+// prefixes. route_gate.py still applies GATE_SCOPE=brain_mcp (allow Read/Bash).
+const CLAUDE_TOOL_MATCHER: &str = ".*";
+const CLAUDE_STALE_SCOPED_MATCHER: &str = "mcp__agent-brain__.*";
 
 fn claude_code_hooks_fragment(script: &Path) -> Value {
     let cmd = python3_command(script);
@@ -50,7 +53,7 @@ fn claude_code_hooks_fragment(script: &Path) -> Value {
                 }]
             }],
             "PreToolUse": [{
-                "matcher": CLAUDE_MCP_MATCHER,
+                "matcher": CLAUDE_TOOL_MATCHER,
                 "hooks": [{
                     "type": "command",
                     "command": cmd,
@@ -58,7 +61,7 @@ fn claude_code_hooks_fragment(script: &Path) -> Value {
                 }]
             }],
             "PostToolUse": [{
-                "matcher": CLAUDE_MCP_MATCHER,
+                "matcher": CLAUDE_TOOL_MATCHER,
                 "hooks": [{
                     "type": "command",
                     "command": cmd,
@@ -383,7 +386,9 @@ pub fn claude_hooks_need_refresh(path: &Path) -> bool {
     let Ok(raw) = fs::read_to_string(path) else {
         return true;
     };
-    raw.contains("mcp__agent-brain__.*")
+    // Pre-strengthen installs scoped only agent-brain MCP tools and missed
+    // renamed prefixes — treat that matcher as stale.
+    raw.contains(CLAUDE_STALE_SCOPED_MATCHER)
 }
 
 #[cfg(test)]
@@ -405,15 +410,27 @@ mod tests {
     }
 
     #[test]
-    fn claude_hooks_target_agent_brain_mcp_tools() {
+    fn claude_hooks_match_all_tools_for_scoped_gate() {
         let dir = TempDir::new().unwrap();
         let script = dir.path().join("route_gate.py");
         fs::write(&script, "#!/usr/bin/env python3\n").unwrap();
         let fragment = claude_code_hooks_fragment(&script);
-        let pre = fragment["hooks"]["PreToolUse"][0]["matcher"]
-            .as_str()
-            .unwrap();
-        assert_eq!(pre, "mcp__agent-brain__.*");
+        assert_eq!(
+            fragment["hooks"]["PreToolUse"][0]["matcher"]
+                .as_str()
+                .unwrap(),
+            ".*"
+        );
+        let path = dir.path().join("settings.json");
+        write_settings_hooks(&path, &fragment).unwrap();
+        assert!(!claude_hooks_need_refresh(&path));
+
+        fs::write(
+            &path,
+            r#"{"hooks":{"PreToolUse":[{"matcher":"mcp__agent-brain__.*","hooks":[{"command":"python3 /tmp/route_gate.py"}]}]}}"#,
+        )
+        .unwrap();
+        assert!(claude_hooks_need_refresh(&path));
     }
 
     #[test]

@@ -12,7 +12,7 @@ agent-brain treats routing as **infrastructure**: hard-enforced `route_task`, bu
 
 ## The scenario
 
-You index **2000 real skills** from [skills.sh](https://skills.sh) (committed `fixture-2k.db` in CI). A user message arrives: *“optimize React server components and performance.”*
+You index a large skill library (thousands of skills). A user message arrives: *“optimize React server components and performance.”*
 
 ### Before (static `.cursor/rules` + full context)
 
@@ -34,25 +34,15 @@ You index **2000 real skills** from [skills.sh](https://skills.sh) (committed `f
 
 ---
 
-## Published numbers (reproducible)
+## Numbers (CI fixtures)
 
-Artifacts: [`docs/benchmarks/`](../benchmarks/)
+| Metric | Fixture | Gate |
+|--------|---------|------|
+| Isolated skills Recall@3 | proofs fixture | ≥ 0.85 |
+| Warm-route p95 | proofs fixture | ≤ 100 ms |
+| Hook gate logic | preToolUse deny/allow | CI |
 
-| Metric | Fixture | Result | Gate |
-|--------|---------|--------|------|
-| skills.sh Recall@3 | 2000 real skills, 30 golden queries | **30/30 (1.00)** | ≥ 0.80 |
-| Isolated skills Recall@3 | 500-skill index | **10/10 (1.00)** | ≥ 0.85 |
-| Warm-route p95 (deterministic embed) | 500-skill index | **≤ 100 ms** | CI |
-| Hook gate logic | preToolUse deny/allow | **< 1 ms p95** | CI |
-| Token savings (briefing) | 2000-item index | **~99%** vs est. naive load | informational |
-
-Regenerate:
-
-```bash
-cargo run --release -p agent-brain -- eval --skills-sh --write docs/benchmarks/skills-sh-latest.json
-cargo run --release -p agent-brain -- proofs --ci --write docs/benchmarks/latest.json
-agent-brain briefing   # after any routed turn
-```
+Reproduce with `agent-brain proofs --ci` and `agent-brain briefing` after a routed turn.
 
 ---
 

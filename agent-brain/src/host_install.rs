@@ -359,22 +359,26 @@ fn install_gemini_instructions(user: bool, quiet: bool) -> Result<()> {
 }
 
 fn install_antigravity_instructions(user: bool, quiet: bool) -> Result<()> {
-    let path = if user {
+    let dir = if user {
         let home = dirs::home_dir().context("home directory")?;
         let dir = home.join(".gemini").join("antigravity");
         fs::create_dir_all(&dir)?;
-        dir.join("agent-brain.md")
+        dir
     } else {
         let cwd = std::env::current_dir().context("current working directory")?;
         let root = crate::config::find_repo_root(&cwd).unwrap_or(cwd);
         let dir = root.join(".gemini").join("antigravity");
         fs::create_dir_all(&dir)?;
-        dir.join("agent-brain.md")
+        dir
     };
-    write_host_instructions(&path, HOST_AGENT_BRAIN_INSTRUCTIONS, quiet, "Antigravity")?;
-    if let Some(parent) = path.parent() {
-        write_agent_brain_mode(parent, quiet, "Antigravity")?;
-    }
+    write_host_instructions(
+        &dir.join("agent-brain.md"),
+        ANTIGRAVITY_AGENT_BRAIN_INSTRUCTIONS,
+        quiet,
+        "Antigravity",
+    )?;
+    write_hard_route_rule(&dir.join("rules"), quiet, "Antigravity")?;
+    write_agent_brain_mode(&dir, quiet, "Antigravity")?;
     Ok(())
 }
 
@@ -484,9 +488,12 @@ fn merge_json_string_array(root: &mut Value, key: &str, values: &[String]) {
 
 const OPENCODE_PLUGIN_NAME: &str = "agent-brain-route-gate";
 
-const OPENCODE_ROUTE_RULE: &str = r"## HARD RULES (never skip)
+const HARD_ROUTE_RULE: &str = r"## HARD RULES (never skip)
 
-- Call `agent-brain_route_task` at the start of EVERY turn, before any other tool, skill, or action. Pass `user_message`, `current_working_directory`, and `open_files`. This is non-negotiable.
+- Call `route_task` (OpenCode: `agent-brain_route_task`) at the start of EVERY turn, before any other tool, skill, or action. Pass `user_message`, `current_working_directory`, and `open_files`.
+- Prefer agent-brain `grep_search`, `file_summary`, `read_file_head`, `read_file_tail` over host Read/Cat/Grep when MCP is connected.
+- At task end call `store_memory` for durable outcomes (max 50 words, no secrets).
+- If a route gate denies a tool, call `route_task` first — do not work around the gate.
 ";
 
 pub const AGENT_BRAIN_MODE_SNIPPET: &str = agent_body_core::BASE_AGENT_MODE;
@@ -620,12 +627,13 @@ fn opencode_base_dir(user: bool) -> Result<PathBuf> {
 fn install_opencode_instructions(user: bool, quiet: bool) -> Result<()> {
     let base = opencode_base_dir(user)?;
     let full_path = base.join("agent-brain.md");
-    write_host_instructions(&full_path, HOST_AGENT_BRAIN_INSTRUCTIONS, quiet, "OpenCode")?;
-
-    let rules_dir = base.join("rules");
-    fs::create_dir_all(&rules_dir)?;
-    fs::write(rules_dir.join("agent-brain-route.md"), OPENCODE_ROUTE_RULE)
-        .with_context(|| format!("write {}", rules_dir.display()))?;
+    write_host_instructions(
+        &full_path,
+        OPENCODE_AGENT_BRAIN_INSTRUCTIONS,
+        quiet,
+        "OpenCode",
+    )?;
+    write_hard_route_rule(&base.join("rules"), quiet, "OpenCode")?;
 
     let modes_dir = base.join("modes");
     fs::create_dir_all(&modes_dir)?;
@@ -831,10 +839,10 @@ fn write_host_instructions(path: &Path, content: &str, quiet: bool, label: &str)
     Ok(())
 }
 
-const HOST_INSTRUCTIONS_VERSION: &str = "6";
+const HOST_INSTRUCTIONS_VERSION: &str = "7";
 
 const HOST_AGENT_BRAIN_INSTRUCTIONS: &str = r#"# agent-brain MCP (required)
-instructions-version: 6
+instructions-version: 7
 
 ## The connection contract
 
@@ -868,15 +876,9 @@ When agent-brain mode is on, **delegate** to sibling utilities instead of improv
 - `route_to_mcp` — forward to configured upstream MCP tools (`suggested_tools` in route_task)
 - Bootstrap: `agent-brain add @coding-policy` + `@autonomic-core` + `@supervisor` (also via `doctor --fix`)
 
-## Native host tools (OpenCode / Claude Code / VS Code / Gemini / Antigravity)
+## Native host tools
 
-This host has **no hook gate** on Read/Shell/Grep. You must self-enforce:
-
-- **Do not** use host Read/Cat/Grep for file exploration when agent-brain MCP is connected.
-- **Use** agent-brain `grep_search`, `file_summary`, `read_file_head`, `read_file_tail` instead.
-- Host native reads bypass routing, token savings, and cross-agent session digests.
-
-On Cursor, hooks block host tools until route_task; on Codex and Claude Code, hooks gate MCP tools until route_task. On other hosts **you** must follow the same discipline.
+Prefer agent-brain `grep_search`, `file_summary`, `read_file_head`, `read_file_tail` over host Read/Cat/Grep when MCP is connected. Host native reads bypass routing, token savings, and cross-agent session digests.
 
 ## Continuing work from another IDE
 
@@ -890,7 +892,7 @@ Readable summary: `~/.agent_brain/logs/last-route.md` or `agent-brain briefing`.
 "#;
 
 const CLAUDE_CODE_AGENT_BRAIN_INSTRUCTIONS: &str = r#"# agent-brain MCP (required)
-instructions-version: 6
+instructions-version: 7
 
 ## The connection contract
 
@@ -915,10 +917,10 @@ If the agent skips route_task, cross-agent ingest and shared memory provide **ze
 `agent-brain install --claude-code [--global]` installs route gate hooks in `.claude/settings.json`:
 
 - **UserPromptSubmit** — marks each new prompt as needing `route_task`.
-- **PreToolUse** (`mcp__agent-brain__.*`) — blocks other agent-brain MCP tools until `route_task` succeeds.
-- **PostToolUse** — clears the gate after a successful `mcp__agent-brain__route_task`.
+- **PreToolUse / PostToolUse** (`matcher: .*`) — every tool hits the gate; `AGENT_BRAIN_ROUTE_GATE_SCOPE=brain_mcp` (default) still allows Read/Bash/Grep while blocking other agent-brain MCP tools until `route_task` succeeds.
+- Hard rule file: `.claude/rules/agent-brain-route.md` (user: `~/.claude/rules/agent-brain-route.md`).
 
-Native Claude tools (Read, Bash, Grep, …) are not blocked by the gate. Prefer agent-brain `grep_search`, `file_summary`, `read_file_head`, and `read_file_tail` for exploration.
+Prefer agent-brain `grep_search`, `file_summary`, `read_file_head`, and `read_file_tail` for exploration.
 
 Run `/hooks` to verify hooks are trusted. Re-run `agent-brain install --claude-code --global` or `agent-brain doctor --fix` if enforcement stops working.
 
@@ -932,6 +934,79 @@ When the user says "continue" or references work elsewhere:
 
 Readable summary: `~/.agent_brain/logs/last-route.md` or `agent-brain briefing`.
 "#;
+
+const OPENCODE_AGENT_BRAIN_INSTRUCTIONS: &str = r#"# agent-brain MCP (required)
+instructions-version: 7
+
+## The connection contract
+
+**route_task is the only entry point** for agent-brain context. OpenCode tools are named `agent-brain_<tool>` (for example `agent-brain_route_task`).
+
+## OpenCode enforcement (plugin + rules)
+
+`agent-brain install --opencode [--global]` installs:
+
+- MCP entry in `opencode.json` plus `plugin: ["agent-brain-route-gate"]`
+- Plugin `agent-brain-route-gate.ts` (fail-closed if `route_gate.py` is missing)
+- Hard rule `rules/agent-brain-route.md` and mode `modes/agent-brain.md`
+
+The plugin blocks other agent-brain tools until `agent-brain_route_task` succeeds for the turn. Prefer agent-brain file tools over host Read/Grep.
+
+## Every user turn
+
+1. Call **`agent-brain_route_task`** with `user_message`, `current_working_directory`, and `open_files`.
+2. Load skills/agents from returned paths; apply `applicable_rules` and `must_apply`.
+3. At task end, call **`agent-brain_store_memory`** (max 50 words, no secrets).
+
+Readable summary: `~/.agent_brain/logs/last-route.md` or `agent-brain briefing`.
+"#;
+
+const ANTIGRAVITY_AGENT_BRAIN_INSTRUCTIONS: &str = r#"# agent-brain MCP (required)
+instructions-version: 7
+
+## The connection contract
+
+**route_task is the only entry point** for agent-brain context on Antigravity CLI.
+
+## Antigravity enforcement (shared Gemini hooks)
+
+`agent-brain install --antigravity [--global]` installs:
+
+- MCP in `~/.gemini/antigravity/mcp_config.json` (and `~/.gemini/config/mcp_config.json` for Antigravity 2.0)
+- Route gate hooks in shared `~/.gemini/settings.json` (**BeforeAgent** / **BeforeTool** / **AfterTool**, matcher `.*`)
+- Hard rule `~/.gemini/antigravity/rules/agent-brain-route.md`
+
+Hooks share Gemini CLI settings — keep them trusted in the `/hooks` panel. Prefer agent-brain file tools over host reads when MCP is connected.
+
+## Every user turn
+
+1. Call **`route_task`** with `user_message`, `current_working_directory`, and `open_files`.
+2. Load skills/agents from returned paths; apply `applicable_rules` and `must_apply`.
+3. At task end, call **`store_memory`** (max 50 words, no secrets).
+
+Readable summary: `~/.agent_brain/logs/last-route.md` or `agent-brain briefing`.
+"#;
+
+fn write_hard_route_rule(rules_dir: &Path, quiet: bool, label: &str) -> Result<()> {
+    fs::create_dir_all(rules_dir).with_context(|| format!("create {}", rules_dir.display()))?;
+    let path = rules_dir.join("agent-brain-route.md");
+    let version_marker = format!("instructions-version: {HOST_INSTRUCTIONS_VERSION}");
+    let body = format!(
+        "# agent-brain route gate\ninstructions-version: {HOST_INSTRUCTIONS_VERSION}\n\n{HARD_ROUTE_RULE}"
+    );
+    if path.is_file() {
+        if let Ok(existing) = fs::read_to_string(&path) {
+            if existing.contains(&version_marker) {
+                return Ok(());
+            }
+        }
+    }
+    fs::write(&path, body).with_context(|| format!("write {}", path.display()))?;
+    if !quiet {
+        println!("Installed {label} hard route rule at {}", path.display());
+    }
+    Ok(())
+}
 
 fn write_mcp_servers_file(path: &Path, server_entry: Value) -> Result<()> {
     if let Some(parent) = path.parent() {
@@ -1002,27 +1077,26 @@ fn claude_code_server_entry(exe: &Path) -> Value {
 }
 
 fn install_claude_code_rule(user: bool, quiet: bool) -> Result<()> {
-    let path = if user {
+    let base = if user {
         let home = dirs::home_dir().context("home directory")?;
-        let rules_dir = home.join(".claude");
-        fs::create_dir_all(&rules_dir)?;
-        rules_dir.join("agent-brain.md")
+        let base = home.join(".claude");
+        fs::create_dir_all(&base)?;
+        base
     } else {
         let cwd = std::env::current_dir().context("current working directory")?;
         let root = crate::config::find_repo_root(&cwd).unwrap_or(cwd);
-        let rules_dir = root.join(".claude");
-        fs::create_dir_all(&rules_dir)?;
-        rules_dir.join("agent-brain.md")
+        let base = root.join(".claude");
+        fs::create_dir_all(&base)?;
+        base
     };
     write_host_instructions(
-        &path,
+        &base.join("agent-brain.md"),
         CLAUDE_CODE_AGENT_BRAIN_INSTRUCTIONS,
         quiet,
         "Claude Code",
     )?;
-    if let Some(parent) = path.parent() {
-        write_agent_brain_mode(parent, quiet, "Claude Code")?;
-    }
+    write_hard_route_rule(&base.join("rules"), quiet, "Claude Code")?;
+    write_agent_brain_mode(&base, quiet, "Claude Code")?;
     Ok(())
 }
 
@@ -1097,8 +1171,8 @@ fn install_claude_code(exe: &Path, user: bool, quiet: bool) -> Result<Vec<PathBu
             println!("  Project scope: .mcp.json at repository root.");
         }
         println!("  Start a new Claude Code session; run /mcp to verify.");
-        println!("  Route gate hooks: UserPromptSubmit + PreToolUse/PostToolUse on mcp__agent-brain__.* in .claude/settings.json.");
-        println!("  Trust hooks with /hooks if Claude Code prompts you.");
+        println!("  Route gate hooks: UserPromptSubmit + PreToolUse/PostToolUse (matcher .*) in .claude/settings.json.");
+        println!("  Hard rule: .claude/rules/agent-brain-route.md — trust hooks with /hooks if prompted.");
     }
     Ok(vec![path])
 }

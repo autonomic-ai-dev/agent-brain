@@ -127,11 +127,28 @@ pub fn assert_beam_gate(report: &BeamEvalReport) -> Result<()> {
         &report.task_scoped_verification,
     ] {
         if suite.cases > 0 && suite.recall_at_3 < BEAM_THRESHOLD {
+            let detail = suite
+                .failures
+                .iter()
+                .take(3)
+                .map(|f| {
+                    format!(
+                        "query={:?} expected={:?} got={:?}",
+                        f.query, f.expected_topics, f.got_topics
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
             bail!(
-                "BEAM suite '{}' score {:.2} below threshold {:.2}",
+                "BEAM suite '{}' score {:.2} below threshold {:.2}{}",
                 suite.suite,
                 suite.recall_at_3,
-                BEAM_THRESHOLD
+                BEAM_THRESHOLD,
+                if detail.is_empty() {
+                    String::new()
+                } else {
+                    format!(" — {detail}")
+                }
             );
         }
     }
@@ -676,6 +693,24 @@ fn seed_jsonl_fixture(store: &Arc<BrainStore>) -> Result<()> {
         store,
         "verify-ci-beam",
         "Run BEAM proofs and eval --beam in CI before merge for routing changes",
+    )?;
+    upsert_skill(
+        store,
+        "beam-ci",
+        "BEAM eval harness runs proofs CI regression gates for agent-brain routing",
+    )?;
+    let ci_mem = "Always run agent-brain eval --beam in CI before merging routing changes";
+    let emb = deterministic_embedding(ci_mem);
+    store.store_fact(
+        "ci-beam",
+        ci_mem,
+        "global",
+        None,
+        0.95,
+        "eval",
+        &content_hash(ci_mem),
+        &emb,
+        "positive",
     )?;
     upsert_skill(
         store,

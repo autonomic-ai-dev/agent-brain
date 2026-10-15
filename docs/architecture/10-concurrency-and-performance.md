@@ -68,7 +68,7 @@ Linker-signed local `cargo build` binaries are killed by **taskgated** when Curs
 | Cold first embed | seconds (install) | not gated |
 | Index 500 items < 2s | informal | not gated |
 
-See [13-proofs-and-benchmarks.md](13-proofs-and-benchmarks.md) and [`docs/benchmarks/latest.json`](../benchmarks/latest.json).
+CI gates these fixture budgets via `agent-brain proofs --ci` (not a product claim for ONNX + full index).
 
 **Why not chase 5ms on cold path:** Correctness and local-first matter more than cold-start heroics; turn cache handles chatty follow-ups.
 
@@ -124,8 +124,8 @@ Development `cargo build` binaries lack proper signing → **silent kill** when 
 | Metric | Target | Measurement | CI proof? |
 |--------|--------|-------------|-----------|
 | Recall@3 (fixture) | ≥ 0.85 | `proofs --ci` | **Yes** |
-| Turn-cache p95 (fixture) | ≤ 30 ms | `latest.json` | **Yes** |
-| Warm-route p95 (fixture) | ≤ 100 ms | `latest.json` | **Yes** |
+| Turn-cache p95 (fixture) | ≤ 30 ms | `proofs --ci` | **Yes** |
+| Warm-route p95 (fixture) | ≤ 100 ms | `proofs --ci` | **Yes** |
 | Warm route p95 (production ONNX) | <50 ms aspirational | `RouteLatencyStats`, `retrieval_log` | No |
 | Cold first embed | seconds (install) | MCP logs | No |
 | Write queue delay | <100 ms typical | not gated | No |

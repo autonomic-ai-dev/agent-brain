@@ -2,7 +2,7 @@
 
 ## Summary
 
-agent-brain is a single Rust binary. **`serve`** exposes an MCP stdio server; the **Engine** owns routing, indexing, and memory; **BrainStore** (SQLite) is the source of truth; **Cursor hooks** enforce routing before other tools run.
+agent-brain is a single Rust binary. **`serve`** exposes an MCP stdio server; the **Engine** owns routing, indexing, and memory; **BrainStore** (SQLite) is the source of truth; **host route gates** (`route_gate.py` / OpenCode plugin) enforce routing before other agent-brain tools run.
 
 ## High-level diagram
 
@@ -73,7 +73,7 @@ flowchart TB
 | `workspace.rs` | Repo detection, phase inference, tags |
 | `intelligence/` | `apply_when` condition matching |
 | `install.rs` + `host_install.rs` | Cursor/OpenCode/Claude/VS Code MCP config |
-| `hooks/route_gate.py` | Cursor hook enforcement |
+| `hooks/route_gate.py` | Shared host route-gate script (Cursor/Claude/Codex/Gemini; OpenCode via plugin) |
 
 ## Why Rust + MCP stdio
 

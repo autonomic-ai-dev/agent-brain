@@ -773,7 +773,7 @@ mod tests {
 
     #[test]
     fn parse_release_tag_from_redirect_location() {
-        let loc = "https://github.com/aeswibon/agent-brain/releases/download/v0.16.0/agent-brain-aarch64-apple-darwin";
+        let loc = "https://github.com/autonomic-ai-dev/agent-brain/releases/download/v0.16.0/agent-brain-aarch64-apple-darwin";
         assert_eq!(
             parse_release_tag_from_github_location(loc).as_deref(),
             Some("v0.16.0")
