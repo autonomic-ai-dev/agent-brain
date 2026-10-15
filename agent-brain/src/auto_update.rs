@@ -279,14 +279,10 @@ fn update_mcp_binary(cfg: &AutoUpdateSettings, current_version: &str) -> Result<
 
     #[cfg(target_os = "macos")]
     {
-        crate::doctor::adhoc_sign(&bin_path).with_context(|| {
+        crate::doctor::prepare_macos_release_binary(&bin_path).with_context(|| {
             format!(
-                "adhoc codesign after binary update failed for {}\n\
-                 macOS blocks quarantined downloads under Cursor. Run:\n\
-                   xattr -cr {}\n\
-                   codesign --force --sign - {}",
-                bin_path.display(),
-                bin_path.display(),
+                "updated binary at {} is not a valid Developer ID–signed release artifact\n\
+                 (auto-update never re-signs; re-download or check the GitHub release)",
                 bin_path.display()
             )
         })?;
@@ -531,27 +527,16 @@ fn resolve_release_asset(target: &str, release: &GhRelease) -> Result<String> {
     }
 
     let published: Vec<&str> = release.assets.iter().map(|a| a.name.as_str()).collect();
-    let mut hint = "Install from source: scripts/install.sh --from-source or `cargo install --git https://github.com/aeswibon/agent-brain agent-brain`.".to_string();
-    if target == "aarch64-unknown-linux-gnu" {
-        hint = format!(
-            "Linux ARM64 binaries were added in v0.14.0; you are on {latest}. \
-             Until you upgrade to a release that includes `agent-brain-aarch64-unknown-linux-gnu`, \
-             use: scripts/install.sh --from-source",
-            latest = release.tag_name
-        );
-    }
-
     bail!(
         "no release binary for platform `{target}` (expected asset `{asset}`).\n\
          {latest} publishes: {published}\n\
-         {hint}",
+         Shipped target (for now): aarch64-apple-darwin. Local: make release-macos",
         latest = release.tag_name,
         published = if published.is_empty() {
             "(no assets — release may still be publishing)".to_string()
         } else {
             published.join(", ")
         },
-        hint = hint
     );
 }
 
@@ -649,22 +634,15 @@ fn set_executable(path: &Path) -> Result<()> {
 pub fn detect_release_target() -> Option<&'static str> {
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
+    // Release CI ships Apple Silicon only for now (Developer ID–signed at build).
     match (os, arch) {
         ("macos", "aarch64") => Some("aarch64-apple-darwin"),
-        ("macos", "x86_64") => Some("x86_64-apple-darwin"),
-        ("linux", "x86_64") => Some("x86_64-unknown-linux-gnu"),
-        ("linux", "aarch64") => Some("aarch64-unknown-linux-gnu"),
-        ("windows", "x86_64") => Some("x86_64-pc-windows-msvc"),
         _ => None,
     }
 }
 
 fn release_artifact_name(target: &str) -> String {
-    if target.contains("windows") {
-        format!("agent-brain-{target}.exe")
-    } else {
-        format!("agent-brain-{target}")
-    }
+    format!("agent-brain-{target}")
 }
 
 pub fn version_is_newer(latest: &str, current: &str) -> bool {
@@ -712,29 +690,21 @@ mod tests {
             release_artifact_name("aarch64-apple-darwin"),
             "agent-brain-aarch64-apple-darwin"
         );
-        assert_eq!(
-            release_artifact_name("aarch64-unknown-linux-gnu"),
-            "agent-brain-aarch64-unknown-linux-gnu"
-        );
-        assert_eq!(
-            release_artifact_name("x86_64-pc-windows-msvc"),
-            "agent-brain-x86_64-pc-windows-msvc.exe"
-        );
     }
 
     #[test]
     fn resolve_release_asset_requires_matching_platform_binary() {
         let release = GhRelease {
-            tag_name: "v0.13.0".into(),
+            tag_name: "v0.36.0".into(),
             assets: vec![GhReleaseAsset {
-                name: "agent-brain-x86_64-unknown-linux-gnu".into(),
+                name: "agent-brain-x86_64-apple-darwin".into(),
             }],
         };
-        let err = resolve_release_asset("aarch64-unknown-linux-gnu", &release).unwrap_err();
+        let err = resolve_release_asset("aarch64-apple-darwin", &release).unwrap_err();
         let message = err.to_string();
-        assert!(message.contains("aarch64-unknown-linux-gnu"));
-        assert!(message.contains("agent-brain-aarch64-unknown-linux-gnu"));
-        assert!(message.contains("v0.13.0"));
+        assert!(message.contains("aarch64-apple-darwin"));
+        assert!(message.contains("agent-brain-aarch64-apple-darwin"));
+        assert!(message.contains("v0.36.0"));
     }
 
     #[test]

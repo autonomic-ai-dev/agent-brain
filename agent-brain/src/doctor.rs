@@ -290,6 +290,7 @@ pub fn run(fix: bool) -> Result<()> {
             sign_targets.push(cmd);
         }
     }
+    let mut codesign_ok = true;
 
     for path in unique_existing_paths(sign_targets) {
         let status = assess_signature(&path);
@@ -298,7 +299,7 @@ pub fn run(fix: bool) -> Result<()> {
         let gate_note = if gate {
             " · Gatekeeper OK"
         } else if status == SignatureStatus::Ok {
-            " · Gatekeeper rejected (expected for adhoc local builds)"
+            " · Gatekeeper rejected (unnotarized Developer ID — OK for local MCP)"
         } else {
             " · Gatekeeper REJECTED"
         };
@@ -313,44 +314,41 @@ pub fn run(fix: bool) -> Result<()> {
                 "  quarantine xattrs:     present on {} (Cursor may SIGKILL until cleared)",
                 path.display()
             );
+            codesign_ok = false;
             ok = false;
         }
         if status != SignatureStatus::Ok || quarantine {
+            codesign_ok = false;
             ok = false;
             if fix {
-                adhoc_sign(&path).with_context(|| format!("sign {}", path.display()))?;
-                let after = assess_signature(&path);
-                let gate_after = gatekeeper_allows(&path);
-                let after_gate_note = if gate_after {
-                    " · Gatekeeper OK"
-                } else if after == SignatureStatus::Ok {
-                    " · Gatekeeper rejected (expected for adhoc local builds)"
-                } else {
-                    " · Gatekeeper still rejected"
-                };
-                println!(
-                    "  signed {}:           {:?}{}",
-                    path.display(),
-                    after,
-                    after_gate_note
-                );
-                if after == SignatureStatus::Ok && !macos_has_quarantine_attrs(&path) {
-                    ok = true;
+                // Never re-sign here — release CI / make release-macos own signing.
+                match prepare_macos_release_binary(&path) {
+                    Ok(()) => {
+                        println!(
+                            "  prepared {}:         Ok · quarantine cleared, Developer ID verified",
+                            path.display()
+                        );
+                        codesign_ok = true;
+                        ok = true;
+                    }
+                    Err(err) => {
+                        println!("  prepare failed:        {err:#}");
+                        println!(
+                            "                         install a CI release binary, or: make release-macos"
+                        );
+                    }
                 }
             } else if quarantine {
-                println!(
-                    "                         run: xattr -cr {} && codesign --force --sign - {}",
-                    path.display(),
-                    path.display()
-                );
-                println!("                         or: agent-brain doctor --fix");
+                println!("                         run: agent-brain doctor --fix  (clears quarantine; does not re-sign)");
             } else if status != SignatureStatus::Ok {
-                println!("                         run: agent-brain doctor --fix");
+                println!(
+                    "                         need Developer ID–signed binary: GitHub release or make release-macos"
+                );
             }
         }
     }
 
-    if ok {
+    if codesign_ok {
         sign_step.done();
     } else {
         sign_step.warn("codesign or quarantine issues remain");
@@ -419,10 +417,10 @@ pub fn run(fix: bool) -> Result<()> {
     println!("  • Cursor has the strongest host-tool gate (hooks on Read/Shell); other hosts gate agent-brain MCP tools until route_task");
     println!("  • Background auto-update during serve can exec a new binary after idle (see config auto_update.mcp.restart_after_update)");
     println!(
-        "  • macOS: linker-signed binaries are killed by taskgated — doctor --fix adhoc re-signs"
+        "  • macOS: release artifacts are Developer ID–signed in CI; install/doctor only clear quarantine + verify"
     );
-    println!("  • macOS: browser/curl downloads add quarantine xattrs — xattr -cr + adhoc codesign before Cursor MCP");
-    println!("  • spctl may reject adhoc local builds; that is OK if codesign shows adhoc, not linker-signed");
+    println!("  • macOS: local builds — make release-macos (doctor --fix never re-signs)");
+    println!("  • spctl may reject unnotarized Developer ID; that is OK for local MCP");
 
     if !ok {
         if fix {
@@ -656,13 +654,18 @@ pub fn assess_signature(path: &Path) -> SignatureStatus {
         if stderr.contains("linker-signed") {
             return SignatureStatus::LinkerSigned;
         }
-        if stderr.contains("Signature=adhoc") || stderr.contains("Signature=Apple") {
+        if stderr.contains("Signature=adhoc") {
+            // Ad-hoc is not accepted — use a CI release or make release-macos.
+            return SignatureStatus::Invalid;
+        }
+        if stderr.contains("Authority=Developer ID Application:") {
             return SignatureStatus::Ok;
         }
         if stderr.contains("code object is not signed") {
             return SignatureStatus::Invalid;
         }
-        SignatureStatus::Ok
+        // Apple Development / other identities: treat as invalid for MCP.
+        SignatureStatus::Invalid
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -707,17 +710,19 @@ pub fn macos_has_quarantine_attrs(path: &Path) -> bool {
     }
 }
 
-/// Ad-hoc sign + clear quarantine xattrs (required after copy on macOS).
-pub fn adhoc_sign(path: &Path) -> Result<()> {
+/// Clear download quarantine and verify the binary is already Developer ID–signed
+/// (release artifacts are signed at CI build time). Does **not** re-sign.
+pub fn prepare_macos_release_binary(path: &Path) -> Result<()> {
     #[cfg(target_os = "macos")]
     {
         clear_quarantine_attrs(path)?;
-        let status = Command::new("codesign")
-            .args(["--force", "--sign", "-", &path.display().to_string()])
-            .status()
-            .context("codesign")?;
-        if !status.success() {
-            bail!("codesign failed for {}", path.display());
+        if !is_developer_id_signed(path) {
+            bail!(
+                "{} is not Developer ID–signed\n\
+                 Release artifacts are signed in CI; install/update never re-signs.\n\
+                 Re-download the release, or for local builds run: make release-macos",
+                path.display()
+            );
         }
         let verify = Command::new("codesign")
             .args(["--verify", "--verbose", &path.display().to_string()])
@@ -732,6 +737,30 @@ pub fn adhoc_sign(path: &Path) -> Result<()> {
     {
         let _ = path;
         Ok(())
+    }
+}
+
+pub fn is_developer_id_signed(path: &Path) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        let output = Command::new("codesign")
+            .args(["-dv", "--verbose=2", &path.display().to_string()])
+            .output();
+        let Ok(output) = output else {
+            return false;
+        };
+        if !output.status.success() {
+            return false;
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        stderr.contains("Authority=Developer ID Application:")
+            && !stderr.contains("Signature=adhoc")
+            && !stderr.contains("linker-signed")
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        false
     }
 }
 

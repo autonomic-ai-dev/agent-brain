@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Sign a macOS release binary.
-# Prefers Developer ID Application when APPLE_IDENTITY is set or present in the keychain;
-# falls back to ad-hoc signing (codesign -s -) for local/dev builds.
+# Sign a macOS release binary with Developer ID Application only.
+# Requires APPLE_IDENTITY or a Developer ID Application cert in the keychain.
+# Ad-hoc signing is not used.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -12,7 +12,6 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
   exit 0
 fi
 
-
 if [[ -z "$BIN" || ! -f "$BIN" ]]; then
   echo "sign-macos.sh: binary not found: ${BIN:-<empty>}" >&2
   echo "Usage: $0 <path-to-binary>" >&2
@@ -21,17 +20,25 @@ fi
 
 xattr -cr "$BIN" 2>/dev/null || true
 
-IDENTITY="${APPLE_IDENTITY:-}"
-if [[ -z "$IDENTITY" ]]; then
-  IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null     | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p'     | head -1 || true)"
+if codesign -dv --verbose=2 "$BIN" 2>&1 | grep -q 'Authority=Developer ID Application:'; then
+  echo "Already Developer ID–signed: $BIN"
+  exit 0
 fi
 
-if [[ -n "$IDENTITY" ]]; then
-  codesign --force --options runtime --timestamp --sign "$IDENTITY" "$BIN"
-  codesign --verify --verbose "$BIN"
-  echo "Signed $BIN with $IDENTITY"
-else
-  codesign --force --sign - "$BIN"
-  codesign --verify --verbose "$BIN"
-  echo "Signed $BIN (adhoc)"
+IDENTITY="${APPLE_IDENTITY:-}"
+if [[ -z "$IDENTITY" ]]; then
+  IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null \
+    | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' \
+    | head -1 || true)"
 fi
+
+if [[ -z "$IDENTITY" ]]; then
+  echo "sign-macos.sh: no Developer ID Application identity found" >&2
+  echo "  Set APPLE_IDENTITY or install a Developer ID Application certificate." >&2
+  echo "  Ad-hoc signing is disabled." >&2
+  exit 1
+fi
+
+codesign --force --options runtime --timestamp --sign "$IDENTITY" "$BIN"
+codesign --verify --verbose "$BIN"
+echo "Signed $BIN with $IDENTITY"

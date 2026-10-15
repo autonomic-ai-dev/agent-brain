@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Download the latest GitHub release tag, sign (macOS), and link MCP — no MCP recheck wait.
+# Download the latest GitHub release (already Developer ID–signed) and link MCP.
 # Does not force package git pulls (those stay on interval_hours, default 24h).
 set -euo pipefail
 

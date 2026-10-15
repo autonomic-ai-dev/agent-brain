@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build agent-brain release and adhoc-sign on macOS.
+# Build agent-brain release and Developer ID–sign on macOS.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

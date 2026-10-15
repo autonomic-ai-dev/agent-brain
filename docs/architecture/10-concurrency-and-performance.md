@@ -51,7 +51,7 @@ While `serve` runs, periodic check for new GitHub release or package updates; ca
 
 ### macOS codesign
 
-Linker-signed local `cargo build` binaries are killed by **taskgated** when Cursor spawns MCP. Release binaries and `doctor --fix` adhoc sign.
+Linker-signed local `cargo build` binaries are killed by **taskgated** when Cursor spawns MCP. Release CI Developer ID–signs `aarch64-apple-darwin`; install/doctor only verify and clear quarantine. Local builds: `make release-macos`.
 
 ### Resilience metrics
 
@@ -117,7 +117,7 @@ Auto-update replaces the binary when idle so **long-running `serve` does not pin
 
 ### macOS taskgated (production lesson)
 
-Development `cargo build` binaries lack proper signing → **silent kill** when Cursor spawns MCP. This looked like “MCP broken” not “codesign.” `make release-macos`, GitHub release binary, and `doctor --fix` exist because **platform security policy is part of the architecture**, not ops trivia.
+Development `cargo build` binaries lack proper signing → **silent kill** when Cursor spawns MCP. This looked like “MCP broken” not “codesign.” `make release-macos` and GitHub release binaries exist because **platform security policy is part of the architecture**, not ops trivia.
 
 ### SLO framing for PEs
 

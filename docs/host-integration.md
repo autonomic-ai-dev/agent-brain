@@ -159,11 +159,12 @@ skills, rules, and memory. At task end, call `store_memory` for durable outcomes
 
 ## macOS codesign
 
-Cursor launches MCP via taskgated. Linker-signed local builds may be killed.
+Cursor launches MCP via taskgated. Use a **Developer ID–signed** binary (CI release or `make release-macos`). Install only clears quarantine and verifies the signature.
 
 ```bash
-make release-macos          # or download GitHub release binary
-agent-brain doctor --fix    # adhoc re-sign + align mcp.json
+# Prefer the GitHub release, or:
+make release-macos
+agent-brain doctor --fix    # clear quarantine + align mcp.json (never re-signs)
 ```
 
 ## Index paths (already wired)

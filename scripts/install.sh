@@ -47,25 +47,20 @@ detect_target() {
   os="$(uname -s | tr '[:upper:]' '[:lower:]')"
   arch="$(uname -m)"
   case "$os-$arch" in
+    # Release artifacts are Apple Silicon only for now (signed at CI build time).
     darwin-arm64|darwin-aarch64) echo "aarch64-apple-darwin" ;;
-    darwin-x86_64) echo "x86_64-apple-darwin" ;;
-    linux-x86_64|linux-amd64) echo "x86_64-unknown-linux-gnu" ;;
-    linux-aarch64|linux-arm64) echo "aarch64-unknown-linux-gnu" ;;
-    mingw*|msys*|cygwin*) echo "x86_64-pc-windows-msvc" ;;
     *) echo "unsupported" ;;
   esac
 }
 
 artifact_name() {
   local target="$1"
-  if [[ "$target" == *"windows"* ]]; then
-    echo "agent-brain-${target}.exe"
-  else
-    echo "agent-brain-${target}"
-  fi
+  echo "agent-brain-${target}"
 }
 
-sign_macos_binary() {
+# Release binaries are Developer ID–signed at build. Install only clears quarantine
+# and verifies the signature — it never re-signs.
+prepare_macos_release_binary() {
   local bin="$1"
   if [[ "$(uname -s)" != "Darwin" ]] || [[ ! -f "$bin" ]]; then
     return 0
@@ -73,26 +68,30 @@ sign_macos_binary() {
   if ! command -v codesign >/dev/null 2>&1; then
     echo "ERROR: macOS requires Xcode Command Line Tools to run agent-brain under Cursor." >&2
     echo "  xcode-select --install" >&2
-    echo "  Then run:" >&2
-    echo "    xattr -cr \"$bin\"" >&2
-    echo "    codesign --force --sign - \"$bin\"" >&2
     return 1
   fi
-  xattr -cr "$bin"
-  codesign --force --sign - "$bin"
+  xattr -cr "$bin" 2>/dev/null || true
   if ! codesign --verify --verbose "$bin" >/dev/null 2>&1; then
     echo "ERROR: codesign verify failed for $bin" >&2
+    echo "  Re-download the release artifact (it must be Developer ID–signed at build)." >&2
     return 1
   fi
-  echo "macOS: cleared download quarantine and adhoc-signed $bin"
+  if ! codesign -dv --verbose=2 "$bin" 2>&1 | grep -q 'Authority=Developer ID Application:'; then
+    echo "ERROR: $bin is not Developer ID–signed" >&2
+    echo "  Release artifacts are signed in CI; install does not re-sign." >&2
+    echo "  For local builds use: make release-macos" >&2
+    return 1
+  fi
+  echo "macOS: cleared quarantine; verified Developer ID signature on $bin"
 }
 
 install_from_release() {
   local target asset url tmp
   target="$(detect_target)"
   if [[ "$target" == "unsupported" ]]; then
-    echo "Unsupported platform. Use --from-source or install Rust and run:" >&2
-    echo "  cargo install --git https://github.com/${REPO} agent-brain" >&2
+    echo "Unsupported platform for release install." >&2
+    echo "Shipped artifacts: aarch64-apple-darwin only (for now)." >&2
+    echo "Use --from-source, or: make release-macos && cp target/release/agent-brain ~/.local/bin/" >&2
     exit 1
   fi
 
@@ -104,17 +103,14 @@ install_from_release() {
   echo "Downloading ${url} ..."
   if ! curl -fsSL "$url" -o "$tmp"; then
     echo "Release download failed for ${asset} (${target})." >&2
-    if [[ "$target" == "aarch64-unknown-linux-gnu" ]]; then
-      echo "Linux ARM64 binaries ship from v0.14.0+. Until then, use --from-source." >&2
-    fi
     echo "Try: bash -s -- --from-source" >&2
-    echo "Or:  cargo install --git https://github.com/${REPO} agent-brain" >&2
+    echo "Or:  make release-macos" >&2
     rm -f "$tmp"
     exit 1
   fi
   chmod +x "$tmp"
   mv "$tmp" "${INSTALL_DIR}/agent-brain"
-  sign_macos_binary "${INSTALL_DIR}/agent-brain"
+  prepare_macos_release_binary "${INSTALL_DIR}/agent-brain"
   echo "Installed to ${INSTALL_DIR}/agent-brain"
 }
 
@@ -123,10 +119,15 @@ install_from_cargo() {
     echo "cargo not found. Install Rust from https://rustup.rs or download a release binary." >&2
     exit 1
   fi
+  echo "Building from source. Prefer: make release-macos (Developer ID–signs the binary)." >&2
   cargo install --git "https://github.com/${REPO}" --locked --force agent-brain
   local bin
   bin="$(command -v agent-brain)"
-  sign_macos_binary "$bin"
+  # From-source is linker-signed unless the user signed separately — verify only.
+  prepare_macos_release_binary "$bin" || {
+    echo "Hint: plain cargo install is not Developer ID–signed. Run make release-macos and install that binary." >&2
+    exit 1
+  }
 }
 
 ensure_path() {
@@ -158,7 +159,7 @@ main() {
     bin="${INSTALL_DIR}/agent-brain"
   fi
 
-  sign_macos_binary "$bin"
+  prepare_macos_release_binary "$bin"
 
   local args=(install)
   [[ "$GLOBAL" -eq 1 ]] && args+=(--global)
