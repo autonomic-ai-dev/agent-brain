@@ -3,6 +3,10 @@
 
 from __future__ import annotations
 
+import re
+import shutil
+import subprocess
+
 import json
 import os
 import sys
@@ -21,6 +25,8 @@ def default_brain_home() -> Path:
 
 
 STATE_PATH = default_brain_home() / "hooks" / "route_state.json"
+# Thread-local / call-scoped session for load_state/save_state without threading event everywhere.
+_ACTIVE_SESSION: str | None = None
 
 ROUTE_TOOL_NAMES = {
     "route_task",
@@ -51,18 +57,113 @@ def disabled() -> bool:
     return v in {"0", "false", "no", "off"}
 
 
-def load_state() -> dict:
+def session_id_from_event(event: dict | None) -> str:
+    """Isolate route gate state per conversation/host so concurrent agents do not clobber each other."""
+    event = event or {}
+    for key in (
+        "conversation_id",
+        "conversationId",
+        "session_id",
+        "sessionId",
+        "composerId",
+        "composer_id",
+        "agent_id",
+        "agentId",
+        "generation_id",
+        "generationId",
+        "turn_id",
+        "turnId",
+    ):
+        val = event.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    for env in (
+        "CURSOR_CONVERSATION_ID",
+        "AGENT_BRAIN_HOOK_SESSION",
+        "AGY_CONVERSATION_ID",
+        "CODEX_THREAD_ID",
+    ):
+        val = os.environ.get(env, "").strip()
+        if val:
+            return val
+    return "global"
+
+
+def set_active_session(session_id: str | None) -> None:
+    global _ACTIVE_SESSION
+    _ACTIVE_SESSION = session_id
+
+
+def active_session() -> str:
+    return _ACTIVE_SESSION or "global"
+
+
+def _load_root() -> dict:
     if not STATE_PATH.exists():
-        return {}
+        return {"version": 2, "sessions": {}}
     try:
-        return json.loads(STATE_PATH.read_text(encoding="utf-8"))
+        raw = json.loads(STATE_PATH.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
-        return {}
+        return {"version": 2, "sessions": {}}
+    if isinstance(raw, dict) and isinstance(raw.get("sessions"), dict):
+        raw.setdefault("version", 2)
+        return raw
+    # Legacy flat state — claim into the first session that loads it.
+    if isinstance(raw, dict):
+        return {"version": 2, "sessions": {}, "_orphan_legacy": raw}
+    return {"version": 2, "sessions": {}}
 
 
-def save_state(state: dict) -> None:
+def _prune_sessions(root: dict, keep: str, max_age_secs: float = 86400.0) -> None:
+    sessions = root.get("sessions")
+    if not isinstance(sessions, dict):
+        return
+    now = time.time()
+    drop = []
+    for sid, st in sessions.items():
+        if sid == keep:
+            continue
+        if not isinstance(st, dict):
+            drop.append(sid)
+            continue
+        stamp = st.get("route_context_at") or st.get("needs_route_since") or 0
+        if isinstance(stamp, (int, float)) and stamp > 0 and (now - stamp) > max_age_secs:
+            drop.append(sid)
+    for sid in drop:
+        sessions.pop(sid, None)
+
+
+def load_state(event: dict | None = None) -> dict:
+    if event is not None:
+        set_active_session(session_id_from_event(event))
+    sid = active_session()
+    root = _load_root()
+    sessions = root.setdefault("sessions", {})
+    if sid not in sessions:
+        if isinstance(root.get("_orphan_legacy"), dict):
+            sessions[sid] = root.pop("_orphan_legacy")
+            # Persist migration so concurrent hooks see the same owner.
+            try:
+                STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+                STATE_PATH.write_text(json.dumps(root), encoding="utf-8")
+            except OSError:
+                pass
+        else:
+            sessions[sid] = {}
+    st = sessions.get(sid)
+    return dict(st) if isinstance(st, dict) else {}
+
+
+def save_state(state: dict, event: dict | None = None) -> None:
+    if event is not None:
+        set_active_session(session_id_from_event(event))
+    sid = active_session()
+    root = _load_root()
+    sessions = root.setdefault("sessions", {})
+    sessions[sid] = state
+    _prune_sessions(root, sid)
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    STATE_PATH.write_text(json.dumps(state), encoding="utf-8")
+    STATE_PATH.write_text(json.dumps(root), encoding="utf-8")
 
 
 def claude_mcp_parts(tool_name: str) -> tuple[str | None, str | None]:
@@ -532,14 +633,16 @@ def try_clear_route_gate(event: dict) -> None:
         if payload is not None:
             update_route_context(payload)
             break
-    state = load_state()
+    state = load_state(event)
     state["needs_route"] = False
     state.pop("needs_route_since", None)
     state["route_grace_until"] = 0
     clear_mcp_offline(state)
-    if event.get("generation_id"):
-        state["generation_id"] = event["generation_id"]
-    save_state(state)
+    gen = event.get("generation_id") or event.get("generationId") or state.get("pending_generation")
+    if isinstance(gen, str) and gen.strip():
+        state["generation_id"] = gen.strip()
+        state["routed_generation"] = gen.strip()
+    save_state(state, event)
 
 
 def handle_route_outcome(event: dict) -> None:
@@ -554,15 +657,27 @@ def handle_route_outcome(event: dict) -> None:
     try_clear_route_gate(event)
 
 
-def handle_before_submit_prompt(_event: dict) -> dict:
-    state = load_state()
+def handle_before_submit_prompt(event: dict) -> dict:
+    state = load_state(event)
     if in_mcp_offline(state):
-        save_state(state)
+        save_state(state, event)
+        return {"continue": True}
+    gen = None
+    for key in ("generation_id", "generationId"):
+        val = event.get(key)
+        if isinstance(val, str) and val.strip():
+            gen = val.strip()
+            break
+    # Mid-turn / duplicate UserPromptSubmit for the same generation must NOT re-arm
+    # the gate after a successful route_task (this was the main mid-turn flake).
+    if gen and state.get("routed_generation") == gen and not state.get("needs_route"):
         return {"continue": True}
     state["needs_route"] = True
     state["needs_route_since"] = time.time()
     state["route_grace_until"] = 0
-    save_state(state)
+    if gen:
+        state["pending_generation"] = gen
+    save_state(state, event)
     return {"continue": True}
 
 
@@ -576,6 +691,7 @@ def handle_post_tool_use(event: dict) -> dict:
     # not afterMCPExecution.
     handle_route_outcome(event)
     maybe_log_tool_trace(event)
+    maybe_record_verify_outcome(event)
     return {}
 
 
@@ -591,6 +707,111 @@ def extract_shell_command(event: dict) -> str | None:
         elif isinstance(parsed, str) and parsed.strip():
             return parsed.strip()[:240]
     return None
+
+
+
+VERIFICATION_CMD_RE = re.compile(
+    r"(?i)(?:^|[;&|\n]\s*)(?:"
+    r"cargo\s+(?:test|clippy|check)\b|"
+    r"npm\s+test\b|"
+    r"npx\s+(?:vitest|jest|playwright)\b|"
+    r"bun\s+test\b|"
+    r"pytest\b|"
+    r"go\s+test\b|"
+    r"make\s+test\b|"
+    r"agent-brain\s+(?:proofs|doctor)\b|"
+    r"\.verify/"
+    r")"
+)
+
+
+def is_shell_tool(tool: str) -> bool:
+    t = tool.lower()
+    return "shell" in t or "terminal" in t or t in {"run_terminal_cmd", "bash"}
+
+
+def looks_like_verification(cmd: str) -> bool:
+    if not cmd or "agent-brain verify" in cmd:
+        return False
+    if ".verify/" in cmd:
+        return True
+    return VERIFICATION_CMD_RE.search(cmd) is not None
+
+
+def shell_exit_code(event: dict) -> int:
+    if event.get("success") is False or event.get("error"):
+        return 1
+    return 0
+
+
+def agent_brain_bin() -> str:
+    home = Path.home()
+    local = home / ".local" / "bin" / "agent-brain"
+    if local.is_file():
+        return str(local)
+    which = shutil.which("agent-brain")
+    return which or "agent-brain"
+
+
+def maybe_record_verify_outcome(event: dict) -> None:
+    """Fire-and-forget: record matching Shell verification commands."""
+    tool = str(event.get("tool_name") or "").lower()
+    if not is_shell_tool(tool):
+        return
+    cmd = extract_shell_command(event)
+    if not cmd or not looks_like_verification(cmd):
+        return
+    # Prefer full command if available (extract truncates to 240 for traces).
+    full = cmd
+    for key in ("tool_input", "arguments", "args", "input"):
+        raw = event.get(key)
+        parsed = parse_json_value(raw)
+        if isinstance(parsed, dict):
+            for field in ("command", "cmd"):
+                value = parsed.get(field)
+                if isinstance(value, str) and value.strip():
+                    full = value.strip()
+                    break
+        elif isinstance(parsed, str) and parsed.strip():
+            full = parsed.strip()
+        if full:
+            break
+    exit_code = shell_exit_code(event)
+    cwd = None
+    for key in ("tool_input", "arguments", "args", "input"):
+        raw = event.get(key)
+        parsed = parse_json_value(raw)
+        if isinstance(parsed, dict):
+            for field in ("working_directory", "cwd", "workingDirectory"):
+                value = parsed.get(field)
+                if isinstance(value, str) and value.strip():
+                    cwd = value.strip()
+                    break
+        if cwd:
+            break
+    bin_path = agent_brain_bin()
+    argv = [
+        bin_path,
+        "verify",
+        "record",
+        "--exit",
+        str(exit_code),
+        "--source",
+        "hook",
+        "--",
+        full,
+    ]
+    try:
+        kwargs = {
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+            "start_new_session": True,
+        }
+        if cwd:
+            kwargs["cwd"] = cwd
+        subprocess.Popen(argv, **kwargs)
+    except Exception:
+        pass
 
 
 def maybe_log_tool_trace(event: dict) -> None:
@@ -627,7 +848,7 @@ def gate_tool_use(event: dict) -> dict:
         return {"permission": "allow"}
     if not should_gate_tool(event):
         return {"permission": "allow"}
-    state = load_state()
+    state = load_state(event)
     if state.get("needs_route"):
         if should_allow_without_route(state):
             return grace_allow_payload(state)
@@ -786,6 +1007,7 @@ def main() -> int:
 
     raw_name = str(event.get("hook_event_name", ""))
     event = normalize_tool_event(event)
+    set_active_session(session_id_from_event(event))
     name = normalize_event_name(raw_name)
 
     if name == "beforeSubmitPrompt":

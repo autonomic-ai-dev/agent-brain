@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.0] - 2026-10-16
+
+### Added
+
+- **Verify auto-record** — `agent-brain verify record`, MCP `record_verify_outcome`, and Shell PostToolUse capture for matching test commands; `verify_outcomes.source` (`cli|hook|mcp|playbook`); project-root **`.verify/`** discovery + scenario hash
+- **`agent-brain report`** — per-source outcome counts
+
+### Changed
+
+- **MCP mid-turn flake fix** — session-scoped route gate state + no re-arm on same `generation_id`; exclusive `serve.lock` (refuse second serve unless `AGENT_BRAIN_ALLOW_MULTI_SERVE=1`); dedupe Cursor hooks to `route_gate_run.sh` only
+- **Idle-gated MCP auto-update** — download to staging only; apply binary + refresh `mcp.json` + restart only when MCP is idle; defer (never force) when still busy after max wait
+
 ## [0.38.0] - 2026-10-16
 
 ### Added

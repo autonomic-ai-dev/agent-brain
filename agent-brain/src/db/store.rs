@@ -1360,14 +1360,15 @@ impl BrainStore {
         scenario_dir_hash: Option<&str>,
         cmd: &str,
         device_id: &str,
+        source: &str,
     ) -> Result<String> {
         let id = Uuid::new_v4().to_string();
         let now = chrono::Utc::now().timestamp_millis();
         self.with_conn(|conn| {
             conn.execute(
                 r#"INSERT INTO verify_outcomes
-                   (id, route_log_id, exit_code, cause_tag, verify_config_hash, scenario_dir_hash, cmd, device_id, recorded_at)
-                   VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)"#,
+                   (id, route_log_id, exit_code, cause_tag, verify_config_hash, scenario_dir_hash, cmd, device_id, recorded_at, source)
+                   VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)"#,
                 params![
                     id,
                     route_log_id,
@@ -1377,7 +1378,8 @@ impl BrainStore {
                     scenario_dir_hash,
                     cmd,
                     device_id,
-                    now
+                    now,
+                    source
                 ],
             )?;
             Ok(())
@@ -1388,7 +1390,7 @@ impl BrainStore {
     pub fn list_verify_outcomes(&self, limit: usize) -> Result<Vec<VerifyOutcomeRow>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                r#"SELECT id, route_log_id, exit_code, cause_tag, verify_config_hash, scenario_dir_hash, cmd, device_id, recorded_at
+                r#"SELECT id, route_log_id, exit_code, cause_tag, verify_config_hash, scenario_dir_hash, cmd, device_id, recorded_at, source
                    FROM verify_outcomes ORDER BY recorded_at DESC LIMIT ?1"#,
             )?;
             let rows = stmt
@@ -1403,6 +1405,7 @@ impl BrainStore {
                         cmd: row.get(6)?,
                         device_id: row.get(7)?,
                         recorded_at: row.get(8)?,
+                        source: row.get(9)?,
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -3036,6 +3039,7 @@ pub struct VerifyOutcomeRow {
     pub cmd: String,
     pub device_id: Option<String>,
     pub recorded_at: i64,
+    pub source: Option<String>,
 }
 
 pub struct StoreFactResult {

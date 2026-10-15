@@ -1,10 +1,10 @@
-//! Verifier-sourced outcomes: `agent-brain verify -- <cmd>`.
+//! Verifier-sourced outcomes: `agent-brain verify -- <cmd>` and `verify record`.
 //!
-//! An agent with shell access can bypass this path; hashes of verify config /
+//! Project playbooks live at `<project>/.verify/`. Hashes of verify config /
 //! scenario dirs make drift visible in `agent-brain report`.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
@@ -14,6 +14,36 @@ use walkdir::WalkDir;
 use crate::db::store::BrainStore;
 
 const MIN_SAMPLE_FOR_RATES: usize = 30;
+pub const VERIFY_DIR_NAME: &str = ".verify";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VerifySource {
+    Cli,
+    Hook,
+    Mcp,
+    Playbook,
+}
+
+impl VerifySource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Cli => "cli",
+            Self::Hook => "hook",
+            Self::Mcp => "mcp",
+            Self::Playbook => "playbook",
+        }
+    }
+
+    pub fn parse(s: &str) -> Result<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "cli" => Ok(Self::Cli),
+            "hook" => Ok(Self::Hook),
+            "mcp" => Ok(Self::Mcp),
+            "playbook" => Ok(Self::Playbook),
+            other => bail!("unknown verify source `{other}` (expected cli|hook|mcp|playbook)"),
+        }
+    }
+}
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct VerifyReport {
@@ -24,6 +54,97 @@ pub struct VerifyReport {
     pub verify_config_hash: Option<String>,
     pub scenario_dir_hash: Option<String>,
     pub cmd: String,
+    pub source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verify_root: Option<String>,
+}
+
+/// Walk ancestors of `start` for a directory containing `.verify/`.
+pub fn find_verify_root(start: &Path) -> Option<PathBuf> {
+    let mut cur = if start.is_file() {
+        start.parent()?.to_path_buf()
+    } else {
+        start.to_path_buf()
+    };
+    loop {
+        let candidate = cur.join(VERIFY_DIR_NAME);
+        if candidate.is_dir() {
+            return Some(cur);
+        }
+        if !cur.pop() {
+            return None;
+        }
+    }
+}
+
+fn resolve_scenarios_dir(
+    explicit: Option<&Path>,
+    cwd: Option<&Path>,
+) -> Result<(Option<PathBuf>, Option<PathBuf>)> {
+    if let Some(dir) = explicit {
+        return Ok((Some(dir.to_path_buf()), None));
+    }
+    let start = cwd
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    if let Some(root) = find_verify_root(&start) {
+        let verify_dir = root.join(VERIFY_DIR_NAME);
+        return Ok((Some(verify_dir), Some(root)));
+    }
+    Ok((None, None))
+}
+
+/// Record an already-known exit code (no command spawn).
+pub fn record_from_result(
+    store: &BrainStore,
+    exit_code: i32,
+    cmd: &str,
+    route_log_id: Option<&str>,
+    cause_tag: Option<&str>,
+    config_path: Option<&Path>,
+    scenarios_dir: Option<&Path>,
+    cwd: Option<&Path>,
+    source: VerifySource,
+) -> Result<VerifyReport> {
+    if cmd.trim().is_empty() {
+        bail!("verify record requires a non-empty cmd summary after --");
+    }
+    let success = exit_code == 0;
+    let config_hash = config_path.map(hash_path).transpose()?;
+    let (scenarios, verify_root) = resolve_scenarios_dir(scenarios_dir, cwd)?;
+    let scenarios_hash = scenarios
+        .as_ref()
+        .map(|p| hash_tree(p))
+        .transpose()?;
+    let cause = cause_tag.map(|s| s.to_string()).or_else(|| {
+        if success {
+            None
+        } else {
+            Some(cmd.to_string())
+        }
+    });
+    let device_id = store.ensure_device_id()?;
+    let id = store.insert_verify_outcome(
+        route_log_id,
+        exit_code,
+        cause.as_deref(),
+        config_hash.as_deref(),
+        scenarios_hash.as_deref(),
+        cmd,
+        &device_id,
+        source.as_str(),
+    )?;
+    Ok(VerifyReport {
+        id,
+        exit_code,
+        success,
+        cause_tag: cause,
+        verify_config_hash: config_hash,
+        scenario_dir_hash: scenarios_hash,
+        cmd: cmd.to_string(),
+        source: source.as_str().to_string(),
+        verify_root: verify_root.map(|p| p.display().to_string()),
+    })
 }
 
 pub fn run_verify(
@@ -42,37 +163,17 @@ pub fn run_verify(
         .status()
         .with_context(|| format!("failed to spawn {}", cmd[0]))?;
     let exit_code = status.code().unwrap_or(1);
-    let success = exit_code == 0;
-    let config_hash = config_path.map(hash_path).transpose()?;
-    let scenarios_hash = scenarios_dir.map(hash_tree).transpose()?;
-    let cause = cause_tag
-        .map(|s| s.to_string())
-        .or_else(|| {
-            if success {
-                None
-            } else {
-                Some(cmd.join(" "))
-            }
-        });
-    let device_id = store.ensure_device_id()?;
-    let id = store.insert_verify_outcome(
-        route_log_id,
+    record_from_result(
+        store,
         exit_code,
-        cause.as_deref(),
-        config_hash.as_deref(),
-        scenarios_hash.as_deref(),
         &cmd.join(" "),
-        &device_id,
-    )?;
-    Ok(VerifyReport {
-        id,
-        exit_code,
-        success,
-        cause_tag: cause,
-        verify_config_hash: config_hash,
-        scenario_dir_hash: scenarios_hash,
-        cmd: cmd.join(" "),
-    })
+        route_log_id,
+        cause_tag,
+        config_path,
+        scenarios_dir,
+        None,
+        VerifySource::Cli,
+    )
 }
 
 pub fn print_report(store: &BrainStore) -> Result<()> {
@@ -81,16 +182,29 @@ pub fn print_report(store: &BrainStore) -> Result<()> {
     let success = rows.iter().filter(|r| r.exit_code == 0).count();
     let fail = n.saturating_sub(success);
     println!("verify outcomes: n={n} success={success} failure={fail}");
+
+    let mut by_source: std::collections::BTreeMap<String, usize> =
+        std::collections::BTreeMap::new();
+    for r in &rows {
+        *by_source
+            .entry(r.source.clone().unwrap_or_else(|| "cli".to_string()))
+            .or_default() += 1;
+    }
+    if !by_source.is_empty() {
+        let parts: Vec<String> = by_source
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect();
+        println!("by_source: {{{}}}", parts.join(", "));
+    }
+
     if n < MIN_SAMPLE_FOR_RATES {
-        println!(
-            "rates suppressed (need n>={MIN_SAMPLE_FOR_RATES}; showing counts only)"
-        );
+        println!("rates suppressed (need n>={MIN_SAMPLE_FOR_RATES}; showing counts only)");
     } else {
         let rate = success as f64 / n as f64;
         println!("first-pass success rate: {rate:.3}");
     }
 
-    // Hash drift vs most common config hash
     let mut config_counts: std::collections::HashMap<String, usize> =
         std::collections::HashMap::new();
     for r in &rows {
@@ -115,8 +229,9 @@ pub fn print_report(store: &BrainStore) -> Result<()> {
         }
     }
 
-    // Note: agent store_trajectory claims are not included here.
-    println!("note: only agent-brain verify -- outcomes are authoritative; shell bypass is possible");
+    println!(
+        "note: source=cli (agent-brain verify --) is strongest; hook/mcp/playbook are observational"
+    );
     Ok(())
 }
 
@@ -140,4 +255,51 @@ fn hash_tree(dir: &Path) -> Result<String> {
         hasher.update(fs::read(&path)?);
     }
     Ok(format!("{:x}", hasher.finalize()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::store::BrainStore;
+    use tempfile::tempdir;
+
+    #[test]
+    fn find_verify_root_walks_ancestors() {
+        let dir = tempdir().unwrap();
+        let nested = dir.path().join("a/b/c");
+        fs::create_dir_all(&nested).unwrap();
+        assert!(find_verify_root(&nested).is_none());
+        fs::create_dir_all(dir.path().join(".verify")).unwrap();
+        assert_eq!(find_verify_root(&nested).as_deref(), Some(dir.path()));
+    }
+
+    #[test]
+    fn record_from_result_stores_source_and_verify_hash() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("t.db");
+        let store = BrainStore::open(&db).unwrap();
+        fs::create_dir_all(dir.path().join(".verify")).unwrap();
+        fs::write(dir.path().join(".verify/README.md"), b"playbook").unwrap();
+
+        let report = record_from_result(
+            &store,
+            0,
+            "cargo test",
+            None,
+            None,
+            None,
+            None,
+            Some(dir.path()),
+            VerifySource::Hook,
+        )
+        .unwrap();
+        assert_eq!(report.source, "hook");
+        assert!(report.scenario_dir_hash.is_some());
+        assert_eq!(report.verify_root.as_deref(), Some(dir.path().to_str().unwrap()));
+
+        let rows = store.list_verify_outcomes(10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].source.as_deref(), Some("hook"));
+        assert!(rows[0].scenario_dir_hash.is_some());
+    }
 }

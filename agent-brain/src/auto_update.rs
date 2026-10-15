@@ -21,6 +21,11 @@ pub struct AutoUpdateState {
     pub last_run_unix: i64,
     pub last_mcp_check_unix: i64,
     pub last_mcp_version: Option<String>,
+    /// Staged MCP binary awaiting idle apply (path on disk).
+    #[serde(default)]
+    pub pending_mcp_path: Option<String>,
+    #[serde(default)]
+    pub pending_mcp_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -48,6 +53,9 @@ pub struct AutoUpdateReport {
     pub mcp_version: Option<String>,
     pub reindexed: bool,
     pub mcp_restart_scheduled: bool,
+    /// Staged but not applied (waiting for idle).
+    pub mcp_staged: bool,
+    pub mcp_deferred: bool,
 }
 
 impl AutoUpdateState {
@@ -86,7 +94,7 @@ pub fn run(
     let check_mcp = cfg.mcp.enabled && (force || should_check_mcp(cfg, &state, options));
     let check_packages = should_check_packages(cfg, &state, force, mcp_only);
 
-    if !check_mcp && !check_packages {
+    if !check_mcp && !check_packages && state.pending_mcp_path.is_none() {
         tracing::debug!(target: "agent_brain::auto_update", "skipped (interval not elapsed)");
         return Ok(AutoUpdateReport::default());
     }
@@ -95,13 +103,15 @@ pub fn run(
     let current_version = env!("CARGO_PKG_VERSION");
 
     if check_mcp {
-        match update_mcp_binary(cfg, current_version)? {
-            Some(version) => {
-                report.mcp_updated = true;
-                report.mcp_version = Some(version.clone());
-                state.last_mcp_version = Some(version);
+        match stage_mcp_binary(cfg, current_version, &mut state)? {
+            StageOutcome::Staged(version) => {
+                report.mcp_staged = true;
+                report.mcp_version = Some(version);
             }
-            None => tracing::debug!(target: "agent_brain::auto_update", "mcp already current"),
+            StageOutcome::AlreadyCurrent => {
+                tracing::debug!(target: "agent_brain::auto_update", "mcp already current");
+            }
+            StageOutcome::PendingUnchanged => {}
         }
         state.last_mcp_check_unix = chrono::Utc::now().timestamp();
     }
@@ -111,11 +121,53 @@ pub fn run(
         state.last_run_unix = chrono::Utc::now().timestamp();
     }
 
-    let will_restart = report.mcp_updated
-        && options.restart_mcp_if_serving
-        && cfg.mcp.restart_after_update
-        && can_restart_in_place(&expand_home(&cfg.mcp.bin_path));
+    // Apply staged MCP binary only when idle (background) or immediately (CLI / force).
+    if state.pending_mcp_path.is_some() {
+        let apply_now = force || !options.restart_mcp_if_serving;
+        let idle_ok = if apply_now {
+            true
+        } else {
+            let policy = McpRestartPolicy::from(&cfg.mcp);
+            wait_for_idle_apply(&engine.mcp_activity, policy)
+        };
+        if idle_ok {
+            let version = apply_staged_mcp(cfg, &mut state)?;
+            report.mcp_updated = true;
+            report.mcp_version = Some(version.clone());
+            state.last_mcp_version = Some(version.clone());
 
+            let will_restart = options.restart_mcp_if_serving
+                && cfg.mcp.restart_after_update
+                && can_restart_in_place(&expand_home(&cfg.mcp.bin_path));
+            if will_restart {
+                schedule_mcp_restart(
+                    expand_home(&cfg.mcp.bin_path),
+                    version,
+                    engine.mcp_activity.clone(),
+                    McpRestartPolicy::from(&cfg.mcp),
+                );
+                report.mcp_restart_scheduled = true;
+            } else {
+                eprintln!(
+                    "agent-brain: MCP binary updated at {}; restart or toggle MCP in Cursor to load it",
+                    expand_home(&cfg.mcp.bin_path).display()
+                );
+            }
+        } else {
+            report.mcp_deferred = true;
+            report.mcp_staged = true;
+            if report.mcp_version.is_none() {
+                report.mcp_version = state.pending_mcp_version.clone();
+            }
+            tracing::info!(
+                target: "agent_brain::auto_update",
+                version = state.pending_mcp_version.as_deref().unwrap_or("?"),
+                "MCP update staged; deferring apply until idle"
+            );
+        }
+    }
+
+    let will_restart = report.mcp_restart_scheduled;
     if (report.mcp_updated || report.packages_updated > 0) && !will_restart {
         match engine.bootstrap(None) {
             Ok(n) => {
@@ -139,27 +191,9 @@ pub fn run(
     }
 
     state.save(home)?;
-
-    if will_restart {
-        let bin_path = expand_home(&cfg.mcp.bin_path);
-        let version = report.mcp_version.clone().unwrap_or_default();
-        schedule_mcp_restart(
-            bin_path,
-            version,
-            engine.mcp_activity.clone(),
-            McpRestartPolicy::from(&cfg.mcp),
-        );
-        report.mcp_restart_scheduled = true;
-    } else if report.mcp_updated {
-        let bin_path = expand_home(&cfg.mcp.bin_path);
-        eprintln!(
-            "agent-brain: MCP binary updated at {}; restart or toggle MCP in Cursor to load it",
-            bin_path.display()
-        );
-    }
-
     Ok(report)
 }
+
 
 fn due_for_packages(cfg: &AutoUpdateSettings, state: &AutoUpdateState) -> bool {
     if state.last_run_unix == 0 {
@@ -245,7 +279,28 @@ fn update_configured_packages(engine: &Arc<Engine>, cfg: &AutoUpdateSettings) ->
     Ok(updated)
 }
 
-fn update_mcp_binary(cfg: &AutoUpdateSettings, current_version: &str) -> Result<Option<String>> {
+enum StageOutcome {
+    Staged(String),
+    AlreadyCurrent,
+    PendingUnchanged,
+}
+
+/// Download a newer MCP binary to a staging path; do not replace the live binary yet.
+fn stage_mcp_binary(
+    cfg: &AutoUpdateSettings,
+    current_version: &str,
+    state: &mut AutoUpdateState,
+) -> Result<StageOutcome> {
+    if let (Some(path), Some(ver)) = (&state.pending_mcp_path, &state.pending_mcp_version) {
+        if Path::new(path).is_file() && version_is_newer(ver, current_version) {
+            return Ok(StageOutcome::PendingUnchanged);
+        }
+        // Stale pending entry — clear and re-fetch.
+        let _ = fs::remove_file(path);
+        state.pending_mcp_path = None;
+        state.pending_mcp_version = None;
+    }
+
     let target = detect_release_target().context("unsupported platform for mcp auto-update")?;
     let asset = release_artifact_name(target);
     let (latest, url) = resolve_latest_mcp_release(cfg, target, &asset)?;
@@ -257,10 +312,10 @@ fn update_mcp_binary(cfg: &AutoUpdateSettings, current_version: &str) -> Result<
             latest = latest_version,
             "local MCP binary is ahead of GitHub latest; skipping download"
         );
-        return Ok(None);
+        return Ok(StageOutcome::AlreadyCurrent);
     }
     if !version_is_newer(latest_version, current_version) {
-        return Ok(None);
+        return Ok(StageOutcome::AlreadyCurrent);
     }
 
     let bin_path = expand_home(&cfg.mcp.bin_path);
@@ -268,46 +323,94 @@ fn update_mcp_binary(cfg: &AutoUpdateSettings, current_version: &str) -> Result<
         fs::create_dir_all(parent).context("create bin parent dir")?;
     }
 
-    let tmp = bin_path.with_extension("download");
-    curl_download(&url, &tmp)?;
-    set_executable(&tmp)?;
-
-    if bin_path.exists() {
-        fs::remove_file(&bin_path).ok();
-    }
-    fs::rename(&tmp, &bin_path).with_context(|| format!("install {}", bin_path.display()))?;
+    let staged = bin_path.with_extension("download");
+    curl_download(&url, &staged)?;
+    set_executable(&staged)?;
 
     #[cfg(target_os = "macos")]
     {
-        crate::doctor::prepare_macos_release_binary(&bin_path).with_context(|| {
+        crate::doctor::prepare_macos_release_binary(&staged).with_context(|| {
             format!(
-                "updated binary at {} is not a valid Developer ID–signed release artifact\n\
+                "staged binary at {} is not a valid Developer ID–signed release artifact\n\
                  (auto-update never re-signs; re-download or check the GitHub release)",
-                bin_path.display()
+                staged.display()
             )
         })?;
     }
+
+    state.pending_mcp_path = Some(staged.display().to_string());
+    state.pending_mcp_version = Some(latest_version.to_string());
 
     tracing::info!(
         target: "agent_brain::auto_update",
         from = current_version,
         to = latest_version,
-        path = %bin_path.display(),
-        "mcp binary updated"
+        path = %staged.display(),
+        "mcp binary staged (awaiting idle apply)"
     );
+    eprintln!(
+        "agent-brain: MCP binary v{latest_version} staged at {}; will apply when idle",
+        staged.display()
+    );
+
+    Ok(StageOutcome::Staged(latest_version.to_string()))
+}
+
+/// Install a previously staged binary and refresh Cursor mcp.json.
+fn apply_staged_mcp(cfg: &AutoUpdateSettings, state: &mut AutoUpdateState) -> Result<String> {
+    let staged = state
+        .pending_mcp_path
+        .as_ref()
+        .map(PathBuf::from)
+        .context("no pending MCP binary to apply")?;
+    let version = state
+        .pending_mcp_version
+        .clone()
+        .context("pending MCP version missing")?;
+    if !staged.is_file() {
+        state.pending_mcp_path = None;
+        state.pending_mcp_version = None;
+        bail!("staged MCP binary missing at {}", staged.display());
+    }
+
+    let bin_path = expand_home(&cfg.mcp.bin_path);
+    if bin_path.exists() {
+        fs::remove_file(&bin_path).ok();
+    }
+    fs::rename(&staged, &bin_path).with_context(|| format!("install {}", bin_path.display()))?;
+
+    #[cfg(target_os = "macos")]
+    {
+        crate::doctor::prepare_macos_release_binary(&bin_path).with_context(|| {
+            format!(
+                "updated binary at {} is not a valid Developer ID–signed release artifact",
+                bin_path.display()
+            )
+        })?;
+    }
 
     if cfg.mcp.refresh_cursor {
         install::configure_cursor(true, &bin_path, true)
             .with_context(|| "refresh Cursor MCP/hooks after binary update")?;
     }
 
+    state.pending_mcp_path = None;
+    state.pending_mcp_version = None;
+
+    tracing::info!(
+        target: "agent_brain::auto_update",
+        to = %version,
+        path = %bin_path.display(),
+        "mcp binary applied"
+    );
     eprintln!(
-        "agent-brain: MCP binary updated to v{latest_version} at {}",
+        "agent-brain: MCP binary updated to v{version} at {}",
         bin_path.display()
     );
 
-    Ok(Some(latest_version.to_string()))
+    Ok(version)
 }
+
 
 const RESTART_ENV_KEYS: &[&str] = &[
     "AGENT_BRAIN_HOME",
@@ -346,32 +449,43 @@ pub fn schedule_mcp_restart(
         policy.idle_secs, policy.max_wait_secs
     );
     std::thread::spawn(move || {
-        wait_for_safe_restart(&activity, policy);
-        restart_mcp_process(&bin_path, &version);
+        if wait_for_idle_apply(&activity, policy) {
+            eprintln!(
+                "agent-brain: MCP idle for {}s; restarting to load new binary",
+                policy.idle_secs
+            );
+            restart_mcp_process(&bin_path, &version);
+        } else {
+            eprintln!(
+                "agent-brain: deferring MCP restart; binary already applied — toggle MCP or wait for next idle check"
+            );
+        }
     });
 }
 
-fn wait_for_safe_restart(activity: &McpActivity, policy: McpRestartPolicy) {
+/// Wait until MCP is idle. Returns false if still busy after max_wait (do not force).
+fn wait_for_idle_apply(activity: &McpActivity, policy: McpRestartPolicy) -> bool {
     std::thread::sleep(Duration::from_secs(policy.min_delay_secs));
     let started = std::time::Instant::now();
     loop {
         if activity.idle_for_secs(policy.idle_secs) {
             eprintln!(
-                "agent-brain: MCP idle for {}s; restarting to load new binary",
+                "agent-brain: MCP idle for {}s; applying staged binary",
                 policy.idle_secs
             );
-            return;
+            return true;
         }
         if started.elapsed() >= Duration::from_secs(policy.max_wait_secs) {
             eprintln!(
-                "agent-brain: restart max wait {}s exceeded; restarting anyway",
+                "agent-brain: still busy after {}s; leaving MCP update staged for next idle window",
                 policy.max_wait_secs
             );
-            return;
+            return false;
         }
         std::thread::sleep(Duration::from_secs(1));
     }
 }
+
 
 pub fn can_restart_in_place(bin_path: &Path) -> bool {
     let Ok(current) = std::env::current_exe() else {
@@ -799,4 +913,18 @@ mod tests {
         if let Some(val) = saved_gh_token { std::env::set_var("GH_TOKEN", val); }
         if let Some(val) = saved_pat { std::env::set_var("GITHUB_PERSONAL_ACCESS_TOKEN", val); }
     }
+    #[test]
+    fn pending_state_roundtrips() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut state = AutoUpdateState {
+            pending_mcp_path: Some(dir.path().join("agent-brain.download").display().to_string()),
+            pending_mcp_version: Some("0.39.0".into()),
+            ..Default::default()
+        };
+        state.save(dir.path()).unwrap();
+        let loaded = AutoUpdateState::load(dir.path());
+        assert_eq!(loaded.pending_mcp_version.as_deref(), Some("0.39.0"));
+        assert!(loaded.pending_mcp_path.is_some());
+    }
+
 }

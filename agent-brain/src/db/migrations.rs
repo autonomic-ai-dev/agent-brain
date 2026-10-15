@@ -282,6 +282,17 @@ pub fn run(conn: &Connection) -> rusqlite::Result<()> {
         conn.execute("UPDATE schema_version SET version = 18", [])?;
     }
 
+    let version: i64 = conn
+        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
+            r.get(0)
+        })
+        .unwrap_or(0);
+
+    if version < 19 {
+        migrate_v19(conn)?;
+        conn.execute("UPDATE schema_version SET version = 19", [])?;
+    }
+
     Ok(())
 }
 
@@ -684,6 +695,16 @@ fn migrate_v18(conn: &Connection) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_verify_outcomes_at ON verify_outcomes(recorded_at);
         "#,
     )?;
+    Ok(())
+}
+
+fn migrate_v19(conn: &Connection) -> rusqlite::Result<()> {
+    if !column_exists(conn, "verify_outcomes", "source")? {
+        conn.execute(
+            "ALTER TABLE verify_outcomes ADD COLUMN source TEXT NOT NULL DEFAULT 'cli'",
+            [],
+        )?;
+    }
     Ok(())
 }
 

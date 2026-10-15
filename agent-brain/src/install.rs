@@ -271,12 +271,17 @@ fn install_cursor_hooks(quiet: bool) -> Result<()> {
     let script_path = hooks_dir.join("route_gate.py");
     fs::write(&script_path, ROUTE_GATE_HOOK)
         .with_context(|| format!("write {}", script_path.display()))?;
+    let wrapper_path = hooks_dir.join("route_gate_run.sh");
+    fs::write(&wrapper_path, ROUTE_GATE_RUN_SH)
+        .with_context(|| format!("write {}", wrapper_path.display()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&script_path)?.permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&script_path, perms)?;
+        for path in [&script_path, &wrapper_path] {
+            let mut perms = fs::metadata(path)?.permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(path, perms)?;
+        }
     }
 
     let hooks_config = cursor_dir.join("hooks.json");
@@ -406,11 +411,15 @@ fn is_agent_brain_hook_entry(entry: &Value) -> bool {
     entry
         .get("command")
         .and_then(|v| v.as_str())
-        .map(|cmd| cmd.contains("hooks/agent-brain/route_gate.py"))
+        .map(|cmd| {
+            cmd.contains("hooks/agent-brain/route_gate.py")
+                || cmd.contains("hooks/agent-brain/route_gate_run.sh")
+        })
         .unwrap_or(false)
 }
 
 const ROUTE_GATE_HOOK: &str = include_str!("../hooks/route_gate.py");
+const ROUTE_GATE_RUN_SH: &str = include_str!("../hooks/route_gate_run.sh");
 
 const AGENT_BRAIN_HOOKS_JSON: &str = include_str!("../hooks/agent-brain-hooks.json");
 

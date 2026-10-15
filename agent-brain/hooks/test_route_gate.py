@@ -29,6 +29,10 @@ from route_gate import (
     route_response_useful,
     should_gate_tool,
     stale_needs_route,
+    looks_like_verification,
+    maybe_record_verify_outcome,
+    session_id_from_event,
+    set_active_session,
 )
 
 
@@ -459,6 +463,84 @@ class StatefulWorkflowHookTests(unittest.TestCase):
             out["hookSpecificOutput"]["permissionDecisionReason"], "route_task required"
         )
 
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+def test_looks_like_verification_allowlist():
+    assert looks_like_verification("cargo test -p agent-brain")
+    assert looks_like_verification("npm test")
+    assert looks_like_verification("./.verify/scripts/doctor.sh")
+    assert not looks_like_verification("agent-brain verify -- cargo test")
+    assert not looks_like_verification("ls -la")
+
+
+def test_maybe_record_verify_skips_non_shell(monkeypatch):
+    called = []
+
+    def fake_popen(*args, **kwargs):
+        called.append((args, kwargs))
+        class P:
+            pass
+        return P()
+
+    monkeypatch.setattr("route_gate.subprocess.Popen", fake_popen)
+    maybe_record_verify_outcome({"tool_name": "Write", "tool_input": {"path": "x"}})
+    assert called == []
+    maybe_record_verify_outcome(
+        {
+            "tool_name": "Shell",
+            "success": True,
+            "tool_input": {"command": "cargo test"},
+        }
+    )
+    assert len(called) == 1
+    argv = called[0][0][0]
+    assert "verify" in argv and "record" in argv
+    assert "--source" in argv and "hook" in argv
+
+
+class SessionGateTests(unittest.TestCase):
+    def test_session_isolation(self) -> None:
+        from route_gate import STATE_PATH, load_state, save_state, set_active_session
+
+        STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        if STATE_PATH.exists():
+            STATE_PATH.unlink()
+        set_active_session("conv-a")
+        save_state({"needs_route": True, "needs_route_since": time.time()})
+        set_active_session("conv-b")
+        save_state({"needs_route": False})
+        set_active_session("conv-a")
+        self.assertTrue(load_state().get("needs_route"))
+        set_active_session("conv-b")
+        self.assertFalse(load_state().get("needs_route"))
+
+    def test_before_submit_does_not_rearm_same_generation(self) -> None:
+        from route_gate import STATE_PATH, load_state, set_active_session
+
+        STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        if STATE_PATH.exists():
+            STATE_PATH.unlink()
+        event = {"generation_id": "gen-1", "conversation_id": "c1"}
+        handle_before_submit_prompt(event)
+        self.assertTrue(load_state(event).get("needs_route"))
+        # Simulate successful route
+        set_active_session(session_id_from_event(event))
+        st = load_state(event)
+        st["needs_route"] = False
+        st["routed_generation"] = "gen-1"
+        from route_gate import save_state
+
+        save_state(st, event)
+        # Duplicate mid-turn submit for same generation must not re-arm
+        handle_before_submit_prompt(event)
+        self.assertFalse(load_state(event).get("needs_route"))
+        # New generation must re-arm
+        event2 = {"generation_id": "gen-2", "conversation_id": "c1"}
+        handle_before_submit_prompt(event2)
+        self.assertTrue(load_state(event2).get("needs_route"))
 
 if __name__ == "__main__":
     unittest.main()
