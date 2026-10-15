@@ -6,7 +6,7 @@
 //! 3. `agent-brain memory flush-pending` (or `--watch`) to apply when the brain is reachable via CLI.
 
 use std::fs::{self, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
