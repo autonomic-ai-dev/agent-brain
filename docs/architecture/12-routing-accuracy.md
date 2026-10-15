@@ -137,7 +137,7 @@ Do **not** add a golden case that only passes because of a query-specific boost.
 
 ## Multi-host accuracy vs enforcement
 
-Routing accuracy is independent of **enforcement** (Cursor hooks vs OpenCode instruction files). A host that skips `route_task` never benefits from good retrieval — see [07-enforcement-and-multi-host.md](07-enforcement-and-multi-host.md).
+Routing accuracy is independent of **enforcement** (deny gates vs advisory instruction hosts). A host that skips `route_task` never benefits from good retrieval — see [07-enforcement-and-multi-host.md](07-enforcement-and-multi-host.md).
 
 ## Trade-offs
 

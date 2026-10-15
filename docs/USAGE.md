@@ -10,15 +10,21 @@
 
 After that, **you do not run `serve` or `index` daily.** Cursor starts the MCP server; agent-brain indexes on startup.
 
-The **agent** (not you) calls `route_task` every turn and `store_memory` at task end.
+The **agent** (not you) calls `route_task` every turn and `store_memory` at task end. Agent-facing contract: [AGENT-CONTEXT.md](AGENT-CONTEXT.md).
 
-**Enforcement (Cursor):** `install --global` installs hooks that **block agent-brain MCP tools** until `route_task` succeeds each user message (default scope `brain_mcp`). Native Shell/Read/Grep keep working if MCP is down. Rules + MCP instructions are backup; hooks are the hard gate.
+**Enforcement:** `install --global` (Cursor) and `install --claude-code|--opencode|--codex|--gemini|--antigravity|--all --global` install hooks/plugins that **block other agent-brain MCP tools** until `route_task` succeeds (default scope `brain_mcp`). Native Shell/Read/Grep stay available if MCP is down. VS Code and Claude Desktop are instruction-only — see [host-integration.md](host-integration.md).
 
 > Disable hooks only for debugging: `AGENT_BRAIN_ROUTE_HOOKS=0` in MCP env or shell.
 
 ## Other MCP hosts
 
-Same binary works with Claude Desktop, Claude Code, Codex, or any MCP client. Point their MCP config at:
+Same binary works with Claude Desktop, Claude Code, OpenCode, Codex, Gemini, Antigravity, VS Code, or any MCP client:
+
+```bash
+agent-brain install --claude-code --global   # also --opencode, --codex, --gemini, --antigravity, --vscode, --all
+```
+
+Or point their MCP config at:
 
 ```json
 {
@@ -27,7 +33,7 @@ Same binary works with Claude Desktop, Claude Code, Codex, or any MCP client. Po
 }
 ```
 
-agent-brain already **indexes** skills/agents from `~/.claude/` and `~/.codex/` paths. Only the **installer** is Cursor-specific today; add a host rule in that product telling the agent to call `route_task` every turn.
+agent-brain already **indexes** skills/agents from `~/.claude/`, `~/.codex/`, and related paths. Prefer `install --…` so route gates and instruction files are written — see [host-integration.md](host-integration.md).
 
 ## Do I need to start the MCP manually?
 
@@ -214,24 +220,20 @@ Packages live at `~/.agent_brain/packages/<name>/`.
 | `AGENT_BRAIN_READ_GATE` | `hard` | `hard` = deny large/blocked native Read; `steer` = warn only; `off` = disable |
 | `RUST_LOG` | `agent_brain=info` | Log level (stderr only) |
 
-## Cursor hooks (enforcement)
+## Route gate (enforcement)
 
-`agent-brain install --global` installs:
+Shared script: `route_gate.py` (requires `python3` on PATH). Default scope `brain_mcp` — only other agent-brain MCP tools are denied until `route_task`; set `AGENT_BRAIN_ROUTE_GATE_SCOPE=all` for legacy strict mode.
 
-- `~/.cursor/hooks/agent-brain/route_gate.py`
-- Entries in `~/.cursor/hooks.json` for `beforeSubmitPrompt`, `preToolUse`, `beforeMCPExecution`, `afterMCPExecution`
+| Host | Install | Gate |
+|------|---------|------|
+| Cursor | `install --global` | `~/.cursor/hooks.json` |
+| Claude Code | `install --claude-code --global` | `.claude/settings.json` + `rules/agent-brain-route.md` |
+| OpenCode | `install --opencode --global` | plugin `agent-brain-route-gate.ts` + rules |
+| Codex | `install --codex --global` | `~/.codex/hooks.json` |
+| Gemini / Antigravity | `install --gemini\|--antigravity --global` | shared `~/.gemini/settings.json` |
+| VS Code / Claude Desktop | MCP + instructions | no deny hooks |
 
-**Behavior each user message:**
-
-1. `beforeSubmitPrompt` marks the turn as needing `route_task`
-2. `preToolUse` / `beforeMCPExecution` **deny agent-brain MCP tools** until `route_task` runs (set `AGENT_BRAIN_ROUTE_GATE_SCOPE=all` for legacy strict mode that gates every tool)
-3. `afterMCPExecution` / `postToolUse` clears the gate when agent-brain `route_task` succeeds
-
-Verify under **Settings → Hooks** and the **Hooks** output channel. Requires `python3` on PATH.
-
-**Non-Cursor hosts:** run `agent-brain install --claude-code --global`, `--opencode --global`, `--codex --global`, or `install --all --global` for route gate hooks/plugins. VS Code and Claude Desktop rely on instruction files — verify with `agent-brain doctor`.
-
-Other hosts (Claude, Codex): hooks not installed yet — use MCP config + host rules for now.
+Verify with `agent-brain doctor` (use `--fix` to reinstall stale gates). Full matrix: [host-integration.md](host-integration.md).
 
 ## Legacy session import (0.3.2 bridge → digests in 0.4+)
 

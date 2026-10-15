@@ -29,8 +29,13 @@ agent-brain install --opencode
 # OpenCode — user config (`~/.config/opencode/opencode.json`)
 agent-brain install --opencode --global
 
+# Codex / Gemini / Antigravity CLI (MCP + route gates)
+agent-brain install --codex --global
+agent-brain install --gemini --global
+agent-brain install --antigravity --global
+
 # Everything at once
-agent-brain install --all
+agent-brain install --all --global
 ```
 
 Print JSON without writing files:
@@ -54,6 +59,9 @@ agent-brain install --opencode --print-only
 | **Claude Code** | user | `~/.claude.json` |
 | **OpenCode** | project | `opencode.json` (repository root) |
 | **OpenCode** | user | `~/.config/opencode/opencode.json` (macOS/Linux) |
+| **Codex** | user | `~/.codex/config.toml` (+ `~/.codex/hooks.json`) |
+| **Gemini CLI** | user | `~/.gemini/settings.json` |
+| **Antigravity CLI** | user | `~/.gemini/antigravity/mcp_config.json` (+ `~/.gemini/config/mcp_config.json`) |
 
 ### JSON shape
 
@@ -118,14 +126,15 @@ Readable route summary: `~/.autonomic/memory/logs/last-route.md` or `agent-brain
 | Host | `route_task` gate | How enforced |
 |------|-------------------|--------------|
 | **Cursor** | Yes | `~/.cursor/hooks.json` → `route_gate.py` (installed by `install --global`) |
-| **Claude Code** | Yes (agent-brain MCP) | `.claude/settings.json` → `route_gate.py` on `UserPromptSubmit` + `mcp__agent-brain__.*` (installed by `install --claude-code [--global]`) |
+| **Claude Code** | Yes (agent-brain MCP) | `.claude/settings.json` → `route_gate.py` on `UserPromptSubmit` + Pre/PostToolUse `matcher: .*` (scope still `brain_mcp`); hard rule `.claude/rules/agent-brain-route.md` |
 | **Codex** | Yes (agent-brain MCP) | `~/.codex/hooks.json` → `route_gate.py` (installed by `install --codex --global`) |
-| **OpenCode** | Plugin (agent-brain MCP) | `~/.config/opencode/plugin/agent-brain-route-gate.ts` — blocks `agent-brain_*` tools; fail-closed if gate script missing (installed by `install --opencode [--global]`) |
+| **OpenCode** | Plugin (agent-brain MCP) | `plugin/agent-brain-route-gate.ts` + `rules/agent-brain-route.md` — blocks `agent-brain_*` tools; fail-closed if gate script missing |
+| **Gemini / Antigravity CLI** | Yes (agent-brain MCP) | Shared `~/.gemini/settings.json` BeforeAgent/BeforeTool + Antigravity MCP configs + `~/.gemini/antigravity/rules/agent-brain-route.md` |
 | **VS Code** | Rule-only | Add Copilot/custom instructions (see below) |
 | **Claude Desktop** | Rule-only | Paste rule into project/system instructions |
 | **Windsurf / Zed / other** | Manual | Copy `mcpServers` block; add equivalent rule text |
 
-Cursor has the strongest host-tool gate (hooks on Read/Shell). Claude Code, Codex, Gemini, and OpenCode enforce **agent-brain MCP tools** until `route_task` via hooks/plugins. VS Code and Claude Desktop rely on rules/instructions plus operator discipline.
+Cursor has the strongest host-tool gate (hooks on Read/Shell). Claude Code, Codex, Gemini/Antigravity, and OpenCode enforce **agent-brain MCP tools** until `route_task` via hooks/plugins. VS Code and Claude Desktop rely on rules/instructions plus operator discipline.
 
 Reinstall all hosts: `agent-brain install --all --global` or `agent-brain doctor --fix`.
 
@@ -155,7 +164,16 @@ skills, rules, and memory. At task end, call `store_memory` for durable outcomes
 - Project-scoped servers belong in **`.mcp.json`** at the repo root (not inside `.claude/`).
 - After editing, start a new session and run `/mcp` to verify connection.
 - Run `/hooks` and trust agent-brain route gate hooks if prompted.
+- PreToolUse matcher is `.*` (every tool hits the gate); `AGENT_BRAIN_ROUTE_GATE_SCOPE=brain_mcp` still allows Read/Bash while blocking other agent-brain MCP tools.
+- Doctor reports `stale (reinstall)` if settings still use the old `mcp__agent-brain__.*` matcher — run `doctor --fix`.
 - Reinstall hooks: `agent-brain install --claude-code --global` or `agent-brain doctor --fix`.
+
+## Antigravity CLI gotchas
+
+- MCP lives in `~/.gemini/antigravity/mcp_config.json` (plus `~/.gemini/config/mcp_config.json` for Antigravity 2.0).
+- Route gate hooks are **shared** with Gemini CLI in `~/.gemini/settings.json` — trust them in the `/hooks` panel.
+- Hard rule: `~/.gemini/antigravity/rules/agent-brain-route.md`.
+- Refresh: `agent-brain install --antigravity --global` or `agent-brain doctor --fix`.
 
 ## macOS codesign
 

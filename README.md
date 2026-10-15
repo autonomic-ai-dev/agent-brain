@@ -17,7 +17,7 @@ flowchart LR
 | Soft “use skills” rules are ignored | Hooks block brain MCP tools until `route_task` |
 | Conventions vanish between chats | `store_memory` + `must_apply` |
 
-Full usage: [docs/USAGE.md](docs/USAGE.md) · Architecture: [docs/architecture/README.md](docs/architecture/README.md)
+Full usage: [docs/USAGE.md](docs/USAGE.md) · Agent contract: [docs/AGENT-CONTEXT.md](docs/AGENT-CONTEXT.md) · Hosts: [docs/host-integration.md](docs/host-integration.md) · Architecture: [docs/architecture/README.md](docs/architecture/README.md)
 
 ---
 

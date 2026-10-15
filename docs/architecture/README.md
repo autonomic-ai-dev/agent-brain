@@ -35,7 +35,7 @@ Read in order for a full picture, or jump to a topic:
 | 4 | [Turn routing and retrieval](04-turn-routing-and-retrieval.md) | `route_task`, hybrid search, phase, cache |
 | 5 | [Memory model](05-memory-model.md) | Facts, dedup, negative memory, `apply_when`, feedback |
 | 6 | [Indexing and packages](06-indexing-and-packages.md) | Bootstrap, index roots, ECC packages |
-| 7 | [Enforcement and multi-host](07-enforcement-and-multi-host.md) | Hooks, gate scope, OpenCode/Claude install |
+| 7 | [Enforcement and multi-host](07-enforcement-and-multi-host.md) | Route gates, gate scope, multi-host install |
 | 8 | [Sync, sessions, portability](08-sync-sessions-portability.md) | Git/cloud sync, session digest, second machine |
 | 9 | [Upstream and operator loop](09-upstream-and-operator-loop.md) | Federation, promote, GC, digest, eval |
 | 10 | [Concurrency and performance](10-concurrency-and-performance.md) | Write queue, background bootstrap, latency |
@@ -50,7 +50,8 @@ Read in order for a full picture, or jump to a topic:
 | [README.md](../../README.md) | Product overview, setup, feature matrix |
 | [docs/benchmarks/](../benchmarks/README.md) | Published CI proof artifacts (`latest.json`) |
 | [USAGE.md](../USAGE.md) | Operator guide, day-to-day commands |
-| [host-integration.md](../host-integration.md) | Per-editor MCP config paths |
+| [AGENT-CONTEXT.md](../AGENT-CONTEXT.md) | Agent-facing route contract |
+| [host-integration.md](../host-integration.md) | Per-host MCP paths and gate matrix |
 | [agent-brain/docs/concurrency.md](../../agent-brain/docs/concurrency.md) | Write-queue implementation detail |
 | [CHANGELOG.md](../../CHANGELOG.md) | What shipped in each release |
 

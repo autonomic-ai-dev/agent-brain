@@ -205,7 +205,11 @@ pub fn run(fix: bool) -> Result<()> {
     if claude_hooks != "OK" {
         ok = false;
         if fix {
-            crate::host_hooks::install_claude_code_hooks(true, false)?;
+            let _ = crate::host_install::install_host(
+                crate::host_install::HostTarget::ClaudeCode { user: true },
+                &exe,
+                true,
+            );
             println!("  claude-code hooks:     reinstalled");
             ok = true;
             claude_step.done();
@@ -219,12 +223,15 @@ pub fn run(fix: bool) -> Result<()> {
     let multi_host_step = progress.step("Multi-host route gates");
     let opencode_detail = opencode_integration_detail(&home);
     let opencode_ok = opencode_detail.starts_with("OK");
+    let antigravity_detail = antigravity_integration_detail(&home);
+    let antigravity_ok = antigravity_detail.starts_with("OK");
     let codex_hooks_path = home.join(".codex/hooks.json");
     let gemini_settings = home.join(".gemini/settings.json");
     let codex_hooks_ok = crate::host_hooks::hooks_status(&codex_hooks_path, "route_gate.py") == "OK";
     let gemini_hooks_ok =
         crate::host_hooks::hooks_status(&gemini_settings, "route_gate.py") == "OK";
     println!("  opencode integration:  {opencode_detail}");
+    println!("  antigravity integration: {antigravity_detail}");
     println!(
         "  codex hooks:           {}",
         if codex_hooks_ok {
@@ -241,7 +248,7 @@ pub fn run(fix: bool) -> Result<()> {
             crate::host_hooks::hooks_status(&gemini_settings, "route_gate.py")
         }
     );
-    if !opencode_ok || !codex_hooks_ok || !gemini_hooks_ok {
+    if !opencode_ok || !antigravity_ok || !codex_hooks_ok || !gemini_hooks_ok {
         ok = false;
         if fix {
             if !opencode_ok {
@@ -252,6 +259,14 @@ pub fn run(fix: bool) -> Result<()> {
                     true,
                 );
                 println!("  opencode integration:  reinstalled");
+            }
+            if !antigravity_ok {
+                let _ = crate::host_install::install_host(
+                    crate::host_install::HostTarget::Antigravity { user: true },
+                    &exe,
+                    true,
+                );
+                println!("  antigravity integration: reinstalled");
             }
             if !codex_hooks_ok {
                 let _ = crate::host_hooks::install_codex_hooks(true, false);
@@ -268,12 +283,17 @@ pub fn run(fix: bool) -> Result<()> {
             ok = true;
             multi_host_step.done();
         } else {
-            multi_host_step.warn("OpenCode/Codex/Gemini route gates incomplete");
+            multi_host_step.warn("OpenCode/Antigravity/Codex/Gemini route gates incomplete");
         }
     } else {
         multi_host_step.done();
     }
-    if !opencode_ok || !codex_hooks_ok || !gemini_hooks_ok || claude_hooks != "OK" {
+    if !opencode_ok
+        || !antigravity_ok
+        || !codex_hooks_ok
+        || !gemini_hooks_ok
+        || claude_hooks != "OK"
+    {
         println!();
         println!(
             "  Cross-host enforcement: partial — run `agent-brain install --all --global` (or doctor --fix)"
@@ -874,9 +894,49 @@ fn opencode_integration_detail(home: &Path) -> String {
     if !base.join("agent-brain.md").is_file() {
         issues.push("instructions-file");
     }
+    if !base
+        .join("plugin/agent-brain-route-gate.ts")
+        .is_file()
+    {
+        issues.push("plugin-file");
+    }
+    if !base
+        .join("hooks/agent-brain/route_gate.py")
+        .is_file()
+    {
+        issues.push("gate-script");
+    }
 
     if issues.is_empty() {
         "OK (MCP + instructions + plugin + mode)".into()
+    } else {
+        format!("partial — missing {}", issues.join(", "))
+    }
+}
+
+fn antigravity_integration_detail(home: &Path) -> String {
+    let primary = home.join(".gemini/antigravity/mcp_config.json");
+    let shared = home.join(".gemini/config/mcp_config.json");
+    let mcp_ok = antigravity_host_status(&primary, &shared) == "OK";
+    if !mcp_ok {
+        return "MCP missing agent-brain".into();
+    }
+    let mut issues = Vec::new();
+    let gemini_settings = home.join(".gemini/settings.json");
+    if crate::host_hooks::hooks_status(&gemini_settings, "route_gate.py") != "OK" {
+        issues.push("shared-hooks");
+    }
+    if !home
+        .join(".gemini/antigravity/rules/agent-brain-route.md")
+        .is_file()
+    {
+        issues.push("route-rule");
+    }
+    if !home.join(".gemini/antigravity/agent-brain.md").is_file() {
+        issues.push("instructions-file");
+    }
+    if issues.is_empty() {
+        "OK (MCP + shared hooks + route-rule)".into()
     } else {
         format!("partial — missing {}", issues.join(", "))
     }

@@ -2,7 +2,7 @@
 
 ## Summary
 
-**Cursor** gets hard enforcement via hooks. **Other hosts** (OpenCode, Claude Code, VS Code, Claude Desktop) get MCP registration plus instruction files — the agent is told to call `route_task`, but nothing blocks other tools if it disobeys.
+**Cursor**, **Claude Code**, **OpenCode**, **Codex**, and **Gemini/Antigravity** install route gates (hooks or plugins) that deny other agent-brain MCP tools until `route_task` succeeds. **VS Code** and **Claude Desktop** still rely on instruction files only.
 
 ## What we built
 
@@ -37,28 +37,36 @@ State persisted in `~/.autonomic/memory/hooks/route_state.json` (legacy: `~/.age
 
 ### Multi-host install (`host_install.rs`)
 
-| Host | Command | Config file |
-|------|---------|-------------|
+| Host | Command | Config + gate |
+|------|---------|---------------|
 | Cursor | `install --global` | `~/.cursor/mcp.json` + hooks |
-| Claude Desktop | `install --claude-desktop` | `claude_desktop_config.json` |
-| VS Code | `install --vscode [--global]` | `.vscode/mcp.json` or user mcp.json |
-| Claude Code | `install --claude-code [--global]` | `.mcp.json` or `~/.claude.json` |
-| OpenCode | `install --opencode [--global]` | `opencode.json` |
+| Claude Code | `install --claude-code [--global]` | `.mcp.json` / `~/.claude.json` + settings hooks + hard rule |
+| OpenCode | `install --opencode [--global]` | `opencode.json` + plugin + rules |
+| Codex | `install --codex [--global]` | `~/.codex/config.toml` + hooks |
+| Gemini | `install --gemini [--global]` | `~/.gemini/settings.json` + hooks |
+| Antigravity CLI | `install --antigravity [--global]` | antigravity MCP configs + shared Gemini hooks + hard rule |
+| VS Code | `install --vscode [--global]` | mcp.json + Copilot instructions (advisory) |
+| Claude Desktop | `install --claude-desktop` | `claude_desktop_config.json` (advisory) |
 | All | `install --all --global` | Above combined |
 
-Each host gets an **instruction file** on first install (e.g. `~/.config/opencode/agent-brain.md`, `.claude/agent-brain.md`) describing required `route_task` usage.
-
-OpenCode JSON shape uses `mcp.agent-brain.type: local` and `command: [binary, serve]`.
+Each gated host also gets instruction / hard-rule files (e.g. `agent-brain.md`, `rules/agent-brain-route.md`). OpenCode JSON uses `mcp.agent-brain.type: local` and `command: [binary, serve]`.
 
 ### Doctor
 
-`agent-brain doctor` reports Cursor MCP path, hooks, codesign; shows OpenCode/Claude Code global MCP status. `--fix` realigns Cursor and can run `install --all`.
+`agent-brain doctor` reports Cursor MCP/hooks/codesign plus OpenCode, Claude Code, Antigravity, Codex, and Gemini gate status. `--fix` reinstalls stale matchers, missing plugins, and shared hooks.
 
-## Why hooks are Cursor-only
+## Host enforcement matrix
 
-Cursor exposes **preToolUse** / **beforeMCPExecution** with deny semantics. OpenCode and Claude Code do not offer an equivalent “block all tools until X” hook API agent-brain can target today.
+| Host | Mechanism | Default scope |
+|------|-----------|---------------|
+| Cursor | `hooks.json` → `route_gate.py` | `brain_mcp` |
+| Claude Code | `settings.json` PreToolUse/PostToolUse (`matcher: .*`) + hard rule | `brain_mcp` inside script |
+| OpenCode | `agent-brain-route-gate.ts` plugin + `rules/agent-brain-route.md` | brain tools fail-closed |
+| Gemini / Antigravity CLI | shared `~/.gemini/settings.json` BeforeAgent/BeforeTool | `.*` → script scope |
+| Codex | `~/.codex/hooks.json` | PreToolUse |
+| VS Code / Claude Desktop | instruction files only | advisory |
 
-**Implication:** Multi-host parity is **config + instructions**, not **enforcement parity**.
+**Implication:** Enforcement parity now covers the major coding CLIs; VS Code / Claude Desktop remain advisory until those hosts expose deny hooks.
 
 ## Alternatives considered
 
@@ -76,7 +84,7 @@ Cursor exposes **preToolUse** / **beforeMCPExecution** with deny semantics. Open
 
 ### OpenCode fork / patch
 
-**Rejected:** Upstream instruction file + MCP is maintainable; patch is not.
+**Rejected:** Upstream plugin + MCP install is maintainable; a fork is not.
 
 ### Workspace-only MCP (no global)
 
@@ -84,23 +92,17 @@ Cursor exposes **preToolUse** / **beforeMCPExecution** with deny semantics. Open
 
 ## Trade-offs
 
-- **Non-Cursor hosts:** Discipline depends on model following `agent-brain.md` — verify with `last-route.md` / MCP logs.
-- **Hook false positives:** Tool name matching must track Cursor MCP naming (`mcp_agent-brain_route_task`, etc.).
-- **Python hook dependency:** Cursor runs hook scripts with system Python; kept stdlib-only.
+- **Advisory hosts (VS Code / Claude Desktop):** Discipline depends on instructions — verify with `last-route.md` / MCP logs.
+- **Tool name drift:** Gates must recognize Cursor (`mcp_agent-brain_*`), Claude (`mcp__agent-brain__*`), and OpenCode (`agent-brain_*`) forms.
+- **Python hook dependency:** Hosts invoke `route_gate.py` with system Python; kept stdlib-only. OpenCode wraps it in a TS plugin.
 
 ## For senior engineers and principal architects
 
 ### Enforcement is a product feature, not an implementation detail
 
-On Cursor, **routing is mandatory** before other tools (within gate scope). On OpenCode/Claude, routing is **advisory**. This asymmetry is the largest **host parity gap** in the system — not retrieval quality.
+On Cursor, Claude Code, OpenCode, Codex, and Gemini/Antigravity, **routing is mandatory** before other agent-brain tools (within gate scope). VS Code / Claude Desktop remain **advisory**.
 
-PE implication: if your org standardizes on OpenCode, you inherit **model compliance risk**. Mitigations today:
-
-- Instruction file on install (`agent-brain.md`)
-- `doctor` verifying MCP registration
-- Operators spot-checking `~/.autonomic/memory/logs/last-route.md`
-
-Long-term fix requires **host APIs with deny semantics** — we cannot polyfill that in MCP alone.
+PE implication: run `agent-brain doctor` (and `--fix`) so OpenCode plugin files, Claude matcher upgrades, and Antigravity shared hooks stay current. Spot-check `~/.agent_brain/logs/last-route.md`.
 
 ### Scoped gate (`brain_mcp`) rationale
 
@@ -128,16 +130,18 @@ Without grace, a single MCP crash **bricks the agent session** — unacceptable 
 | Symptom | Cause | Action |
 |---------|-------|--------|
 | Infinite deny loop | `route_task` errors every turn | Fix MCP binary; check `doctor` |
-| Agent never routes (OpenCode) | No hooks | Reinforce instruction file; custom lint |
-| Wrong tool name in gate | Cursor renamed MCP tools | Update `route_gate.py` patterns |
-| Hooks missing after update | Install not re-run | `agent-brain install --global` |
+| OpenCode denies all brain tools | Plugin missing `route_gate.py` | `install --opencode --global` |
+| Claude `stale (reinstall)` | Old `mcp__agent-brain__.*` matcher | `doctor --fix` |
+| Antigravity MCP ok, no gate | Shared Gemini hooks missing | `install --antigravity --global` |
+| Wrong tool name in gate | Host renamed MCP tools | Update `route_gate.py` / OpenCode plugin patterns |
+| Hooks missing after update | Install not re-run | `install --all --global` or `doctor --fix` |
 
 ### Questions a PE should ask
 
-1. What **% of traffic** is on hook-enforced Cursor vs advisory hosts?
+1. What **% of traffic** is on gated CLIs vs advisory hosts (VS Code / Claude Desktop)?
 2. Is **degraded proceed without route** acceptable under MCP outage?
-3. Do security policies allow **global MCP** in `~/.cursor/mcp.json`?
-4. Who maintains **hook scripts** when Cursor hook schema changes?
+3. Do security policies allow **global MCP** configs?
+4. Who re-runs **`doctor --fix`** when host hook schemas change?
 
 ## Further reading
 

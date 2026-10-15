@@ -10,8 +10,8 @@ Quick reference for major design choices. Each row links to the article with ful
 | Retrieval | Hybrid BM25 + embed + lexical | BM25-only fast path, LLM router | [04](04-turn-routing-and-retrieval.md) |
 | Memory shape | Scoped atomic facts | Full transcripts | [05](05-memory-model.md) |
 | Skill discovery | Filesystem walk | Central registry API | [06](06-indexing-and-packages.md) |
-| Enforcement | Cursor hooks + scoped gate | Rules-only, gate-all-tools | [07](07-enforcement-and-multi-host.md) |
-| Multi-host | MCP + instruction files | Same hooks everywhere | [07](07-enforcement-and-multi-host.md) |
+| Enforcement | Multi-host route gates + scoped `brain_mcp` | Rules-only, gate-all-tools | [07](07-enforcement-and-multi-host.md) |
+| Multi-host | Deny gates on Cursor/Claude/OpenCode/Codex/Gemini-Antigravity; instructions elsewhere | Identical hooks on every host | [07](07-enforcement-and-multi-host.md) |
 | Portability | Git/cloud bundles | Live DB sync | [08](08-sync-sessions-portability.md) |
 | Upstream MCP | Explicit `route_to_mcp` | Auto-proxy all tools | [09](09-upstream-and-operator-loop.md) |
 | Skill from memory | Staged promote + approve | Auto-write SKILL.md | [09](09-upstream-and-operator-loop.md) |
@@ -26,7 +26,6 @@ Quick reference for major design choices. Each row links to the article with ful
 | Cross-encoder reranker | Deferred | Accuracy vs latency |
 | Filesystem watch for index | Deferred | Bootstrap interval sufficient for now |
 | Skill-level `apply_when` triggers | Partial | Memory has it; skills use description + search |
-| OpenCode / Claude hooks | Blocked on host | No deny-hook API yet |
 | Skill golden eval set | **Shipped** | `proofs --ci` on isolated fixture |
 | Published proof artifact | **Shipped** | `docs/benchmarks/latest.json` |
 | `vectors.bin` sidecar | Spec only | Embeddings in SQLite today |
