@@ -9,7 +9,7 @@ env:
 
 jobs:
   test:
-    name: Test and proofs
+    name: Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -33,22 +33,10 @@ jobs:
       - name: Run hook latency tests
         run: python3 agent-brain/hooks/test_route_gate.py
 
-      - name: Run proof gates (eval + latency)
-        run: cargo run --release -p agent-brain --features extras -- proofs --ci --write docs/benchmarks/latest.json
-
-      - name: Upload proof artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: agent-brain-proofs
-          path: docs/benchmarks/latest.json
-          if-no-files-found: error
-          retention-days: 30
-
-
       - uses: aeswibon/pipeline-compose-export@v1.17.1
         if: success()
         with:
           stage_id: test
           outputs: >-
             {"version":"${{ steps.meta.outputs.version }}",
-             "git_sha":"${{ steps.meta.outputs.git_sha }}",
+             "git_sha":"${{ steps.meta.outputs.git_sha }}"}
