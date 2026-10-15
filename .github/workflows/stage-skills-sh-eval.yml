@@ -4,14 +4,6 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "0 8 * * 1"
-  push:
-    branches: [master]
-    paths:
-      - "agent-brain/src/skills_sh.rs"
-      - "agent-brain/src/fixture.rs"
-      - "docs/benchmarks/skills-sh/**"
-      - "docs/benchmarks/fixture-2k.db"
-      - ".github/workflows/stage-skills-sh-eval.yml"
 
 env:
   CARGO_TERM_COLOR: always
@@ -31,10 +23,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2.9.1
 
       - name: Run skills.sh eval gate (committed fixture-2k.db, no network)
-        run: cargo run --release -p agent-brain -- eval --skills-sh --write docs/benchmarks/skills-sh-latest.json
+        run: cargo run --release -p agent-brain --features extras -- eval --skills-sh --write docs/benchmarks/skills-sh-latest.json
 
       - name: Verify fixture DB metadata
-        run: cargo run --release -p agent-brain -- fixture verify --db docs/benchmarks/fixture-2k.db
+        run: cargo run --release -p agent-brain --features extras -- fixture verify --db docs/benchmarks/fixture-2k.db
 
       - name: Upload skills.sh proof artifact
         uses: actions/upload-artifact@v7
@@ -71,4 +63,4 @@ jobs:
             --write docs/benchmarks/fixture-2k.db
 
       - name: Re-run eval on refreshed snapshot
-        run: cargo run --release -p agent-brain -- eval --skills-sh
+        run: cargo run --release -p agent-brain --features extras -- eval --skills-sh

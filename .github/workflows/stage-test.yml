@@ -9,7 +9,7 @@ env:
 
 jobs:
   test:
-    name: Test and snapshot build
+    name: Test and proofs
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -28,13 +28,13 @@ jobs:
           echo "git_sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Run tests
-        run: cargo test --release -p agent-brain -- --test-threads=1
+        run: cargo test --release -p agent-brain --features extras -- --test-threads=1
 
       - name: Run hook latency tests
         run: python3 agent-brain/hooks/test_route_gate.py
 
       - name: Run proof gates (eval + latency)
-        run: cargo run --release -p agent-brain -- proofs --ci --write docs/benchmarks/latest.json
+        run: cargo run --release -p agent-brain --features extras -- proofs --ci --write docs/benchmarks/latest.json
 
       - name: Upload proof artifact
         uses: actions/upload-artifact@v7
@@ -44,23 +44,6 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Snapshot build
-        run: cargo build --release -p agent-brain
-
-      - name: Stage snapshot binary
-        run: |
-          mkdir -p dist
-          cp target/release/agent-brain \
-            "dist/agent-brain-snapshot-linux-x86_64-${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.git_sha }}"
-          chmod +x "dist/agent-brain-snapshot-linux-x86_64-${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.git_sha }}"
-
-      - name: Upload snapshot artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: agent-brain-snapshot-linux-x86_64
-          path: dist/agent-brain-snapshot-linux-x86_64-${{ steps.meta.outputs.version }}-${{ steps.meta.outputs.git_sha }}
-          if-no-files-found: error
-          retention-days: 14
 
       - uses: aeswibon/pipeline-compose-export@v1.17.1
         if: success()
@@ -69,4 +52,3 @@ jobs:
           outputs: >-
             {"version":"${{ steps.meta.outputs.version }}",
              "git_sha":"${{ steps.meta.outputs.git_sha }}",
-             "snapshot_run_id":"${{ github.run_id }}"}

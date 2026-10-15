@@ -41,7 +41,7 @@ jobs:
 
       - name: Run ONNX bench (informational 50ms target)
         run: |
-          cargo run --release -p agent-brain -- bench --onnx \
+          cargo run --release -p agent-brain --features extras -- bench --onnx \
             --fixture-db docs/benchmarks/fixture-2k.db \
             --write docs/benchmarks/onnx-latest.json
 
