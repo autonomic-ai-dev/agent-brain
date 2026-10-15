@@ -1047,6 +1047,61 @@ impl BrainStore {
         Ok(id)
     }
 
+    /// Upsert local mapping from path-independent project_key to this machine's repo_root.
+    pub fn upsert_project_root(
+        &self,
+        project_key: &str,
+        repo_root: &str,
+        domain: &str,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            conn.execute(
+                r#"INSERT INTO project_roots (project_key, repo_root, domain, updated_at)
+                   VALUES (?1, ?2, ?3, ?4)
+                   ON CONFLICT(project_key) DO UPDATE SET
+                     repo_root = excluded.repo_root,
+                     domain = excluded.domain,
+                     updated_at = excluded.updated_at"#,
+                params![project_key, repo_root, domain, now],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn project_key_for_repo_root(&self, repo_root: &str) -> Result<Option<String>> {
+        self.with_conn(|conn| {
+            Ok(conn
+                .query_row(
+                    "SELECT project_key FROM project_roots WHERE repo_root = ?1 LIMIT 1",
+                    params![repo_root],
+                    |r| r.get(0),
+                )
+                .optional()?)
+        })
+    }
+
+    pub fn domain_for_project_key(&self, project_key: &str) -> Result<String> {
+        self.with_conn(|conn| {
+            Ok(conn
+                .query_row(
+                    "SELECT domain FROM project_roots WHERE project_key = ?1",
+                    params![project_key],
+                    |r| r.get(0),
+                )
+                .optional()?
+                .unwrap_or_else(|| "unclassified".to_string()))
+        })
+    }
+
+    /// Map a legacy path-shaped scope_key to project_key when known.
+    pub fn map_legacy_scope_key(&self, scope_key: &str) -> Result<Option<String>> {
+        if !crate::project_key::looks_like_path_scope_key(scope_key) {
+            return Ok(Some(scope_key.to_string()));
+        }
+        self.project_key_for_repo_root(scope_key)
+    }
+
     pub fn list_secret_refs(&self) -> Result<Vec<crate::secrets::SecretRef>> {
         self.with_conn(|conn| {
             let mut stmt =

@@ -678,7 +678,28 @@ impl Engine {
             .filter(|p| !p.is_empty() && *p != "unknown")
             .map(|p| p.to_string())
             .unwrap_or_else(|| infer_phase(user_message));
-        let scope_key = ws.repo_root.clone().unwrap_or_default();
+        let project_identity = cwd.and_then(|path| {
+            let resolved = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+            crate::project_key::resolve_project_key(&resolved).ok()
+        });
+        if let Some(ref id) = project_identity {
+            let domain = self
+                .store
+                .domain_for_project_key(&id.project_key)
+                .unwrap_or_else(|_| "unclassified".to_string());
+            let _ = self
+                .store
+                .upsert_project_root(&id.project_key, &id.repo_root, &domain);
+        }
+        // Prefer path-independent project_key for cache + project scope matching.
+        let scope_key = project_identity
+            .as_ref()
+            .map(|id| id.project_key.clone())
+            .or_else(|| ws.repo_root.clone())
+            .unwrap_or_default();
+        let project_key_opt = project_identity
+            .as_ref()
+            .map(|id| id.project_key.as_str());
         let cache_warm = self.warmed.load(Ordering::Relaxed);
 
         let cache_key = route_cache_key(
@@ -771,7 +792,8 @@ impl Engine {
             self.route_query_parallel(
                 &query,
                 &message_fp,
-                ws.repo_root.as_deref(),
+                // Prefer project_key for scope matching; fall back to path for legacy facts.
+                project_key_opt.or(ws.repo_root.as_deref()),
                 &all_tags,
                 agent_boost_keywords(user_message),
                 &phase,
@@ -785,6 +807,7 @@ impl Engine {
             &limits,
             &phase,
             max_tokens,
+            project_key_opt,
             ws.repo_root.as_deref(),
         );
         resp.index_total = index_total;
@@ -1123,6 +1146,7 @@ fn build_route_response(
     limits: &RouteLimits,
     phase: &str,
     max_tokens: usize,
+    project_key: Option<&str>,
     repo_root: Option<&str>,
 ) -> RouteTaskResponse {
     let mut resp = RouteTaskResponse {
@@ -1151,7 +1175,7 @@ fn build_route_response(
     };
     let agent_floor = min_score;
 
-    resp.must_apply = collect_must_apply_from_scored(scored, 3, repo_root);
+    resp.must_apply = collect_must_apply_from_scored(scored, 3, project_key, repo_root);
 
     // Pass 1: agents, skills, rules — before memory consumes the token budget.
     for item in scored.iter() {
@@ -1188,6 +1212,7 @@ fn build_route_response(
             limits,
             phase,
             max_tokens,
+            project_key,
             repo_root,
         );
     }
@@ -1207,6 +1232,7 @@ fn build_route_response(
             limits,
             phase,
             max_tokens,
+            project_key,
             repo_root,
         );
     }
@@ -1227,6 +1253,7 @@ fn try_add_route_item(
     limits: &RouteLimits,
     phase: &str,
     max_tokens: usize,
+    project_key: Option<&str>,
     repo_root: Option<&str>,
 ) {
     enum PendingRec {
@@ -1313,7 +1340,7 @@ fn try_add_route_item(
         PendingRec::Skill(rec) => resp.recommended_skills.push(rec),
         PendingRec::Rule(rec) => resp.applicable_rules.push(rec),
         PendingRec::Memory(rec) => {
-            if let Some(constraint) = must_apply_for_memory(item, repo_root) {
+            if let Some(constraint) = must_apply_for_memory(item, project_key, repo_root) {
                 if resp.must_apply.len() < 3
                     && !resp.must_apply.iter().any(|m| m.topic == constraint.topic)
                 {
@@ -1339,18 +1366,34 @@ fn rationale_for(item: &ScoredItem, phase: &str) -> String {
     )
 }
 
-fn project_scope_matches(item: &ScoredItem, repo_root: Option<&str>) -> bool {
+fn project_scope_matches(
+    item: &ScoredItem,
+    project_key: Option<&str>,
+    repo_root: Option<&str>,
+) -> bool {
     if item.scope != "project" {
         return false;
     }
-    match (repo_root, item.scope_key.as_deref()) {
-        (Some(root), Some(key)) => key == root,
-        (None, _) => true,
-        (Some(_), None) => true,
+    match item.scope_key.as_deref() {
+        None => true,
+        Some(key) => {
+            if project_key == Some(key) {
+                return true;
+            }
+            // Legacy absolute-path scope_key from pre-project_key stores.
+            if repo_root == Some(key) {
+                return true;
+            }
+            false
+        }
     }
 }
 
-fn must_apply_for_memory(item: &ScoredItem, repo_root: Option<&str>) -> Option<MustApply> {
+fn must_apply_for_memory(
+    item: &ScoredItem,
+    project_key: Option<&str>,
+    repo_root: Option<&str>,
+) -> Option<MustApply> {
     if !matches!(item.item_type, ItemType::Memory) {
         return None;
     }
@@ -1361,7 +1404,7 @@ fn must_apply_for_memory(item: &ScoredItem, repo_root: Option<&str>) -> Option<M
     let labeled_negative = item.polarity.as_deref() == Some("negative");
     let heuristic_negative = item.text.to_lowercase().contains("do not")
         || item.text.to_lowercase().contains("never ");
-    let scoped = project_scope_matches(item, repo_root);
+    let scoped = project_scope_matches(item, project_key, repo_root);
 
     let promote = (item.apply_when_matched
         && item.score >= 0.55
@@ -1389,6 +1432,7 @@ fn must_apply_for_memory(item: &ScoredItem, repo_root: Option<&str>) -> Option<M
 fn collect_must_apply_from_scored(
     scored: &[ScoredItem],
     max: usize,
+    project_key: Option<&str>,
     repo_root: Option<&str>,
 ) -> Vec<MustApply> {
     let mut out = Vec::new();
@@ -1413,7 +1457,7 @@ fn collect_must_apply_from_scored(
         if out.len() >= max {
             break;
         }
-        if let Some(constraint) = must_apply_for_memory(item, repo_root) {
+        if let Some(constraint) = must_apply_for_memory(item, project_key, repo_root) {
             if seen.insert(constraint.topic.clone()) {
                 out.push(constraint);
             }
@@ -1526,7 +1570,7 @@ mod tests {
             rules: 3,
             memory: 5,
         };
-        let resp = build_route_response(&scored, &limits, "implementing", 800, None);
+        let resp = build_route_response(&scored, &limits, "implementing", 800, None, None);
         assert!(
             resp.relevant_memory.iter().all(|m| {
                 !m.topic.starts_with("session-digest-")
@@ -1568,13 +1612,13 @@ mod tests {
             lexical: 0.0,
             scope_key: None,
         };
-        assert!(must_apply_for_memory(&weak, None).is_none());
+        assert!(must_apply_for_memory(&weak, None, None).is_none());
         let strong = ScoredItem {
             score: 0.55,
             lexical: 0.20,
             ..weak
         };
-        assert!(must_apply_for_memory(&strong, None).is_some());
+        assert!(must_apply_for_memory(&strong, None, None).is_some());
 
         // Cross-project cinema slip must not bind on an unrelated architecture query.
         let cinema = ScoredItem {
@@ -1590,7 +1634,7 @@ mod tests {
             lexical: 0.05,
             scope_key: None,
         };
-        assert!(must_apply_for_memory(&cinema, Some("/tmp/agent-brain")).is_none());
+        assert!(must_apply_for_memory(&cinema, None, Some("/tmp/agent-brain")).is_none());
     }
 
     #[test]
@@ -1606,7 +1650,7 @@ mod tests {
             rules: 0,
             memory: 0,
         };
-        let resp = build_route_response(&scored, &limits, "planning", 800, None);
+        let resp = build_route_response(&scored, &limits, "planning", 800, None, None);
         assert_eq!(resp.recommended_skills.len(), 1);
         assert_eq!(resp.recommended_skills[0].name, "rust-patterns");
     }

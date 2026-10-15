@@ -567,10 +567,24 @@ impl BrainMcp {
             }
         }
 
-        let scope_key = std::env::current_dir()
-            .ok()
-            .and_then(|c| crate::config::find_repo_root(&c))
-            .map(|p| p.display().to_string());
+        let scope_key = std::env::current_dir().ok().and_then(|cwd| {
+            let identity = crate::project_key::resolve_project_key(&cwd).ok()?;
+            let domain = self
+                .engine
+                .store
+                .domain_for_project_key(&identity.project_key)
+                .unwrap_or_else(|_| "unclassified".to_string());
+            let _ = self.engine.store.upsert_project_root(
+                &identity.project_key,
+                &identity.repo_root,
+                &domain,
+            );
+            if p.scope == "project" {
+                Some(identity.project_key)
+            } else {
+                None
+            }
+        });
 
         let polarity = p.polarity.or_else(|| infer_memory_polarity(&p.fact));
 
