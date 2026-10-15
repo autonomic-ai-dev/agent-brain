@@ -440,9 +440,19 @@ Do **not** skip `route_task`. Do **not** load skills/rules from guesswork when a
 
 When a durable decision or convention is established, call **`store_memory`** once (max 50 words, no secrets).
 
+## MCP retries (do not skip)
+
+On MCP errors (`Connection closed`, `-32000`, timeout, Not connected):
+
+1. **Retry the same tool 2–3 times** with short waits (about 0.5–1s). Do **not** skip `route_task` or `store_memory` on the first failure.
+2. **Reads** (`route_task`, `grep_search`, `file_summary`, …): retry; only after retries fail set `AGENT_BRAIN_ROUTE_HOOKS=0` for this turn and note reduced context.
+3. **Writes** (`store_memory`, `write_scratchpad`, …): after MCP retries fail, **do not drop the fact**. Fall back to CLI:
+   - Immediate: `agent-brain memory put --topic "…" --fact "…"`
+   - Or queue: `agent-brain memory enqueue --topic "…" --fact "…"` then `agent-brain memory flush-pending` (use `--watch` to keep retrying).
+
 ## Fallback
 
-If agent-brain MCP tools are unavailable, set `AGENT_BRAIN_ROUTE_HOOKS=0` and proceed with reduced context.
+Only after retries (and CLI write fallback for durable facts) are exhausted: set `AGENT_BRAIN_ROUTE_HOOKS=0` and proceed with reduced context.
 
 ## User visibility (no need to expand MCP JSON)
 
@@ -450,7 +460,7 @@ Each `route_task` writes a readable summary to **`~/.autonomic/memory/logs/last-
 
 ## macOS
 
-Linker-signed local builds are killed by taskgated when Cursor launches MCP. Use **`make release-macos`** or the GitHub release binary at `~/.local/bin/agent-brain`.
+Linker-signed local builds are killed by taskgated when Cursor launches MCP. Use **`make release-macos`**, **`agent-brain doctor --fix`**, or the GitHub release binary at `~/.local/bin/agent-brain`.
 
 **Hooks enforce this:** Cursor blocks **agent-brain MCP tools** until `route_task` succeeds each turn (default `brain_mcp` scope). Large native `Read` calls are blocked in favor of bounded brain tools.
 "#;
@@ -511,6 +521,8 @@ mod tests {
     fn cursor_rule_requires_route_task() {
         assert!(CURSOR_RULE.contains("route_task"));
         assert!(CURSOR_RULE.contains("alwaysApply: true"));
+        assert!(CURSOR_RULE.contains("MCP retries (do not skip)"));
+        assert!(CURSOR_RULE.contains("memory flush-pending"));
     }
 
     #[test]
