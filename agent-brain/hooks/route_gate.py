@@ -58,6 +58,30 @@ SCOUT_TOOL_MARKERS = (
     "read_file_tail",
     "grep_search",
 )
+# Tool-level enforcement for coding-policy §3 (instructions alone do not stop Shell+python).
+ALLOW_PYTHON_SHELL = os.environ.get("AGENT_BRAIN_ALLOW_PYTHON_SHELL", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+# Command-position only (not prose like commit messages mentioning "python -c").
+# (?<![.\w]) avoids matching the "py" suffix of "*.py" paths in the same Shell line.
+_PY = r"(?<![.\w])(?:python3?|py)(?:\d+(?:\.\d+)*)?\b"
+_PY_CMD = rf"(?:^|[;&|`$\n(]\s*|(?:sudo\s+)|(?:env\s+[^\n]*\s)){_PY}"
+PYTHON_INVOKE_RE = re.compile(rf"(?i){_PY_CMD}")
+# Deny agent workarounds: -c, heredoc, stdin pipe/mode. Allow python -m pytest / foo.py runs.
+PYTHON_HEREDOC_RE = re.compile(rf"(?i){_PY_CMD}[^\n]*<<")
+PYTHON_DASH_C_RE = re.compile(rf"(?i){_PY_CMD}(?:\s+-\w+)*\s+-c\b")
+PYTHON_STDIN_PIPE_RE = re.compile(rf"(?i)\|\s*(?:sudo\s+)?{_PY}")
+PYTHON_STDIN_MODE_RE = re.compile(rf"(?i){_PY_CMD}(?:\s+-\w+)*\s+-(?:\s|$|[;&|])")
+PYTHON_DENY_AGENT = (
+    "agent-brain: Python via Shell denied (coding-policy §3 tool policy). "
+    "Do not use python -c / heredoc / piped stdin to read or edit files. "
+    "Use MCP file_summary/read_file_head/grep_search then Read/StrReplace, or rg/sed/awk. "
+    "Allowed: python -m pytest|unittest|… and running project .py files. "
+    "Override only with user approval: AGENT_BRAIN_ALLOW_PYTHON_SHELL=1."
+)
 BLOCKED_PATH_SEGMENTS = ("dist", "node_modules", "target", "build", ".git", ".next", "coverage")
 TOOL_EVENTS_PATH = STATE_PATH.parent / "tool_events.jsonl"
 
@@ -824,7 +848,12 @@ def handle_post_tool_use(event: dict) -> dict:
     return {}
 
 
-def extract_shell_command(event: dict) -> str | None:
+def extract_shell_command(event: dict, *, max_len: int | None = 240) -> str | None:
+    """Return the Shell command string. Truncate for traces; pass max_len=None for policy checks."""
+    candidates: list[str] = []
+    top = event.get("command")
+    if isinstance(top, str) and top.strip():
+        candidates.append(top.strip())
     for key in ("tool_input", "arguments", "args", "input"):
         raw = event.get(key)
         parsed = parse_json_value(raw)
@@ -832,11 +861,41 @@ def extract_shell_command(event: dict) -> str | None:
             for field in ("command", "cmd"):
                 value = parsed.get(field)
                 if isinstance(value, str) and value.strip():
-                    return value.strip()[:240]
+                    candidates.append(value.strip())
         elif isinstance(parsed, str) and parsed.strip():
-            return parsed.strip()[:240]
-    return None
+            candidates.append(parsed.strip())
+    if not candidates:
+        return None
+    cmd = max(candidates, key=len)
+    if max_len is not None and len(cmd) > max_len:
+        return cmd[:max_len]
+    return cmd
 
+
+def python_shell_deny_payload(reason: str) -> dict:
+    msg = f"{PYTHON_DENY_AGENT} Denied pattern: {reason}."
+    return {
+        "permission": "deny",
+        "agent_message": msg,
+        "user_message": f"agent-brain: blocked Python Shell ({reason}).",
+    }
+
+
+def check_python_shell_policy(cmd: str | None) -> dict | None:
+    """Deny Shell python -c / heredoc / stdin workarounds; allow project runs and -m tools."""
+    if ALLOW_PYTHON_SHELL or not cmd:
+        return None
+    if not PYTHON_INVOKE_RE.search(cmd) and not PYTHON_STDIN_PIPE_RE.search(cmd):
+        return None
+    if PYTHON_HEREDOC_RE.search(cmd):
+        return python_shell_deny_payload("heredoc")
+    if PYTHON_DASH_C_RE.search(cmd):
+        return python_shell_deny_payload("python -c")
+    if PYTHON_STDIN_PIPE_RE.search(cmd):
+        return python_shell_deny_payload("piped to python")
+    if PYTHON_STDIN_MODE_RE.search(cmd):
+        return python_shell_deny_payload("python stdin (-)")
+    return None
 
 
 VERIFICATION_CMD_RE = re.compile(
@@ -989,11 +1048,24 @@ def handle_pre_tool_use(event: dict) -> dict:
     read_gate = check_read_tool_gate(event)
     if read_gate is not None:
         return read_gate
+    tool = str(event.get("tool_name") or "")
+    if is_shell_tool(tool):
+        denied = check_python_shell_policy(extract_shell_command(event, max_len=None))
+        if denied is not None:
+            return denied
     return gate_tool_use(event)
 
 
 def handle_before_mcp_execution(event: dict) -> dict:
     return gate_tool_use(event)
+
+
+def handle_before_shell_execution(event: dict) -> dict:
+    """Cursor beforeShellExecution — tool-level Python deny (failClosed in hooks.json)."""
+    denied = check_python_shell_policy(extract_shell_command(event, max_len=None))
+    if denied is not None:
+        return denied
+    return {"permission": "allow"}
 
 
 def is_codex_event(event: dict | None) -> bool:
@@ -1149,6 +1221,8 @@ def main() -> int:
         out = handle_pre_tool_use(event)
     elif name == "beforeMCPExecution":
         out = handle_before_mcp_execution(event)
+    elif name == "beforeShellExecution":
+        out = handle_before_shell_execution(event)
     else:
         out = {}
 

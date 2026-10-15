@@ -27,6 +27,12 @@
       {
         "command": "./hooks/agent-brain/route_gate_run.sh"
       }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": "./hooks/agent-brain/route_gate_run.sh",
+        "failClosed": true
+      }
     ]
   }
 }

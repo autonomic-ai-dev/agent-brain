@@ -13,7 +13,8 @@ Installed by `agent-brain install --global` into `~/.cursor/hooks.json`:
 | Hook | Behavior |
 |------|----------|
 | `beforeMCPExecution` | Track `route_task` success / failure |
-| `preToolUse` | Deny tools until routed for current user turn |
+| `preToolUse` | Deny tools until routed for current user turn; Shell also runs Python deny policy |
+| `beforeShellExecution` | Deny `python -c` / heredoc / piped-stdin workarounds (coding-policy §3); allow `-m` tests and `.py` runs |
 
 State persisted in `~/.autonomic/memory/hooks/route_state.json` (legacy: `~/.agent_brain/hooks/`).
 

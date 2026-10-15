@@ -37,6 +37,8 @@ from route_gate import (
     record_scouted_path,
     path_is_scouted,
     maybe_record_scout_from_event,
+    check_python_shell_policy,
+    handle_before_shell_execution,
 )
 
 
@@ -531,6 +533,57 @@ class ScoutUnlockTests(unittest.TestCase):
             )
         finally:
             route_gate.READ_GATE_MODE = old
+
+    def test_python_shell_policy_denies_workarounds(self) -> None:
+        denied_c = check_python_shell_policy("python3 -c \"print(open('f').read())\"")
+        self.assertIsNotNone(denied_c)
+        self.assertEqual(denied_c.get("permission"), "deny")
+        denied_h = check_python_shell_policy("python3 <<'PY'\nprint(1)\nPY")
+        self.assertIsNotNone(denied_h)
+        denied_pipe = check_python_shell_policy("echo 'x' | python3")
+        self.assertIsNotNone(denied_pipe)
+        denied_stdin = check_python_shell_policy("python3 -")
+        self.assertIsNotNone(denied_stdin)
+
+    def test_python_shell_policy_allows_project_runs(self) -> None:
+        self.assertIsNone(check_python_shell_policy("python3 -m pytest hooks/"))
+        self.assertIsNone(check_python_shell_policy("python3 scripts/gen.py --out x"))
+        self.assertIsNone(check_python_shell_policy("cargo test"))
+        self.assertIsNone(check_python_shell_policy(None))
+        # *.py paths / prose must not false-positive with cat <<EOF or "python -c" in -m text
+        self.assertIsNone(
+            check_python_shell_policy(
+                "git add hooks/route_gate.py && git commit -m \"$(cat <<'EOF'\nmsg\nEOF\n)\""
+            )
+        )
+        self.assertIsNone(
+            check_python_shell_policy(
+                'git commit -m "deny python -c workarounds at tool level"'
+            )
+        )
+
+    def test_before_shell_execution_blocks_python_c(self) -> None:
+        out = handle_before_shell_execution(
+            {"hook_event_name": "beforeShellExecution", "command": "python3 -c 'print(1)'"}
+        )
+        self.assertEqual(out.get("permission"), "deny")
+        allowed = handle_before_shell_execution(
+            {
+                "hook_event_name": "beforeShellExecution",
+                "command": "python3 -m pytest hooks/test_route_gate.py",
+            }
+        )
+        self.assertEqual(allowed.get("permission"), "allow")
+
+    def test_pre_tool_use_shell_python_c_denied(self) -> None:
+        out = handle_pre_tool_use(
+            {
+                "tool_name": "Shell",
+                "tool_input": {"command": "python3 -c \"open('x').read()\""},
+            }
+        )
+        self.assertEqual(out.get("permission"), "deny")
+        self.assertIn("python -c", (out.get("user_message") or "").lower() + (out.get("agent_message") or "").lower())
 
 
 if __name__ == "__main__":
