@@ -260,6 +260,17 @@ pub fn run(conn: &Connection) -> rusqlite::Result<()> {
         conn.execute("UPDATE schema_version SET version = 16", [])?;
     }
 
+    let version: i64 = conn
+        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
+            r.get(0)
+        })
+        .unwrap_or(0);
+
+    if version < 17 {
+        migrate_v17(conn)?;
+        conn.execute("UPDATE schema_version SET version = 17", [])?;
+    }
+
     Ok(())
 }
 
@@ -600,6 +611,46 @@ fn migrate_v16(conn: &Connection) -> rusqlite::Result<()> {
             updated_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_scratchpad_repo ON code_scratchpad(repo_root, created_at);
+        "#,
+    )?;
+    Ok(())
+}
+
+fn migrate_v17(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS project_roots (
+            project_key TEXT PRIMARY KEY,
+            repo_root TEXT NOT NULL,
+            domain TEXT NOT NULL DEFAULT 'unclassified',
+            updated_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_roots_repo ON project_roots(repo_root);
+
+        CREATE TABLE IF NOT EXISTS sync_events (
+            id TEXT PRIMARY KEY,
+            hlc_wall INTEGER NOT NULL,
+            hlc_counter INTEGER NOT NULL,
+            device_id TEXT NOT NULL,
+            project_key TEXT,
+            domain TEXT NOT NULL DEFAULT 'unclassified',
+            event_type TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            origin_json TEXT,
+            created_at INTEGER NOT NULL,
+            flushed_at INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_sync_events_pending
+            ON sync_events(flushed_at, hlc_wall, hlc_counter);
+        CREATE INDEX IF NOT EXISTS idx_sync_events_hlc
+            ON sync_events(device_id, hlc_wall, hlc_counter);
+
+        CREATE TABLE IF NOT EXISTS sync_cursors (
+            remote_device_id TEXT PRIMARY KEY,
+            last_hlc_wall INTEGER NOT NULL,
+            last_hlc_counter INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
         "#,
     )?;
     Ok(())

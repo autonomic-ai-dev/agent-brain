@@ -60,6 +60,7 @@ pub mod onboarding;
 pub mod operator_digest;
 pub mod packages;
 pub mod promote;
+pub mod project_key;
 #[cfg(feature = "extras")]
 pub mod proofs;
 pub mod registry_sync;
