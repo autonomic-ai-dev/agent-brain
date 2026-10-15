@@ -20,7 +20,8 @@ fi
 
 xattr -cr "$BIN" 2>/dev/null || true
 
-if codesign -dv --verbose=2 "$BIN" 2>&1 | grep -q 'Authority=Developer ID Application:'; then
+CS_OUT="$(codesign -dv --verbose=2 "$BIN" 2>&1 || true)"
+if echo "$CS_OUT" | grep -q 'Authority=Developer ID Application:'; then
   echo "Already Developer ID–signed: $BIN"
   exit 0
 fi
