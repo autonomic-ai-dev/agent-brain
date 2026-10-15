@@ -734,6 +734,44 @@ async fn main() -> Result<()> {
                 }
             }
         }
+        "bootstrap" => {
+            let remote = flag_value(&args, "--remote");
+            let skip_install = args.iter().any(|a| a == "--skip-install");
+            agent_brain::bootstrap_device::run(remote.as_deref(), skip_install)?;
+        }
+        "verify" => {
+            let config = Config::load()?;
+            let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
+            let route_log_id = flag_value(&args, "--route-log-id");
+            let cause = flag_value(&args, "--cause");
+            let config_path = flag_value(&args, "--config").map(std::path::PathBuf::from);
+            let scenarios = flag_value(&args, "--scenarios").map(std::path::PathBuf::from);
+            let cmd: Vec<String> = if let Some(idx) = args.iter().position(|a| a == "--") {
+                args[idx + 1..].to_vec()
+            } else {
+                eprintln!(
+                    "Usage: agent-brain verify [--config PATH] [--scenarios DIR] [--route-log-id ID] [--cause TAG] -- <cmd> [args...]"
+                );
+                std::process::exit(1);
+            };
+            let report = agent_brain::verify::run_verify(
+                &store,
+                &cmd,
+                route_log_id.as_deref(),
+                cause.as_deref(),
+                config_path.as_deref(),
+                scenarios.as_deref(),
+            )?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            if !report.success {
+                std::process::exit(report.exit_code);
+            }
+        }
+        "report" => {
+            let config = Config::load()?;
+            let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
+            agent_brain::verify::print_report(&store)?;
+        }
         "doctor" => {
             let fix = args.iter().any(|a| a == "--fix");
             let mcp_only = args.iter().any(|a| a == "--mcp");

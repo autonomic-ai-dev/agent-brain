@@ -1351,6 +1351,66 @@ impl BrainStore {
         Ok(())
     }
 
+    pub fn insert_verify_outcome(
+        &self,
+        route_log_id: Option<&str>,
+        exit_code: i32,
+        cause_tag: Option<&str>,
+        verify_config_hash: Option<&str>,
+        scenario_dir_hash: Option<&str>,
+        cmd: &str,
+        device_id: &str,
+    ) -> Result<String> {
+        let id = Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            conn.execute(
+                r#"INSERT INTO verify_outcomes
+                   (id, route_log_id, exit_code, cause_tag, verify_config_hash, scenario_dir_hash, cmd, device_id, recorded_at)
+                   VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)"#,
+                params![
+                    id,
+                    route_log_id,
+                    exit_code,
+                    cause_tag,
+                    verify_config_hash,
+                    scenario_dir_hash,
+                    cmd,
+                    device_id,
+                    now
+                ],
+            )?;
+            Ok(())
+        })?;
+        Ok(id)
+    }
+
+    pub fn list_verify_outcomes(&self, limit: usize) -> Result<Vec<VerifyOutcomeRow>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT id, route_log_id, exit_code, cause_tag, verify_config_hash, scenario_dir_hash, cmd, device_id, recorded_at
+                   FROM verify_outcomes ORDER BY recorded_at DESC LIMIT ?1"#,
+            )?;
+            let rows = stmt
+                .query_map(params![limit as i64], |row| {
+                    Ok(VerifyOutcomeRow {
+                        id: row.get(0)?,
+                        route_log_id: row.get(1)?,
+                        exit_code: row.get(2)?,
+                        cause_tag: row.get(3)?,
+                        verify_config_hash: row.get(4)?,
+                        scenario_dir_hash: row.get(5)?,
+                        cmd: row.get(6)?,
+                        device_id: row.get(7)?,
+                        recorded_at: row.get(8)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
+
     pub fn list_secret_refs(&self) -> Result<Vec<crate::secrets::SecretRef>> {
         self.with_conn(|conn| {
             let mut stmt =
@@ -2963,6 +3023,19 @@ pub struct RecurringMemoryTopic {
     pub latest_fact: String,
     pub negative_count: usize,
     pub apply_when_tags: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct VerifyOutcomeRow {
+    pub id: String,
+    pub route_log_id: Option<String>,
+    pub exit_code: i32,
+    pub cause_tag: Option<String>,
+    pub verify_config_hash: Option<String>,
+    pub scenario_dir_hash: Option<String>,
+    pub cmd: String,
+    pub device_id: Option<String>,
+    pub recorded_at: i64,
 }
 
 pub struct StoreFactResult {

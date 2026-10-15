@@ -8,6 +8,7 @@ pub mod autowire;
 pub mod beam_eval;
 #[cfg(feature = "extras")]
 pub mod bench;
+pub mod bootstrap_device;
 pub mod bridge;
 pub mod cache;
 pub mod code_nav;
@@ -95,6 +96,7 @@ pub mod trace_extract;
 pub mod trajectory;
 pub mod types;
 pub mod upstream;
+pub mod verify;
 pub mod workflow_indexer;
 pub mod workspace;
 
