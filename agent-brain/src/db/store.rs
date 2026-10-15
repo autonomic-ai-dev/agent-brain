@@ -895,6 +895,23 @@ impl BrainStore {
             })?;
         }
 
+        // Imported sync facts must not re-enter the outbox (echo loop).
+        if source != "sync" {
+            let _ = self.enqueue_fact_put_outbox(
+                topic,
+                fact,
+                scope,
+                scope_key,
+                confidence,
+                polarity,
+                apply_when,
+                content_hash,
+                source,
+                Some(valid_from),
+                invalid_at,
+            );
+        }
+
         self.invalidate_search_cache();
         Ok(StoreFactResult {
             id,
@@ -1018,7 +1035,7 @@ impl BrainStore {
         scope: Option<&str>,
         scope_key: Option<&str>,
     ) -> Result<u64> {
-        self.with_conn(|conn| {
+        let n = self.with_conn(|conn| {
             let n = if let Some(id) = id {
                 conn.execute("DELETE FROM facts WHERE id = ?1", params![id])?
             } else {
@@ -1028,7 +1045,11 @@ impl BrainStore {
                 )?
             };
             Ok(n as u64)
-        })
+        })?;
+        if n > 0 {
+            let _ = self.enqueue_fact_tombstone_outbox(id, None, scope, scope_key);
+        }
+        Ok(n)
     }
 
     pub fn export_facts(&self, export_path: &Path) -> Result<String> {
@@ -1100,6 +1121,234 @@ impl BrainStore {
             return Ok(Some(scope_key.to_string()));
         }
         self.project_key_for_repo_root(scope_key)
+    }
+
+    pub fn next_hlc(&self) -> Result<crate::sync::hlc::Hlc> {
+        use crate::sync::hlc::Hlc;
+        let now = chrono::Utc::now().timestamp_millis();
+        let wall: i64 = self
+            .get_meta("hlc_wall")?
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        let counter: u32 = self
+            .get_meta("hlc_counter")?
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        let next = Hlc { wall, counter }.tick(now);
+        self.set_meta("hlc_wall", &next.wall.to_string())?;
+        self.set_meta("hlc_counter", &next.counter.to_string())?;
+        Ok(next)
+    }
+
+    pub fn enqueue_sync_event(
+        &self,
+        event_type: &str,
+        project_key: Option<&str>,
+        domain: &str,
+        payload: &serde_json::Value,
+        origin: Option<&serde_json::Value>,
+    ) -> Result<String> {
+        let id = Uuid::new_v4().to_string();
+        let hlc = self.next_hlc()?;
+        let device_id = self.ensure_device_id()?;
+        let now = chrono::Utc::now().timestamp_millis();
+        let origin_json = origin.map(|v| v.to_string());
+        self.with_conn(|conn| {
+            conn.execute(
+                r#"INSERT INTO sync_events
+                   (id, hlc_wall, hlc_counter, device_id, project_key, domain, event_type, payload_json, origin_json, created_at, flushed_at)
+                   VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,NULL)"#,
+                params![
+                    id,
+                    hlc.wall,
+                    hlc.counter as i64,
+                    device_id,
+                    project_key,
+                    domain,
+                    event_type,
+                    payload.to_string(),
+                    origin_json,
+                    now
+                ],
+            )?;
+            Ok(())
+        })?;
+        Ok(id)
+    }
+
+    pub fn list_pending_sync_events(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<crate::sync::event::EventEnvelope>> {
+        use crate::sync::event::EventEnvelope;
+        use crate::sync::hlc::Hlc;
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT id, hlc_wall, hlc_counter, device_id, project_key, domain, event_type, payload_json, origin_json
+                   FROM sync_events WHERE flushed_at IS NULL
+                   ORDER BY hlc_wall ASC, hlc_counter ASC LIMIT ?1"#,
+            )?;
+            let rows = stmt
+                .query_map(params![limit as i64], |row| {
+                    let payload_raw: String = row.get(7)?;
+                    let origin_raw: Option<String> = row.get(8)?;
+                    let payload = serde_json::from_str(&payload_raw).unwrap_or(serde_json::json!({}));
+                    let origin = origin_raw.and_then(|s| serde_json::from_str(&s).ok());
+                    Ok(EventEnvelope {
+                        id: row.get(0)?,
+                        event_type: row.get(6)?,
+                        hlc: Hlc {
+                            wall: row.get(1)?,
+                            counter: row.get::<_, i64>(2)? as u32,
+                        },
+                        device_id: row.get(3)?,
+                        project_key: row.get(4)?,
+                        domain: row.get(5)?,
+                        origin,
+                        payload,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
+    pub fn mark_sync_events_flushed(&self, ids: &[String]) -> Result<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            for id in ids {
+                conn.execute(
+                    "UPDATE sync_events SET flushed_at = ?1 WHERE id = ?2",
+                    params![now, id],
+                )?;
+            }
+            Ok(())
+        })
+    }
+
+    pub fn get_sync_cursor(&self, remote_device_id: &str) -> Result<Option<crate::sync::hlc::Hlc>> {
+        use crate::sync::hlc::Hlc;
+        self.with_conn(|conn| {
+            Ok(conn
+                .query_row(
+                    "SELECT last_hlc_wall, last_hlc_counter FROM sync_cursors WHERE remote_device_id = ?1",
+                    params![remote_device_id],
+                    |r| {
+                        Ok(Hlc {
+                            wall: r.get(0)?,
+                            counter: r.get::<_, i64>(1)? as u32,
+                        })
+                    },
+                )
+                .optional()?)
+        })
+    }
+
+    pub fn set_sync_cursor(&self, remote_device_id: &str, hlc: crate::sync::hlc::Hlc) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            conn.execute(
+                r#"INSERT INTO sync_cursors (remote_device_id, last_hlc_wall, last_hlc_counter, updated_at)
+                   VALUES (?1,?2,?3,?4)
+                   ON CONFLICT(remote_device_id) DO UPDATE SET
+                     last_hlc_wall = excluded.last_hlc_wall,
+                     last_hlc_counter = excluded.last_hlc_counter,
+                     updated_at = excluded.updated_at"#,
+                params![remote_device_id, hlc.wall, hlc.counter as i64, now],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn find_active_fact_id(
+        &self,
+        content_hash: &str,
+        scope: &str,
+        scope_key: Option<&str>,
+    ) -> Result<Option<String>> {
+        self.with_conn(|conn| {
+            Ok(conn
+                .query_row(
+                    "SELECT id FROM facts WHERE content_hash = ?1 AND scope = ?2 AND IFNULL(scope_key,'') = IFNULL(?3,'') AND superseded_by IS NULL LIMIT 1",
+                    params![content_hash, scope, scope_key],
+                    |r| r.get(0),
+                )
+                .optional()?)
+        })
+    }
+
+    pub fn enqueue_fact_put_outbox(
+        &self,
+        topic: &str,
+        fact: &str,
+        scope: &str,
+        scope_key: Option<&str>,
+        confidence: f64,
+        polarity: &str,
+        apply_when: Option<&str>,
+        content_hash: &str,
+        source: &str,
+        valid_from: Option<i64>,
+        invalid_at: Option<i64>,
+    ) -> Result<()> {
+        let domain = match scope_key {
+            Some(k) if !crate::project_key::looks_like_path_scope_key(k) => {
+                self.domain_for_project_key(k)?
+            }
+            _ => "unclassified".to_string(),
+        };
+        if domain == "unclassified" {
+            // Local-only until classified — still record outbox for later classify+push filtering.
+        }
+        let apply_when_v: Option<Vec<String>> = apply_when
+            .and_then(|s| serde_json::from_str(s).ok());
+        let payload = serde_json::json!({
+            "topic": topic,
+            "fact": fact,
+            "scope": scope,
+            "scope_key": scope_key,
+            "confidence": confidence,
+            "polarity": polarity,
+            "apply_when": apply_when_v,
+            "valid_from": valid_from,
+            "invalid_at": invalid_at,
+            "content_hash": content_hash,
+            "source": source,
+        });
+        self.enqueue_sync_event(
+            "fact_put",
+            scope_key.filter(|k| !crate::project_key::looks_like_path_scope_key(k)),
+            &domain,
+            &payload,
+            None,
+        )?;
+        Ok(())
+    }
+
+    pub fn enqueue_fact_tombstone_outbox(
+        &self,
+        fact_id: Option<&str>,
+        content_hash: Option<&str>,
+        scope: Option<&str>,
+        scope_key: Option<&str>,
+    ) -> Result<()> {
+        let domain = match scope_key {
+            Some(k) if !crate::project_key::looks_like_path_scope_key(k) => {
+                self.domain_for_project_key(k).unwrap_or_else(|_| "unclassified".to_string())
+            }
+            _ => "unclassified".to_string(),
+        };
+        let payload = serde_json::json!({
+            "fact_id": fact_id,
+            "content_hash": content_hash,
+            "scope": scope,
+            "scope_key": scope_key,
+        });
+        self.enqueue_sync_event("fact_tombstone", scope_key, &domain, &payload, None)?;
+        Ok(())
     }
 
     pub fn list_secret_refs(&self) -> Result<Vec<crate::secrets::SecretRef>> {

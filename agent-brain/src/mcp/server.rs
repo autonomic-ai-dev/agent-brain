@@ -1475,8 +1475,48 @@ fn route_context_from_state(home: &std::path::Path) -> (bool, Option<String>, Op
 }
 
 pub async fn run_stdio(engine: Arc<Engine>) -> Result<()> {
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+
     let server = BrainMcp::new(engine);
-    let service = server.serve(rmcp::transport::io::stdio()).await?;
+
+    // Antigravity CLI and modern go-sdk MCP clients probe with `server/discover` before calling `initialize`.
+    // rmcp (Rust MCP SDK) does not support pre-initialize custom requests and drops the connection with
+    // `ExpectedInitializeRequest`. We intercept pre-init discovery probes and respond with JSON-RPC -32601
+    // (Method not found) so clients gracefully fall back to the standard `initialize` handshake.
+    let mut stdin = BufReader::new(tokio::io::stdin());
+    let mut stdout = tokio::io::stdout();
+    let initial_line;
+
+    loop {
+        let mut line = String::new();
+        let n = stdin.read_line(&mut line).await?;
+        if n == 0 {
+            return Ok(());
+        }
+
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) {
+            if val.get("method").and_then(|m| m.as_str()) == Some("server/discover") {
+                let id = val.get("id").cloned().unwrap_or(serde_json::json!(1));
+                let resp = serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": {
+                        "code": -32601,
+                        "message": "Method not found: server/discover"
+                    }
+                });
+                stdout.write_all(format!("{}\n", resp).as_bytes()).await?;
+                stdout.flush().await?;
+                continue;
+            }
+        }
+
+        initial_line = line.into_bytes();
+        break;
+    }
+
+    let combined_reader = std::io::Cursor::new(initial_line).chain(stdin);
+    let service = server.serve((combined_reader, stdout)).await?;
     service.waiting().await?;
     Ok(())
 }

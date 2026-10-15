@@ -133,7 +133,9 @@ pub fn git_push(store: &BrainStore, home: &Path, settings: &GitSyncSettings) -> 
     }
 
     let bundle = git_bundle_dir(home);
+    // Dual-write: keep v1 facts.jsonl until sync migrate; also flush v2 device events.
     export_bundle(store, home, Some(&bundle))?;
+    let _ = crate::sync::v2::flush_outbox_to_bundle(store, &bundle);
 
     run_git(&root, &["add", BUNDLE_DIR_NAME])?;
     let stamp = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ");
@@ -162,10 +164,27 @@ pub fn git_pull(
         bail!("git sync not initialized; run: agent-brain sync git init [--remote URL]");
     }
 
-    run_git(
+    run_git(&root, &["fetch", "origin", settings.branch.as_str()])?;
+    // Per-device dirs are disjoint; rebase avoids --ff-only dead-ends across devices.
+    let rebase = run_git(
         &root,
-        &["pull", "--ff-only", "origin", settings.branch.as_str()],
-    )?;
+        &["rebase", &format!("origin/{}", settings.branch)],
+    );
+    if let Err(err) = rebase {
+        // Empty repo / first pull: fall back to ff-only pull.
+        let msg = err.to_string();
+        if msg.contains("There is no tracking information")
+            || msg.contains("does not have any commits")
+            || msg.contains("needed a single revision")
+        {
+            run_git(
+                &root,
+                &["pull", "--ff-only", "origin", settings.branch.as_str()],
+            )?;
+        } else {
+            return Err(err);
+        }
+    }
 
     let bundle = git_bundle_dir(home);
     if !bundle.join("manifest.json").is_file() {
