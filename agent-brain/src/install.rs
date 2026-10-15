@@ -84,8 +84,8 @@ pub fn run(target: HostTarget, print_only: bool, reload: bool) -> Result<()> {
     #[cfg(target_os = "macos")]
     {
         if mcp_exe == exe {
-            if let Err(err) = crate::doctor::adhoc_sign(&exe) {
-                eprintln!("Warning: adhoc codesign failed: {err}");
+            if let Err(err) = crate::doctor::prepare_macos_release_binary(&exe) {
+                eprintln!("Warning: macOS release binary check failed: {err}");
             }
         }
     }
@@ -143,9 +143,12 @@ pub fn ensure_mcp_runnable_binary(exe: &Path, quiet: bool) -> Result<PathBuf> {
     {
         let canonical = fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
         if !needs_mcp_binary_copy(&canonical) {
-            if let Err(err) = crate::doctor::adhoc_sign(&canonical) {
+            if let Err(err) = crate::doctor::prepare_macos_release_binary(&canonical) {
                 if !quiet {
-                    eprintln!("Warning: adhoc codesign on {}: {err}", canonical.display());
+                    eprintln!(
+                        "Warning: macOS release binary check on {}: {err}",
+                        canonical.display()
+                    );
                 }
             }
             return Ok(canonical);
@@ -159,9 +162,9 @@ pub fn ensure_mcp_runnable_binary(exe: &Path, quiet: bool) -> Result<PathBuf> {
         }
         fs::copy(&canonical, &dest)
             .with_context(|| format!("copy MCP binary to {}", dest.display()))?;
-        crate::doctor::adhoc_sign(&dest).with_context(|| {
+        crate::doctor::prepare_macos_release_binary(&dest).with_context(|| {
             format!(
-                "sign MCP binary at {} (required for Cursor on macOS)",
+                "MCP binary at {} must be Developer ID–signed at build (install does not re-sign)",
                 dest.display()
             )
         })?;
@@ -447,7 +450,7 @@ Each `route_task` writes a readable summary to **`~/.autonomic/memory/logs/last-
 
 ## macOS
 
-Linker-signed local builds are killed by taskgated when Cursor launches MCP. Use **`make release-macos`**, **`agent-brain doctor --fix`**, or the GitHub release binary at `~/.local/bin/agent-brain`.
+Linker-signed local builds are killed by taskgated when Cursor launches MCP. Use **`make release-macos`** or the GitHub release binary at `~/.local/bin/agent-brain`.
 
 **Hooks enforce this:** Cursor blocks **agent-brain MCP tools** until `route_task` succeeds each turn (default `brain_mcp` scope). Large native `Read` calls are blocked in favor of bounded brain tools.
 "#;

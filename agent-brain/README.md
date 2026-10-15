@@ -121,14 +121,13 @@ Run `agent-brain install --global` after building, or add to `~/.cursor/mcp.json
 
 ## Build
 
-On macOS, use `make release-macos` (or `./scripts/build-release-macos.sh`) to build and adhoc-sign so Cursor MCP can launch the binary. Plain `cargo build --release` produces a linker-signed binary that taskgated kills until you run `agent-brain doctor --fix` or `./scripts/sign-macos.sh`.
+GitHub releases ship a Developer ID–signed `aarch64-apple-darwin` binary. For local macOS builds:
 
 ```bash
-make release-macos             # macOS: build + adhoc sign
-cargo build --release -p agent-brain
+make release-macos             # build + Developer ID sign (required for Cursor MCP)
 ```
 
-First run downloads the `AllMiniLML6V2` embedding model via fastembed (~90MB).
+Plain `cargo build --release` is linker-signed and taskgated will kill it under Cursor. First run downloads the `AllMiniLML6V2` embedding model via fastembed (~90MB).
 
 ## Run
 

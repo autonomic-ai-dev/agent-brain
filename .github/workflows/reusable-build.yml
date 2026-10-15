@@ -10,11 +10,11 @@ on:
         default: 30
     secrets:
       APPLE_CERTIFICATE:
-        required: false
+        required: true
       APPLE_CERTIFICATE_PASSWORD:
-        required: false
+        required: true
       APPLE_IDENTITY:
-        required: false
+        required: true
 
 
 env:
@@ -28,21 +28,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Ship Apple Silicon only for now (signed at build with Developer ID).
           - os: macos-latest
             target: aarch64-apple-darwin
             artifact: agent-brain-aarch64-apple-darwin
-          - os: macos-15-intel
-            target: x86_64-apple-darwin
-            artifact: agent-brain-x86_64-apple-darwin
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            artifact: agent-brain-x86_64-unknown-linux-gnu
-          - os: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-            artifact: agent-brain-aarch64-unknown-linux-gnu
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact: agent-brain-x86_64-pc-windows-msvc.exe
 
     steps:
       - uses: actions/checkout@v6
@@ -78,8 +67,8 @@ jobs:
         shell: bash
         run: |
           if [ -z "${APPLE_CERTIFICATE:-}" ]; then
-            echo "APPLE_CERTIFICATE not set; skipping Developer ID import (will ad-hoc sign)"
-            exit 0
+            echo "ERROR: APPLE_CERTIFICATE secret is required (release binaries must be Developer ID–signed at build)"
+            exit 1
           fi
           CERTIFICATE_PATH="$RUNNER_TEMP/build_certificate.p12"
           KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
@@ -101,14 +90,18 @@ jobs:
         run: |
           BIN="dist/${{ matrix.artifact }}"
           xattr -cr "$BIN"
-          if [ -n "${APPLE_IDENTITY:-}" ]; then
-            echo "Signing with Developer ID: $APPLE_IDENTITY"
-            codesign --force --options runtime --timestamp --sign "$APPLE_IDENTITY" "$BIN"
-          else
-            echo "APPLE_IDENTITY not set; ad-hoc signing"
-            codesign --force --sign - "$BIN"
+          if [ -z "${APPLE_IDENTITY:-}" ]; then
+            echo "ERROR: APPLE_IDENTITY secret is required (Developer ID Application only; ad-hoc disabled)"
+            exit 1
           fi
+          echo "Signing with Developer ID: $APPLE_IDENTITY"
+          codesign --force --options runtime --timestamp --sign "$APPLE_IDENTITY" "$BIN"
           codesign --verify --verbose "$BIN"
+          if ! codesign -dv --verbose=2 "$BIN" 2>&1 | grep -q 'Authority=Developer ID Application:'; then
+            echo "ERROR: binary is not Developer ID–signed after codesign"
+            codesign -dv --verbose=2 "$BIN" 2>&1 | head -20
+            exit 1
+          fi
           codesign -dv --verbose=2 "$BIN" 2>&1 | head -20
 
       - name: Upload build artifact

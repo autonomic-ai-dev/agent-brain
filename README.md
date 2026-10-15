@@ -173,18 +173,17 @@ Default memory store: **`~/.autonomic/memory/`** (`brain.db`, packages, route lo
 
 ```bash
 cargo test --release -p agent-brain
-make release-macos             # macOS: build + adhoc sign
-cargo build --release -p agent-brain
+make release-macos             # Apple Silicon: build + Developer ID sign
 python3 agent-brain/hooks/test_route_gate.py
 ```
 
-On macOS, release CI artifacts and `install.sh` adhoc-sign binaries; local builds need `make release-macos` or `agent-brain doctor --fix`. If Cursor blocks MCP after a browser download, run `xattr -cr ~/.local/bin/agent-brain && codesign --force --sign - ~/.local/bin/agent-brain`.
+Release CI publishes **`agent-brain-aarch64-apple-darwin`** only (Developer ID–signed at build). `install.sh` / `doctor --fix` clear quarantine and verify that signature — they never re-sign. Local unsigned builds: `make release-macos`.
 
 ---
 
 ## Releases
 
-See [CHANGELOG.md](CHANGELOG.md). Tags `v*` publish platform binaries with changelog-based release notes.
+See [CHANGELOG.md](CHANGELOG.md). Tags `v*` publish the Apple Silicon binary with changelog-based release notes.
 
 ## License
 
