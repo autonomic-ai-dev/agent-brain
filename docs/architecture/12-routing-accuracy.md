@@ -23,6 +23,10 @@ CI gate: **Recall@3 ≥ 0.85** for both the memory suite and the skill suite (`a
 
 `eval --ci --live` runs against your production `brain.db` (informational; not a CI gate).
 
+## Route noise hygiene
+
+`route_task` must not treat session digests, `obs/*` auto-observations, or `auto-route` telemetry as first-class memory or `must_apply` constraints. Those topics stay in the index for explain/inspect tooling and may appear in `context_bundle.observations`, but they are excluded from `relevant_memory` / `must_apply`. Memory recommendations also respect the same relative score floor as skills/rules, and `apply_when` constraints still require a minimum retrieval score so weakly matched facts from other projects cannot bind the turn.
+
 ## How retrieval works (accuracy stack)
 
 Routing is hybrid, not embedding-only:

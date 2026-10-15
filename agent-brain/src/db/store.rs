@@ -2501,10 +2501,8 @@ fn memory_fact_meta<'a>(
 
 fn memory_source_score_adjustment(source: Option<&str>, topic: &str) -> f64 {
     if crate::workspace::is_low_signal_memory(topic, source) {
-        if topic.starts_with("session-digest-") || source == Some("session_digest") {
-            return -0.10;
-        }
-        return -0.30;
+        // Digests/obs/auto-route should lose to real project facts in ranking.
+        return -0.35;
     }
     0.0
 }

@@ -1138,9 +1138,12 @@ fn build_route_response(
         try_add_route_item(&mut resp, &mut state, item, limits, phase, max_tokens);
     }
 
-    // Pass 2: memory with whatever budget remains.
+    // Pass 2: memory with whatever budget remains (same score floor; no digest/obs noise).
     for item in scored.iter() {
         if !matches!(item.item_type, ItemType::Memory) {
+            continue;
+        }
+        if item.score < min_score {
             continue;
         }
         try_add_route_item(&mut resp, &mut state, item, limits, phase, max_tokens);
@@ -1153,7 +1156,6 @@ fn build_route_response(
 struct RouteBuildState {
     seen_agents: HashSet<String>,
     seen_skills: HashSet<String>,
-    low_signal_memories: usize,
 }
 
 fn try_add_route_item(
@@ -1210,7 +1212,7 @@ fn try_add_route_item(
             (PendingRec::Rule(rec), t)
         }
         ItemType::Memory if resp.relevant_memory.len() < limits.memory => {
-            if is_low_signal_memory(&item.topic, None) && state.low_signal_memories >= 1 {
+            if is_low_signal_memory(&item.topic, None) {
                 return;
             }
             let rec = MemoryRec {
@@ -1248,9 +1250,6 @@ fn try_add_route_item(
         PendingRec::Skill(rec) => resp.recommended_skills.push(rec),
         PendingRec::Rule(rec) => resp.applicable_rules.push(rec),
         PendingRec::Memory(rec) => {
-            if is_low_signal_memory(&item.topic, None) {
-                state.low_signal_memories += 1;
-            }
             if let Some(constraint) = must_apply_for_memory(item) {
                 if resp.must_apply.len() < 3
                     && !resp.must_apply.iter().any(|m| m.topic == constraint.topic)
@@ -1288,15 +1287,20 @@ fn must_apply_for_memory(item: &ScoredItem) -> Option<MustApply> {
     if !matches!(item.item_type, ItemType::Memory) {
         return None;
     }
+    // Digests / observations / auto-route never bind as hard constraints.
+    if is_low_signal_memory(&item.topic, None) {
+        return None;
+    }
     let is_negative = item.polarity.as_deref() == Some("negative")
         || item.text.to_lowercase().contains("do not")
         || item.text.to_lowercase().contains("never ");
-    let negative_threshold = if item.polarity.as_deref() == Some("negative") {
-        0.35
-    } else {
-        0.55
-    };
-    if (is_negative && item.score > negative_threshold) || item.apply_when_matched {
+    let labeled_negative = item.polarity.as_deref() == Some("negative");
+    // apply_when still needs enough retrieval score so unrelated projects do not bind.
+    const APPLY_WHEN_MIN: f64 = 0.40;
+    let negative_threshold = if labeled_negative { 0.35 } else { 0.70 };
+    let promote = (item.apply_when_matched && item.score >= APPLY_WHEN_MIN)
+        || (is_negative && item.score > negative_threshold);
+    if promote {
         Some(MustApply {
             topic: item.topic.clone(),
             text: item.text.chars().take(200).collect(),
@@ -1371,4 +1375,111 @@ fn auto_observe_topics(
         tracing::info!(topic = %obs_topic, facts = count, "auto-observed recurring pattern");
     }
     Ok(())
+}
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{ItemType, RouteLimits, ScoredItem};
+
+    fn mem(topic: &str, score: f64, text: &str) -> ScoredItem {
+        ScoredItem {
+            id: topic.into(),
+            item_type: ItemType::Memory,
+            topic: topic.into(),
+            text: text.into(),
+            source_path: None,
+            scope: "project".into(),
+            score,
+            polarity: None,
+            apply_when_matched: false,
+        }
+    }
+
+    fn skill(topic: &str, score: f64) -> ScoredItem {
+        ScoredItem {
+            id: topic.into(),
+            item_type: ItemType::Skill,
+            topic: topic.into(),
+            text: "skill body".into(),
+            source_path: Some("/tmp/SKILL.md".into()),
+            scope: "project".into(),
+            score,
+            polarity: None,
+            apply_when_matched: false,
+        }
+    }
+
+    #[test]
+    fn route_excludes_digest_and_obs_from_memory_and_must_apply() {
+        let scored = vec![
+            mem(
+                "session-digest-cursor-abc",
+                0.99,
+                "Retrieved only via route_task. Session digest ...",
+            ),
+            mem("obs/auto-route", 0.95, "Recurring pattern on auto-route"),
+            mem("auto-route", 0.9, "Worked on: phase=explore"),
+            mem(
+                "project-convention",
+                0.5,
+                "Use agent-brain route_task every turn",
+            ),
+            skill("mcp-server-patterns", 0.8),
+        ];
+        let limits = RouteLimits {
+            agents: 2,
+            skills: 3,
+            rules: 3,
+            memory: 5,
+        };
+        let resp = build_route_response(&scored, &limits, "implementing", 800);
+        assert!(
+            resp.relevant_memory.iter().all(|m| {
+                !m.topic.starts_with("session-digest-")
+                    && !m.topic.starts_with("obs/")
+                    && m.topic != "auto-route"
+            }),
+            "noise leaked into relevant_memory: {:?}",
+            resp.relevant_memory
+        );
+        assert!(
+            resp.must_apply.iter().all(|m| {
+                !m.topic.starts_with("session-digest-")
+                    && !m.topic.starts_with("obs/")
+                    && m.topic != "auto-route"
+            }),
+            "noise leaked into must_apply: {:?}",
+            resp.must_apply
+        );
+        assert!(
+            resp.relevant_memory
+                .iter()
+                .any(|m| m.topic == "project-convention"),
+            "real memory should remain"
+        );
+    }
+
+    #[test]
+    fn must_apply_requires_score_even_with_apply_when() {
+        let weak = ScoredItem {
+            id: "cinema".into(),
+            item_type: ItemType::Memory,
+            topic: "slip-district-seat-fix".into(),
+            text: "never use SCREEN N as seat".into(),
+            source_path: None,
+            scope: "project".into(),
+            score: 0.25,
+            polarity: None,
+            apply_when_matched: true,
+        };
+        assert!(must_apply_for_memory(&weak).is_none());
+        let strong = ScoredItem {
+            score: 0.55,
+            ..weak
+        };
+        assert!(must_apply_for_memory(&strong).is_some());
+    }
 }
