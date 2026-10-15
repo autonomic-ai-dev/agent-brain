@@ -97,12 +97,13 @@ jobs:
           echo "Signing with Developer ID: $APPLE_IDENTITY"
           codesign --force --options runtime --timestamp --sign "$APPLE_IDENTITY" "$BIN"
           codesign --verify --verbose "$BIN"
-          if ! codesign -dv --verbose=2 "$BIN" 2>&1 | grep -q 'Authority=Developer ID Application:'; then
+          CS_OUT="$(codesign -dv --verbose=2 "$BIN" 2>&1 || true)"
+          if ! echo "$CS_OUT" | grep -q 'Authority=Developer ID Application:'; then
             echo "ERROR: binary is not Developer ID–signed after codesign"
-            codesign -dv --verbose=2 "$BIN" 2>&1 | head -20
+            echo "$CS_OUT" | head -20
             exit 1
           fi
-          codesign -dv --verbose=2 "$BIN" 2>&1 | head -20
+          echo "$CS_OUT" | head -20
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v7

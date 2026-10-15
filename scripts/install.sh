@@ -76,7 +76,9 @@ prepare_macos_release_binary() {
     echo "  Re-download the release artifact (it must be Developer ID–signed at build)." >&2
     return 1
   fi
-  if ! codesign -dv --verbose=2 "$bin" 2>&1 | grep -q 'Authority=Developer ID Application:'; then
+  local cs_out
+  cs_out="$(codesign -dv --verbose=2 "$bin" 2>&1 || true)"
+  if ! echo "$cs_out" | grep -q 'Authority=Developer ID Application:'; then
     echo "ERROR: $bin is not Developer ID–signed" >&2
     echo "  Release artifacts are signed in CI; install does not re-sign." >&2
     echo "  For local builds use: make release-macos" >&2
