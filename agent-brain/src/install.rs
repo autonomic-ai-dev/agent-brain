@@ -440,19 +440,25 @@ Do **not** skip `route_task`. Do **not** load skills/rules from guesswork when a
 
 When a durable decision or convention is established, call **`store_memory`** once (max 50 words, no secrets).
 
-## MCP retries (do not skip)
+## Errors: obey valid gates; recover without bypass
 
-On MCP errors (`Connection closed`, `-32000`, timeout, Not connected):
+Judge the error before acting. **Do not disable the route gate** (`AGENT_BRAIN_ROUTE_HOOKS=0`) to work around a deny.
 
-1. **Retry the same tool 2–3 times** with short waits (about 0.5–1s). Do **not** skip `route_task` or `store_memory` on the first failure.
-2. **Reads** (`route_task`, `grep_search`, `file_summary`, …): retry; only after retries fail set `AGENT_BRAIN_ROUTE_HOOKS=0` for this turn and note reduced context.
-3. **Writes** (`store_memory`, `write_scratchpad`, …): after MCP retries fail, **do not drop the fact**. Fall back to CLI:
-   - Immediate: `agent-brain memory put --topic "…" --fact "…"`
-   - Or queue: `agent-brain memory enqueue --topic "…" --fact "…"` then `agent-brain memory flush-pending` (use `--watch` to keep retrying).
+### Permission denied (route gate / hook) — valid
 
-## Fallback
+This means `route_task` has not cleared the gate for this turn. **Do not bypass.**
 
-Only after retries (and CLI write fallback for durable facts) are exhausted: set `AGENT_BRAIN_ROUTE_HOOKS=0` and proceed with reduced context.
+1. Call **`route_task`** again (same turn), then retry the gated tool.
+2. If still denied, pick another **allowed** approach that still goes through the gate (e.g. brain tools listed after a successful route; CLI only for durable writes below).
+3. Never set `AGENT_BRAIN_ROUTE_HOOKS=0` for Permission denied.
+
+### Connection closed / Not connected / `-32000` / timeout — infrastructure
+
+1. **Retry the same tool 2–3 times** with short waits (~0.5–1s). Do not skip `route_task` or `store_memory` on the first failure.
+2. **Writes** (`store_memory`, …): after MCP retries fail, **do not drop the fact** — use CLI:
+   - `agent-brain memory put --topic "…" --fact "…"`
+   - or `agent-brain memory enqueue …` then `agent-brain memory flush-pending` (`--watch` to keep retrying).
+3. **Reads**: after retries fail, use another approach (toggle/reload MCP; or host-native tools for that dig only). Tell the user context is reduced. Do **not** disable hooks unless the user explicitly asks.
 
 ## User visibility (no need to expand MCP JSON)
 
@@ -521,7 +527,8 @@ mod tests {
     fn cursor_rule_requires_route_task() {
         assert!(CURSOR_RULE.contains("route_task"));
         assert!(CURSOR_RULE.contains("alwaysApply: true"));
-        assert!(CURSOR_RULE.contains("MCP retries (do not skip)"));
+        assert!(CURSOR_RULE.contains("Errors: obey valid gates; recover without bypass"));
+        assert!(CURSOR_RULE.contains("Never set `AGENT_BRAIN_ROUTE_HOOKS=0` for Permission denied"));
         assert!(CURSOR_RULE.contains("memory flush-pending"));
     }
 

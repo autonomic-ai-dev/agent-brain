@@ -695,7 +695,7 @@ mod tests {
     #[test]
     fn resolve_release_asset_requires_matching_platform_binary() {
         let release = GhRelease {
-            tag_name: "v0.37.0".into(),
+            tag_name: "v0.38.0".into(),
             assets: vec![GhReleaseAsset {
                 name: "agent-brain-x86_64-apple-darwin".into(),
             }],
@@ -704,7 +704,7 @@ mod tests {
         let message = err.to_string();
         assert!(message.contains("aarch64-apple-darwin"));
         assert!(message.contains("agent-brain-aarch64-apple-darwin"));
-        assert!(message.contains("v0.37.0"));
+        assert!(message.contains("v0.38.0"));
     }
 
     #[test]
