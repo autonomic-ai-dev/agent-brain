@@ -13,6 +13,7 @@ pub mod cache;
 pub mod cli_extras;
 pub mod config;
 pub mod dashboard;
+#[cfg(feature = "extras")]
 pub mod dataset;
 #[cfg(feature = "extras")]
 pub mod dataset_pipeline;
@@ -74,6 +75,7 @@ pub mod sessions;
 pub mod settings;
 #[cfg(feature = "extras")]
 pub mod skills_sh;
+#[cfg(feature = "extras")]
 pub mod spine_ingest;
 pub mod stats;
 pub mod suggest_memory;

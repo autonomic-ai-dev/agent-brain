@@ -17,7 +17,7 @@ path = "src/main.rs"
 
 [features]
 default = []
-# Eval/bench/skills.sh/dataset/distill/digest CLI + harness modules (~4k LOC).
+# Eval/bench/skills.sh/dataset/spine_ingest/distill/digest CLI + harness modules.
 # Release/serve builds stay slim; CI and local proofs use `--features extras`.
 extras = []
 

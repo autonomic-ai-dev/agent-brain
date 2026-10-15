@@ -134,22 +134,6 @@ pub fn dispatch(cmd: &str, args: &[String]) -> Result<()> {
                 crate::operator_digest::format_weekly_digest(&digest)
             );
         }
-        "stats" => {
-            let json = args.iter().any(|a| a == "--json");
-            let days = flag_value(&args, "--days")
-                .and_then(|v| v.parse::<u32>().ok())
-                .unwrap_or(7);
-            let config = Config::load()?;
-            config.ensure_dirs()?;
-            let store = crate::db::store::BrainStore::open(&config.db_path)?;
-            let snapshot = crate::stats::collect(&store, &config, days)?;
-            if json {
-                println!("{}", serde_json::to_string_pretty(&snapshot)?);
-            } else {
-                print!("{}", crate::stats::format_text(&snapshot));
-            }
-        }
-
         "eval" => {
             let live = args.iter().any(|a| a == "--live");
             let skills_sh = args.iter().any(|a| a == "--skills-sh");
