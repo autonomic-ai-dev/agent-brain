@@ -57,6 +57,9 @@ fn patch_mcp_config(config_path: &Path, new_binary: &str) -> Result<bool> {
     if !config_path.exists() {
         return Ok(false);
     }
+    if config_path.extension().and_then(|s| s.to_str()) != Some("json") {
+        return Ok(false);
+    }
     let content = std::fs::read_to_string(config_path)?;
     let mut config: McpConfig = serde_json::from_str(&content)?;
 

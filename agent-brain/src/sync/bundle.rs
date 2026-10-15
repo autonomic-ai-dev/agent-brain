@@ -139,10 +139,31 @@ pub fn import_bundle(
 ) -> Result<ImportReport> {
     let manifest_raw =
         fs::read_to_string(bundle_path.join("manifest.json")).context("read manifest.json")?;
+    let schema_version = serde_json::from_str::<serde_json::Value>(&manifest_raw)
+        .ok()
+        .and_then(|v| v.get("schema_version").and_then(|x| x.as_u64()))
+        .unwrap_or(1);
+    if schema_version >= 2 {
+        let min_reader = serde_json::from_str::<serde_json::Value>(&manifest_raw)
+            .ok()
+            .and_then(|v| v.get("min_reader_version").and_then(|x| x.as_u64()))
+            .unwrap_or(2);
+        if min_reader > 2 {
+            anyhow::bail!(
+                "bundle min_reader_version {min_reader} is newer than this agent-brain (supports 2)"
+            );
+        }
+        return crate::sync::v2::import_v2_bundle(store, embedder, bundle_path, policy, sync_source);
+    }
     let manifest: BundleManifest =
         serde_json::from_str(&manifest_raw).context("parse manifest.json")?;
+    let facts_path = bundle_path.join("facts.jsonl");
+    if !facts_path.is_file() {
+        // v1 manifest without facts — nothing to do
+        return Ok(ImportReport::default());
+    }
     let facts_body =
-        fs::read_to_string(bundle_path.join("facts.jsonl")).context("read facts.jsonl")?;
+        fs::read_to_string(&facts_path).context("read facts.jsonl")?;
     let checksum = sha256_hex(facts_body.as_bytes());
     if checksum != manifest.checksums.facts_jsonl {
         anyhow::bail!("facts.jsonl checksum mismatch");

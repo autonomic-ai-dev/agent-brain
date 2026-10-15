@@ -2,9 +2,12 @@
 
 mod bundle;
 mod cloud;
+pub mod event;
 mod git;
+pub mod hlc;
 mod restore;
 mod status;
+pub mod v2;
 
 pub use bundle::{export_bundle, import_bundle, ImportReport, MergePolicy, SyncSource};
 pub use cloud::{cloud_pull, cloud_push, cloud_status, CloudPullReport, CloudSyncStatus};
