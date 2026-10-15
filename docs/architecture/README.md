@@ -41,6 +41,7 @@ Read in order for a full picture, or jump to a topic:
 | 10 | [Concurrency and performance](10-concurrency-and-performance.md) | Write queue, background bootstrap, latency |
 | 11 | [Decisions log](11-decisions-log.md) | Quick-reference table of major choices |
 | 12 | [Routing accuracy (USP)](12-routing-accuracy.md) | Recall@3, golden suites, hybrid retrieval, feedback loop |
+| 14 | [Portable setup and memory sync](14-portable-sync.md) | Bundle v2, project_key, domains, verify (**thin slice**) |
 
 ## Relationship to other docs
 
