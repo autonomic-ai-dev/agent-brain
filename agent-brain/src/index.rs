@@ -38,6 +38,8 @@ pub fn sync_index_opts(
     enable_ast_index: bool,
 ) -> Result<usize> {
     let roots = config.default_index_roots(cwd);
+    // Drop stale Rules that would no longer be indexed (references/, skill-tree docs).
+    let _ = store.prune_noise_rule_rows()?;
     let mut batch: Vec<UnembeddedItem> = Vec::new();
 
     // Pre-load known mtimes for mtime-based skip
@@ -301,6 +303,9 @@ fn should_skip(path: &Path) -> bool {
         || s.contains("/.next/")
         || s.contains("/.cache/")
         || s.contains("/vendor/")
+        // Skill-pack supporting docs are not routeable Rules (noise vs .mdc policy).
+        || s.contains("/references/")
+        || is_non_entry_skill_tree_doc(path)
         || s.ends_with(".pyc")
         || s.ends_with(".pyo")
         || s.ends_with(".so")
@@ -309,6 +314,37 @@ fn should_skip(path: &Path) -> bool {
         || s.ends_with(".exe")
         || s.ends_with(".bin")
 }
+
+/// Markdown under a skill directory that is not SKILL.md / agents / commands entrypoints.
+fn is_non_entry_skill_tree_doc(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    if !(name.ends_with(".md") || name.ends_with(".mdc")) {
+        return false;
+    }
+    if path.ends_with("SKILL.md") || name.ends_with(".mdc") {
+        return false;
+    }
+    let in_agents = path.components().any(|c| c.as_os_str() == "agents");
+    let in_commands = path.components().any(|c| c.as_os_str() == "commands");
+    if in_agents || in_commands {
+        return false;
+    }
+    let comps: Vec<_> = path.components().map(|c| c.as_os_str()).collect();
+    comps.windows(2).any(|w| {
+        matches!(
+            w[0].to_str(),
+            Some("skills") | Some(".agents") | Some("skills-cursor")
+        ) && name != "SKILL.md"
+    })
+}
+
+/// True when an indexed Rule path should not remain in the DB.
+pub fn is_noise_rule_source(path: &str) -> bool {
+    path.contains("/references/") || is_non_entry_skill_tree_doc(Path::new(path))
+}
+
 
 struct ParsedItem {
     item_type: ItemType,
@@ -429,7 +465,7 @@ fn extract_skill_text(content: &str, name: &str) -> String {
     if let Some(activation) = extract_activation_section(&body) {
         parts.push(activation);
     }
-    let body_snippet: String = body.lines().take(20).collect::<Vec<_>>().join(" ");
+    let body_snippet: String = body.lines().take(8).collect::<Vec<_>>().join(" ");
     if !body_snippet.is_empty() {
         parts.push(body_snippet);
     }

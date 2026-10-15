@@ -25,7 +25,29 @@ CI gate: **Recall@3 ≥ 0.85** for both the memory suite and the skill suite (`a
 
 ## Route noise hygiene
 
-`route_task` must not treat session digests, `obs/*` auto-observations, or `auto-route` telemetry as first-class memory or `must_apply` constraints. Those topics stay in the index for explain/inspect tooling and may appear in `context_bundle.observations`, but they are excluded from `relevant_memory` / `must_apply`. Memory recommendations also respect the same relative score floor as skills/rules, and `apply_when` constraints still require a minimum retrieval score so weakly matched facts from other projects cannot bind the turn.
+`route_task` must not treat session digests, `obs/*` auto-observations, or `auto-route` telemetry as first-class memory or `must_apply` constraints. Those topics stay in the index for explain/inspect tooling but are **excluded** from `relevant_memory`, `must_apply`, and `context_bundle.observations` (MCP turns no longer re-inject obs noise).
+
+### Index purity
+
+Skill-pack `references/*.md` and other non-entrypoint skill-tree docs are **not** indexed as Rules. Project `.mdc` / CLAUDE / AGENTS rules under the repo receive a scoring boost; leftover global reference docs are penalized. Index sync prunes orphan Rule rows that match those skip patterns.
+
+### Skill hit quality
+
+Skills need `score >= max(relative_floor, 0.35)`. After the top skill, additional skills must stay within **0.15** score (agents: **0.12**). MCP route tag expansion and supervisor skill boosts apply only on clear host/MCP tasks.
+
+### must_apply contract
+
+Promotion requires strong retrieval **and** lexical affinity:
+
+- `apply_when` matched: score ≥ 0.55 and lexical ≥ 0.15
+- labeled negative: score ≥ 0.55, lexical ≥ 0.20, and (project scope match **or** apply_when)
+- heuristic "never"/"do not": score ≥ 0.85, lexical ≥ 0.25, **and** apply_when
+
+Cross-project slips must not bind unrelated turns.
+
+### Cache
+
+Low-signal memory writes (digests / auto-route / obs topics) do **not** bump `index_version`. Turn cache ignores open-files by default so editor churn does not force misses.
 
 ## How retrieval works (accuracy stack)
 

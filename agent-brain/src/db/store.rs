@@ -452,6 +452,29 @@ impl BrainStore {
         })
     }
 
+    /// Remove Rule rows whose source_path matches skill-reference / skip noise paths.
+    pub fn prune_noise_rule_rows(&self) -> Result<u64> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, source_path FROM indexed_items WHERE item_type = 'rule'",
+            )?;
+            let rows: Vec<(String, String)> = stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .filter_map(|r| r.ok())
+                .collect();
+            let mut deleted = 0u64;
+            for (id, path) in rows {
+                if crate::index::is_noise_rule_source(&path) {
+                    deleted += conn
+                        .execute("DELETE FROM indexed_items WHERE id = ?1", params![id])?
+                        as u64;
+                }
+            }
+            Ok(deleted)
+        })
+    }
+
+
     pub fn load_searchable_items(&self) -> Result<Vec<SearchRow>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
@@ -2331,13 +2354,17 @@ impl BrainStore {
             }
 
             if matches!(item_type, ItemType::Skill | ItemType::Agent) && lexical >= 0.2 {
-                score += 0.10 * lexical;
+                // Prefer name/description overlap over long body matches.
+                let topic_lex =
+                    crate::retrieval::lexical_overlap_score(query, &row.topic, &row.topic);
+                score += 0.10 * lexical + 0.08 * topic_lex;
             }
 
             if item_type == ItemType::Skill {
                 const SUPERVISOR_SKILLS: &[&str] = &["token-efficient-ops", "execution-supervisor"];
                 if SUPERVISOR_SKILLS.contains(&row.topic.as_str())
-                    && crate::retrieval::supervisor_query_strength(query) >= 0.2
+                    && crate::retrieval::supervisor_query_strength(query) >= 0.35
+                    && crate::workspace::is_mcp_host_task(query)
                 {
                     score += 0.18;
                 }
@@ -2350,6 +2377,23 @@ impl BrainStore {
             if let Some(root) = repo_root {
                 if row.scope_key.as_deref() == Some(root) {
                     score += 0.1;
+                }
+            }
+
+            if item_type == ItemType::Rule {
+                let path = row.source_path.as_str();
+                let is_project_rule = row.scope == "project"
+                    && (repo_root.is_some_and(|r| row.scope_key.as_deref() == Some(r))
+                        || path.contains("/.cursor/rules/")
+                        || path.contains("/.claude/rules/"));
+                if is_project_rule {
+                    score += 0.20;
+                }
+                if row.scope == "global"
+                    && path.contains("/references/")
+                    && (path.contains("/skills/") || path.contains("/.agents/"))
+                {
+                    score -= 0.15;
                 }
             }
 
@@ -2430,6 +2474,8 @@ impl BrainStore {
                     score,
                     polarity: polarity.map(str::to_string),
                     apply_when_matched,
+                    lexical,
+                    scope_key: row.scope_key.clone(),
                 });
                 continue;
             }
@@ -2448,6 +2494,8 @@ impl BrainStore {
                 score,
                 polarity: row.polarity.clone(),
                 apply_when_matched,
+                lexical,
+                scope_key: row.scope_key.clone(),
             });
         }
 
