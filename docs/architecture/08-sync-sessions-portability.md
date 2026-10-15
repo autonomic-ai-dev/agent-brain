@@ -126,6 +126,7 @@ Legacy single topic `session-digest-cursor` caused **clobbering** — new sessio
 
 ## Further reading
 
+- [14-portable-sync.md](14-portable-sync.md) — portable sync upgrade (thin slice)
 - [sync/mod.rs](../../agent-brain/src/sync/mod.rs)
 - [sessions/mod.rs](../../agent-brain/src/sessions/mod.rs)
 - [08-sync-sessions-portability.md](08-sync-sessions-portability.md) — this doc
