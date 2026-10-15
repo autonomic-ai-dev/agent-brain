@@ -10,6 +10,7 @@ use walkdir::WalkDir;
 use crate::config::Config;
 use crate::db::store::{content_hash, BrainStore, IndexBatchItem};
 use crate::embed::Embedder;
+#[cfg(feature = "extras")]
 use crate::graphify::{AstCodeNodeRow, AstEdgeRow};
 use crate::types::ItemType;
 
@@ -33,9 +34,12 @@ pub fn sync_index_opts(
     embedder: &Embedder,
     cwd: Option<&Path>,
     changed_only: bool,
+    #[cfg_attr(not(feature = "extras"), allow(unused_variables))]
     enable_ast_index: bool,
 ) -> Result<usize> {
     let roots = config.default_index_roots(cwd);
+    // Drop stale Rules that would no longer be indexed (references/, skill-tree docs).
+    let _ = store.prune_noise_rule_rows()?;
     let mut batch: Vec<UnembeddedItem> = Vec::new();
 
     // Pre-load known mtimes for mtime-based skip
@@ -94,8 +98,10 @@ pub fn sync_index_opts(
     };
 
     use rayon::prelude::*;
-    let ast_nodes = Mutex::new(Vec::new());
-    let ast_edges = Mutex::new(Vec::new());
+    #[cfg(feature = "extras")]
+    let ast_nodes = Mutex::new(Vec::<AstCodeNodeRow>::new());
+    #[cfg(feature = "extras")]
+    let ast_edges = Mutex::new(Vec::<AstEdgeRow>::new());
     let parsed_items: Vec<UnembeddedItem> = file_tasks
         .into_par_iter()
         .flat_map(|(path, repo, pkg_ctx)| {
@@ -105,6 +111,7 @@ pub fn sync_index_opts(
                 let hash = content_hash(&item.text);
                 items.push(UnembeddedItem { item, hash, mtime });
             }
+            #[cfg(feature = "extras")]
             if enable_ast_index {
                 if let Ok((ast_symbols, ast_extracted_edges)) =
                     crate::ast_indexer::index_file(&path)
@@ -241,28 +248,31 @@ pub fn sync_index_opts(
     store.upsert_indexed_items_batch(&db_items)?;
     store.bump_index_version()?;
 
-    // Phase 4: build complete code graph from AST data (no external graphify binary needed)
-    let ast_node_list = ast_nodes.into_inner().unwrap_or_default();
-    let ast_edge_list = ast_edges.into_inner().unwrap_or_default();
-    if !ast_node_list.is_empty() || !ast_edge_list.is_empty() {
-        let mut by_repo: HashMap<String, (Vec<AstCodeNodeRow>, Vec<AstEdgeRow>)> = HashMap::new();
-        for node in ast_node_list {
-            by_repo
-                .entry(node.repo_root.clone())
-                .or_default()
-                .0
-                .push(node);
-        }
-        for edge in ast_edge_list {
-            by_repo
-                .entry(edge.repo_root.clone())
-                .or_default()
-                .1
-                .push(edge);
-        }
-        let now = chrono::Utc::now().timestamp();
-        for (repo_root, (nodes, edges)) in &by_repo {
-            store.build_code_graph_from_ast(repo_root, nodes, edges, now)?;
+    // Phase 4: build complete code graph from AST data (extras / graphify builds only).
+    #[cfg(feature = "extras")]
+    {
+        let ast_node_list = ast_nodes.into_inner().unwrap_or_default();
+        let ast_edge_list = ast_edges.into_inner().unwrap_or_default();
+        if !ast_node_list.is_empty() || !ast_edge_list.is_empty() {
+            let mut by_repo: HashMap<String, (Vec<AstCodeNodeRow>, Vec<AstEdgeRow>)> = HashMap::new();
+            for node in ast_node_list {
+                by_repo
+                    .entry(node.repo_root.clone())
+                    .or_default()
+                    .0
+                    .push(node);
+            }
+            for edge in ast_edge_list {
+                by_repo
+                    .entry(edge.repo_root.clone())
+                    .or_default()
+                    .1
+                    .push(edge);
+            }
+            let now = chrono::Utc::now().timestamp();
+            for (repo_root, (nodes, edges)) in &by_repo {
+                store.build_code_graph_from_ast(repo_root, nodes, edges, now)?;
+            }
         }
     }
 
@@ -293,6 +303,9 @@ fn should_skip(path: &Path) -> bool {
         || s.contains("/.next/")
         || s.contains("/.cache/")
         || s.contains("/vendor/")
+        // Skill-pack supporting docs are not routeable Rules (noise vs .mdc policy).
+        || s.contains("/references/")
+        || is_non_entry_skill_tree_doc(path)
         || s.ends_with(".pyc")
         || s.ends_with(".pyo")
         || s.ends_with(".so")
@@ -301,6 +314,37 @@ fn should_skip(path: &Path) -> bool {
         || s.ends_with(".exe")
         || s.ends_with(".bin")
 }
+
+/// Markdown under a skill directory that is not SKILL.md / agents / commands entrypoints.
+fn is_non_entry_skill_tree_doc(path: &Path) -> bool {
+    let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+        return false;
+    };
+    if !(name.ends_with(".md") || name.ends_with(".mdc")) {
+        return false;
+    }
+    if path.ends_with("SKILL.md") || name.ends_with(".mdc") {
+        return false;
+    }
+    let in_agents = path.components().any(|c| c.as_os_str() == "agents");
+    let in_commands = path.components().any(|c| c.as_os_str() == "commands");
+    if in_agents || in_commands {
+        return false;
+    }
+    let comps: Vec<_> = path.components().map(|c| c.as_os_str()).collect();
+    comps.windows(2).any(|w| {
+        matches!(
+            w[0].to_str(),
+            Some("skills") | Some(".agents") | Some("skills-cursor")
+        ) && name != "SKILL.md"
+    })
+}
+
+/// True when an indexed Rule path should not remain in the DB.
+pub fn is_noise_rule_source(path: &str) -> bool {
+    path.contains("/references/") || is_non_entry_skill_tree_doc(Path::new(path))
+}
+
 
 struct ParsedItem {
     item_type: ItemType,
@@ -421,7 +465,7 @@ fn extract_skill_text(content: &str, name: &str) -> String {
     if let Some(activation) = extract_activation_section(&body) {
         parts.push(activation);
     }
-    let body_snippet: String = body.lines().take(20).collect::<Vec<_>>().join(" ");
+    let body_snippet: String = body.lines().take(8).collect::<Vec<_>>().join(" ");
     if !body_snippet.is_empty() {
         parts.push(body_snippet);
     }

@@ -149,7 +149,7 @@ impl Engine {
                 crate::sessions::ingest_sessions(&self.store, &self.embedder, &self.config)?;
             if sessions > 0 {
                 tracing::info!("session ingest: imported {sessions} session facts");
-                self.store.bump_index_version()?;
+                // Digests are low-signal — do not invalidate turn/session caches.
             }
             n += sessions;
         }
@@ -247,9 +247,7 @@ impl Engine {
             return Ok(0);
         }
         let sessions = crate::sessions::ingest_sessions(&self.store, &self.embedder, &self.config)?;
-        if sessions > 0 {
-            self.store.bump_index_version()?;
-        }
+        // Digests are low-signal — do not invalidate turn/session caches.
         let now = chrono::Utc::now().timestamp().to_string();
         let _ = self.store.set_meta("last_session_ingest_unix", &now);
         Ok(sessions)
@@ -281,7 +279,7 @@ impl Engine {
         std::thread::spawn(move || {
             match crate::sessions::ingest_sessions(&store, &embedder, &config) {
                 Ok(sessions) if sessions > 0 => {
-                    store.bump_index_version().ok();
+                    // Digests are low-signal — do not invalidate turn/session caches.
                     let now = chrono::Utc::now().timestamp().to_string();
                     let _ = store.set_meta("last_session_ingest_unix", &now);
                     tracing::info!(
@@ -782,7 +780,13 @@ impl Engine {
             )?;
 
         let build_started = Instant::now();
-        let mut resp = build_route_response(&scored, &limits, &phase, max_tokens);
+        let mut resp = build_route_response(
+            &scored,
+            &limits,
+            &phase,
+            max_tokens,
+            ws.repo_root.as_deref(),
+        );
         resp.index_total = index_total;
         if let Some(repo) = ws.repo_root.as_deref() {
             resp.repo_snapshot =
@@ -804,6 +808,7 @@ impl Engine {
             &phase,
             &resp.must_apply,
         );
+        #[cfg(feature = "extras")]
         if let Some(repo) = ws.repo_root.as_deref() {
             if settings.graphify.enabled {
                 resp.code_context = crate::graphify::route_code_context(
@@ -1105,11 +1110,20 @@ impl Engine {
     }
 }
 
+
+fn is_duplicate_topic(seen: &mut HashSet<String>, item: &ScoredItem) -> bool {
+    match item.item_type {
+        ItemType::Agent | ItemType::Skill => !seen.insert(item.topic.to_ascii_lowercase()),
+        _ => false,
+    }
+}
+
 fn build_route_response(
     scored: &[ScoredItem],
     limits: &RouteLimits,
     phase: &str,
     max_tokens: usize,
+    repo_root: Option<&str>,
 ) -> RouteTaskResponse {
     let mut resp = RouteTaskResponse {
         recommended_phase: phase.to_string(),
@@ -1124,26 +1138,77 @@ fn build_route_response(
         .map(|i| i.score)
         .fold(0.0_f64, f64::max);
     let min_score = crate::retrieval::minimum_recommendation_score(top_non_memory);
+    let top_skill = scored
+        .iter()
+        .filter(|i| matches!(i.item_type, ItemType::Skill))
+        .map(|i| i.score)
+        .fold(0.0_f64, f64::max);
+    // Absolute skill floor when the index has a strong hit; avoid emptying weak fixtures.
+    let skill_floor = if top_skill >= 0.50 {
+        min_score.max(0.35)
+    } else {
+        min_score
+    };
+    let agent_floor = min_score;
 
-    resp.must_apply = collect_must_apply_from_scored(scored, 3);
+    resp.must_apply = collect_must_apply_from_scored(scored, 3, repo_root);
 
     // Pass 1: agents, skills, rules — before memory consumes the token budget.
     for item in scored.iter() {
         if matches!(item.item_type, ItemType::Memory) {
             continue;
         }
-        if item.score < min_score {
+        let type_floor = match item.item_type {
+            ItemType::Skill => skill_floor,
+            ItemType::Agent => agent_floor,
+            _ => min_score,
+        };
+        if item.score < type_floor {
             continue;
         }
-        try_add_route_item(&mut resp, &mut state, item, limits, phase, max_tokens);
+        // Margin: additional skills/agents must stay close to the top hit.
+        if matches!(item.item_type, ItemType::Skill) {
+            if let Some(top) = resp.recommended_skills.first() {
+                if item.score < top.score - 0.25 {
+                    continue;
+                }
+            }
+        }
+        if matches!(item.item_type, ItemType::Agent) {
+            if let Some(top) = resp.recommended_agents.first() {
+                if item.score < top.score - 0.12 {
+                    continue;
+                }
+            }
+        }
+        try_add_route_item(
+            &mut resp,
+            &mut state,
+            item,
+            limits,
+            phase,
+            max_tokens,
+            repo_root,
+        );
     }
 
-    // Pass 2: memory with whatever budget remains.
+    // Pass 2: memory with whatever budget remains (same score floor; no digest/obs noise).
     for item in scored.iter() {
         if !matches!(item.item_type, ItemType::Memory) {
             continue;
         }
-        try_add_route_item(&mut resp, &mut state, item, limits, phase, max_tokens);
+        if item.score < min_score {
+            continue;
+        }
+        try_add_route_item(
+            &mut resp,
+            &mut state,
+            item,
+            limits,
+            phase,
+            max_tokens,
+            repo_root,
+        );
     }
 
     resp
@@ -1153,7 +1218,6 @@ fn build_route_response(
 struct RouteBuildState {
     seen_agents: HashSet<String>,
     seen_skills: HashSet<String>,
-    low_signal_memories: usize,
 }
 
 fn try_add_route_item(
@@ -1163,6 +1227,7 @@ fn try_add_route_item(
     limits: &RouteLimits,
     phase: &str,
     max_tokens: usize,
+    repo_root: Option<&str>,
 ) {
     enum PendingRec {
         Agent(AgentRec),
@@ -1210,7 +1275,7 @@ fn try_add_route_item(
             (PendingRec::Rule(rec), t)
         }
         ItemType::Memory if resp.relevant_memory.len() < limits.memory => {
-            if is_low_signal_memory(&item.topic, None) && state.low_signal_memories >= 1 {
+            if is_low_signal_memory(&item.topic, None) {
                 return;
             }
             let rec = MemoryRec {
@@ -1248,10 +1313,7 @@ fn try_add_route_item(
         PendingRec::Skill(rec) => resp.recommended_skills.push(rec),
         PendingRec::Rule(rec) => resp.applicable_rules.push(rec),
         PendingRec::Memory(rec) => {
-            if is_low_signal_memory(&item.topic, None) {
-                state.low_signal_memories += 1;
-            }
-            if let Some(constraint) = must_apply_for_memory(item) {
+            if let Some(constraint) = must_apply_for_memory(item, repo_root) {
                 if resp.must_apply.len() < 3
                     && !resp.must_apply.iter().any(|m| m.topic == constraint.topic)
                 {
@@ -1277,26 +1339,44 @@ fn rationale_for(item: &ScoredItem, phase: &str) -> String {
     )
 }
 
-fn is_duplicate_topic(seen: &mut HashSet<String>, item: &ScoredItem) -> bool {
-    match item.item_type {
-        ItemType::Agent | ItemType::Skill => !seen.insert(item.topic.to_ascii_lowercase()),
-        _ => false,
+fn project_scope_matches(item: &ScoredItem, repo_root: Option<&str>) -> bool {
+    if item.scope != "project" {
+        return false;
+    }
+    match (repo_root, item.scope_key.as_deref()) {
+        (Some(root), Some(key)) => key == root,
+        (None, _) => true,
+        (Some(_), None) => true,
     }
 }
 
-fn must_apply_for_memory(item: &ScoredItem) -> Option<MustApply> {
+fn must_apply_for_memory(item: &ScoredItem, repo_root: Option<&str>) -> Option<MustApply> {
     if !matches!(item.item_type, ItemType::Memory) {
         return None;
     }
-    let is_negative = item.polarity.as_deref() == Some("negative")
-        || item.text.to_lowercase().contains("do not")
+    // Digests / observations / auto-route never bind as hard constraints.
+    if is_low_signal_memory(&item.topic, None) {
+        return None;
+    }
+    let labeled_negative = item.polarity.as_deref() == Some("negative");
+    let heuristic_negative = item.text.to_lowercase().contains("do not")
         || item.text.to_lowercase().contains("never ");
-    let negative_threshold = if item.polarity.as_deref() == Some("negative") {
-        0.35
-    } else {
-        0.55
-    };
-    if (is_negative && item.score > negative_threshold) || item.apply_when_matched {
+    let scoped = project_scope_matches(item, repo_root);
+
+    let promote = (item.apply_when_matched
+        && item.score >= 0.55
+        && item.lexical >= 0.15)
+        || (labeled_negative
+            && item.score >= 0.55
+            && item.lexical >= 0.20
+            && (scoped || item.apply_when_matched))
+        || (heuristic_negative
+            && !labeled_negative
+            && item.score >= 0.85
+            && item.lexical >= 0.25
+            && item.apply_when_matched);
+
+    if promote {
         Some(MustApply {
             topic: item.topic.clone(),
             text: item.text.chars().take(200).collect(),
@@ -1306,23 +1386,34 @@ fn must_apply_for_memory(item: &ScoredItem) -> Option<MustApply> {
     }
 }
 
-fn collect_must_apply_from_scored(scored: &[ScoredItem], max: usize) -> Vec<MustApply> {
+fn collect_must_apply_from_scored(
+    scored: &[ScoredItem],
+    max: usize,
+    repo_root: Option<&str>,
+) -> Vec<MustApply> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
     let mut memories: Vec<&ScoredItem> = scored
         .iter()
         .filter(|i| matches!(i.item_type, ItemType::Memory))
         .collect();
+    // Prefer project-scoped constraints over global when scores are close.
     memories.sort_by(|a, b| {
-        b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
+        let a_proj = if a.scope == "project" { 1 } else { 0 };
+        let b_proj = if b.scope == "project" { 1 } else { 0 };
+        b_proj
+            .cmp(&a_proj)
+            .then_with(|| {
+                b.score
+                    .partial_cmp(&a.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
     });
     for item in memories {
         if out.len() >= max {
             break;
         }
-        if let Some(constraint) = must_apply_for_memory(item) {
+        if let Some(constraint) = must_apply_for_memory(item, repo_root) {
             if seen.insert(constraint.topic.clone()) {
                 out.push(constraint);
             }
@@ -1371,4 +1462,152 @@ fn auto_observe_topics(
         tracing::info!(topic = %obs_topic, facts = count, "auto-observed recurring pattern");
     }
     Ok(())
+}
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{ItemType, RouteLimits, ScoredItem};
+
+    fn mem(topic: &str, score: f64, text: &str) -> ScoredItem {
+        ScoredItem {
+            id: topic.into(),
+            item_type: ItemType::Memory,
+            topic: topic.into(),
+            text: text.into(),
+            source_path: None,
+            scope: "project".into(),
+            score,
+            polarity: None,
+            apply_when_matched: false,
+            lexical: 0.0,
+            scope_key: None,
+        }
+    }
+
+    fn skill(topic: &str, score: f64) -> ScoredItem {
+        ScoredItem {
+            id: topic.into(),
+            item_type: ItemType::Skill,
+            topic: topic.into(),
+            text: "skill body".into(),
+            source_path: Some("/tmp/SKILL.md".into()),
+            scope: "project".into(),
+            score,
+            polarity: None,
+            apply_when_matched: false,
+            lexical: 0.0,
+            scope_key: None,
+        }
+    }
+
+    #[test]
+    fn route_excludes_digest_and_obs_from_memory_and_must_apply() {
+        let scored = vec![
+            mem(
+                "session-digest-cursor-abc",
+                0.99,
+                "Retrieved only via route_task. Session digest ...",
+            ),
+            mem("obs/auto-route", 0.95, "Recurring pattern on auto-route"),
+            mem("auto-route", 0.9, "Worked on: phase=explore"),
+            mem(
+                "project-convention",
+                0.5,
+                "Use agent-brain route_task every turn",
+            ),
+            skill("mcp-server-patterns", 0.8),
+        ];
+        let limits = RouteLimits {
+            agents: 2,
+            skills: 3,
+            rules: 3,
+            memory: 5,
+        };
+        let resp = build_route_response(&scored, &limits, "implementing", 800, None);
+        assert!(
+            resp.relevant_memory.iter().all(|m| {
+                !m.topic.starts_with("session-digest-")
+                    && !m.topic.starts_with("obs/")
+                    && m.topic != "auto-route"
+            }),
+            "noise leaked into relevant_memory: {:?}",
+            resp.relevant_memory
+        );
+        assert!(
+            resp.must_apply.iter().all(|m| {
+                !m.topic.starts_with("session-digest-")
+                    && !m.topic.starts_with("obs/")
+                    && m.topic != "auto-route"
+            }),
+            "noise leaked into must_apply: {:?}",
+            resp.must_apply
+        );
+        assert!(
+            resp.relevant_memory
+                .iter()
+                .any(|m| m.topic == "project-convention"),
+            "real memory should remain"
+        );
+    }
+
+    #[test]
+    fn must_apply_requires_score_even_with_apply_when() {
+        let weak = ScoredItem {
+            id: "cinema".into(),
+            item_type: ItemType::Memory,
+            topic: "slip-district-seat-fix".into(),
+            text: "never use SCREEN N as seat".into(),
+            source_path: None,
+            scope: "project".into(),
+            score: 0.25,
+            polarity: None,
+            apply_when_matched: true,
+            lexical: 0.0,
+            scope_key: None,
+        };
+        assert!(must_apply_for_memory(&weak, None).is_none());
+        let strong = ScoredItem {
+            score: 0.55,
+            lexical: 0.20,
+            ..weak
+        };
+        assert!(must_apply_for_memory(&strong, None).is_some());
+
+        // Cross-project cinema slip must not bind on an unrelated architecture query.
+        let cinema = ScoredItem {
+            id: "cinema2".into(),
+            item_type: ItemType::Memory,
+            topic: "slip-district-seat-fix".into(),
+            text: "never use SCREEN N as seat".into(),
+            source_path: None,
+            scope: "global".into(),
+            score: 0.95,
+            polarity: Some("negative".into()),
+            apply_when_matched: false,
+            lexical: 0.05,
+            scope_key: None,
+        };
+        assert!(must_apply_for_memory(&cinema, Some("/tmp/agent-brain")).is_none());
+    }
+
+    #[test]
+    fn skill_margin_keeps_only_close_hits() {
+        let scored = vec![
+            skill("rust-patterns", 0.90),
+            skill("mcp-server-patterns", 0.50),
+            skill("make-interfaces-feel-better", 0.40),
+        ];
+        let limits = RouteLimits {
+            agents: 0,
+            skills: 3,
+            rules: 0,
+            memory: 0,
+        };
+        let resp = build_route_response(&scored, &limits, "planning", 800, None);
+        assert_eq!(resp.recommended_skills.len(), 1);
+        assert_eq!(resp.recommended_skills[0].name, "rust-patterns");
+    }
 }

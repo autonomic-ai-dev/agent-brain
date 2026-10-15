@@ -135,19 +135,28 @@ pub fn build_context_bundle(resp: &RouteTaskResponse, scored: &[ScoredItem]) -> 
 }
 
 fn negative_memories(resp: &RouteTaskResponse, scored: &[ScoredItem]) -> Vec<MemoryRec> {
+    use crate::workspace::is_low_signal_memory;
     let mut out: Vec<MemoryRec> = resp
         .relevant_memory
         .iter()
         .filter(|m| is_negative_topic_or_text(&m.topic, &m.text))
+        .filter(|m| !is_low_signal_memory(&m.topic, None))
         .cloned()
         .collect();
     for item in scored {
         if !matches!(item.item_type, crate::types::ItemType::Memory) {
             continue;
         }
+        if is_low_signal_memory(&item.topic, None) {
+            continue;
+        }
         if item.polarity.as_deref() != Some("negative")
             && !is_negative_topic_or_text(&item.topic, &item.text)
         {
+            continue;
+        }
+        // Same soft gates as recommendations: need lexical affinity.
+        if item.lexical < 0.15 || item.score < 0.35 {
             continue;
         }
         let rec = MemoryRec {
@@ -162,30 +171,9 @@ fn negative_memories(resp: &RouteTaskResponse, scored: &[ScoredItem]) -> Vec<Mem
     out
 }
 
-fn observation_memories(resp: &RouteTaskResponse, scored: &[ScoredItem]) -> Vec<MemoryRec> {
-    let mut out: Vec<MemoryRec> = resp
-        .relevant_memory
-        .iter()
-        .filter(|m| m.topic.starts_with("obs/"))
-        .cloned()
-        .collect();
-    for item in scored {
-        if !matches!(item.item_type, crate::types::ItemType::Memory) {
-            continue;
-        }
-        if !item.topic.starts_with("obs/") {
-            continue;
-        }
-        let rec = MemoryRec {
-            topic: item.topic.clone(),
-            text: item.text.chars().take(300).collect(),
-            score: item.score,
-        };
-        if !out.iter().any(|m| m.topic == rec.topic) {
-            out.push(rec);
-        }
-    }
-    out
+fn observation_memories(_resp: &RouteTaskResponse, _scored: &[ScoredItem]) -> Vec<MemoryRec> {
+    // Observations stay in inspect/DB — do not re-inject obs/* into every MCP turn.
+    Vec::new()
 }
 
 fn is_negative_topic_or_text(topic: &str, text: &str) -> bool {
@@ -278,7 +266,7 @@ mod tests {
         };
         let bundle = build_context_bundle(&resp, &[]);
         assert_eq!(bundle.agents.len(), 1);
-        assert_eq!(bundle.observations.len(), 1);
+        assert!(bundle.observations.is_empty(), "obs must not re-enter MCP bundle");
         assert_eq!(bundle.negative_memory.len(), 1);
         assert_eq!(bundle.team_rules.len(), 1);
     }
@@ -305,6 +293,8 @@ mod tests {
             score: 0.9,
             polarity: None,
             apply_when_matched: false,
+            lexical: 0.0,
+            scope_key: None,
         }];
         let c = compute_route_confidence(&resp, &scored);
         assert!(c > 0.5);

@@ -123,7 +123,7 @@ fn temporal_valid_from_defers_fact_activation() {
 }
 
 #[test]
-fn observation_surfaces_must_apply_when_tags_match() {
+fn observation_does_not_bind_must_apply_or_memory() {
     let dir = TempDir::new().unwrap();
     let config = test_config(&dir);
     config.ensure_dirs().unwrap();
@@ -171,12 +171,17 @@ fn observation_surfaces_must_apply_when_tags_match() {
         )
         .unwrap();
 
+    // Observations are indexed for inspect/tooling but must not bind or fill route memory.
     assert!(
-        resp.must_apply.iter().any(|m| m.topic.starts_with("obs/"))
-            || resp
-                .relevant_memory
-                .iter()
-                .any(|m| m.topic.starts_with("obs/")),
-        "observation memory should surface in route output"
+        resp.must_apply.iter().all(|m| !m.topic.starts_with("obs/")),
+        "obs/* must not enter must_apply: {:?}",
+        resp.must_apply
+    );
+    assert!(
+        resp.relevant_memory
+            .iter()
+            .all(|m| !m.topic.starts_with("obs/")),
+        "obs/* must not enter relevant_memory: {:?}",
+        resp.relevant_memory
     );
 }

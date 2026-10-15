@@ -99,7 +99,11 @@ impl WriteHandlerCtx {
             temporal.as_ref(),
         )?;
         self.cache.clear();
-        self.store.bump_index_version().ok();
+        // Telemetry / digest writes must not thrash turn + session caches.
+        let low_signal = crate::workspace::is_low_signal_memory(&payload.topic, Some("agent"));
+        if !low_signal {
+            self.store.bump_index_version().ok();
+        }
 
         if res.stored {
             let settings = crate::settings::AgentBrainSettings::load(&self.home);

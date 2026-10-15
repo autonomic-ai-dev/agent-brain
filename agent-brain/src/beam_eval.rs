@@ -271,12 +271,13 @@ fn run_observation_suite(engine: &Engine) -> Result<SuiteResult> {
             Some("implementing"),
             None,
         )?;
-        let hit = resp.must_apply.iter().any(|m| m.topic.starts_with("obs/"))
+        // Synthesis is the product signal; MCP no longer re-injects obs/* into the bundle.
+        let leaked = resp.must_apply.iter().any(|m| m.topic.starts_with("obs/"))
             || resp
                 .relevant_memory
                 .iter()
                 .any(|m| m.topic.starts_with("obs/"));
-        usize::from(hit)
+        usize::from(!leaked)
     } else {
         0
     };

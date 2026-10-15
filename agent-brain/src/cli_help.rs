@@ -54,8 +54,6 @@ Ops:
   dashboard     Write a local HTML metrics page
   inspect       Retrieval logs, facts, conflicts
   learn         Ingest allowlisted docs into skills + memory
-  graphify      Codebase graph enable / ingest / query
-  grpc          Orchestrator bridge API (gRPC)
   log           Print or follow a named log file
 
 Extras (build with `--features extras`):
@@ -67,6 +65,8 @@ Extras (build with `--features extras`):
   skills-sh     Refresh skills.sh snapshot
   proofs        CI proof aggregate
   distill       Architecture distill / clusters
+  graphify      Codebase graph enable / ingest / query
+  grpc          Orchestrator bridge API (gRPC)
 
 Global Options:
   -h, --help       Show help
@@ -396,28 +396,6 @@ Commands:
       Show docs.allowed_domains from config
 "
         }
-        "graphify" => {
-            "\
-Usage:  agent-brain graphify COMMAND
-
-Codebase graph orchestration (opt-in per repo).
-
-Commands:
-  enable|disable|status|ingest|run|query ...
-
-Run without a subcommand for the graphify CLI usage banner.
-"
-        }
-        "grpc" => {
-            "\
-Usage:  agent-brain grpc serve [--addr HOST:PORT]
-
-Orchestrator bridge API (gRPC).
-
-Options:
-      --addr HOST:PORT   Listen address (default: 127.0.0.1:7842)
-"
-        }
         "log" => {
             "\
 Usage:  agent-brain log <name> [--follow]
@@ -431,7 +409,7 @@ Options:
 "
         }
         "dataset" | "digest" | "eval" | "bench" | "fixture" | "skills-sh" | "proofs"
-        | "distill" => {
+        | "distill" | "graphify" | "grpc" => {
             print_extras_command(cmd);
             return true;
         }
@@ -470,6 +448,8 @@ Options:
         "fixture" => "Commands: build [--index-size N] [--write PATH] ...\n",
         "skills-sh" => "Commands: sync [--max N] [--merge] ...\n",
         "proofs" => "Requires: --ci [--write PATH]\n",
+        "graphify" => "Commands: enable|disable|status|ingest|run|query ...\n",
+        "grpc" => "Usage: agent-brain grpc serve [--addr HOST:PORT]\n",
         "distill" => {
             "\
 Usage:

@@ -183,15 +183,23 @@ pub fn infer_task_kind(message: &str) -> crate::types::TaskKind {
     crate::types::TaskKind::Implementing
 }
 
+/// Session digests, auto-observations, and auto-route telemetry are index noise for
+/// `route_task` recommendations — keep them out of relevant_memory / must_apply.
 pub fn is_low_signal_memory(topic: &str, source: Option<&str>) -> bool {
     let topic_lower = topic.to_lowercase();
     topic_lower.starts_with("legacy-")
         || topic_lower.starts_with("legacy_")
         || topic_lower.starts_with("session-digest-")
         || topic_lower.contains("session_digest")
+        || topic_lower.starts_with("obs/")
+        || topic_lower == "auto-route"
+        || topic_lower.starts_with("auto-route/")
         || matches!(
             source,
-            Some("session_digest") | Some("legacy") | Some("legacy_cursor")
+            Some("session_digest")
+                | Some("legacy")
+                | Some("legacy_cursor")
+                | Some("observation")
         )
 }
 
@@ -305,6 +313,9 @@ mod tests {
             "session-digest-abc",
             Some("session_digest")
         ));
+        assert!(is_low_signal_memory("obs/auto-route", None));
+        assert!(is_low_signal_memory("auto-route", None));
         assert!(!is_low_signal_memory("routing", Some("user")));
+        assert!(!is_low_signal_memory("slip-district-seat-fix", None));
     }
 }

@@ -103,8 +103,8 @@ impl Config {
                 .map(|v| v != "0" && v != "false")
                 .unwrap_or(true),
             turn_cache_ignore_open_files: std::env::var("AGENT_BRAIN_TURN_CACHE_OPEN_FILES")
-                .map(|v| v == "1" || v == "true")
-                .unwrap_or(false),
+                .map(|v| !(v == "0" || v == "false"))
+                .unwrap_or(true),
             embedding_model: std::env::var("AGENT_BRAIN_EMBED_MODEL")
                 .unwrap_or_else(|_| "mini".into()),
             bootstrap_startup_delay_secs: env_u64("AGENT_BRAIN_BOOTSTRAP_DELAY_SEC", 2),

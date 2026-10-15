@@ -92,6 +92,8 @@ mod tests {
                 score: 10.0,
                 polarity: None,
                 apply_when_matched: false,
+                lexical: 0.0,
+                scope_key: None,
             },
             ScoredItem {
                 id: "b".into(),
@@ -103,6 +105,8 @@ mod tests {
                 score: 5.0,
                 polarity: None,
                 apply_when_matched: false,
+                lexical: 0.0,
+                scope_key: None,
             },
         ];
         rerank_scored_items("react memo performance", &mut scored, 20);

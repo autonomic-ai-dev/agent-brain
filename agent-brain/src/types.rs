@@ -47,6 +47,15 @@ pub struct ScoredItem {
     pub polarity: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub apply_when_matched: bool,
+    /// Lexical overlap with the route query (used for must_apply gates).
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub lexical: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_key: Option<String>,
+}
+
+fn is_zero_f64(v: &f64) -> bool {
+    *v == 0.0
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -252,10 +261,10 @@ pub struct RouteTaskResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_bundle: Option<ContextBundle>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub code_context: Option<crate::graphify::CodeContext>,
+    pub code_context: Option<crate::code_nav::CodeContext>,
     /// Cross-agent scratchpad entries (most recent first).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub scratchpad: Vec<crate::graphify::ScratchpadEntry>,
+    pub scratchpad: Vec<crate::code_nav::ScratchpadEntry>,
     /// Lightweight git ambient state when cwd is inside a repository.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repo_snapshot: Option<String>,
