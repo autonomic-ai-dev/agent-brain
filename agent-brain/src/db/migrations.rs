@@ -271,6 +271,17 @@ pub fn run(conn: &Connection) -> rusqlite::Result<()> {
         conn.execute("UPDATE schema_version SET version = 17", [])?;
     }
 
+    let version: i64 = conn
+        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
+            r.get(0)
+        })
+        .unwrap_or(0);
+
+    if version < 18 {
+        migrate_v18(conn)?;
+        conn.execute("UPDATE schema_version SET version = 18", [])?;
+    }
+
     Ok(())
 }
 
@@ -655,3 +666,24 @@ fn migrate_v17(conn: &Connection) -> rusqlite::Result<()> {
     )?;
     Ok(())
 }
+
+fn migrate_v18(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS verify_outcomes (
+            id TEXT PRIMARY KEY,
+            route_log_id TEXT,
+            exit_code INTEGER NOT NULL,
+            cause_tag TEXT,
+            verify_config_hash TEXT,
+            scenario_dir_hash TEXT,
+            cmd TEXT NOT NULL,
+            device_id TEXT,
+            recorded_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_verify_outcomes_at ON verify_outcomes(recorded_at);
+        "#,
+    )?;
+    Ok(())
+}
+
