@@ -2,13 +2,13 @@
 # Install agent-brain MCP server and register it with Cursor.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/aeswibon/agent-brain/master/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/autonomic-ai-dev/agent-brain/master/scripts/install.sh | bash
 #   curl -fsSL ... | bash -s -- --from-source
 #   curl -fsSL ... | bash -s -- --global
 #
 set -euo pipefail
 
-REPO="${AGENT_BRAIN_REPO:-aeswibon/agent-brain}"
+REPO="${AGENT_BRAIN_REPO:-autonomic-ai-dev/agent-brain}"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 FROM_SOURCE=0
 GLOBAL=0
@@ -34,7 +34,7 @@ Options:
 
 Environment:
   INSTALL_DIR     Binary install location (default: ~/.local/bin)
-  AGENT_BRAIN_REPO  GitHub repo (default: aeswibon/agent-brain)
+  AGENT_BRAIN_REPO  GitHub repo (default: autonomic-ai-dev/agent-brain)
 EOF
       exit 0
       ;;

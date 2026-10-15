@@ -31,7 +31,7 @@ pub fn print_onboarding(home: &Path, has_briefing: bool) {
     }
     println!();
     println!("Curated packs:  agent-brain registry list");
-    println!("Team setup:       docs/TEAM-WORKFLOW.md (github.com/aeswibon/agent-brain)");
+    println!("Team setup:       docs/TEAM-WORKFLOW.md (github.com/autonomic-ai-dev/agent-brain)");
     println!("Dev proofs (CI fixtures, not product claims): docs/benchmarks/");
     if let Ok(config) = crate::config::Config::load() {
         if let Ok(store) = crate::db::store::BrainStore::open(&config.db_path) {

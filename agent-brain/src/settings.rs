@@ -467,7 +467,7 @@ fn default_true() -> bool {
 }
 
 fn default_repo() -> String {
-    "aeswibon/agent-brain".into()
+    "autonomic-ai-dev/agent-brain".into()
 }
 
 fn default_bin_path() -> String {
@@ -658,7 +658,7 @@ auto_update:
     names: [ecc]
   mcp:
     enabled: false
-    repo: aeswibon/agent-brain
+    repo: autonomic-ai-dev/agent-brain
 "#,
         )
         .unwrap();
