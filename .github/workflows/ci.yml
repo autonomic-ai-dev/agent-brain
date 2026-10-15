@@ -1,10 +1,36 @@
 name: CI
 
+# Only run when paths that affect the binary, tests, or CI itself change.
+# Skipped for docs/**, *.md, .cursor/**, and other non-runtime files.
+# (Proofs/eval/bench stay on schedule or workflow_dispatch — not PR CI.)
+# Manual runs always allowed via workflow_dispatch.
 on:
   push:
     branches: [master]
+    paths:
+      - "agent-brain/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "Makefile"
+      - "Containerfile"
+      - "scripts/**"
+      - ".github/workflows/**"
+      - ".github/pipelines/**"
+      - ".github/actions/**"
+      - ".github/scripts/**"
   pull_request:
     branches: [master]
+    paths:
+      - "agent-brain/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "Makefile"
+      - "Containerfile"
+      - "scripts/**"
+      - ".github/workflows/**"
+      - ".github/pipelines/**"
+      - ".github/actions/**"
+      - ".github/scripts/**"
   workflow_dispatch:
 
 permissions:
