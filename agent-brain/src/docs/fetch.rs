@@ -8,7 +8,7 @@ pub fn fetch_url(url: &str, max_bytes: usize) -> Result<Vec<u8>> {
     let response = ureq::get(url)
         .header(
             "User-Agent",
-            "agent-brain/0.18 (+https://github.com/aeswibon/agent-brain)",
+            "agent-brain/0.18 (+https://github.com/autonomic-ai-dev/agent-brain)",
         )
         .header(
             "Accept",

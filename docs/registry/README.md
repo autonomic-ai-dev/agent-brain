@@ -22,7 +22,7 @@ agent-brain registry list
 ## Install with starter pack
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/aeswibon/agent-brain/master/scripts/install.sh | bash -s -- --global --with-starter
+curl -fsSL https://raw.githubusercontent.com/autonomic-ai-dev/agent-brain/master/scripts/install.sh | bash -s -- --global --with-starter
 ```
 
 Or after install:

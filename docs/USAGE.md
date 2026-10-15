@@ -74,13 +74,13 @@ The `briefing` field in `route_task` JSON is a short one-liner; use the file or 
 ### 1. Install the binary
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/aeswibon/agent-brain/master/scripts/install.sh | bash -s -- --global
+curl -fsSL https://raw.githubusercontent.com/autonomic-ai-dev/agent-brain/master/scripts/install.sh | bash -s -- --global
 ```
 
 Or from source:
 
 ```bash
-cargo install --git https://github.com/aeswibon/agent-brain --locked agent-brain
+cargo install --git https://github.com/autonomic-ai-dev/agent-brain --locked agent-brain
 agent-brain install --global
 ```
 

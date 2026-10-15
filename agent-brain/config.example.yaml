@@ -7,7 +7,7 @@ auto_update:
     # names: [ecc]   # omit or leave empty to update all installed packages
   mcp:
     enabled: true
-    repo: aeswibon/agent-brain
+    repo: autonomic-ai-dev/agent-brain
     bin_path: ~/.local/bin/agent-brain
     refresh_cursor: true
     restart_after_update: true
