@@ -27,7 +27,7 @@ Quick reference for major design choices. Each row links to the article with ful
 | Filesystem watch for index | Deferred | Bootstrap interval sufficient for now |
 | Skill-level `apply_when` triggers | Partial | Memory has it; skills use description + search |
 | Skill golden eval set | **Shipped** | `proofs --ci` on isolated fixture |
-| Published proof artifact | **Shipped** | `docs/benchmarks/latest.json` |
+| Published proof artifact | **Shipped** | CI writes proof JSON under `docs/benchmarks/` (fixtures only; no product docs) |
 | `vectors.bin` sidecar | Spec only | Embeddings in SQLite today |
 
 ## How to propose a change

@@ -8,7 +8,7 @@ How a staff engineer standardizes agent-brain for a team without per-developer c
 |------|----------------|
 | **Platform / staff** | Chooses skill packs, repo rules, memory conventions, sync policy |
 | **Developers** | `install --global`, `add @alias`, use Agent mode (hooks enforce routing) |
-| **CI (optional)** | `eval --skills-sh` or custom golden suite on repo skill pack |
+| **CI (optional)** | `agent-brain proofs --ci` or a custom golden suite on the team skill pack |
 
 ## 1. Pick the team skill pack
 
@@ -69,10 +69,10 @@ After changing the team pack, spot-check:
 
 ```bash
 agent-brain briefing
-cargo run --release -p agent-brain -- eval --skills-sh   # if using skills.sh fixture workflow
+agent-brain proofs --ci
 ```
 
-Add repo-specific golden queries to a private manifest if you maintain a custom eval suite.
+Add repo-specific golden queries if you maintain a custom eval suite.
 
 ## 6. Onboarding checklist (copy for new hires)
 
@@ -92,4 +92,4 @@ Add repo-specific golden queries to a private manifest if you maintain a custom 
 | Share API keys in memory facts | Store conventions only; no secrets in `store_memory` |
 | Expect routing without indexing | Run `agent-brain index` after adding packages |
 
-See also: [USAGE.md](USAGE.md) · [registry/README.md](registry/README.md) · [benchmarks/README.md](benchmarks/README.md)
+See also: [USAGE.md](USAGE.md) · [registry/README.md](registry/README.md) · [architecture/12-routing-accuracy.md](architecture/12-routing-accuracy.md)

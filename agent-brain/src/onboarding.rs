@@ -32,7 +32,7 @@ pub fn print_onboarding(home: &Path, has_briefing: bool) {
     println!();
     println!("Curated packs:  agent-brain registry list");
     println!("Team setup:       docs/TEAM-WORKFLOW.md (github.com/autonomic-ai-dev/agent-brain)");
-    println!("Dev proofs (CI fixtures, not product claims): docs/benchmarks/");
+    println!("Dev proofs: agent-brain proofs --ci");
     if let Ok(config) = crate::config::Config::load() {
         if let Ok(store) = crate::db::store::BrainStore::open(&config.db_path) {
             if let Ok(stats) = crate::stats::collect(&store, &config, 7) {
