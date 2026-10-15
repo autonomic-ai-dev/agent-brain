@@ -1,22 +1,18 @@
 //! Curated bundles shipped inside the binary (no git clone).
 
 mod autonomic_core;
+mod coding_policy;
 mod supervisor;
 
 use std::fs;
-use std::path::Path;
-
 use anyhow::{Context, Result};
 
 use super::{packages_dir, PackageRecord, PackageRegistry};
 use crate::config::Config;
 
 pub fn install_bundled(config: &Config, bundle: &str) -> Result<PackageRecord> {
-    let files = match bundle {
-        "autonomic-core" => autonomic_core::files(),
-        "supervisor" => supervisor::files(),
-        other => anyhow::bail!("unknown bundled package '{other}'"),
-    };
+    let files = bundled_manifest_dir(bundle)
+        .ok_or_else(|| anyhow::anyhow!("unknown bundled package '{bundle}'"))?;
 
     let install_dir = packages_dir(&config.home).join(bundle);
     if install_dir.exists() {
@@ -60,6 +56,7 @@ pub fn install_bundled(config: &Config, bundle: &str) -> Result<PackageRecord> {
 pub fn bundled_manifest_dir(bundle: &str) -> Option<&'static [(&'static str, &'static str)]> {
     match bundle {
         "autonomic-core" => Some(autonomic_core::files()),
+        "coding-policy" => Some(coding_policy::files()),
         "supervisor" => Some(supervisor::files()),
         _ => None,
     }
@@ -101,5 +98,22 @@ mod tests {
         assert_eq!(record.name, "supervisor");
         let skill = home.join("packages/supervisor/.cursor/skills/token-efficient-ops/SKILL.md");
         assert!(skill.is_file(), "missing {}", skill.display());
+    }
+
+    #[test]
+    fn installs_coding_policy_bundle_files() {
+        let dir = TempDir::new().unwrap();
+        let home = dir.path().to_path_buf();
+        let mut config = Config::isolated(home.clone());
+        config.db_path = home.join("data").join("brain.db");
+        config.data_dir = home.join("data");
+        config.vectors_path = home.join("data").join("vectors.bin");
+        config.ensure_dirs().unwrap();
+        let record = install_bundled(&config, "coding-policy").unwrap();
+        assert_eq!(record.name, "coding-policy");
+        let rule = home.join("packages/coding-policy/.cursor/rules/coding-policy.mdc");
+        assert!(rule.is_file(), "missing {}", rule.display());
+        let body = std::fs::read_to_string(&rule).unwrap();
+        assert!(body.contains("Engineering Policy"));
     }
 }

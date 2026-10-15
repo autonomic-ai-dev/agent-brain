@@ -4,8 +4,10 @@ use agent_brain::config::Config;
 use agent_brain::db::store::{content_hash, BrainStore};
 use agent_brain::embed::deterministic_embedding;
 use agent_brain::engine::Engine;
+#[cfg(feature = "extras")]
 use agent_brain::eval::{assert_ci_gate, run_ci_eval, RECALL_AT_3_THRESHOLD};
 use agent_brain::memory_gc::run_memory_gc;
+#[cfg(feature = "extras")]
 use agent_brain::operator_digest::weekly_digest;
 use agent_brain::promote::{approve_staging, promote_fact_to_skill, reject_staging};
 use tempfile::TempDir;
@@ -271,6 +273,7 @@ fn memory_gc_report_buckets_protected_negative() {
     );
 }
 
+#[cfg(feature = "extras")]
 #[test]
 fn weekly_digest_empty_db() {
     let dir = TempDir::new().unwrap();
@@ -281,6 +284,7 @@ fn weekly_digest_empty_db() {
     assert_eq!(digest.route_calls, 0);
 }
 
+#[cfg(feature = "extras")]
 #[test]
 fn eval_ci_meets_recall_gate() {
     let dir = TempDir::new().unwrap();
@@ -293,6 +297,7 @@ fn eval_ci_meets_recall_gate() {
     assert_ci_gate(&report).unwrap();
 }
 
+#[cfg(feature = "extras")]
 #[test]
 fn skills_sh_eval_passes_on_committed_fixture_db() {
     let fixture = agent_brain::fixture::default_fixture_2k_path();
@@ -320,6 +325,7 @@ fn skills_sh_eval_passes_on_committed_fixture_db() {
     );
 }
 
+#[cfg(feature = "extras")]
 #[test]
 fn fixture_2k_db_has_expected_composition() {
     let fixture = agent_brain::fixture::default_fixture_2k_path();
@@ -341,6 +347,7 @@ fn fixture_2k_db_has_expected_composition() {
     }
 }
 
+#[cfg(feature = "extras")]
 #[test]
 fn skills_sh_eval_passes_runtime_seed() {
     let snapshot = agent_brain::skills_sh::default_snapshot_path();
@@ -350,6 +357,7 @@ fn skills_sh_eval_passes_runtime_seed() {
     assert_eq!(report.index_mode, "runtime-seed");
 }
 
+#[cfg(feature = "extras")]
 #[test]
 fn proofs_ci_passes_isolated_gates() {
     let report = agent_brain::proofs::run_ci_proofs().unwrap();
@@ -393,7 +401,7 @@ fn stats_collects_token_savings_from_retrieval_log() {
     assert_eq!(snapshot.period.routes_with_savings, 1);
     assert!(snapshot.period.avg_saved_pct >= 95.0);
     assert!(snapshot.period.total_saved_tokens > 0);
-    assert!(stats::format_summary_line(&snapshot).contains("tok saved"));
+    assert!(stats::format_summary_line(&snapshot).contains("tok avg routed"));
 }
 
 #[test]

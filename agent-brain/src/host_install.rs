@@ -866,7 +866,7 @@ When agent-brain mode is on, **delegate** to sibling utilities instead of improv
 
 - `agent-brain registry list` — skill @aliases and utility catalog
 - `route_to_mcp` — forward to configured upstream MCP tools (`suggested_tools` in route_task)
-- Bootstrap: `agent-brain add @autonomic-core` + `agent-brain add @supervisor`
+- Bootstrap: `agent-brain add @coding-policy` + `@autonomic-core` + `@supervisor` (also via `doctor --fix`)
 
 ## Native host tools (OpenCode / Claude Code / VS Code / Gemini / Antigravity)
 

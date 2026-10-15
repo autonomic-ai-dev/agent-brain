@@ -103,11 +103,9 @@ pub fn format_weekly_digest(digest: &WeeklyDigest) -> String {
     ));
     if digest.routes_with_savings > 0 {
         out.push_str(&format!(
-            "- Token savings: ~{:.0}% avg ({} routes) · ~{} tok saved (est.)\n- Avg routed tokens: {:.0}\n",
-            digest.avg_saved_pct,
-            digest.routes_with_savings,
-            digest.total_saved_tokens,
-            digest.avg_routed_tokens
+            "- Avg routed tokens: {:.0} across {} routes\n",
+            digest.avg_routed_tokens,
+            digest.routes_with_savings
         ));
     }
     if digest.routes_with_constraints > 0 {

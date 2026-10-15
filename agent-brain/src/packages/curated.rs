@@ -241,4 +241,13 @@ mod tests {
         let resolved = lookup_alias("@supervisor").unwrap().unwrap();
         assert_eq!(resolved, ResolvedAlias::Bundle("supervisor".into()));
     }
+    #[test]
+    fn resolves_coding_policy_bundle_alias() {
+        let resolved = lookup_alias("@coding-policy").unwrap().unwrap();
+        assert_eq!(
+            resolved,
+            ResolvedAlias::Bundle("coding-policy".into())
+        );
+    }
+
 }

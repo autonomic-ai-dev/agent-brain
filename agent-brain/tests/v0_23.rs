@@ -1,5 +1,6 @@
 //! v0.23 — gRPC bridge, BEAM eval harness, and trace extraction.
 
+#[cfg(feature = "extras")]
 use agent_brain::beam_eval::{assert_beam_gate, run_beam_eval_isolated};
 use agent_brain::db::store::BrainStore;
 use agent_brain::embed::Embedder;
@@ -8,6 +9,7 @@ use agent_brain::trace_extract::{run_trace_extract, TraceExtractConfig};
 use agent_brain::types::{RouteTaskResponse, TaskKind};
 use tempfile::TempDir;
 
+#[cfg(feature = "extras")]
 #[test]
 fn beam_eval_passes_isolated_harness() {
     let report = run_beam_eval_isolated().unwrap();

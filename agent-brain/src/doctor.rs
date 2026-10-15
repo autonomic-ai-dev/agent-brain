@@ -409,9 +409,9 @@ pub fn run(fix: bool) -> Result<()> {
     println!();
     println!("Tips:");
     println!("  • agent-brain briefing — readable route + estimated token savings vs full index");
-    println!("  • agent-brain stats — index size, savings, latency, adoption milestones");
+    println!("  • agent-brain stats — index size, latency, local route activity");
     println!(
-        "  • agent-brain dashboard --open — local HTML value dashboard (screenshot-friendly ROI)"
+        "  • agent-brain dashboard --open — local HTML metrics (routes, latency, activity)"
     );
     println!("  • agent-brain onboarding — 5-minute getting started checklist");
     println!("  • agent-brain install --all --global — MCP + instructions for Cursor, OpenCode, Claude Code, VS Code, Codex, Gemini, Antigravity");
@@ -783,6 +783,7 @@ fn bootstrap_registry_bundles(config: &crate::config::Config) -> Result<()> {
     let registry = crate::packages::PackageRegistry::load(&config.home)?;
     let has_core = registry.packages.iter().any(|p| p.name == "autonomic-core");
     let has_supervisor = registry.packages.iter().any(|p| p.name == "supervisor");
+    let has_coding_policy = registry.packages.iter().any(|p| p.name == "coding-policy");
     if !has_core {
         crate::packages::install_bundled(config, "autonomic-core")?;
         println!("  bootstrap:           installed @autonomic-core");
@@ -790,6 +791,10 @@ fn bootstrap_registry_bundles(config: &crate::config::Config) -> Result<()> {
     if !has_supervisor {
         crate::packages::install_bundled(config, "supervisor")?;
         println!("  bootstrap:           installed @supervisor");
+    }
+    if !has_coding_policy {
+        crate::packages::install_bundled(config, "coding-policy")?;
+        println!("  bootstrap:           installed @coding-policy");
     }
     Ok(())
 }

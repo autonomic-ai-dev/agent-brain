@@ -1,5 +1,3 @@
-use std::io::Write;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use agent_brain::{
@@ -8,6 +6,8 @@ use agent_brain::{
 };
 use anyhow::{Context, Result};
 use tracing_subscriber::EnvFilter;
+
+mod cli_help;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -22,7 +22,42 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    if let Some(target) = cli_help::help_target(&args) {
+        match target {
+            None => cli_help::print_root(),
+            Some(cmd) => {
+                if !cli_help::print_command(cmd) {
+                    eprintln!("Unknown command: {cmd}");
+                    cli_help::print_root();
+                    std::process::exit(1);
+                }
+            }
+        }
+        return Ok(());
+    }
+
     let cmd = args.get(1).map(String::as_str).unwrap_or("serve");
+
+    #[cfg(feature = "extras")]
+    if agent_brain::cli_extras::is_extras_command(cmd) {
+        return agent_brain::cli_extras::dispatch(cmd, &args);
+    }
+    #[cfg(not(feature = "extras"))]
+    if matches!(
+        cmd,
+        "dataset"
+            | "digest"
+            | "eval"
+            | "fixture"
+            | "skills-sh"
+            | "bench"
+            | "proofs"
+            | "distill"
+    ) {
+        anyhow::bail!(
+            "command `{cmd}` requires a build with `--features extras`\n             rebuild: cargo install --path agent-brain --features extras"
+        );
+    }
 
     match cmd {
         "serve" => {
@@ -256,7 +291,7 @@ async fn main() -> Result<()> {
                 }
                 _ => {
                     eprintln!("Unknown package subcommand: {sub}");
-                    print_usage();
+                    let _ = cli_help::print_command("package");
                     std::process::exit(1);
                 }
             }
@@ -352,7 +387,7 @@ async fn main() -> Result<()> {
                 },
                 _ => {
                     eprintln!("Unknown config subcommand: {sub}");
-                    print_usage();
+                    let _ = cli_help::print_command("config");
                     std::process::exit(1);
                 }
             }
@@ -468,6 +503,39 @@ async fn main() -> Result<()> {
                 },
             }
         }
+
+
+        "stats" => {
+            let days = flag_value(&args, "--days")
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(7);
+            let json = args.iter().any(|a| a == "--json");
+            let config = Config::load()?;
+            let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
+            let snapshot = agent_brain::stats::collect(&store, &config, days)?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&snapshot)?);
+            } else {
+                print!("{}", agent_brain::stats::format_text(&snapshot));
+            }
+        }
+
+        "dashboard" => {
+            let days = flag_value(&args, "--days")
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(7);
+            let open = args.iter().any(|a| a == "--open");
+            let config = Config::load()?;
+            let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
+            let snapshot = agent_brain::stats::collect(&store, &config, days)?;
+            let path = agent_brain::dashboard::write_dashboard_html(&config.home, &snapshot)?;
+            println!("{}", agent_brain::stats::format_text(&snapshot));
+            println!("Dashboard: {}", path.display());
+            if open {
+                open_dashboard_in_browser(&path)?;
+            }
+        }
+
         "onboarding" => {
             let config = Config::load()?;
             let briefing = config.logs_dir.join("last-route.md");
@@ -911,518 +979,6 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        "dataset" => {
-            let config = Config::load()?;
-            let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
-            let sub = args.get(2).map(String::as_str).unwrap_or("help");
-            match sub {
-                "export" => {
-                    let min_confidence = flag_value(&args, "--min-confidence")
-                        .and_then(|v| v.parse::<f64>().ok())
-                        .unwrap_or(0.8);
-                    let only_successful = !args.iter().any(|a| a == "--all-outcomes");
-                    let out = flag_value(&args, "--out")
-                        .map(std::path::PathBuf::from)
-                        .unwrap_or_else(|| std::path::PathBuf::from("dataset.jsonl"));
-                    let entries = agent_brain::dataset::export_dataset(
-                        &store,
-                        min_confidence,
-                        only_successful,
-                    )?;
-                    let file = std::fs::File::create(&out)?;
-                    let mut writer = std::io::BufWriter::new(file);
-                    for entry in &entries {
-                        let line = serde_json::to_string(entry)?;
-                        writeln!(writer, "{line}")?;
-                    }
-                    writer.flush()?;
-                    println!("Exported {} entries to {}", entries.len(), out.display());
-                }
-                "stats" => {
-                    let min_confidence = flag_value(&args, "--min-confidence")
-                        .and_then(|v| v.parse::<f64>().ok())
-                        .unwrap_or(0.8);
-                    let entries =
-                        agent_brain::dataset::export_dataset(&store, min_confidence, true)?;
-                    let stats = agent_brain::dataset::compute_stats(&entries);
-                    println!("{}", serde_json::to_string_pretty(&stats)?);
-                }
-                "ingest-spine" => {
-                    let only_successful = !args.iter().any(|a| a == "--all-outcomes");
-                    let out = flag_value(&args, "--out")
-                        .map(std::path::PathBuf::from)
-                        .unwrap_or_else(agent_brain::spine_ingest::default_dataset_path);
-                    let executions =
-                        flag_value(&args, "--executions-dir").map(std::path::PathBuf::from);
-                    let report = agent_brain::spine_ingest::ingest_executions(
-                        executions.as_deref(),
-                        &out,
-                        only_successful,
-                    )?;
-                    println!("{}", serde_json::to_string_pretty(&report)?);
-                }
-                "pipeline" => {
-                    let only_successful = !args.iter().any(|a| a == "--all-outcomes");
-                    let out = flag_value(&args, "--out")
-                        .map(std::path::PathBuf::from)
-                        .unwrap_or_else(agent_brain::spine_ingest::default_dataset_path);
-                    let min_confidence = flag_value(&args, "--min-confidence")
-                        .and_then(|v| v.parse::<f64>().ok())
-                        .unwrap_or(0.8);
-                    let gates = agent_brain::dataset_pipeline::PipelineGates {
-                        verify_ui_url: flag_value(&args, "--verify-ui"),
-                        verify_memory_script: flag_value(&args, "--verify-memory-script")
-                            .map(std::path::PathBuf::from),
-                        ui_threshold: flag_value(&args, "--ui-threshold")
-                            .and_then(|v| v.parse().ok())
-                            .unwrap_or(1.0),
-                        memory_threshold_kb: flag_value(&args, "--memory-threshold-kb")
-                            .and_then(|v| v.parse().ok())
-                            .unwrap_or(524_288),
-                    };
-                    let report = agent_brain::dataset_pipeline::run_pipeline(
-                        &store,
-                        &out,
-                        only_successful,
-                        min_confidence,
-                        &gates,
-                    )?;
-                    println!("{}", serde_json::to_string_pretty(&report)?);
-                }
-                _ => {
-                    eprintln!("Usage: agent-brain dataset export [--out PATH] [--min-confidence N] [--all-outcomes]");
-                    eprintln!("       agent-brain dataset stats [--min-confidence N]");
-                    eprintln!("       agent-brain dataset ingest-spine [--out PATH] [--executions-dir DIR] [--all-outcomes]");
-                    eprintln!("       agent-brain dataset pipeline [--out PATH] [--min-confidence N] [--all-outcomes] [--verify-ui URL] [--verify-memory-script PATH]");
-                    std::process::exit(1);
-                }
-            }
-        }
-        "digest" => {
-            if !args.iter().any(|a| a == "--weekly") {
-                eprintln!("Usage: agent-brain digest --weekly");
-                std::process::exit(1);
-            }
-            let config = Config::load()?;
-            let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
-            let digest = agent_brain::operator_digest::weekly_digest(&store, 7)?;
-            println!(
-                "{}",
-                agent_brain::operator_digest::format_weekly_digest(&digest)
-            );
-        }
-        "stats" => {
-            let json = args.iter().any(|a| a == "--json");
-            let days = flag_value(&args, "--days")
-                .and_then(|v| v.parse::<u32>().ok())
-                .unwrap_or(7);
-            let config = Config::load()?;
-            config.ensure_dirs()?;
-            let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
-            let snapshot = agent_brain::stats::collect(&store, &config, days)?;
-            if json {
-                println!("{}", serde_json::to_string_pretty(&snapshot)?);
-            } else {
-                print!("{}", agent_brain::stats::format_text(&snapshot));
-            }
-        }
-        "dashboard" => {
-            let days = flag_value(&args, "--days")
-                .and_then(|v| v.parse::<u32>().ok())
-                .unwrap_or(7);
-            let open = args.iter().any(|a| a == "--open");
-            let config = Config::load()?;
-            config.ensure_dirs()?;
-            let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
-            let snapshot = agent_brain::stats::collect(&store, &config, days)?;
-            let path = agent_brain::dashboard::write_dashboard_html(&config.home, &snapshot)?;
-            println!("Dashboard written: {}", path.display());
-            if open {
-                open_dashboard_in_browser(&path)?;
-            }
-        }
-        "eval" => {
-            let live = args.iter().any(|a| a == "--live");
-            let skills_sh = args.iter().any(|a| a == "--skills-sh");
-            if skills_sh {
-                let seed_runtime = args.iter().any(|a| a == "--seed");
-                let snapshot = flag_value(&args, "--snapshot")
-                    .map(PathBuf::from)
-                    .unwrap_or_else(agent_brain::skills_sh::default_snapshot_path);
-                let golden = flag_value(&args, "--golden")
-                    .map(PathBuf::from)
-                    .unwrap_or_else(agent_brain::skills_sh::default_golden_path);
-                let fixture_db: Option<PathBuf> = if seed_runtime {
-                    None
-                } else {
-                    flag_value(&args, "--fixture-db")
-                        .map(PathBuf::from)
-                        .or_else(|| {
-                            let default = agent_brain::fixture::default_fixture_2k_path();
-                            default.exists().then_some(default)
-                        })
-                };
-                let report = agent_brain::skills_sh::run_skills_sh_eval(
-                    &snapshot,
-                    &golden,
-                    fixture_db.as_deref(),
-                )?;
-                println!("{}", serde_json::to_string_pretty(&report)?);
-                if let Some(path) = flag_value(&args, "--write") {
-                    let json = serde_json::to_string_pretty(&report)?;
-                    std::fs::write(&path, format!("{json}\n"))?;
-                }
-                if let Err(err) = agent_brain::skills_sh::assert_skills_sh_gate(&report) {
-                    eprintln!("{err}");
-                    std::process::exit(1);
-                }
-            } else if args.iter().any(|a| a == "--beam") {
-                let report = agent_brain::beam_eval::run_beam_eval_isolated()?;
-                println!("{}", serde_json::to_string_pretty(&report)?);
-                if let Err(err) = agent_brain::beam_eval::assert_beam_gate(&report) {
-                    eprintln!("{err}");
-                    std::process::exit(1);
-                }
-            } else if !args.iter().any(|a| a == "--ci") {
-                eprintln!("Usage: agent-brain eval --ci [--live]");
-                eprintln!(
-                    "       agent-brain eval --beam              BEAM memory+routing harness"
-                );
-                eprintln!("       agent-brain eval --skills-sh [--fixture-db PATH] [--seed] [--write PATH]");
-                eprintln!("  --ci            Run Recall@3 gate (default: isolated fixture DB)");
-                eprintln!("  --live          Use ~/.agent_brain brain.db (not for CI)");
-                eprintln!("  --skills-sh     Run skills.sh Recall@3 (~2000 index)");
-                eprintln!("  --fixture-db    Committed benchmark DB (default: docs/benchmarks/fixture-2k.db)");
-                eprintln!(
-                    "  --seed          Seed index at runtime from snapshot instead of fixture DB"
-                );
-                std::process::exit(1);
-            } else {
-                let report = if live {
-                    let mut config = Config::load()?;
-                    config.bootstrap_background = false;
-                    config.session_ingest_background = false;
-                    let engine = Arc::new(Engine::new(config)?);
-                    agent_brain::eval::run_ci_eval(&engine)?
-                } else {
-                    agent_brain::eval::run_ci_eval_isolated()?
-                };
-                println!("{}", serde_json::to_string_pretty(&report)?);
-                if let Err(err) = agent_brain::eval::assert_ci_gate(&report) {
-                    eprintln!("{err}");
-                    std::process::exit(1);
-                }
-            }
-        }
-        "fixture" => {
-            let sub = args.get(2).map(String::as_str).unwrap_or("");
-            match sub {
-                "build" => {
-                    let snapshot = flag_value(&args, "--snapshot")
-                        .map(PathBuf::from)
-                        .unwrap_or_else(agent_brain::skills_sh::default_snapshot_path);
-                    let write_path = flag_value(&args, "--write")
-                        .map(PathBuf::from)
-                        .unwrap_or_else(agent_brain::fixture::default_fixture_2k_path);
-                    let index_size = flag_value(&args, "--index-size")
-                        .and_then(|v| v.parse().ok())
-                        .unwrap_or(agent_brain::skills_sh::SKILLS_SH_SIMULATED_INDEX);
-                    let allow_fillers = args.iter().any(|a| a == "--allow-fillers");
-                    let report = agent_brain::skills_sh::build_fixture_db(
-                        &snapshot,
-                        index_size,
-                        &write_path,
-                        allow_fillers,
-                    )?;
-                    println!("{}", serde_json::to_string_pretty(&report)?);
-                    eprintln!(
-                        "Built fixture DB ({} skills, {} snapshot) → {}",
-                        report.index_size,
-                        report.snapshot_skills,
-                        write_path.display()
-                    );
-                }
-                "verify" => {
-                    let path = flag_value(&args, "--db")
-                        .map(PathBuf::from)
-                        .unwrap_or_else(agent_brain::fixture::default_fixture_2k_path);
-                    let meta = agent_brain::fixture::read_fixture_meta(&path)?;
-                    let breakdown = {
-                        let dir = tempfile::tempdir()?;
-                        let config = Config::isolated(dir.path().to_path_buf());
-                        config.ensure_dirs()?;
-                        std::fs::copy(&path, &config.db_path)?;
-                        let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
-                        agent_brain::fixture::fixture_db_breakdown(&store)?
-                    };
-                    #[derive(serde::Serialize)]
-                    struct VerifyOut {
-                        meta: agent_brain::fixture::FixtureDbMeta,
-                        breakdown: agent_brain::fixture::FixtureDbBreakdown,
-                    }
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(&VerifyOut { meta, breakdown })?
-                    );
-                }
-                _ => {
-                    eprintln!("Usage: agent-brain fixture build [--snapshot PATH] [--index-size N] [--write PATH] [--allow-fillers]");
-                    eprintln!("       agent-brain fixture verify [--db PATH]");
-                    std::process::exit(1);
-                }
-            }
-        }
-        "skills-sh" => {
-            let sub = args.get(2).map(String::as_str).unwrap_or("");
-            match sub {
-                "sync" => {
-                    let manifest_path = flag_value(&args, "--manifest")
-                        .map(PathBuf::from)
-                        .unwrap_or_else(agent_brain::skills_sh::default_manifest_path);
-                    let write_path = flag_value(&args, "--write")
-                        .map(PathBuf::from)
-                        .unwrap_or_else(agent_brain::skills_sh::default_snapshot_path);
-                    let target = flag_value(&args, "--target")
-                        .or_else(|| flag_value(&args, "--max"))
-                        .and_then(|v| v.parse().ok());
-                    let required_only = args.iter().any(|a| a == "--required-only");
-                    let merge = args.iter().any(|a| a == "--merge");
-                    let mut manifest = agent_brain::skills_sh::load_manifest(&manifest_path)?;
-                    if required_only {
-                        manifest.discovery_queries.clear();
-                        manifest.max_skills = manifest.required_ids.len();
-                    }
-                    let delay_ms = flag_value(&args, "--delay-ms")
-                        .and_then(|v| v.parse().ok())
-                        .unwrap_or(if required_only { 20_000 } else { 400 });
-                    let mut options = agent_brain::skills_sh::SyncOptions::from_manifest(
-                        &manifest, target, delay_ms,
-                    );
-                    if merge || write_path.exists() {
-                        options.merge_path = Some(write_path.clone());
-                    }
-                    options.checkpoint_path = Some(write_path.clone());
-                    let (snapshot, report) =
-                        agent_brain::skills_sh::sync_snapshot_with_options(&manifest, options)?;
-                    agent_brain::skills_sh::write_snapshot(&write_path, &snapshot)?;
-                    println!("{}", serde_json::to_string_pretty(&report)?);
-                    eprintln!(
-                        "Synced {} skills ({} downloaded, {} metadata) → {}",
-                        snapshot.skills.len(),
-                        report.downloaded,
-                        report.metadata_fallback,
-                        write_path.display()
-                    );
-                }
-                "retry-failed" => {
-                    let write_path = flag_value(&args, "--write")
-                        .map(PathBuf::from)
-                        .unwrap_or_else(agent_brain::skills_sh::default_snapshot_path);
-                    let delay_ms = flag_value(&args, "--delay-ms")
-                        .and_then(|v| v.parse().ok())
-                        .unwrap_or(200);
-                    let max_retries = flag_value(&args, "--max").and_then(|v| v.parse().ok());
-                    let download_attempts = flag_value(&args, "--download-attempts")
-                        .and_then(|v| v.parse().ok())
-                        .unwrap_or(2);
-                    let (snapshot, report) = agent_brain::skills_sh::retry_failed_downloads(
-                        &write_path,
-                        delay_ms,
-                        download_attempts,
-                        max_retries,
-                    )?;
-                    println!("{}", serde_json::to_string_pretty(&report)?);
-                    eprintln!(
-                        "Retry complete: {} upgraded, {} still metadata, {} total → {}",
-                        report.upgraded,
-                        report.still_metadata,
-                        snapshot.skills.len(),
-                        write_path.display()
-                    );
-                }
-                "golden-probe" => {
-                    let fixture = flag_value(&args, "--fixture-db")
-                        .map(PathBuf::from)
-                        .unwrap_or_else(agent_brain::fixture::default_fixture_2k_path);
-                    let snapshot = flag_value(&args, "--snapshot")
-                        .map(PathBuf::from)
-                        .unwrap_or_else(agent_brain::skills_sh::default_snapshot_path);
-                    let write_path = flag_value(&args, "--write")
-                        .map(PathBuf::from)
-                        .unwrap_or_else(agent_brain::skills_sh::default_golden_path);
-                    let target = flag_value(&args, "--target")
-                        .and_then(|v| v.parse().ok())
-                        .unwrap_or(25);
-                    let golden =
-                        agent_brain::skills_sh::probe_golden_cases(&fixture, &snapshot, target)?;
-                    agent_brain::skills_sh::write_golden(&write_path, &golden)?;
-                    eprintln!(
-                        "Probed {} golden cases (target {}) → {}",
-                        golden.cases.len(),
-                        target,
-                        write_path.display()
-                    );
-                    println!("{}", serde_json::to_string_pretty(&golden)?);
-                }
-                _ => {
-                    eprintln!("Usage: agent-brain skills-sh sync [--target N] [--merge] [--manifest PATH] [--write PATH] [--delay-ms N] [--required-only]");
-                    eprintln!("       agent-brain skills-sh retry-failed [--write PATH] [--max N] [--delay-ms N]");
-                    eprintln!("       agent-brain skills-sh golden-probe [--target N] [--fixture-db PATH] [--snapshot PATH] [--write PATH]");
-                    std::process::exit(1);
-                }
-            }
-        }
-        "bench" => {
-            let onnx = args.iter().any(|a| a == "--onnx");
-            let ci = args.iter().any(|a| a == "--ci");
-            let supervisor = args.iter().any(|a| a == "--supervisor");
-            let scale = args.iter().any(|a| a == "--scale");
-            let graphify = args.iter().any(|a| a == "--graphify");
-            let mcp = args.iter().any(|a| a == "--mcp");
-            if mcp {
-                let report = agent_brain::mcp_bench::run_mcp_bench()?;
-                println!("{}", serde_json::to_string_pretty(&report)?);
-                if let Some(path) = flag_value(&args, "--write") {
-                    let json = serde_json::to_string_pretty(&report)?;
-                    std::fs::write(&path, format!("{json}\n"))?;
-                }
-                if args.iter().any(|a| a == "--assert") {
-                    if let Err(err) = agent_brain::mcp_bench::assert_mcp_bench_gate(&report) {
-                        eprintln!("{err}");
-                        std::process::exit(1);
-                    }
-                }
-            } else if graphify {
-                let full = args.iter().any(|a| a == "--full");
-                let sizes: &[usize] = if full {
-                    agent_brain::graphify_bench::GRAPHIFY_SIZES
-                } else {
-                    &[1_000]
-                };
-                let report = agent_brain::graphify_bench::run_graphify_bench(sizes)?;
-                println!("{}", serde_json::to_string_pretty(&report)?);
-                if let Some(path) = flag_value(&args, "--write") {
-                    let json = serde_json::to_string_pretty(&report)?;
-                    std::fs::write(&path, format!("{json}\n"))?;
-                }
-                if args.iter().any(|a| a == "--assert") {
-                    if let Err(err) =
-                        agent_brain::graphify_bench::assert_graphify_bench_gate(&report)
-                    {
-                        eprintln!("{err}");
-                        std::process::exit(1);
-                    }
-                }
-            } else if supervisor {
-                let report = agent_brain::supervisor_bench::run_supervisor_bench()?;
-                println!("{}", serde_json::to_string_pretty(&report)?);
-                if let Some(path) = flag_value(&args, "--write") {
-                    let json = serde_json::to_string_pretty(&report)?;
-                    std::fs::write(&path, format!("{json}\n"))?;
-                }
-                if args.iter().any(|a| a == "--assert") {
-                    if let Err(err) =
-                        agent_brain::supervisor_bench::assert_supervisor_bench_gate(&report)
-                    {
-                        eprintln!("{err}");
-                        std::process::exit(1);
-                    }
-                }
-            } else if onnx {
-                let fixture = flag_value(&args, "--fixture-db")
-                    .map(PathBuf::from)
-                    .unwrap_or_else(agent_brain::fixture::default_fixture_2k_path);
-                let report = agent_brain::bench::run_onnx_fixture_bench(&fixture)?;
-                println!("{}", serde_json::to_string_pretty(&report)?);
-                if let Some(path) = flag_value(&args, "--write") {
-                    let json = serde_json::to_string_pretty(&report)?;
-                    std::fs::write(&path, format!("{json}\n"))?;
-                }
-                if args.iter().any(|a| a == "--assert-target") {
-                    if let Err(err) = agent_brain::bench::assert_onnx_bench_target(&report) {
-                        eprintln!("{err}");
-                        std::process::exit(1);
-                    }
-                }
-            } else if scale {
-                let full = args.iter().any(|a| a == "--full");
-                let sizes: &[usize] = if full {
-                    agent_brain::scale_bench::SCALE_SIZES
-                } else {
-                    &[1_000]
-                };
-                let report = agent_brain::scale_bench::run_scale_bench(sizes)?;
-                println!("{}", serde_json::to_string_pretty(&report)?);
-                if let Some(path) = flag_value(&args, "--write") {
-                    let json = serde_json::to_string_pretty(&report)?;
-                    std::fs::write(&path, format!("{json}\n"))?;
-                }
-                if args.iter().any(|a| a == "--assert") {
-                    if let Err(err) = agent_brain::scale_bench::assert_scale_bench_gate(&report) {
-                        eprintln!("{err}");
-                        std::process::exit(1);
-                    }
-                }
-            } else if ci {
-                let report = agent_brain::bench::run_ci_bench()?;
-                println!("{}", serde_json::to_string_pretty(&report)?);
-                if let Err(err) = agent_brain::bench::assert_bench_gate(&report) {
-                    eprintln!("{err}");
-                    std::process::exit(1);
-                }
-            } else {
-                eprintln!("Usage: agent-brain bench --ci");
-                eprintln!("       agent-brain bench --mcp [--assert] [--write PATH]");
-                eprintln!("       agent-brain bench --graphify [--full] [--assert] [--write PATH]");
-                eprintln!("       agent-brain bench --scale [--full] [--assert] [--write PATH]");
-                eprintln!("       agent-brain bench --supervisor [--assert] [--write PATH]");
-                eprintln!("       agent-brain bench --onnx [--fixture-db PATH] [--write PATH] [--assert-target]");
-                std::process::exit(1);
-            }
-        }
-        "proofs" => {
-            if !args.iter().any(|a| a == "--ci") {
-                eprintln!("Usage: agent-brain proofs --ci [--write PATH]");
-                std::process::exit(1);
-            }
-            let report = agent_brain::proofs::run_ci_proofs()?;
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            if let Some(path) = flag_value(&args, "--write") {
-                agent_brain::proofs::write_proof_report(PathBuf::from(path).as_path(), &report)?;
-            }
-            if let Ok(config) = Config::load() {
-                let _ = agent_brain::stats::persist_proof_snapshot(&config.home, &report);
-            }
-            if let Err(err) = agent_brain::proofs::assert_ci_proofs(&report) {
-                eprintln!("{err}");
-                std::process::exit(1);
-            }
-        }
-        "distill" => {
-            let is_clusters = args.get(2).map(|s| s.as_str()) == Some("clusters");
-            if is_clusters {
-                let config = Config::load()?;
-                config.ensure_dirs()?;
-                let threshold = flag_value(&args, "--threshold")
-                    .and_then(|v| v.parse::<f64>().ok())
-                    .unwrap_or(0.95);
-                let dry_run = has_flag(&args, "--dry-run");
-                let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
-                let stats =
-                    agent_brain::distill::cluster_and_summarize(&store, threshold, dry_run)?;
-                println!("{}", serde_json::to_string_pretty(&stats)?);
-            } else {
-                let config = Config::load()?;
-                config.ensure_dirs()?;
-                let out = flag_value(&args, "--out")
-                    .map(std::path::PathBuf::from)
-                    .unwrap_or_else(|| std::path::PathBuf::from("ARCHITECTURE.md"));
-                let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
-                let distilled = agent_brain::distill::distill(&store)?;
-                agent_brain::distill::write_architecture_md(&distilled, &out)?;
-                println!("Architecture written to {}", out.display());
-            }
-        }
         "gc" => {
             let config = Config::load()?;
             config.ensure_dirs()?;
@@ -1460,12 +1016,10 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        "help" | "--help" | "-h" => {
-            print_usage();
-        }
+        "help" | "--help" | "-h" => cli_help::print_root(),
         _ => {
             eprintln!("Unknown command: {cmd}");
-            print_usage();
+            cli_help::print_root();
             std::process::exit(1);
         }
     }
@@ -1473,9 +1027,6 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn has_flag(args: &[String], flag: &str) -> bool {
-    args.iter().any(|a| a == flag)
-}
 
 fn flag_value(args: &[String], flag: &str) -> Option<String> {
     args.iter()
@@ -1516,98 +1067,4 @@ fn parse_session_sources(args: &[String]) -> Result<Vec<agent_brain::sessions::S
         }
     }
     Ok(out)
-}
-
-fn print_usage() {
-    eprintln!(
-        r#"agent-brain — local MCP router for agents, skills, rules, and memory
-
-Usage:
-  agent-brain serve                         Start MCP server (stdio)
-  agent-brain grpc serve [--addr HOST:PORT] Orchestrator bridge API (gRPC, default 127.0.0.1:7842)
-  agent-brain index [--changed-only|-c] [--no-ast]   Reindex (--changed-only: skip files with unchanged mtime; --no-ast: skip AST symbol extraction)
-  agent-brain add <@alias|owner/repo|url>   Install package(s) and index
-  agent-brain add @supervisor               Execution supervisor pack (token-efficient ops)
-  agent-brain add @starter                  Curated onboarding pack
-  agent-brain add @nextjs                   Vercel React/Next.js skills
-  agent-brain registry list                 Show curated @aliases
-  agent-brain registry sync [--local]       Refresh registry cache (remote or embedded)
-  agent-brain package list                  List installed packages
-  agent-brain package update [name]         Update one or all packages
-  agent-brain package remove <name>         Remove an installed package
-  agent-brain install [--global] [--reload]     Cursor MCP (default)
-  agent-brain install --claude-desktop          Claude Desktop MCP config
-  agent-brain install --vscode [--global]       VS Code workspace or user mcp.json
-  agent-brain install --claude-code [--global]  Claude Code .mcp.json or ~/.claude.json
-  agent-brain install --opencode [--global]     OpenCode opencode.json (project or ~/.config/opencode)
-  agent-brain install --codex [--global]        Codex config.toml + hooks.json (project or ~/.codex)
-  agent-brain install --gemini [--global]       Gemini CLI settings.json (project or ~/.gemini)
-  agent-brain install --antigravity [--global]  Antigravity mcp_config.json (project or ~/.gemini)
-  agent-brain install --all                     All of the above (user/global scope)
-  agent-brain mode paths                        List agent-brain mode files per host
-  agent-brain mode show                         Print mode snippet (markdown)
-  agent-brain mode install [--global]           Install mode files for all hosts
-  agent-brain update [--force] [--mcp-only]     Run auto-update (MCP uses release redirect; API fallback respects GITHUB_TOKEN/GH_TOKEN)
-  agent-brain config init                     Write ~/.agent_brain/config.yaml defaults
-  agent-brain config show                     Print active config file
-  agent-brain version                         Print installed version
-  agent-brain briefing                        Print last human-readable route summary
-  agent-brain suggest-memory [approve|reject] Show or promote hook anti-pattern to store_memory
-  agent-brain learn url <URL> [--topic NAME] [--dry-run]  Ingest allowlisted docs into skills + memory
-  agent-brain learn allowlist                          Show docs.allowed_domains from config
-  agent-brain graphify enable|disable|status|ingest|run|query  Graphify orchestration (codebase graph)
-  agent-brain stats [--days N] [--json]       Index, routing, token savings, adoption milestones
-  agent-brain dashboard [--days N] [--open]   Local HTML value dashboard (token ROI, memories)
-  agent-brain dataset export [--out PATH]     Export trajectories as JSONL training dataset
-  agent-brain dataset stats                   Compute stats on exported trajectories
-  agent-brain digest --weekly                 Operator digest from retrieval_log
-  agent-brain onboarding                      USP + 5-minute getting started checklist
-  agent-brain export [dir]                    Export sync bundle (manifest + facts.jsonl)
-  agent-brain import <dir> [--policy POLICY]  Import sync bundle (newer_wins default)
-  agent-brain sync status                     Git sync + recent conflicts summary
-  agent-brain sync restore <conflict-id>      Re-promote a fact from conflict_log
-  agent-brain sync git init [--remote URL]    Init ~/.agent_brain/sync git repo (S2)
-  agent-brain sync git clone [--remote URL]   Clone sync repo on a second machine
-  agent-brain sync git push                   Export bundle, commit, push to origin
-  agent-brain sync git pull                   Pull from origin and import bundle
-  agent-brain sync git status                 Show git sync repo state
-  agent-brain sync cloud push|pull            Encrypted cloud sync (S3 / local provider)
-  agent-brain secrets status|setup|add        Keychain secret refs for upstream MCP
-  agent-brain doctor                          Check MCP install, binary, hooks, codesign
-  agent-brain doctor --mcp                    Audit agent-body gateway schemas (tools/list)
-  agent-brain doctor --fix                    Re-sign binary (macOS), align mcp.json, refresh hooks
-  agent-brain inspect log [--last]            List retrieval logs (what route_task returned)
-  agent-brain inspect fact <id>               Show a stored memory fact
-  agent-brain inspect conflicts [--limit N]   Show topic supersession conflict log
-  agent-brain sessions ingest [--source SRCS] [--legacy]  Import session digests (cursor/codex/gemini/opencode)
-  agent-brain sessions status                 Discoverable vs stored session digests
-  agent-brain promote list|approve|reject     Skill promotion workflow (human approval required)
-  agent-brain gc [--min-confidence N] [--max-age-days N]  Run GC: dedup, prune, vacuum
-  agent-brain memory gc [--apply] [--force] [--stale-days N] [--very-stale-days N]  Archive stale facts (dry-run by default)
-  agent-brain digest --weekly                 Operator digest from retrieval_log
-  agent-brain eval --ci [--live]                 Recall@3 gate (isolated fixture; --live uses brain.db)
-  agent-brain bench --ci                         Latency gate on 500-skill fixture (isolated)
-  agent-brain bench --mcp [--assert]             Full MCP tool latency report (route, context, token tools, graphify)
-  agent-brain bench --graphify [--full] [--assert]  Graphify ingest + code_context route bench
-  agent-brain bench --scale [--full] [--assert]  ANN scale bench at 1k/5k/10k (p95 ≤ 50ms)
-  agent-brain bench --supervisor [--assert]      Supervisor skill/must_apply/savings bench
-  agent-brain bench --onnx [--fixture-db PATH]   ONNX warm-route bench on fixture-2k.db (nightly)
-  agent-brain eval --skills-sh [--fixture-db PATH]   skills.sh Recall@3 (~2000 index)
-  agent-brain fixture build [--index-size N]      Build committed fixture-2k.db from snapshot
-  agent-brain skills-sh sync [--max N]          Refresh skills.sh snapshot from public API
-  agent-brain --version                       Same as version (prints version only)
-
-Examples:
-  agent-brain add https://github.com/affaan-m/ecc
-  agent-brain add affaan-m/ecc
-  agent-brain package update ecc
-
-Install on another machine:
-  curl -fsSL https://raw.githubusercontent.com/aeswibon/agent-brain/master/scripts/install.sh | bash -s -- --global
-  agent-brain add affaan-m/ecc
-
-Cursor starts MCP automatically — you do not run 'serve' manually.
-See docs/USAGE.md for the full guide.
-"#
-    );
 }

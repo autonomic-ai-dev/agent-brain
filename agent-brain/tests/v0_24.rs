@@ -1,5 +1,6 @@
 //! v0.24 — learning loop: trajectories, lineage, BEAM escalation suites.
 
+#[cfg(feature = "extras")]
 use agent_brain::beam_eval::{assert_beam_gate, run_beam_eval_isolated};
 use agent_brain::db::store::BrainStore;
 use agent_brain::embed::Embedder;
@@ -112,6 +113,7 @@ fn trace_extract_records_tool_log_lineage() {
     assert_eq!(store.count_fact_lineage(fact_id).unwrap(), 1);
 }
 
+#[cfg(feature = "extras")]
 #[test]
 fn beam_eval_includes_v024_suites() {
     let report = run_beam_eval_isolated().unwrap();

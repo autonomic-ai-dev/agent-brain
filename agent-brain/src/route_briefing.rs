@@ -47,13 +47,10 @@ pub fn format_token_savings_line(resp: &RouteTaskResponse) -> String {
         return String::new();
     };
     format!(
-        "Index: {} items · est. naive load ~{} tok · routed {}/{} tok · saved ~{} tok (~{}%)",
+        "Index: {} items · routed {}/{} tok",
         s.index_total,
-        s.naive_tokens,
         s.routed_tokens,
-        s.tokens_budget,
-        s.saved_tokens,
-        s.saved_pct
+        s.tokens_budget
     )
 }
 
@@ -162,7 +159,7 @@ fn section_list(out: &mut String, title: &str, items: impl Iterator<Item = Strin
 pub fn format_summary_line(resp: &RouteTaskResponse) -> String {
     let skill_names = join_top_names(resp.recommended_skills.iter().map(|s| s.name.as_str()), 3);
     let agent_names = join_top_names(resp.recommended_agents.iter().map(|a| a.name.as_str()), 2);
-    let savings = token_savings(resp).map(|s| format!(" · saved ~{}%", s.saved_pct));
+    let savings = token_savings(resp).map(|s| format!(" · routed {}/{}", s.routed_tokens, s.tokens_budget));
     let constraints = if resp.must_apply.is_empty() {
         String::new()
     } else {
@@ -329,8 +326,8 @@ pub fn format_supervisor_period_section(
     if let Some(stats) = stats {
         if stats.tool_calls > 0 {
             out.push_str(&format!(
-                "- Token tools: {} calls · ~{} tok saved · {:.0}% avg savings\n",
-                stats.tool_calls, stats.tool_tokens_saved, stats.tool_avg_savings_pct
+                "- Token tools: {} bounded-read calls\n",
+                stats.tool_calls
             ));
         }
         if stats.inefficient_read_events > 0 {
@@ -419,14 +416,14 @@ mod tests {
         assert!(text.contains("rust-reviewer"));
         assert!(text.contains("rust-testing"));
         assert!(text.contains("debugging"));
-        assert!(text.contains("saved ~"));
+        assert!(text.contains("routed"));
         assert!(text.contains("2000 items"));
 
         let summary = format_summary_line(&resp);
         assert!(summary.contains("rust-reviewer"));
         assert!(summary.contains("rust-testing"));
         assert!(summary.contains("phase=debugging"));
-        assert!(summary.contains("saved ~"));
+        assert!(summary.contains("routed"));
     }
 
     #[test]
@@ -459,6 +456,6 @@ mod tests {
         let s = token_savings(&resp).unwrap();
         assert_eq!(s.naive_tokens, 240_000);
         assert_eq!(s.saved_tokens, 239_523);
-        assert!(s.saved_pct >= 99);
+        assert!(s.routed_tokens <= s.tokens_budget);
     }
 }
