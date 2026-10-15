@@ -2109,24 +2109,6 @@ impl BrainStore {
         })
     }
 
-    fn load_useful_counts(&self, ids: &[String]) -> Result<HashMap<String, u32>> {
-        if ids.is_empty() {
-            return Ok(HashMap::new());
-        }
-        self.with_conn(|conn| {
-            let mut map = HashMap::new();
-            for id in ids {
-                if let Ok(count) = conn.query_row(
-                    "SELECT useful_count FROM context_weights WHERE item_id = ?1",
-                    params![id],
-                    |r| r.get::<_, u32>(0),
-                ) {
-                    map.insert(id.clone(), count);
-                }
-            }
-            Ok(map)
-        })
-    }
 
     pub fn load_retrieval_stats(&self, ids: &[String]) -> Result<HashMap<String, (u32, u32)>> {
         if ids.is_empty() {
@@ -2823,9 +2805,6 @@ pub(crate) fn bytes_to_f32(blob: &[u8]) -> Vec<f32> {
         .collect()
 }
 
-fn sanitize_fts_query(query: &str) -> String {
-    crate::retrieval::fts_query_loose(query)
-}
 
 pub fn normalize_fact(text: &str) -> String {
     text.to_lowercase()

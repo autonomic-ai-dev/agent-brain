@@ -4,8 +4,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    AgentRec, ContextBundle, MemoryRec, RouteLimits, RouteTaskResponse, RuleRec, ScoredItem,
-    SkillRec, TaskKind,
+    ContextBundle, MemoryRec, RouteLimits, RouteTaskResponse, ScoredItem, TaskKind,
 };
 
 const ESCALATE_CONFIDENCE: f64 = 0.45;
@@ -210,6 +209,7 @@ pub struct BridgeRouteRequest {
 
 #[cfg(test)]
 mod tests {
+    use crate::types::{AgentRec, RuleRec, SkillRec};
     use super::*;
     use crate::types::{ItemType, MustApply};
 

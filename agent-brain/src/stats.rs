@@ -1,54 +1,25 @@
 //! Operator-facing product metrics from retrieval_log + index composition.
 
 use std::collections::BTreeMap;
+#[cfg(feature = "extras")]
 use std::fs;
+#[cfg(feature = "extras")]
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
+#[cfg(feature = "extras")]
+use anyhow::Context;
 use serde::Serialize;
 
 use crate::adoption::{self, AdoptionMilestones};
 use crate::config::Config;
 use crate::db::store::{BrainStore, RetrievalStats};
 
-#[derive(serde::Deserialize)]
-struct StoredProofReport {
-    generated_at: String,
-    fixture_skills: usize,
-    eval: StoredEvalReport,
-    latency: StoredLatencyReport,
-}
-
-#[derive(serde::Deserialize)]
-struct StoredEvalReport {
-    recall_at_3: f64,
-    cases: usize,
-}
-
-#[derive(serde::Deserialize)]
-struct StoredLatencyReport {
-    warm_route: StoredPercentileMs,
-}
-
-#[derive(serde::Deserialize)]
-struct StoredPercentileMs {
-    p95_ms: u64,
-}
-
 #[derive(Debug, Clone, Serialize)]
 pub struct IndexBreakdown {
     pub total_indexed: usize,
     pub active_memories: usize,
     pub by_type: BTreeMap<String, usize>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ProofSnapshot {
-    pub generated_at: String,
-    pub recall_at_3: f64,
-    pub eval_cases: usize,
-    pub fixture_skills: usize,
-    pub p95_latency_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -92,30 +63,6 @@ pub fn collect(store: &BrainStore, config: &Config, period_days: u32) -> Result<
         period,
         value,
         adoption,
-    })
-}
-
-pub fn format_tokens_short(n: u64) -> String {
-    if n >= 1_000_000 {
-        format!("{:.1}M", n as f64 / 1_000_000.0)
-    } else if n >= 1_000 {
-        format!("{:.1}K", n as f64 / 1_000.0)
-    } else {
-        n.to_string()
-    }
-}
-
-/// Fixture/CI artifact loader — not surfaced in operator stats.
-pub fn load_proof_snapshot(home: &Path) -> Option<ProofSnapshot> {
-    let path = home.join("metrics/proof-latest.json");
-    let body = fs::read_to_string(&path).ok()?;
-    let report: StoredProofReport = serde_json::from_str(&body).ok()?;
-    Some(ProofSnapshot {
-        generated_at: report.generated_at,
-        recall_at_3: report.eval.recall_at_3,
-        eval_cases: report.eval.cases,
-        fixture_skills: report.fixture_skills,
-        p95_latency_ms: report.latency.warm_route.p95_ms,
     })
 }
 

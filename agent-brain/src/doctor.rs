@@ -411,7 +411,7 @@ pub fn run(fix: bool) -> Result<()> {
     println!("  • agent-brain briefing — readable route + estimated token savings vs full index");
     println!("  • agent-brain stats — index size, latency, local route activity");
     println!(
-        "  • agent-brain dashboard --open — local HTML value dashboard (screenshot-friendly ROI)"
+        "  • agent-brain dashboard --open — local HTML metrics (routes, latency, activity)"
     );
     println!("  • agent-brain onboarding — 5-minute getting started checklist");
     println!("  • agent-brain install --all --global — MCP + instructions for Cursor, OpenCode, Claude Code, VS Code, Codex, Gemini, Antigravity");
