@@ -45,9 +45,15 @@ Optional embed probe + search cache prewarm on bootstrap (`prewarm_on_bootstrap`
 
 ### Auto-update (`auto_update.rs`)
 
-While `serve` runs, periodic check for new GitHub release or package updates; can `exec` new binary after idle. Cursor reconnects MCP.
+While `serve` runs, periodic check for new GitHub release or package updates; downloads to staging and applies binary + refreshes `mcp.json` only when MCP is idle (via `mcp_activity`). Deferral window avoids killing active routes mid-turn.
 
-**Why idle restart:** Avoid killing active route mid-turn.
+### Multi-serve exclusion (`serve_lock.rs`)
+
+Advisory lock on `<home>/serve.lock` prevents multiple `agent-brain serve` processes from corrupting SQLite and hook state concurrently. Multiple servers on the same home caused mid-turn "Tool execution error" and route gate flakes. Override with `AGENT_BRAIN_ALLOW_MULTI_SERVE=1`.
+
+### Durable memory queue and CLI fallback (`memory_pending.rs`)
+
+When `store_memory` fails due to client/socket transport errors, memories can be enqueued to `<home>/pending/` via `agent-brain memory enqueue` or written synchronously via `agent-brain memory put`. `agent-brain memory flush-pending` drains the queue with exponential backoff and retry limits.
 
 ### macOS codesign
 

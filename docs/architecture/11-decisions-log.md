@@ -16,6 +16,10 @@ Quick reference for major design choices. Each row links to the article with ful
 | Upstream MCP | Explicit `route_to_mcp` | Auto-proxy all tools | [09](09-upstream-and-operator-loop.md) |
 | Skill from memory | Staged promote + approve | Auto-write SKILL.md | [09](09-upstream-and-operator-loop.md) |
 | Writes | Single write queue | Parallel DB writers | [10](10-concurrency-and-performance.md) |
+| Multi-serve concurrency | Exclusive `serve.lock` file lock | Uncoordinated concurrent serve processes | [10](10-concurrency-and-performance.md) |
+| Memory disconnect fallback | CLI `memory put` + pending queue `memory flush-pending` | Drop facts on MCP transport failure | [10](10-concurrency-and-performance.md) |
+| Portable sync architecture | Path-independent `project_key` + bundle v2 per-device HLC events | Absolute path keys, live DB sync | [14](14-portable-sync.md) |
+| Verification tracking | Project-root `.verify/` hash + CLI/MCP/hook auto-capture | External test runners only | [07](07-enforcement-and-multi-host.md) |
 | Embed cache | `~/.agent_brain/cache/fastembed` | Project cwd `.fastembed_cache` | [03](03-local-first-storage.md) |
 | Language/runtime | Rust | TypeScript MCP server | [02](02-system-overview.md) |
 

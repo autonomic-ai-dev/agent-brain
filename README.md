@@ -16,6 +16,8 @@ flowchart LR
 | Skill libraries blow the context window | `route_task` returns a small, ranked set |
 | Soft “use skills” rules are ignored | Hooks block brain MCP tools until `route_task` |
 | Conventions vanish between chats | `store_memory` + `must_apply` |
+| MCP disconnects drop durable facts | Pending queue + `memory put` CLI fallback |
+| Verifications lost across turns | Auto-record via hooks + `verify` / `report` |
 
 Full usage: [docs/USAGE.md](docs/USAGE.md) · Agent contract: [docs/AGENT-CONTEXT.md](docs/AGENT-CONTEXT.md) · Hosts: [docs/host-integration.md](docs/host-integration.md) · Architecture: [docs/architecture/README.md](docs/architecture/README.md)
 
@@ -58,7 +60,11 @@ Packages: `agent-brain registry list` · `agent-brain add @supervisor`
 | `doctor` / `doctor --fix` | Health check (clears quarantine; does not re-sign) |
 | `briefing` | Last `route_task` summary |
 | `index` | Reindex skills/rules/memory |
+| `verify -- <cmd>` / `record` | Run verification & record outcome in SQLite |
+| `report` | Aggregated verification outcomes by source |
+| `memory put\|enqueue\|flush-pending` | CLI write and retry fallback for durable facts |
 | `sync git\|cloud …` | Multi-machine brain sync |
+| `bootstrap` | Bootstrap new device into sync repo |
 
 ---
 
