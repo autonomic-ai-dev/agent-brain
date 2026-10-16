@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use agent_brain::{
@@ -64,33 +65,43 @@ async fn main() -> Result<()> {
     match cmd {
         "serve" => {
             let config = Config::load()?;
-            let _serve_lock = agent_brain::serve_lock::acquire(&config.home)?;
-            let brain_settings = settings::AgentBrainSettings::load(&config.home);
-            let engine = Arc::new(Engine::new(config)?);
-            if engine.config.bootstrap_background {
-                tracing::info!(target: "agent_brain::bootstrap", "starting MCP; bootstrap runs in background");
-                engine.spawn_bootstrap(None);
+            let daemon = args.iter().any(|a| a == "--daemon");
+            let health_addr = flag_value(&args, "--health-addr")
+                .and_then(|s| s.parse::<SocketAddr>().ok());
+            let socket_path = config.home.join("serve.sock");
+            if daemon {
+                let _serve_lock = agent_brain::serve_lock::acquire(&config.home)?;
+                let brain_settings = settings::AgentBrainSettings::load(&config.home);
+                let engine = Arc::new(Engine::new(config)?);
+                if engine.config.bootstrap_background {
+                    tracing::info!(target: "agent_brain::bootstrap", "starting MCP; bootstrap runs in background");
+                    engine.spawn_bootstrap(None);
+                } else {
+                    let n = engine.bootstrap(None)?;
+                    let total = engine.store.count_indexed_items().unwrap_or(0);
+                    tracing::info!(
+                        "indexed {}",
+                        install::format_new_index_count(n, total)
+                    );
+                }
+                if brain_settings.auto_update.enabled {
+                    engine.spawn_auto_update();
+                }
+                if let Err(err) = serve_meta::write_current(&engine.config.home) {
+                    tracing::warn!(error = %err, "write serve_meta.json failed");
+                }
+                if let Err(e) = agent_brain::autowire::auto_wire(
+                    &std::env::current_exe()?.display().to_string(),
+                    env!("CARGO_PKG_VERSION"),
+                ) {
+                    tracing::warn!("Auto-wire failed: {}", e);
+                }
+                mcp::run_daemon(engine, &socket_path, health_addr).await?;
             } else {
-                let n = engine.bootstrap(None)?;
-                let total = engine.store.count_indexed_items().unwrap_or(0);
-                tracing::info!(
-                    "indexed {}",
-                    install::format_new_index_count(n, total)
-                );
+                // Proxy mode: no exclusive lock. Bridges stdio to the supervised daemon's
+                // Unix socket; reconnects if the daemon restarts.
+                mcp::run_proxy(&socket_path).await?;
             }
-            if brain_settings.auto_update.enabled {
-                engine.spawn_auto_update();
-            }
-            if let Err(err) = serve_meta::write_current(&engine.config.home) {
-                tracing::warn!(error = %err, "write serve_meta.json failed");
-            }
-            if let Err(e) = agent_brain::autowire::auto_wire(
-                &std::env::current_exe()?.display().to_string(),
-                env!("CARGO_PKG_VERSION"),
-            ) {
-                tracing::warn!("Auto-wire failed: {}", e);
-            }
-            mcp::run_stdio(engine).await?;
         }
         #[cfg(feature = "extras")]
         "grpc" => {

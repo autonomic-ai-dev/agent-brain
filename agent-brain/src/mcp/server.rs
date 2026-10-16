@@ -1,7 +1,13 @@
-use std::path::PathBuf;
+use std::fs;
+use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Result;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::net::{UnixListener, UnixStream};
+use tokio::time::sleep;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, Content, Implementation, ServerCapabilities, ServerInfo};
@@ -1526,26 +1532,32 @@ fn route_context_from_state(home: &std::path::Path) -> (bool, Option<String>, Op
     (must_apply_active, phase, route_log_id)
 }
 
-pub async fn run_stdio(engine: Arc<Engine>) -> Result<()> {
-    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-
+/// Serve one MCP session over an arbitrary async read/write pair (stdio or a Unix socket).
+pub async fn serve_mcp_over_io<R, W>(engine: Arc<Engine>, reader: R, writer: W) -> Result<()>
+where
+    R: tokio::io::AsyncRead + Send + Unpin + 'static,
+    W: tokio::io::AsyncWrite + Send + Unpin + 'static,
+{
     let server = BrainMcp::new(engine);
+    let service = server.serve((reader, writer)).await?;
+    service.waiting().await?;
+    Ok(())
+}
 
-    // Antigravity CLI and modern go-sdk MCP clients probe with `server/discover` before calling `initialize`.
-    // rmcp (Rust MCP SDK) does not support pre-initialize custom requests and drops the connection with
-    // `ExpectedInitializeRequest`. We intercept pre-init discovery probes and respond with JSON-RPC -32601
-    // (Method not found) so clients gracefully fall back to the standard `initialize` handshake.
-    let mut stdin = BufReader::new(tokio::io::stdin());
-    let mut stdout = tokio::io::stdout();
-    let initial_line;
-
+/// Read the first meaningful line from stdin, answering any `server/discover`
+/// probes (Antigravity / go-sdk clients probe before `initialize`) with
+/// `-32601 Method not found` so they fall back to the standard handshake.
+/// Returns the first real message line, or `None` on EOF.
+async fn first_stdin_line(
+    stdin: &mut BufReader<tokio::io::Stdin>,
+    stdout: &mut tokio::io::Stdout,
+) -> Result<Option<Vec<u8>>> {
     loop {
         let mut line = String::new();
         let n = stdin.read_line(&mut line).await?;
         if n == 0 {
-            return Ok(());
+            return Ok(None);
         }
-
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) {
             if val.get("method").and_then(|m| m.as_str()) == Some("server/discover") {
                 let id = val.get("id").cloned().unwrap_or(serde_json::json!(1));
@@ -1562,13 +1574,151 @@ pub async fn run_stdio(engine: Arc<Engine>) -> Result<()> {
                 continue;
             }
         }
-
-        initial_line = line.into_bytes();
-        break;
+        return Ok(Some(line.into_bytes()));
     }
+}
 
+pub async fn run_stdio(engine: Arc<Engine>) -> Result<()> {
+    let mut stdin = BufReader::new(tokio::io::stdin());
+    let mut stdout = tokio::io::stdout();
+    let initial_line = match first_stdin_line(&mut stdin, &mut stdout).await? {
+        Some(line) => line,
+        None => return Ok(()),
+    };
     let combined_reader = std::io::Cursor::new(initial_line).chain(stdin);
-    let service = server.serve((combined_reader, stdout)).await?;
-    service.waiting().await?;
+    serve_mcp_over_io(engine, combined_reader, stdout).await
+}
+
+/// Thin stdio proxy over the supervised brain daemon.
+///
+/// Connects to `socket_path` (a Unix domain socket owned by `agent-brain serve --daemon`),
+/// bridges stdin/stdout to it, and reconnects if the daemon restarts. Multiple hosts can
+/// run a proxy simultaneously without touching the exclusive serve lock.
+pub async fn run_proxy(socket_path: &Path) -> Result<()> {
+    loop {
+        let stream = match UnixStream::connect(socket_path).await {
+            Ok(stream) => stream,
+            Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    path = %socket_path.display(),
+                    "proxy: daemon not reachable, retrying"
+                );
+                sleep(Duration::from_millis(500)).await;
+                continue;
+            }
+        };
+        if let Err(err) = serve_one_proxy_connection(stream).await {
+            tracing::warn!(error = %err, "proxy: connection closed, reconnecting");
+        } else {
+            tracing::debug!("proxy: daemon connection closed, reconnecting");
+        }
+        sleep(Duration::from_millis(500)).await;
+    }
+}
+
+async fn serve_one_proxy_connection(mut stream: UnixStream) -> Result<()> {
+    let (mut rx, mut tx) = stream.split();
+    let mut stdin = BufReader::new(tokio::io::stdin());
+    let mut stdout = tokio::io::stdout();
+    let initial_line = match first_stdin_line(&mut stdin, &mut stdout).await? {
+        Some(line) => line,
+        None => return Ok(()),
+    };
+    let mut combined = std::io::Cursor::new(initial_line).chain(stdin);
+    let to_socket = tokio::io::copy(&mut combined, &mut tx);
+    let to_stdout = tokio::io::copy(&mut rx, &mut stdout);
+    // Wait for both directions to drain so the daemon's response is fully flushed
+    // before the socket closes (avoids "broken pipe" on the last response).
+    let _ = tokio::join!(to_socket, to_stdout);
     Ok(())
+}
+
+/// Supervised brain daemon: a single process owns the exclusive serve lock and `brain.db`,
+/// listening on a Unix socket and serving one MCP session per connection.
+///
+/// Hosts connect via `agent-brain serve` (the proxy). If the daemon restarts, proxies
+/// reconnect; if a host kills its proxy, nothing is lost.
+pub async fn run_daemon(
+    engine: Arc<Engine>,
+    socket_path: &Path,
+    health_addr: Option<SocketAddr>,
+) -> Result<()> {
+    let _ = fs::remove_file(socket_path);
+    let listener = UnixListener::bind(socket_path)?;
+    if let Some(addr) = health_addr {
+        tokio::spawn(serve_health(addr));
+    }
+    tracing::info!(
+        path = %socket_path.display(),
+        "brain daemon listening on unix socket"
+    );
+    loop {
+        let (stream, _peer) = listener.accept().await?;
+        let engine = engine.clone();
+        tokio::spawn(async move {
+            // `UnixStream` has no `try_clone` in tokio 1.52, so round-trip through the std
+            // stream (which supports `try_clone`) to get two independent `'static` handles:
+            // one for reading MCP messages, one for writing responses.
+            let std_stream = match stream.into_std() {
+                Ok(s) => s,
+                Err(err) => {
+                    tracing::warn!(error = %err, "daemon: into_std failed");
+                    return;
+                }
+            };
+            let std_reader = match std_stream.try_clone() {
+                Ok(s) => s,
+                Err(err) => {
+                    tracing::warn!(error = %err, "daemon: try_clone failed");
+                    return;
+                }
+            };
+            let reader = match UnixStream::from_std(std_reader) {
+                Ok(r) => r,
+                Err(err) => {
+                    tracing::warn!(error = %err, "daemon: from_std reader failed");
+                    return;
+                }
+            };
+            let writer = match UnixStream::from_std(std_stream) {
+                Ok(w) => w,
+                Err(err) => {
+                    tracing::warn!(error = %err, "daemon: from_std writer failed");
+                    return;
+                }
+            };
+            if let Err(err) = serve_mcp_over_io(engine, reader, writer).await {
+                tracing::warn!(error = %err, "daemon session ended");
+            }
+        });
+    }
+}
+
+/// Tiny TCP health endpoint so `autonomic supervise` can liveness-check the brain daemon.
+async fn serve_health(addr: SocketAddr) {
+    let listener = match tokio::net::TcpListener::bind(addr).await {
+        Ok(listener) => listener,
+        Err(err) => {
+            tracing::warn!(error = %err, addr = %addr, "health listener failed");
+            return;
+        }
+    };
+    loop {
+        match listener.accept().await {
+            Ok((mut stream, _)) => {
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 1024];
+                    let _ = stream.read(&mut buf).await;
+                    let resp = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK";
+                    let _ = stream.write_all(resp).await;
+                    let _ = stream.shutdown().await;
+                });
+            }
+            Err(err) => {
+                tracing::warn!(error = %err, "health accept failed");
+                sleep(Duration::from_secs(1)).await;
+            }
+        }
+    }
 }
