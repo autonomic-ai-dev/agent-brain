@@ -839,10 +839,10 @@ fn write_host_instructions(path: &Path, content: &str, quiet: bool, label: &str)
     Ok(())
 }
 
-const HOST_INSTRUCTIONS_VERSION: &str = "8";
+const HOST_INSTRUCTIONS_VERSION: &str = "9";
 
 const HOST_AGENT_BRAIN_INSTRUCTIONS: &str = r#"# agent-brain MCP (required)
-instructions-version: 8
+instructions-version: 9
 
 ## The connection contract
 
@@ -866,19 +866,23 @@ If the agent skips route_task, cross-agent ingest and shared memory provide **ze
 
 Prefer **`agent-brain verify -- <cmd>`** (orchestrators: `--source orchestrator`) over MCP `record_verify_outcome`. Agent-asserted MCP exits are not trusted for learning. Allowlisted commands live in `.verify/verify.toml`.
 
-## Autonomic utility ecosystem
+## Autonomic utility ecosystem (prefer agent-body)
 
-When agent-brain mode is on, **delegate** to sibling utilities instead of improvising multi-step work:
+For multi-step or organ work, **prefer agent-body** — do not reinvent execute/workflow/budget/sandbox/UI/approval with ad-hoc Shell.
 
-| Utility | When | Invoke |
+1. Call `route_task` and check `suggested_tools` for `server=agent-body`.
+2. Call **`route_to_mcp`** with that server/tool (gateway exposes `muscle_*`, `spine_*`, `heart_*`, `eyes_*`, `immune_*`, `mouth_*`).
+3. Or use the CLI: `autonomic status` / `autonomic spine run` / `autonomic doctor`.
+
+| Utility | When | Prefer |
 |---------|------|--------|
-| **agent-spine** | Repeatable workflows (release notes, stacked PRs, bugfix loops) | `agent-spine run --meta "..."` or `agent-spine init --with @workflow` |
-| **agent-heart** | Budget-sensitive or long runs | `agent-heart status` |
-| **agent-body** | Route to any organ | `autonomic spine run`, `autonomic brain briefing` |
+| **agent-body** | Execute, workflows, budget, scan, UI QA, approvals, cluster | `route_to_mcp` → agent-body **or** `autonomic …` |
+| **agent-spine** | DAG workflows | body `spine_*` tools / `autonomic spine run` |
+| **agent-heart** | Budget / long runs | body `heart_*` / `autonomic heart status` |
+| **agent-muscle** | Shell/tests/builds | body `muscle_execute_bash` |
 
-- `agent-brain registry list` — skill @aliases and utility catalog
-- `route_to_mcp` — forward to configured upstream MCP tools (`suggested_tools` in route_task)
-- Bootstrap: `agent-brain add @coding-policy` + `@autonomic-core` + `@supervisor` (also via `doctor --fix`)
+- `agent-brain registry list` — full utility + skill catalog
+- Bootstrap: `agent-brain doctor --fix` enables upstream agent-body for `route_to_mcp`
 
 ## Native host tools
 
@@ -896,7 +900,7 @@ Readable summary: `~/.agent_brain/logs/last-route.md` or `agent-brain briefing`.
 "#;
 
 const CLAUDE_CODE_AGENT_BRAIN_INSTRUCTIONS: &str = r#"# agent-brain MCP (required)
-instructions-version: 8
+instructions-version: 9
 
 ## The connection contract
 
@@ -944,7 +948,7 @@ Readable summary: `~/.agent_brain/logs/last-route.md` or `agent-brain briefing`.
 "#;
 
 const OPENCODE_AGENT_BRAIN_INSTRUCTIONS: &str = r#"# agent-brain MCP (required)
-instructions-version: 8
+instructions-version: 9
 
 ## The connection contract
 
@@ -974,7 +978,7 @@ Readable summary: `~/.agent_brain/logs/last-route.md` or `agent-brain briefing`.
 "#;
 
 const ANTIGRAVITY_AGENT_BRAIN_INSTRUCTIONS: &str = r#"# agent-brain MCP (required)
-instructions-version: 8
+instructions-version: 9
 
 ## The connection contract
 

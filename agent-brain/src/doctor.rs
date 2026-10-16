@@ -147,16 +147,33 @@ pub fn run(fix: bool) -> Result<()> {
             ok = true;
         }
     }
-    if federation.upstream_enabled {
-        if federation.upstream_configured {
-            println!("  upstream agent-body:   OK ([brain.upstream_mcp] in ~/.autonomic/config.toml)");
-        } else {
-            println!("  upstream agent-body:   missing — add [[brain.upstream_mcp.servers]] for route_to_mcp");
-            ok = false;
-            fed_ok = false;
+    if federation.upstream_configured && federation.upstream_enabled {
+        println!("  upstream agent-body:   OK ([brain.upstream_mcp] in ~/.autonomic/config.toml)");
+    } else if fix {
+        match crate::mcp_federation::ensure_upstream_agent_body() {
+            Ok(true) => {
+                println!("  upstream agent-body:   enabled (route_to_mcp → serve-mcp)");
+                fed_ok = federation.body_binary.is_some();
+            }
+            Ok(false) => {
+                println!("  upstream agent-body:   skipped (agent-body binary not found)");
+                ok = false;
+                fed_ok = false;
+            }
+            Err(err) => {
+                println!("  upstream agent-body:   FAILED — {err:#}");
+                ok = false;
+                fed_ok = false;
+            }
         }
+    } else if federation.upstream_enabled {
+        println!("  upstream agent-body:   missing — run: agent-brain doctor --fix");
+        ok = false;
+        fed_ok = false;
     } else {
-        println!("  upstream_mcp:          disabled");
+        println!("  upstream_mcp:          disabled — run: agent-brain doctor --fix");
+        ok = false;
+        fed_ok = false;
     }
     if fed_ok {
         fed_step.done();
@@ -509,14 +526,20 @@ pub fn run_mcp_federation(fix: bool) -> Result<()> {
         println!("  agent-body in mcp.json:  OK");
     }
 
-    println!(
-        "  upstream agent-body:   {}",
-        if federation.upstream_configured {
-            "configured"
-        } else {
-            "missing (route_to_mcp will fail)"
+    if federation.upstream_configured && federation.upstream_enabled {
+        println!("  upstream agent-body:   configured");
+    } else if fix {
+        match crate::mcp_federation::ensure_upstream_agent_body() {
+            Ok(true) => println!("  upstream agent-body:   enabled"),
+            Ok(false) => bail!("agent-body binary not found for upstream_mcp"),
+            Err(err) => bail!(err),
         }
-    );
+    } else {
+        println!("  upstream agent-body:   missing (route_to_mcp will fail)");
+        if !federation.upstream_configured {
+            bail!("upstream agent-body missing — run: agent-brain doctor --mcp --fix");
+        }
+    }
 
     println!();
     println!("  Running tools/list schema audit…");

@@ -22,6 +22,10 @@ Do **not** skip `route_task`. Do **not** load skills/rules from guesswork when a
 
 ## Task completion
 
+## Prefer agent-body
+
+For execute / workflow / budget / sandbox / UI / approval work, use `route_to_mcp` → **agent-body** (or `autonomic …`) instead of ad-hoc Shell. Check `suggested_tools` from `route_task`.
+
 When a durable decision or convention is established, call **`store_memory`** once (max 50 words, no secrets).
 
 ## Verification

@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [Unreleased]
+
+### Added
+
+- **Prefer agent-body** — full utilities catalog; `doctor --fix` enables `upstream_mcp` → `agent-body serve-mcp`; broader `suggested_tools` boosts for organ tasks; host instructions v9
+
 ## [0.40.0] - 2026-10-16
 
 ### Added
