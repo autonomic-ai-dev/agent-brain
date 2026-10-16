@@ -1,0 +1,10 @@
+[verify]
+commands = [
+  "cargo test",
+  "cargo clippy",
+  "cargo check",
+  "make test",
+  "agent-brain proofs",
+  "agent-brain doctor",
+  ".verify/",
+]

@@ -24,6 +24,10 @@ Do **not** skip `route_task`. Do **not** load skills/rules from guesswork when a
 
 When a durable decision or convention is established, call **`store_memory`** once (max 50 words, no secrets).
 
+## Verification
+
+Prefer **`agent-brain verify -- <cmd>`** (orchestrators: `--source orchestrator`) over MCP `record_verify_outcome`. Agent-asserted MCP exits are not trusted for learning. Allowlisted commands: `.verify/verify.toml`.
+
 ## Errors: obey valid gates; recover without bypass
 
 Judge the error before acting. **Do not disable the route gate** (`AGENT_BRAIN_ROUTE_HOOKS=0`) to work around a deny.

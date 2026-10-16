@@ -24,7 +24,7 @@ Session digests and team memory surface **only** through `route_task`.
 | Start of turn | `route_task` |
 | Find text | `grep_search` |
 | Skim a file | `file_summary`, `read_file_head`, `read_file_tail` |
-| Record verification | `record_verify_outcome` |
+| Record verification | Prefer Shell/`agent-brain verify -- <cmd>` (trusted). MCP `record_verify_outcome` is agent-asserted and not trusted for learning. |
 | Persist a convention | `store_memory` |
 | Multi-agent note | `write_scratchpad` / `read_scratchpad` |
 | Bounded git | `brain_git_log`, `brain_git_diff`, `brain_git_compare` |

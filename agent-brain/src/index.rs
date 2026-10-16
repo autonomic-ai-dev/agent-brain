@@ -1,6 +1,8 @@
+#[cfg(feature = "extras")]
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+#[cfg(feature = "extras")]
 use std::sync::Mutex;
 
 use anyhow::Result;
