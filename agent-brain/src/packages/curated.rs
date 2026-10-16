@@ -298,6 +298,18 @@ mod tests {
         assert_eq!(resolved, ResolvedAlias::Bundle("supervisor".into()));
     }
     #[test]
+    #[test]
+    fn utilities_catalog_includes_agent_body() {
+        let utils = list_utilities().unwrap();
+        assert!(utils.iter().any(|u| u.name == "agent-body"));
+        assert!(utils.iter().any(|u| u.name == "agent-heart"));
+        assert!(utils.iter().any(|u| u.name == "agent-muscle"));
+        let body = utils.iter().find(|u| u.name == "agent-body").unwrap();
+        assert!(body.description.to_ascii_lowercase().contains("control plane")
+            || body.description.to_ascii_lowercase().contains("prefer"));
+    }
+
+    #[test]
     fn resolves_coding_policy_bundle_alias() {
         let resolved = lookup_alias("@coding-policy").unwrap().unwrap();
         assert_eq!(

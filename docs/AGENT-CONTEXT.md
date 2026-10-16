@@ -17,6 +17,10 @@ Hard gates (hooks/plugins) block other agent-brain MCP tools until `route_task` 
 
 Session digests and team memory surface **only** through `route_task`.
 
+## Prefer agent-body for organ work
+
+Multi-step execute / workflow / budget / sandbox / UI / approval tasks: use **`route_to_mcp` → `agent-body`** (or `autonomic …`) instead of improvising with Shell. `route_task` may return `suggested_tools` for body gateway tools (`muscle_*`, `spine_*`, `heart_*`, …). Enable with `agent-brain doctor --fix`.
+
 ## Tool map (common)
 
 | Need | Tool |
@@ -28,7 +32,7 @@ Session digests and team memory surface **only** through `route_task`.
 | Persist a convention | `store_memory` |
 | Multi-agent note | `write_scratchpad` / `read_scratchpad` |
 | Bounded git | `brain_git_log`, `brain_git_diff`, `brain_git_compare` |
-| Upstream MCP | `route_to_mcp` when `suggested_tools` appears |
+| Upstream MCP / organs | Prefer `route_to_mcp` → **agent-body** when `suggested_tools` lists it |
 
 Code-nav tools (`query_codebase`, `get_symbol_definition`, …) need a build with `--features extras`.
 

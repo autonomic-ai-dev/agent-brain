@@ -45,7 +45,8 @@ pub fn suggest_upstream_tools(
         .filter(|(score, _)| *score > 0.0)
         .collect();
 
-    if scored.is_empty() && mcp_task {
+    let prefer_body = mcp_task || wants_agent_body(&query);
+    if scored.is_empty() && prefer_body {
         scored = tools
             .iter()
             .filter(|tool| {
@@ -65,8 +66,8 @@ pub fn suggest_upstream_tools(
             server: tool.server.clone(),
             tool: tool.name.clone(),
             description: tool.description.clone(),
-            rationale: if mcp_task && tool.server.eq_ignore_ascii_case("agent-body") {
-                format!("MCP host task — agent-body gateway tool {}", tool.name)
+            rationale: if tool.server.eq_ignore_ascii_case("agent-body") {
+                format!("prefer agent-body gateway tool {}", tool.name)
             } else {
                 format!("keyword match for {}", tool.name)
             },
@@ -99,19 +100,69 @@ fn score_tool(
     if query.contains(&tool.server.to_ascii_lowercase()) {
         score += 1.5;
     }
-    if mcp_task && tool.server.eq_ignore_ascii_case("agent-body") {
+    if (mcp_task || wants_agent_body(query)) && tool.server.eq_ignore_ascii_case("agent-body") {
         score += 3.0;
         score += default_agent_body_mcp_score(tool) * 0.25;
     }
     score
 }
 
+/// Tasks that should prefer the agent-body organ gateway over improvising.
+fn wants_agent_body(query: &str) -> bool {
+    const KEYS: &[&str] = &[
+        "workflow",
+        "spine",
+        "execute",
+        "bash",
+        "shell",
+        "sandbox",
+        "budget",
+        "token",
+        "cost",
+        "heart",
+        "muscle",
+        "immune",
+        "scan",
+        "cve",
+        "osv",
+        "eyes",
+        "screenshot",
+        "dom",
+        "ui",
+        "approve",
+        "approval",
+        "mouth",
+        "autonomic",
+        "cluster",
+        "daemon",
+        "organ",
+        "deploy",
+        "release",
+        "test",
+        "clippy",
+        "verify",
+    ];
+    KEYS.iter().any(|k| query.contains(k))
+}
+
 fn default_agent_body_mcp_score(tool: &IndexedUpstreamTool) -> f64 {
     match tool.name.as_str() {
         "muscle_execute_bash" => 4.0,
+        "spine_submit_workflow" => 3.8,
         "spine_list_workflows" => 3.5,
+        "heart_budget_status" => 3.4,
+        "heart_status" => 3.2,
+        "immune_scan_manifest" => 3.3,
+        "immune_sandbox_run" => 3.3,
+        "eyes_describe_dom" => 3.1,
+        "eyes_diff_screenshots" => 3.1,
+        "mouth_request_approval" => 3.0,
         name if name.starts_with("spine_") => 3.0,
-        name if name.starts_with("mouth_validate") => 2.8,
+        name if name.starts_with("mouth_") => 2.8,
+        name if name.starts_with("heart_") => 2.8,
+        name if name.starts_with("muscle_") => 3.2,
+        name if name.starts_with("immune_") => 2.9,
+        name if name.starts_with("eyes_") => 2.9,
         _ => 2.5,
     }
 }
@@ -155,6 +206,24 @@ mod tests {
         let boosted = score_tool(&query_lower, &tokens, &tool, true);
         assert!(boosted > plain);
         assert!(boosted >= 3.0);
+    }
+
+    #[test]
+    #[test]
+    fn boosts_agent_body_on_workflow_task() {
+        let tool = IndexedUpstreamTool {
+            server: "agent-body".into(),
+            name: "spine_submit_workflow".into(),
+            description: "Submit a workflow".into(),
+        };
+        let query = "run a release notes workflow for this repo";
+        let query_lower = query.to_ascii_lowercase();
+        let tokens: Vec<&str> = query_lower
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|t| t.len() >= 3)
+            .collect();
+        let score = score_tool(&query_lower, &tokens, &tool, false);
+        assert!(score >= 3.0, "expected body boost for workflow task, got {score}");
     }
 
     #[test]

@@ -282,7 +282,7 @@ fn default_upstream_max_servers() -> usize {
 }
 
 fn default_upstream_suggest_limit() -> usize {
-    2
+    4
 }
 
 impl Default for UpstreamMcpSettings {

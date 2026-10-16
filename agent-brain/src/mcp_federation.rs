@@ -1,5 +1,6 @@
 //! agent-brain ↔ agent-body MCP federation: install entries, doctor checks, schema audit.
 
+use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -247,6 +248,72 @@ pub fn audit_with_timeout() -> Result<SchemaAudit> {
     // Best-effort: audit is synchronous; organ cold-start should finish within a few seconds.
     let _ = Duration::from_secs(15);
     audit_agent_body_schemas()
+}
+
+
+/// Enable `route_to_mcp` → agent-body when the binary is installed.
+/// Writes/merges `[brain.upstream_mcp]` in the unified autonomic config (or AGENT_BRAIN_HOME config).
+/// Returns true when agent-body is configured as an upstream server.
+pub fn ensure_upstream_agent_body() -> Result<bool> {
+    let Some(exe) = resolve_organ_binary("agent-body") else {
+        return Ok(false);
+    };
+    let home = crate::config::Config::load()
+        .map(|c| c.home)
+        .unwrap_or_else(|_| {
+            dirs::home_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join(".agent_brain")
+        });
+    let mut settings = crate::settings::AgentBrainSettings::load(&home);
+    settings.upstream_mcp.enabled = true;
+    if settings.upstream_mcp.suggest_limit < 4 {
+        settings.upstream_mcp.suggest_limit = 4;
+    }
+    let already = settings
+        .upstream_mcp
+        .servers
+        .iter()
+        .any(|s| s.name.eq_ignore_ascii_case("agent-body"));
+    if !already {
+        settings.upstream_mcp.servers.push(crate::settings::UpstreamServerConfig {
+            name: "agent-body".into(),
+            command: exe.display().to_string(),
+            args: vec!["serve-mcp".into()],
+            env: std::collections::HashMap::new(),
+            enabled: true,
+        });
+    } else {
+        for s in &mut settings.upstream_mcp.servers {
+            if s.name.eq_ignore_ascii_case("agent-body") {
+                s.enabled = true;
+                s.command = exe.display().to_string();
+                if s.args.is_empty() {
+                    s.args = vec!["serve-mcp".into()];
+                }
+            }
+        }
+    }
+    persist_brain_upstream(&settings)?;
+    Ok(true)
+}
+
+fn persist_brain_upstream(settings: &crate::settings::AgentBrainSettings) -> Result<()> {
+    if std::env::var("AGENT_BRAIN_HOME").is_ok() {
+        let home = crate::config::Config::load()?.home;
+        let path = home.join("config.yaml");
+        let yaml = serde_yaml::to_string(settings).context("serialize brain settings")?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&path, yaml).with_context(|| format!("write {}", path.display()))?;
+        return Ok(());
+    }
+    let json = serde_json::to_value(settings).context("serialize [brain]")?;
+    let table: toml::Table = serde_json::from_value(json).context("convert [brain] to toml")?;
+    agent_body_core::ensure_default_ecosystem_sections().ok();
+    agent_body_core::write_organ_section_raw("brain", &table)?;
+    Ok(())
 }
 
 #[cfg(test)]
