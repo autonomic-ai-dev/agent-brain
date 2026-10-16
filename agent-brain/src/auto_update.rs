@@ -916,7 +916,7 @@ mod tests {
     #[test]
     fn pending_state_roundtrips() {
         let dir = tempfile::tempdir().unwrap();
-        let mut state = AutoUpdateState {
+        let state = AutoUpdateState {
             pending_mcp_path: Some(dir.path().join("agent-brain.download").display().to_string()),
             pending_mcp_version: Some("0.39.0".into()),
             ..Default::default()

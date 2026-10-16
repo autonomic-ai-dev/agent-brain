@@ -839,10 +839,10 @@ fn write_host_instructions(path: &Path, content: &str, quiet: bool, label: &str)
     Ok(())
 }
 
-const HOST_INSTRUCTIONS_VERSION: &str = "7";
+const HOST_INSTRUCTIONS_VERSION: &str = "8";
 
 const HOST_AGENT_BRAIN_INSTRUCTIONS: &str = r#"# agent-brain MCP (required)
-instructions-version: 7
+instructions-version: 8
 
 ## The connection contract
 
@@ -861,6 +861,10 @@ If the agent skips route_task, cross-agent ingest and shared memory provide **ze
 2. Load skills/agents from returned paths; apply `applicable_rules` and `must_apply`.
 3. Use `relevant_memory` (includes session digests when relevant).
 4. At task end, call **`store_memory`** for durable outcomes (max 50 words, no secrets).
+
+## Verification
+
+Prefer **`agent-brain verify -- <cmd>`** (orchestrators: `--source orchestrator`) over MCP `record_verify_outcome`. Agent-asserted MCP exits are not trusted for learning. Allowlisted commands live in `.verify/verify.toml`.
 
 ## Autonomic utility ecosystem
 
@@ -892,7 +896,7 @@ Readable summary: `~/.agent_brain/logs/last-route.md` or `agent-brain briefing`.
 "#;
 
 const CLAUDE_CODE_AGENT_BRAIN_INSTRUCTIONS: &str = r#"# agent-brain MCP (required)
-instructions-version: 7
+instructions-version: 8
 
 ## The connection contract
 
@@ -911,6 +915,10 @@ If the agent skips route_task, cross-agent ingest and shared memory provide **ze
 2. Load skills/agents from returned paths; apply `applicable_rules` and `must_apply`.
 3. Use `relevant_memory` (includes session digests when relevant).
 4. At task end, call **`store_memory`** for durable outcomes (max 50 words, no secrets).
+
+## Verification
+
+Prefer **`agent-brain verify -- <cmd>`** (orchestrators: `--source orchestrator`) over MCP `record_verify_outcome`. Agent-asserted MCP exits are not trusted for learning. Allowlisted commands live in `.verify/verify.toml`.
 
 ## Claude Code enforcement (hooks)
 
@@ -936,7 +944,7 @@ Readable summary: `~/.agent_brain/logs/last-route.md` or `agent-brain briefing`.
 "#;
 
 const OPENCODE_AGENT_BRAIN_INSTRUCTIONS: &str = r#"# agent-brain MCP (required)
-instructions-version: 7
+instructions-version: 8
 
 ## The connection contract
 
@@ -958,11 +966,15 @@ The plugin blocks other agent-brain tools until `agent-brain_route_task` succeed
 2. Load skills/agents from returned paths; apply `applicable_rules` and `must_apply`.
 3. At task end, call **`agent-brain_store_memory`** (max 50 words, no secrets).
 
+## Verification
+
+Prefer **`agent-brain verify -- <cmd>`** (orchestrators: `--source orchestrator`) over MCP `record_verify_outcome`. Agent-asserted MCP exits are not trusted for learning. Allowlisted commands live in `.verify/verify.toml`.
+
 Readable summary: `~/.agent_brain/logs/last-route.md` or `agent-brain briefing`.
 "#;
 
 const ANTIGRAVITY_AGENT_BRAIN_INSTRUCTIONS: &str = r#"# agent-brain MCP (required)
-instructions-version: 7
+instructions-version: 8
 
 ## The connection contract
 
@@ -983,6 +995,10 @@ Hooks share Gemini CLI settings — keep them trusted in the `/hooks` panel. Pre
 1. Call **`route_task`** with `user_message`, `current_working_directory`, and `open_files`.
 2. Load skills/agents from returned paths; apply `applicable_rules` and `must_apply`.
 3. At task end, call **`store_memory`** (max 50 words, no secrets).
+
+## Verification
+
+Prefer **`agent-brain verify -- <cmd>`** (orchestrators: `--source orchestrator`) over MCP `record_verify_outcome`. Agent-asserted MCP exits are not trusted for learning. Allowlisted commands live in `.verify/verify.toml`.
 
 Readable summary: `~/.agent_brain/logs/last-route.md` or `agent-brain briefing`.
 "#;
@@ -1249,6 +1265,7 @@ mod tests {
             .any(|v| v.as_str() == Some("agent-brain-route-gate")));
     }
 
+    #[test]
     fn host_target_parses_opencode_flag() {
         let args = vec!["install".into(), "--opencode".into(), "--global".into()];
         assert_eq!(

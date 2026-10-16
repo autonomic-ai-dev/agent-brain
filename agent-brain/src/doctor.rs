@@ -545,7 +545,6 @@ pub fn run_mcp_federation(fix: bool) -> Result<()> {
 }
 
 fn print_other_hosts(home: &Path) {
-    let opencode = home.join(".config/opencode/opencode.json");
     let codex = home.join(".codex/config.toml");
     let codex_hooks = home.join(".codex/hooks.json");
     let claude = home.join(".claude.json");

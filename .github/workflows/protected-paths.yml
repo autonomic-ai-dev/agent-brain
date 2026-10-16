@@ -1,0 +1,36 @@
+name: Protected paths
+
+# Stage 1 sketch: fail PRs that touch protected paths unless labeled.
+# Enable branch protection requiring this check + label `protected-path-approved`.
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - "agent-brain/**/tests/**"
+      - "agent-brain/**/*_test.rs"
+      - ".verify/**"
+      - "**/migrations/**"
+      - "**/*security*"
+      - ".github/workflows/protected-paths.yml"
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  require-approval-label:
+    name: Protected path approval
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require protected-path-approved label
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LABELS=$(gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels" --jq '.[].name')
+          if echo "$LABELS" | grep -qx 'protected-path-approved'; then
+            echo "Label protected-path-approved present."
+            exit 0
+          fi
+          echo "::error::Protected paths changed without label 'protected-path-approved'."
+          echo "Protected: tests, .verify/, migrations, security config."
+          exit 1

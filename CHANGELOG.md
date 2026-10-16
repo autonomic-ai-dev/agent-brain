@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
+## [0.40.0] - 2026-10-16
+
+### Added
+
+- **`VerifySource::Orchestrator`** — `agent-brain verify --source orchestrator` (aliases `spine`/`muscle`) for trusted workflow exits
+- **Command allowlist** — `.verify/verify.toml` (`[verify].commands`); empty/missing falls back to common runners; `true`/`echo` never match
+- **Stage 0/1 scaffold** — `.verify/` README, threat checklist, manual baseline template; `docs/proofs/stage0-baseline.md`; protected-paths CI sketch; `docs/CONTEXT.md`
+- **CI path-filter pattern doc** — `docs/ci-path-filter-pattern.md` for sibling organs
+
+### Changed
+
+- **Host instructions v8** — prefer `agent-brain verify --` over MCP `record_verify_outcome` (MCP-asserted exits not trusted for learning)
+- **Agent contract / USAGE** — document trusted vs untrusted verify sources (`orchestrator|cli` strongest; `mcp`/`playbook` not for learning)
+
 ## [0.39.0] - 2026-10-16
 
 ### Added

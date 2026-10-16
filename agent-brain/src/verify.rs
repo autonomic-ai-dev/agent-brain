@@ -18,10 +18,16 @@ pub const VERIFY_DIR_NAME: &str = ".verify";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VerifySource {
+    /// `agent-brain verify -- <cmd>` ran the process and recorded the real exit.
     Cli,
+    /// Host Shell PostToolUse / hook captured a real exit.
     Hook,
+    /// MCP `record_verify_outcome` (agent-asserted; not trusted for learning).
     Mcp,
+    /// Explicit playbook-driven record.
     Playbook,
+    /// Spine/muscle/orchestrator invoked `verify --` (trusted; distinct from agent CLI).
+    Orchestrator,
 }
 
 impl VerifySource {
@@ -31,7 +37,13 @@ impl VerifySource {
             Self::Hook => "hook",
             Self::Mcp => "mcp",
             Self::Playbook => "playbook",
+            Self::Orchestrator => "orchestrator",
         }
+    }
+
+    /// Full learning weight: orchestrator, cli (allowlisted), hook (allowlisted).
+    pub fn is_trusted_for_learning(self) -> bool {
+        matches!(self, Self::Cli | Self::Hook | Self::Orchestrator)
     }
 
     pub fn parse(s: &str) -> Result<Self> {
@@ -40,9 +52,76 @@ impl VerifySource {
             "hook" => Ok(Self::Hook),
             "mcp" => Ok(Self::Mcp),
             "playbook" => Ok(Self::Playbook),
-            other => bail!("unknown verify source `{other}` (expected cli|hook|mcp|playbook)"),
+            "orchestrator" | "spine" | "muscle" => Ok(Self::Orchestrator),
+            other => bail!(
+                "unknown verify source `{other}` (expected cli|hook|mcp|playbook|orchestrator)"
+            ),
         }
     }
+}
+
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+struct VerifyTomlFile {
+    #[serde(default)]
+    verify: VerifyTomlSection,
+}
+
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+struct VerifyTomlSection {
+    #[serde(default)]
+    commands: Vec<String>,
+}
+
+/// Load project command allowlist from `<root>/.verify/verify.toml` or `<root>/verify.toml`.
+pub fn load_command_allowlist(project_root: &Path) -> Vec<String> {
+    for rel in [".verify/verify.toml", "verify.toml"] {
+        let path = project_root.join(rel);
+        let Ok(raw) = fs::read_to_string(&path) else {
+            continue;
+        };
+        if let Ok(parsed) = toml::from_str::<VerifyTomlFile>(&raw) {
+            if !parsed.verify.commands.is_empty() {
+                return parsed.verify.commands;
+            }
+        }
+    }
+    Vec::new()
+}
+
+/// True if `cmd` matches an allowlist entry (substring or as prefix of the joined command).
+/// Empty allowlist → fallback to common runners (cargo test, pytest, .verify/, mvnw verify).
+pub fn command_is_allowlisted(cmd: &str, project_root: Option<&Path>) -> bool {
+    let cmd = cmd.trim();
+    if cmd.is_empty() {
+        return false;
+    }
+    let list = project_root
+        .map(load_command_allowlist)
+        .unwrap_or_default();
+    if list.is_empty() {
+        return default_allowlist_match(cmd);
+    }
+    list.iter().any(|entry| {
+        let e = entry.trim();
+        !e.is_empty() && (cmd == e || cmd.starts_with(e) || cmd.contains(e))
+    })
+}
+
+fn default_allowlist_match(cmd: &str) -> bool {
+    let lower = cmd.to_ascii_lowercase();
+    lower.contains("cargo test")
+        || lower.contains("cargo clippy")
+        || lower.contains("cargo check")
+        || lower.contains("pytest")
+        || lower.contains("npm test")
+        || lower.contains("bun test")
+        || lower.contains("go test")
+        || lower.contains("make test")
+        || lower.contains("./mvnw")
+        || lower.contains("mvnw ")
+        || lower.contains(".verify/")
+        || lower.contains("agent-brain proofs")
+        || lower.contains("agent-brain doctor")
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -154,15 +233,21 @@ pub fn run_verify(
     cause_tag: Option<&str>,
     config_path: Option<&Path>,
     scenarios_dir: Option<&Path>,
+    source: VerifySource,
 ) -> Result<VerifyReport> {
     if cmd.is_empty() {
-        bail!("usage: agent-brain verify [--config PATH] [--scenarios DIR] [--route-log-id ID] [--cause TAG] -- <cmd> [args...]");
+        bail!("usage: agent-brain verify [--source cli|orchestrator] [--config PATH] [--scenarios DIR] [--route-log-id ID] [--cause TAG] -- <cmd> [args...]");
     }
+    let source = match source {
+        VerifySource::Mcp | VerifySource::Playbook | VerifySource::Hook => VerifySource::Cli,
+        other => other,
+    };
     let status = Command::new(&cmd[0])
         .args(&cmd[1..])
         .status()
         .with_context(|| format!("failed to spawn {}", cmd[0]))?;
     let exit_code = status.code().unwrap_or(1);
+    let cwd = std::env::current_dir().ok();
     record_from_result(
         store,
         exit_code,
@@ -171,8 +256,8 @@ pub fn run_verify(
         cause_tag,
         config_path,
         scenarios_dir,
-        None,
-        VerifySource::Cli,
+        cwd.as_deref(),
+        source,
     )
 }
 
@@ -230,7 +315,7 @@ pub fn print_report(store: &BrainStore) -> Result<()> {
     }
 
     println!(
-        "note: source=cli (agent-brain verify --) is strongest; hook/mcp/playbook are observational"
+        "note: source=orchestrator|cli (allowlisted verify --) strongest; hook observational; mcp/playbook not trusted for learning"
     );
     Ok(())
 }
@@ -301,5 +386,37 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].source.as_deref(), Some("hook"));
         assert!(rows[0].scenario_dir_hash.is_some());
+    }
+
+    #[test]
+    fn orchestrator_source_parses_and_is_trusted() {
+        assert_eq!(
+            VerifySource::parse("orchestrator").unwrap(),
+            VerifySource::Orchestrator
+        );
+        assert_eq!(VerifySource::parse("spine").unwrap(), VerifySource::Orchestrator);
+        assert!(VerifySource::Orchestrator.is_trusted_for_learning());
+        assert!(!VerifySource::Mcp.is_trusted_for_learning());
+    }
+
+    #[test]
+    fn allowlist_from_verify_toml_and_rejects_true() {
+        let dir = tempdir().unwrap();
+        fs::create_dir_all(dir.path().join(".verify")).unwrap();
+        fs::write(
+            dir.path().join(".verify/verify.toml"),
+            r#"
+[verify]
+commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
+"#,
+        )
+        .unwrap();
+        assert!(command_is_allowlisted(
+            "./mvnw -q verify -DskipITs",
+            Some(dir.path())
+        ));
+        assert!(command_is_allowlisted("cargo test -p agent-brain", Some(dir.path())));
+        assert!(!command_is_allowlisted("true", Some(dir.path())));
+        assert!(!command_is_allowlisted("echo hi", Some(dir.path())));
     }
 }

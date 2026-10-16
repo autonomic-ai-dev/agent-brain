@@ -178,7 +178,7 @@ Packages live at `~/.agent_brain/packages/<name>/`.
 |------|-------------|
 | `route_task` | **Every turn** — primary routing with token budget |
 | `get_context` | Lower-level flat context retrieval |
-| `record_verify_outcome` | Record test / build verification results (`cli\|hook\|mcp\|playbook`), hashes `.verify/` |
+| `record_verify_outcome` | Agent-asserted exit only (`mcp`/`playbook`); prefer `agent-brain verify --` (`cli`/`orchestrator`). Hashes `.verify/` |
 | `store_memory` | Persist a short fact at task end (max 50 words) |
 | `list_memory` | Inspect stored facts |
 | `delete_memory` | Remove a fact |
@@ -189,17 +189,18 @@ Packages live at `~/.agent_brain/packages/<name>/`.
 Verify commands track test suite results, compiler runs, and verification playbooks across turns and sessions. Outcomes are stored in SQLite and correlated with `route_log_id`.
 
 ```bash
-# Wrap a test command directly: executes, prints output, records exit code & duration
+# Preferred: wrap a command (source=cli). Orchestrators pass --source orchestrator.
 agent-brain verify -- cargo test -p agent-brain
+agent-brain verify --source orchestrator -- cargo test -p agent-brain
 
-# Record an already executed command's result
+# Record an already-known exit (hooks use --source hook; MCP asserts are not trusted for learning)
 agent-brain verify record --exit 0 --source cli -- cargo test -p agent-brain
 
-# View aggregate verification stats across sources (cli, hook, mcp, playbook)
+# View aggregate verification stats (orchestrator|cli strongest; mcp/playbook not trusted for learning)
 agent-brain report
 ```
 
-- **Project playbooks (`.verify/`):** When a `.verify/` folder exists at project root, its scenario files and configs are hashed to track drift against outcomes.
+- **Project playbooks (`.verify/`):** When a `.verify/` folder exists at project root, its scenario files and configs are hashed to track drift against outcomes. Command allowlist: `.verify/verify.toml`.
 - **Hook auto-capture:** When enabled in host hooks (`route_gate.py`), matching Shell test commands (`cargo test`, `pytest`, `npm test`, etc.) automatically record verification outcomes into SQLite.
 
 ## Durable memory CLI fallback and pending queue
@@ -280,7 +281,7 @@ agent-brain sync git push
 
 Shared script: `route_gate.py` (requires `python3` on PATH). Default scope `brain_mcp` — only other agent-brain MCP tools are denied until `route_task`; set `AGENT_BRAIN_ROUTE_GATE_SCOPE=all` for legacy strict mode.
 
-### Enforcement features (v0.39.0+)
+### Enforcement features (v0.40.0+)
 
 - **Large-file edit & scout unlock:** When an agent inspects a file via `file_summary`, `read_file_head`, `read_file_tail`, or `grep_search`, native Read and StrReplace tools are unlocked for that path for 1 hour (`AGENT_BRAIN_SCOUT_UNLOCK_SECS`). Edit tools are never blocked by the read gate.
 - **Python Shell execution policy:** Shared `route_gate.py` denies ad-hoc `python -c`, heredocs, and piped stdin on Shell/Bash across hosts. Standard test runs (e.g. `python -m pytest`) and dedicated `.py` files remain permitted. Set `AGENT_BRAIN_ALLOW_PYTHON_SHELL=1` with operator approval to override.

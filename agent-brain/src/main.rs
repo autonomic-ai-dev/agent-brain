@@ -758,7 +758,7 @@ async fn main() -> Result<()> {
                     args[idx + 1..].to_vec()
                 } else {
                     eprintln!(
-                        "Usage: agent-brain verify record --exit N [--source hook|mcp|playbook|cli] [--config PATH] [--scenarios DIR] [--route-log-id ID] [--cause TAG] -- <cmd summary...>"
+                        "Usage: agent-brain verify record --exit N [--source hook|mcp|playbook|cli|orchestrator] [--config PATH] [--scenarios DIR] [--route-log-id ID] [--cause TAG] -- <cmd summary...>"
                     );
                     std::process::exit(1);
                 };
@@ -782,11 +782,14 @@ async fn main() -> Result<()> {
                 let cause = flag_value(&args, "--cause");
                 let config_path = flag_value(&args, "--config").map(std::path::PathBuf::from);
                 let scenarios = flag_value(&args, "--scenarios").map(std::path::PathBuf::from);
+                let source_raw =
+                    flag_value(&args, "--source").unwrap_or_else(|| "cli".to_string());
+                let source = agent_brain::verify::VerifySource::parse(&source_raw)?;
                 let cmd: Vec<String> = if let Some(idx) = args.iter().position(|a| a == "--") {
                     args[idx + 1..].to_vec()
                 } else {
                     eprintln!(
-                        "Usage: agent-brain verify [--config PATH] [--scenarios DIR] [--route-log-id ID] [--cause TAG] -- <cmd> [args...]\n       agent-brain verify record --exit N [--source ...] -- <cmd summary...>"
+                        "Usage: agent-brain verify [--source cli|orchestrator] [--config PATH] [--scenarios DIR] [--route-log-id ID] [--cause TAG] -- <cmd> [args...]\n       agent-brain verify record --exit N [--source ...] -- <cmd summary...>"
                     );
                     std::process::exit(1);
                 };
@@ -797,6 +800,7 @@ async fn main() -> Result<()> {
                     cause.as_deref(),
                     config_path.as_deref(),
                     scenarios.as_deref(),
+                    source,
                 )?;
                 println!("{}", serde_json::to_string_pretty(&report)?);
                 if !report.success {

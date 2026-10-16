@@ -641,7 +641,7 @@ impl BrainMcp {
 
 
     #[tool(
-        description = "Record a verification outcome without wrapping the command. Hashes project-root `.verify/` when present. Does not require route_task."
+        description = "Record an already-known exit without wrapping the command (agent-asserted; not trusted for learning). Prefer `agent-brain verify -- <cmd>` or `--source orchestrator`. Hashes project-root `.verify/` when present. Does not require route_task."
     )]
     async fn record_verify_outcome(
         &self,
