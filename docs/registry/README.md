@@ -6,7 +6,8 @@ One-command skill packs via **`agent-brain add @alias`**. Aliases are embedded i
 
 | Alias | Description | GitHub packages |
 |-------|-------------|-----------------|
-| `@starter` | Onboarding pack | `vercel-labs/skills`, `vercel-labs/agent-skills` |
+| `@matt-skills` / `@mattpocock` | **Default** — Matt Pocock skills (boosted in routing) | `mattpocock/skills` |
+| `@starter` | Onboarding pack | `mattpocock/skills`, `vercel-labs/agent-skills` |
 | `@nextjs` | React / Next.js | `vercel-labs/agent-skills` |
 | `@ecc` | Full ECC library | `affaan-m/everything-claude-code` |
 | `@rust` | Rust via ECC | `affaan-m/everything-claude-code` |
@@ -30,9 +31,12 @@ Or after install:
 ```bash
 agent-brain add @coding-policy  # engineering policy (no git clone; also via doctor --fix)
 agent-brain add @supervisor     # execution supervisor (no git clone)
+agent-brain add @matt-skills    # default on doctor --fix / install (recommend_boost 0.35)
 agent-brain add @starter
 agent-brain add @nextjs
 ```
+
+Default packages (`"default": true` in `packages.json`) are cloned and indexed automatically on `agent-brain install` and `agent-brain doctor --fix`. Skills under those install paths get an additive `recommend_boost` in `route_task` ranking.
 
 ## Adding aliases
 

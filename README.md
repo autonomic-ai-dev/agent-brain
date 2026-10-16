@@ -47,7 +47,7 @@ agent-brain install --all --global
 # or: --claude-code | --codex | --opencode | --gemini | --antigravity | --vscode | --claude-desktop
 ```
 
-Packages: `agent-brain registry list` · `agent-brain add @supervisor`
+Packages: `agent-brain registry list` · defaults `@matt-skills` · `agent-brain add @supervisor`
 
 ---
 

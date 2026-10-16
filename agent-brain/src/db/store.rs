@@ -2554,6 +2554,7 @@ impl BrainStore {
         bm25_only: bool,
         phase: Option<&str>,
         match_ctx: Option<&MatchContext<'_>>,
+        package_boosts: &[(String, f64)],
         ann_settings: crate::ann::AnnSettings,
     ) -> Result<(Vec<ScoredItem>, usize, usize)> {
         let index_total = snapshot.indexed.len() + snapshot.memories.len();
@@ -2737,6 +2738,14 @@ impl BrainStore {
                 }
             }
 
+            if matches!(item_type, ItemType::Skill | ItemType::Rule | ItemType::Agent) {
+                let pkg_boost =
+                    crate::packages::path_recommend_boost(&row.source_path, package_boosts);
+                if pkg_boost > 0.0 {
+                    score += pkg_boost;
+                }
+            }
+
             if bm25_norm == 0.0 && lexical < 0.12 {
                 score *= 0.5;
             }
@@ -2897,6 +2906,7 @@ impl BrainStore {
             false,
             phase,
             match_ctx,
+            &[],
             crate::ann::AnnSettings::default(),
         )
     }
