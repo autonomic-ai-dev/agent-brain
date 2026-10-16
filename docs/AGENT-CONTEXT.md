@@ -12,8 +12,8 @@ Hard gates (hooks/plugins) block other agent-brain MCP tools until `route_task` 
 
 1. Call **`route_task`** with `user_message`, `current_working_directory`, and `open_files`.
 2. Load skills/agents from returned paths; treat `must_apply` as hard constraints.
-3. Prefer `grep_search`, `file_summary`, `read_file_head` / `read_file_tail` over host Read/Grep/Cat.
-4. At task end, call **`store_memory`** (max 50 words, no secrets).
+3. Prefer `grep_search`, `file_summary`, `read_file_head` / `read_file_tail` over host Read/Grep/Cat. Scouting unlocks native Read/StrReplace on that path.
+4. At task end, call **`store_memory`** (max 50 words, no secrets). If MCP connection fails, retry or use CLI fallback: `agent-brain memory put` or `memory enqueue` + `memory flush-pending`.
 
 Session digests and team memory surface **only** through `route_task`.
 
@@ -24,6 +24,7 @@ Session digests and team memory surface **only** through `route_task`.
 | Start of turn | `route_task` |
 | Find text | `grep_search` |
 | Skim a file | `file_summary`, `read_file_head`, `read_file_tail` |
+| Record verification | `record_verify_outcome` |
 | Persist a convention | `store_memory` |
 | Multi-agent note | `write_scratchpad` / `read_scratchpad` |
 | Bounded git | `brain_git_log`, `brain_git_diff`, `brain_git_compare` |
@@ -39,6 +40,8 @@ Code-nav tools (`query_codebase`, `get_symbol_definition`, …) need a build wit
 
 ## If the gate denies you
 
-Call `route_task` first. Do not work around the gate. If MCP is down, run `agent-brain doctor` (or `doctor --fix`), then retry.
+- Distinguish valid route-gate `Permission denied` (re-call `route_task`; never set `AGENT_BRAIN_ROUTE_HOOKS=0`) from infrastructure MCP failures (retry, then CLI writes / alternate reads).
+- Do not use `python -c` / heredoc / piped stdin on Shell/Bash for ad-hoc inspection or patches; use native tools, scout unlock, or project test runners (`python -m pytest ...`).
+- If MCP is down, run `agent-brain doctor` (or `doctor --fix`), then retry.
 
 Readable briefing: `~/.agent_brain/logs/last-route.md` or `agent-brain briefing`.

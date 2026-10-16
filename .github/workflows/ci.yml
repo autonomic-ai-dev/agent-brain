@@ -20,17 +20,6 @@ on:
       - ".github/scripts/**"
   pull_request:
     branches: [master]
-    paths:
-      - "agent-brain/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "Makefile"
-      - "Containerfile"
-      - "scripts/**"
-      - ".github/workflows/**"
-      - ".github/pipelines/**"
-      - ".github/actions/**"
-      - ".github/scripts/**"
   workflow_dispatch:
 
 permissions:
@@ -43,9 +32,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check runtime change paths
+        id: filter
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="${{ github.base_ref }}"
+            CHANGED=$(git diff --name-only "origin/$BASE_REF...HEAD" || git diff --name-only HEAD~1)
+            MATCHED=$(echo "$CHANGED" | grep -E '^(agent-brain/|Cargo\.|Makefile|Containerfile|scripts/|\.github/)' || true)
+            if [ -z "$MATCHED" ]; then
+              echo "skip_pipeline=true" >> "$GITHUB_OUTPUT"
+              echo "Only non-runtime paths modified; skipping compose pipeline."
+              exit 0
+            fi
+          fi
+          echo "skip_pipeline=false" >> "$GITHUB_OUTPUT"
 
       - uses: aeswibon/pipeline-compose-run@v1.17.1
+        if: steps.filter.outputs.skip_pipeline != 'true'
         with:
           pipeline_file: .github/pipelines/ci.yml
           github_token: ${{ github.token }}
           ref: ${{ github.head_ref || github.ref_name }}
+
