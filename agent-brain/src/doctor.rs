@@ -844,6 +844,19 @@ fn bootstrap_registry_bundles(config: &crate::config::Config) -> Result<()> {
         crate::packages::install_bundled(config, "coding-policy")?;
         println!("  bootstrap:           installed @coding-policy");
     }
+    match crate::packages::bootstrap_default_packages(config) {
+        Ok(installed) => {
+            for pkg in installed {
+                println!(
+                    "  bootstrap:           installed {} ({})",
+                    pkg.name, pkg.source
+                );
+            }
+        }
+        Err(err) => {
+            println!("  bootstrap:           default packages skipped ({err})");
+        }
+    }
     Ok(())
 }
 

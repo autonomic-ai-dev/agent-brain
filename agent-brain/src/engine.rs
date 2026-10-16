@@ -441,6 +441,7 @@ impl Engine {
             repo_root,
             user_message,
         };
+        let package_boosts = crate::packages::recommend_path_boosts(&self.config.home);
         let (mut scored, candidates, index_total) = self.store.score_items_with_bm25(
             &snapshot,
             query,
@@ -452,6 +453,7 @@ impl Engine {
             use_bm25_fast_path,
             Some(phase),
             Some(&match_ctx),
+            &package_boosts,
             crate::ann::AnnSettings {
                 enabled: self.config.ann_enabled,
                 min_index: self.config.ann_min_index,
@@ -526,6 +528,7 @@ impl Engine {
             repo_root,
             user_message,
         };
+        let package_boosts = crate::packages::recommend_path_boosts(&self.config.home);
         let ann = crate::ann::AnnSettings {
             enabled: self.config.ann_enabled,
             min_index: self.config.ann_min_index,
@@ -551,6 +554,7 @@ impl Engine {
                 use_bm25_fast_path,
                 Some(phase),
                 Some(&match_ctx),
+                &package_boosts,
                 ann,
             )?;
             for item in &extra {
