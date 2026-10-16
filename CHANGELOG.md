@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.0.0-beta.2] - 2026-10-16
+
+### Fixed
+- **MCP Auto-Spawn Daemon** — Auto-spawn background daemon if `serve.sock` is not reachable during client connection attempts, eliminating endless reconnection loops and connection hanging.
+- **Embedded Curated Registry Fallback** — Merge embedded packages, utilities, and workflows into cached registry as fallback when upstream registry is unreachable or on fresh installs without network connectivity.
+
+### Changed
+- Aligned `agent-body-core` dependency to `v1.0.0-beta.2`.
+
 ## [1.0.0-beta.1] - 2026-10-16
 
 ### Added
