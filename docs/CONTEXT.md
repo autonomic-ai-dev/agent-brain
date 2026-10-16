@@ -24,6 +24,10 @@ Each user turn: call **`route_task`** once â†’ load ranked skills/rules/memory â
 
 Allowlist: project-root `.verify/verify.toml` (`[verify].commands`). Prefer **`verify --`** over MCP asserts.
 
+## Default skills
+
+`@matt-skills` ([mattpocock/skills](https://github.com/mattpocock/skills)) installs on `doctor --fix` / install, is indexed under `packages/skills/`, and receives `recommend_boost: 0.35` in routing.
+
 ## Key tools / CLI
 
 - MCP: `route_task`, `grep_search`, `file_summary`, `read_file_head`/`tail`, `store_memory`

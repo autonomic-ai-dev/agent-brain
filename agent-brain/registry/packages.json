@@ -20,10 +20,26 @@
         "jeffallan/claude-skills"
       ]
     },
-    "starter": {
-      "description": "Lightweight onboarding \u2014 skill discovery + Vercel React patterns",
+    "matt-skills": {
+      "description": "Matt Pocock skills for real engineers \u2014 design, TDD, specs, review, triage",
       "packages": [
-        "vercel-labs/skills",
+        "mattpocock/skills"
+      ],
+      "default": true,
+      "recommend_boost": 0.35
+    },
+    "mattpocock": {
+      "description": "Alias for @matt-skills (mattpocock/skills)",
+      "packages": [
+        "mattpocock/skills"
+      ],
+      "default": true,
+      "recommend_boost": 0.35
+    },
+    "starter": {
+      "description": "Lightweight onboarding \u2014 Matt Pocock skills + Vercel React patterns",
+      "packages": [
+        "mattpocock/skills",
         "vercel-labs/agent-skills"
       ]
     },
