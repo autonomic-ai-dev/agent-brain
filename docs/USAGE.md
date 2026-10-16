@@ -217,7 +217,7 @@ Packages live at `~/.agent_brain/packages/<name>/`.
 | `AGENT_BRAIN_SESSION_INGEST` | `1` (on) | Set `0` or `false` to disable legacy session import |
 | `AGENT_BRAIN_ROUTE_HOOKS` | `1` (on) | Set `0` to disable Cursor route_task gate hooks |
 | `AGENT_BRAIN_ROUTE_GATE_SCOPE` | `brain_mcp` | `brain_mcp` = gate agent-brain MCP only; `all` = legacy strict |
-| `AGENT_BRAIN_READ_GATE` | `hard` | `hard` = deny large/blocked native Read; `steer` = warn only; `off` = disable |
+| `AGENT_BRAIN_READ_GATE` | `hard` | `hard` = deny large/blocked native Read; `steer` = warn only; `off` = disable. After MCP `file_summary` / `read_file_head` / `grep_search` on a path, native Read/StrReplace is unlocked for that path (`AGENT_BRAIN_SCOUT_UNLOCK_SECS`, default 3600). Edit tools are never blocked by this gate — do not use Shell+python to patch. |
 | `RUST_LOG` | `agent_brain=info` | Log level (stderr only) |
 
 ## Route gate (enforcement)

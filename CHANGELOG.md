@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.0] - 2026-10-16
+
+### Added
+
+- **Verify auto-record** — `agent-brain verify record`, MCP `record_verify_outcome`, and Shell PostToolUse capture for matching test commands; `verify_outcomes.source` (`cli|hook|mcp|playbook`); project-root **`.verify/`** discovery + scenario hash
+- **`agent-brain report`** — per-source outcome counts
+
+### Changed
+
+- **Large-file edit unlock** — after MCP `file_summary` / `read_file_head|tail` / `grep_search` on a path, native Read/StrReplace is allowed on that path (no Shell+python); edit tools never hit the Read gate; deny text steers to scout→StrReplace
+- **Python Shell execution policy (agent-agnostic)** — shared `route_gate.py` denies `python -c` / heredoc / piped stdin on Shell/Bash for Cursor (`preToolUse` + `beforeShellExecution`), Claude Code / Codex (`PreToolUse`), Gemini / Antigravity (`BeforeTool`), and OpenCode (`tool.execute.before`); allow `python -m pytest|…` and project `.py` runs; override `AGENT_BRAIN_ALLOW_PYTHON_SHELL=1` with user approval
+- **MCP mid-turn flake fix** — session-scoped route gate state + no re-arm on same `generation_id`; exclusive `serve.lock` (refuse second serve unless `AGENT_BRAIN_ALLOW_MULTI_SERVE=1`); dedupe Cursor hooks to `route_gate_run.sh` only
+- **Idle-gated MCP auto-update** — download to staging only; apply binary + refresh `mcp.json` + restart only when MCP is idle; defer (never force) when still busy after max wait
+- **@coding-policy** — synced from Downloads `coding-agent-rules-enforced 2` (no Python for large-file read/inspect workarounds)
+
 ## [0.38.0] - 2026-10-16
 
 ### Added

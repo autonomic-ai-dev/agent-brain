@@ -125,6 +125,27 @@ fn default_limit() -> usize {
     50
 }
 
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct RecordVerifyOutcomeParams {
+    exit_code: i32,
+    cmd: String,
+    #[serde(default)]
+    cause_tag: Option<String>,
+    #[serde(default)]
+    route_log_id: Option<String>,
+    #[serde(default)]
+    config_path: Option<String>,
+    #[serde(default)]
+    scenarios_dir: Option<String>,
+    /// Working directory used to discover project-root `.verify/`.
+    #[serde(default)]
+    cwd: Option<String>,
+    /// cli|hook|mcp|playbook — defaults to mcp (playbook when explicitly set).
+    #[serde(default)]
+    source: Option<String>,
+}
+
 #[derive(Debug, Deserialize, JsonSchema)]
 struct StoreTrajectoryParams {
     workflow_id: String,
@@ -616,6 +637,37 @@ impl BrainMcp {
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         json_result(value)
+    }
+
+
+    #[tool(
+        description = "Record a verification outcome without wrapping the command. Hashes project-root `.verify/` when present. Does not require route_task."
+    )]
+    async fn record_verify_outcome(
+        &self,
+        params: Parameters<RecordVerifyOutcomeParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let source_raw = p.source.as_deref().unwrap_or("mcp");
+        let source = crate::verify::VerifySource::parse(source_raw)
+            .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        let config_path = p.config_path.as_ref().map(PathBuf::from);
+        let scenarios = p.scenarios_dir.as_ref().map(PathBuf::from);
+        let cwd = p.cwd.as_ref().map(PathBuf::from);
+        let report = crate::verify::record_from_result(
+            &self.engine.store,
+            p.exit_code,
+            &p.cmd,
+            p.route_log_id.as_deref(),
+            p.cause_tag.as_deref(),
+            config_path.as_deref(),
+            scenarios.as_deref(),
+            cwd.as_deref(),
+            source,
+        )
+        .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        json_result(serde_json::json!({ "verify": report }))
     }
 
     #[tool(

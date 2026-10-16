@@ -29,6 +29,16 @@ from route_gate import (
     route_response_useful,
     should_gate_tool,
     stale_needs_route,
+    looks_like_verification,
+    maybe_record_verify_outcome,
+    session_id_from_event,
+    set_active_session,
+    is_cursor_edit_tool,
+    record_scouted_path,
+    path_is_scouted,
+    maybe_record_scout_from_event,
+    check_python_shell_policy,
+    handle_before_shell_execution,
 )
 
 
@@ -459,6 +469,231 @@ class StatefulWorkflowHookTests(unittest.TestCase):
             out["hookSpecificOutput"]["permissionDecisionReason"], "route_task required"
         )
 
+
+
+
+class ScoutUnlockTests(unittest.TestCase):
+    def test_edit_tools_bypass_read_gate(self) -> None:
+        self.assertTrue(is_cursor_edit_tool({"tool_name": "StrReplace"}))
+        self.assertTrue(is_cursor_edit_tool({"tool_name": "Write"}))
+        self.assertIsNone(
+            check_read_tool_gate(
+                {
+                    "tool_name": "StrReplace",
+                    "tool_input": {"path": "/tmp/huge.rs", "old_string": "a", "new_string": "b"},
+                }
+            )
+        )
+
+    def test_scout_unlocks_large_native_read(self) -> None:
+        from route_gate import STATE_PATH, READ_GATE_MODE
+        import route_gate
+
+        old = route_gate.READ_GATE_MODE
+        route_gate.READ_GATE_MODE = "hard"
+        try:
+            STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            if STATE_PATH.exists():
+                STATE_PATH.unlink()
+            big = Path(tempfile.mkdtemp()) / "big.rs"
+            big.write_bytes(b"x" * (route_gate.READ_WARN_BYTES + 10))
+            denied = check_read_tool_gate(
+                {"tool_name": "Read", "tool_input": {"path": str(big)}}
+            )
+            self.assertIsNotNone(denied)
+            self.assertEqual(denied.get("permission"), "deny")
+            msg = (denied.get("agent_message") or "") + (denied.get("user_message") or "")
+            self.assertIn("file_summary", msg)
+            self.assertIn("StrReplace", msg)
+            self.assertIn("shell+python", msg.lower())
+
+            record_scouted_path(str(big), {"conversation_id": "scout-test"})
+            allowed = check_read_tool_gate(
+                {
+                    "tool_name": "Read",
+                    "tool_input": {"path": str(big)},
+                    "conversation_id": "scout-test",
+                }
+            )
+            self.assertIsNone(allowed)
+
+            maybe_record_scout_from_event(
+                {
+                    "tool_name": "mcp_agent-brain_file_summary",
+                    "success": True,
+                    "tool_input": {"path": str(big)},
+                    "conversation_id": "scout-test-2",
+                }
+            )
+            self.assertTrue(
+                path_is_scouted(
+                    {"scouted_paths": {str(big.resolve()): time.time()}},
+                    str(big),
+                )
+            )
+        finally:
+            route_gate.READ_GATE_MODE = old
+
+    def test_python_shell_policy_denies_workarounds(self) -> None:
+        denied_c = check_python_shell_policy("python3 -c \"print(open('f').read())\"")
+        self.assertIsNotNone(denied_c)
+        self.assertEqual(denied_c.get("permission"), "deny")
+        denied_h = check_python_shell_policy("python3 <<'PY'\nprint(1)\nPY")
+        self.assertIsNotNone(denied_h)
+        denied_pipe = check_python_shell_policy("echo 'x' | python3")
+        self.assertIsNotNone(denied_pipe)
+        denied_stdin = check_python_shell_policy("python3 -")
+        self.assertIsNotNone(denied_stdin)
+
+    def test_python_shell_policy_allows_project_runs(self) -> None:
+        self.assertIsNone(check_python_shell_policy("python3 -m pytest hooks/"))
+        self.assertIsNone(check_python_shell_policy("python3 scripts/gen.py --out x"))
+        self.assertIsNone(check_python_shell_policy("cargo test"))
+        self.assertIsNone(check_python_shell_policy(None))
+        # *.py paths / prose must not false-positive with cat <<EOF or "python -c" in -m text
+        self.assertIsNone(
+            check_python_shell_policy(
+                "git add hooks/route_gate.py && git commit -m \"$(cat <<'EOF'\nmsg\nEOF\n)\""
+            )
+        )
+        self.assertIsNone(
+            check_python_shell_policy(
+                'git commit -m "deny python -c workarounds at tool level"'
+            )
+        )
+
+    def test_before_shell_execution_blocks_python_c(self) -> None:
+        out = handle_before_shell_execution(
+            {"hook_event_name": "beforeShellExecution", "command": "python3 -c 'print(1)'"}
+        )
+        self.assertEqual(out.get("permission"), "deny")
+        allowed = handle_before_shell_execution(
+            {
+                "hook_event_name": "beforeShellExecution",
+                "command": "python3 -m pytest hooks/test_route_gate.py",
+            }
+        )
+        self.assertEqual(allowed.get("permission"), "allow")
+
+    def test_pre_tool_use_shell_python_c_denied(self) -> None:
+        out = handle_pre_tool_use(
+            {
+                "tool_name": "Shell",
+                "tool_input": {"command": "python3 -c \"open('x').read()\""},
+            }
+        )
+        self.assertEqual(out.get("permission"), "deny")
+        self.assertIn("python -c", (out.get("user_message") or "").lower() + (out.get("agent_message") or "").lower())
+
+    def test_python_deny_is_agent_agnostic_for_bash_and_before_tool(self) -> None:
+        """Claude Bash PreToolUse + Gemini BeforeTool share route_gate.py policy."""
+        from route_gate import adapt_hook_output, is_shell_tool
+
+        self.assertTrue(is_shell_tool("Bash"))
+        self.assertTrue(is_shell_tool("bash"))
+        self.assertTrue(is_shell_tool("shell_command"))
+        self.assertFalse(is_shell_tool("Write"))
+
+        bash_denied = handle_pre_tool_use(
+            {
+                "tool_name": "Bash",
+                "tool_input": {"command": "python3 -c 'print(1)'"},
+            }
+        )
+        self.assertEqual(bash_denied.get("permission"), "deny")
+        claude = adapt_hook_output("PreToolUse", bash_denied, {})
+        self.assertEqual(
+            claude.get("hookSpecificOutput", {}).get("permissionDecision"), "deny"
+        )
+
+        gemini_event = {
+            "hook_event_name": "BeforeTool",
+            "tool_name": "run_command",
+            "tool_input": {"command": "python3 -c 'print(1)'"},
+        }
+        gemini_raw = handle_pre_tool_use(gemini_event)
+        self.assertEqual(gemini_raw.get("permission"), "deny")
+        gemini = adapt_hook_output("BeforeTool", gemini_raw, gemini_event)
+        self.assertEqual(gemini.get("decision"), "deny")
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+def test_looks_like_verification_allowlist():
+    assert looks_like_verification("cargo test -p agent-brain")
+    assert looks_like_verification("npm test")
+    assert looks_like_verification("./.verify/scripts/doctor.sh")
+    assert not looks_like_verification("agent-brain verify -- cargo test")
+    assert not looks_like_verification("ls -la")
+
+
+def test_maybe_record_verify_skips_non_shell(monkeypatch):
+    called = []
+
+    def fake_popen(*args, **kwargs):
+        called.append((args, kwargs))
+        class P:
+            pass
+        return P()
+
+    monkeypatch.setattr("route_gate.subprocess.Popen", fake_popen)
+    maybe_record_verify_outcome({"tool_name": "Write", "tool_input": {"path": "x"}})
+    assert called == []
+    maybe_record_verify_outcome(
+        {
+            "tool_name": "Shell",
+            "success": True,
+            "tool_input": {"command": "cargo test"},
+        }
+    )
+    assert len(called) == 1
+    argv = called[0][0][0]
+    assert "verify" in argv and "record" in argv
+    assert "--source" in argv and "hook" in argv
+
+
+class SessionGateTests(unittest.TestCase):
+    def test_session_isolation(self) -> None:
+        from route_gate import STATE_PATH, load_state, save_state, set_active_session
+
+        STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        if STATE_PATH.exists():
+            STATE_PATH.unlink()
+        set_active_session("conv-a")
+        save_state({"needs_route": True, "needs_route_since": time.time()})
+        set_active_session("conv-b")
+        save_state({"needs_route": False})
+        set_active_session("conv-a")
+        self.assertTrue(load_state().get("needs_route"))
+        set_active_session("conv-b")
+        self.assertFalse(load_state().get("needs_route"))
+
+    def test_before_submit_does_not_rearm_same_generation(self) -> None:
+        from route_gate import STATE_PATH, load_state, set_active_session
+
+        STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        if STATE_PATH.exists():
+            STATE_PATH.unlink()
+        event = {"generation_id": "gen-1", "conversation_id": "c1"}
+        handle_before_submit_prompt(event)
+        self.assertTrue(load_state(event).get("needs_route"))
+        # Simulate successful route
+        set_active_session(session_id_from_event(event))
+        st = load_state(event)
+        st["needs_route"] = False
+        st["routed_generation"] = "gen-1"
+        from route_gate import save_state
+
+        save_state(st, event)
+        # Duplicate mid-turn submit for same generation must not re-arm
+        handle_before_submit_prompt(event)
+        self.assertFalse(load_state(event).get("needs_route"))
+        # New generation must re-arm
+        event2 = {"generation_id": "gen-2", "conversation_id": "c1"}
+        handle_before_submit_prompt(event2)
+        self.assertTrue(load_state(event2).get("needs_route"))
 
 if __name__ == "__main__":
     unittest.main()

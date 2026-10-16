@@ -34,7 +34,7 @@ See plan. Confirmed: path `scope_key`, fixed `source=agent`, export dumps all, `
 
 1. **Transactional outbox** — `sync_events` in same SQLite txn as fact writes; push flushes to `devices/<id>/events.jsonl`.
 2. **Domain per project** — unclassified never pushed.
-3. **Verifier** — `agent-brain verify -- <cmd>`; config/scenario hashes; shell bypass documented.
+3. **Verifier** — `agent-brain verify -- <cmd>`, `verify record`, and MCP `record_verify_outcome`; project-root **`.verify/`** playbooks (agent-agnostic) auto-hashed into `scenario_dir_hash`; Shell PostToolUse auto-records matching test commands (`source=hook`). `agent-brain report` breaks down by `source` (`cli` strongest). Background MCP auto-update **stages** downloads and applies only when idle (no mid-session `mcp.json` bump).
 4. **`min_reader_version`** on root manifest.
 5. **Eval gate** — not below baseline; synced-fact golden tasks.
 
@@ -53,6 +53,18 @@ Phases 3–4 after thin slice proves out. Phases 5–9 backlog.
     manifest.json
     events.jsonl
 ```
+
+
+## Project `.verify/` playbooks
+
+Agent-independent verification playbooks live at **`<project-root>/.verify/`** (same level as `.git`). agent-brain discovers this marker by walking ancestors of cwd, hashes the tree into `scenario_dir_hash`, and records outcomes via:
+
+- `agent-brain verify -- <cmd>` (`source=cli`)
+- `agent-brain verify record --exit N --source playbook -- <summary>`
+- MCP `record_verify_outcome` (after a playbook doctor/drive)
+- Cursor Shell PostToolUse auto-record for common test commands (`source=hook`)
+
+Suggested layout: `README.md` (Launch / Doctor / Drive / Evidence / Cleanup), `features/`, optional `scripts/`.
 
 ## Ownership
 

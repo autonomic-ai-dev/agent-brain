@@ -13,7 +13,10 @@ Installed by `agent-brain install --global` into `~/.cursor/hooks.json`:
 | Hook | Behavior |
 |------|----------|
 | `beforeMCPExecution` | Track `route_task` success / failure |
-| `preToolUse` | Deny tools until routed for current user turn |
+| `preToolUse` | Deny tools until routed; Shell/Bash also runs Python deny policy (all hosts that map here) |
+| `beforeShellExecution` | Cursor-only extra Shell gate: same Python deny (`python -c` / heredoc / piped stdin) |
+
+Python Shell deny (coding-policy §3) is **agent-agnostic**: shared `route_gate.py` on Claude Code / Codex `PreToolUse`, Gemini / Antigravity `BeforeTool`, OpenCode `tool.execute.before`, and Cursor `preToolUse` + `beforeShellExecution`. Allow `python -m pytest|…` and project `.py` runs; override with `AGENT_BRAIN_ALLOW_PYTHON_SHELL=1`.
 
 State persisted in `~/.autonomic/memory/hooks/route_state.json` (legacy: `~/.agent_brain/hooks/`).
 

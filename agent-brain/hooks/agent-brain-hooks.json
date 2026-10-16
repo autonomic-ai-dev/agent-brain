@@ -3,29 +3,35 @@
   "hooks": {
     "beforeSubmitPrompt": [
       {
-        "command": "./hooks/agent-brain/route_gate.py",
+        "command": "./hooks/agent-brain/route_gate_run.sh",
         "matcher": "UserPromptSubmit"
       }
     ],
     "preToolUse": [
       {
-        "command": "./hooks/agent-brain/route_gate.py"
+        "command": "./hooks/agent-brain/route_gate_run.sh"
       }
     ],
     "postToolUse": [
       {
-        "command": "./hooks/agent-brain/route_gate.py"
+        "command": "./hooks/agent-brain/route_gate_run.sh"
       }
     ],
     "beforeMCPExecution": [
       {
-        "command": "./hooks/agent-brain/route_gate.py",
+        "command": "./hooks/agent-brain/route_gate_run.sh",
         "failClosed": true
       }
     ],
     "afterMCPExecution": [
       {
-        "command": "./hooks/agent-brain/route_gate.py"
+        "command": "./hooks/agent-brain/route_gate_run.sh"
+      }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": "./hooks/agent-brain/route_gate_run.sh",
+        "failClosed": true
       }
     ]
   }

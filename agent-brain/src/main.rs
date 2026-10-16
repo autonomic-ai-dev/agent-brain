@@ -64,6 +64,7 @@ async fn main() -> Result<()> {
     match cmd {
         "serve" => {
             let config = Config::load()?;
+            let _serve_lock = agent_brain::serve_lock::acquire(&config.home)?;
             let brain_settings = settings::AgentBrainSettings::load(&config.home);
             let engine = Arc::new(Engine::new(config)?);
             if engine.config.bootstrap_background {
@@ -742,29 +743,65 @@ async fn main() -> Result<()> {
         "verify" => {
             let config = Config::load()?;
             let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
-            let route_log_id = flag_value(&args, "--route-log-id");
-            let cause = flag_value(&args, "--cause");
-            let config_path = flag_value(&args, "--config").map(std::path::PathBuf::from);
-            let scenarios = flag_value(&args, "--scenarios").map(std::path::PathBuf::from);
-            let cmd: Vec<String> = if let Some(idx) = args.iter().position(|a| a == "--") {
-                args[idx + 1..].to_vec()
+            let sub = args.get(2).map(String::as_str).unwrap_or("");
+            if sub == "record" {
+                let route_log_id = flag_value(&args, "--route-log-id");
+                let cause = flag_value(&args, "--cause");
+                let config_path = flag_value(&args, "--config").map(std::path::PathBuf::from);
+                let scenarios = flag_value(&args, "--scenarios").map(std::path::PathBuf::from);
+                let source_raw = flag_value(&args, "--source").unwrap_or_else(|| "hook".to_string());
+                let source = agent_brain::verify::VerifySource::parse(&source_raw)?;
+                let exit_code: i32 = flag_value(&args, "--exit")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0);
+                let cmd: Vec<String> = if let Some(idx) = args.iter().position(|a| a == "--") {
+                    args[idx + 1..].to_vec()
+                } else {
+                    eprintln!(
+                        "Usage: agent-brain verify record --exit N [--source hook|mcp|playbook|cli] [--config PATH] [--scenarios DIR] [--route-log-id ID] [--cause TAG] -- <cmd summary...>"
+                    );
+                    std::process::exit(1);
+                };
+                let report = agent_brain::verify::record_from_result(
+                    &store,
+                    exit_code,
+                    &cmd.join(" "),
+                    route_log_id.as_deref(),
+                    cause.as_deref(),
+                    config_path.as_deref(),
+                    scenarios.as_deref(),
+                    None,
+                    source,
+                )?;
+                println!("{}", serde_json::to_string_pretty(&report)?);
+                if !report.success {
+                    std::process::exit(report.exit_code);
+                }
             } else {
-                eprintln!(
-                    "Usage: agent-brain verify [--config PATH] [--scenarios DIR] [--route-log-id ID] [--cause TAG] -- <cmd> [args...]"
-                );
-                std::process::exit(1);
-            };
-            let report = agent_brain::verify::run_verify(
-                &store,
-                &cmd,
-                route_log_id.as_deref(),
-                cause.as_deref(),
-                config_path.as_deref(),
-                scenarios.as_deref(),
-            )?;
-            println!("{}", serde_json::to_string_pretty(&report)?);
-            if !report.success {
-                std::process::exit(report.exit_code);
+                let route_log_id = flag_value(&args, "--route-log-id");
+                let cause = flag_value(&args, "--cause");
+                let config_path = flag_value(&args, "--config").map(std::path::PathBuf::from);
+                let scenarios = flag_value(&args, "--scenarios").map(std::path::PathBuf::from);
+                let cmd: Vec<String> = if let Some(idx) = args.iter().position(|a| a == "--") {
+                    args[idx + 1..].to_vec()
+                } else {
+                    eprintln!(
+                        "Usage: agent-brain verify [--config PATH] [--scenarios DIR] [--route-log-id ID] [--cause TAG] -- <cmd> [args...]\n       agent-brain verify record --exit N [--source ...] -- <cmd summary...>"
+                    );
+                    std::process::exit(1);
+                };
+                let report = agent_brain::verify::run_verify(
+                    &store,
+                    &cmd,
+                    route_log_id.as_deref(),
+                    cause.as_deref(),
+                    config_path.as_deref(),
+                    scenarios.as_deref(),
+                )?;
+                println!("{}", serde_json::to_string_pretty(&report)?);
+                if !report.success {
+                    std::process::exit(report.exit_code);
+                }
             }
         }
         "report" => {
