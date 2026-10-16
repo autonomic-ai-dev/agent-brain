@@ -6,11 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## [Unreleased]
+## [1.0.0-beta.1] - 2026-10-16
 
 ### Added
-
 - **Prefer agent-body** — full utilities catalog; `doctor --fix` enables `upstream_mcp` → `agent-body serve-mcp`; broader `suggested_tools` boosts for organ tasks; host instructions v9
+
+### Changed
+- Unified ecosystem versioning to 1.0.0-beta.1
+- Pinned `agent-body-core` dependency to `v1.0.0-beta.1`
+- Dynamic GitHub pre-release flag in release workflows for beta/rc/alpha tags
+- CI strictly arm64 macOS native runners with Developer ID code signing
 
 ## [0.40.0] - 2026-10-16
 

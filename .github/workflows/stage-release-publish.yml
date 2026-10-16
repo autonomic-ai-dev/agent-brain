@@ -53,4 +53,4 @@ jobs:
           body_path: release-notes.md
           files: dist/*
           draft: false
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'alpha') }}
