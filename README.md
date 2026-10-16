@@ -25,6 +25,16 @@ Full usage: [docs/USAGE.md](docs/USAGE.md) · Agent context: [docs/CONTEXT.md](d
 
 ## Install
 
+### Homebrew (macOS — Recommended)
+
+```bash
+brew tap autonomic-ai-dev/tap
+brew install agent-brain
+agent-brain install --global
+```
+
+### Direct Download / curl
+
 Apple Silicon (Developer ID–signed release):
 
 ```bash
