@@ -28,6 +28,10 @@ Allowlist: project-root `.verify/verify.toml` (`[verify].commands`). Prefer **`v
 
 For efficiency, organ work goes through **agent-body** (`autonomic serve-mcp` / `route_to_mcp` server `agent-body`): execute (`muscle_*`), workflows (`spine_*`), budget (`heart_*`), scan/sandbox (`immune_*`), UI (`eyes_*`), approvals (`mouth_*`). Catalog: `agent-brain registry list`.
 
+## Default skills
+
+`@matt-skills` ([mattpocock/skills](https://github.com/mattpocock/skills)) installs on `doctor --fix` / install, is indexed under `packages/skills/`, and receives `recommend_boost: 0.35` in routing.
+
 ## Key tools / CLI
 
 - MCP: `route_task`, `grep_search`, `file_summary`, `read_file_head`/`tail`, `store_memory`

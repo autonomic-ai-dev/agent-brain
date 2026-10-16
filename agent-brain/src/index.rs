@@ -305,6 +305,7 @@ fn should_skip(path: &Path) -> bool {
         || s.contains("/.next/")
         || s.contains("/.cache/")
         || s.contains("/vendor/")
+        || s.contains("/skills/deprecated/")
         // Skill-pack supporting docs are not routeable Rules (noise vs .mdc policy).
         || s.contains("/references/")
         || is_non_entry_skill_tree_doc(path)

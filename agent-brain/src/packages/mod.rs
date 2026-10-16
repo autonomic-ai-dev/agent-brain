@@ -11,8 +11,9 @@ mod bundles;
 mod curated;
 pub use bundles::install_bundled;
 pub use curated::{
-    list_aliases, list_utilities, list_workflows, lookup_alias, resolve_package_inputs,
-    CuratedAliasInfo, ResolvedAlias, UtilityInfo, WorkflowInfo,
+    default_git_sources, list_aliases, list_utilities, list_workflows, lookup_alias,
+    recommend_boost_by_source, resolve_package_inputs, CuratedAliasInfo, ResolvedAlias,
+    UtilityInfo, WorkflowInfo,
 };
 
 const REGISTRY_FILE: &str = "packages.json";
@@ -255,6 +256,67 @@ pub fn package_index_roots(home: &Path) -> Vec<PathBuf> {
     roots
 }
 
+/// Install curated aliases marked `default: true` when missing (git clones).
+pub fn bootstrap_default_packages(config: &Config) -> Result<Vec<PackageRecord>> {
+    let sources = default_git_sources()?;
+    if sources.is_empty() {
+        return Ok(Vec::new());
+    }
+    let registry = PackageRegistry::load(&config.home)?;
+    let mut installed = Vec::new();
+    for src in sources {
+        if registry.packages.iter().any(|p| p.source == src) {
+            continue;
+        }
+        match add_package(config, &src, None) {
+            Ok(record) => {
+                tracing::info!(target: "agent_brain::packages", source = %src, "installed default package");
+                installed.push(record);
+            }
+            Err(err) => {
+                tracing::warn!(
+                    target: "agent_brain::packages",
+                    source = %src,
+                    error = %err,
+                    "default package install failed"
+                );
+            }
+        }
+    }
+    Ok(installed)
+}
+
+/// `(install_path, boost)` for installed packages that have a curated `recommend_boost`.
+pub fn recommend_path_boosts(home: &Path) -> Vec<(String, f64)> {
+    let Ok(by_source) = recommend_boost_by_source() else {
+        return Vec::new();
+    };
+    if by_source.is_empty() {
+        return Vec::new();
+    }
+    let registry = PackageRegistry::load(home).unwrap_or_default();
+    let mut out = Vec::new();
+    for pkg in registry.packages {
+        if let Some(&boost) = by_source.get(&pkg.source) {
+            if boost > 0.0 {
+                out.push((pkg.install_path, boost));
+            }
+        }
+    }
+    out
+}
+
+/// Additive boost for an indexed item path given preferred package install prefixes.
+pub fn path_recommend_boost(source_path: &str, boosts: &[(String, f64)]) -> f64 {
+    let mut best = 0.0;
+    for (prefix, boost) in boosts {
+        if !prefix.is_empty() && source_path.starts_with(prefix.as_str()) && *boost > best {
+            best = *boost;
+        }
+    }
+    best
+}
+
 pub fn discover_package_roots(package_root: &Path) -> Vec<PathBuf> {
     if let Some(manifest_roots) = read_manifest_roots(package_root) {
         return manifest_roots
@@ -425,5 +487,15 @@ mod tests {
         assert!(roots.iter().any(|p| p.ends_with("skills")));
         assert!(roots.iter().any(|p| p.ends_with("agents")));
         assert!(roots.iter().any(|p| p.ends_with("AGENTS.md")));
+    }
+
+    #[test]
+    fn path_recommend_boost_picks_best_prefix() {
+        let boosts = vec![
+            ("/home/pkg/skills".into(), 0.35),
+            ("/home/pkg/other".into(), 0.1),
+        ];
+        assert!((path_recommend_boost("/home/pkg/skills/tdd/SKILL.md", &boosts) - 0.35).abs() < 1e-9);
+        assert_eq!(path_recommend_boost("/tmp/unrelated", &boosts), 0.0);
     }
 }
