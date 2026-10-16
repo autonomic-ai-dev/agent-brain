@@ -1595,10 +1595,24 @@ pub async fn run_stdio(engine: Arc<Engine>) -> Result<()> {
 /// bridges stdin/stdout to it, and reconnects if the daemon restarts. Multiple hosts can
 /// run a proxy simultaneously without touching the exclusive serve lock.
 pub async fn run_proxy(socket_path: &Path) -> Result<()> {
+    let mut spawned = false;
     loop {
         let stream = match UnixStream::connect(socket_path).await {
             Ok(stream) => stream,
             Err(err) => {
+                if !spawned {
+                    spawned = true;
+                    if let Ok(current_exe) = std::env::current_exe() {
+                        tracing::info!("spawning background agent-brain daemon");
+                        let _ = std::process::Command::new(current_exe)
+                            .arg("serve")
+                            .arg("--daemon")
+                            .stdin(std::process::Stdio::null())
+                            .stdout(std::process::Stdio::null())
+                            .stderr(std::process::Stdio::null())
+                            .spawn();
+                    }
+                }
                 tracing::warn!(
                     error = %err,
                     path = %socket_path.display(),
