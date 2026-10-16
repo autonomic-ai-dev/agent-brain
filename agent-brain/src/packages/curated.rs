@@ -69,8 +69,13 @@ struct UtilityEntry {
 pub fn list_utilities() -> Result<Vec<UtilityInfo>> {
     let home = registry_home();
     let raw = registry_sync::read_registry_file(&home, "utilities.json", EMBEDDED_UTILITIES);
-    let reg: UtilitiesRegistryFile =
+    let mut reg: UtilitiesRegistryFile =
         serde_json::from_str(&raw).context("parse utilities registry")?;
+    if let Ok(embedded) = serde_json::from_str::<UtilitiesRegistryFile>(EMBEDDED_UTILITIES) {
+        for (name, entry) in embedded.utilities {
+            reg.utilities.entry(name).or_insert(entry);
+        }
+    }
     Ok(reg
         .utilities
         .into_iter()
@@ -112,8 +117,13 @@ struct WorkflowEntry {
 pub fn list_workflows() -> Result<Vec<WorkflowInfo>> {
     let home = registry_home();
     let raw = registry_sync::read_registry_file(&home, "workflows.json", EMBEDDED_WORKFLOWS);
-    let reg: WorkflowsRegistryFile =
+    let mut reg: WorkflowsRegistryFile =
         serde_json::from_str(&raw).context("parse workflows registry")?;
+    if let Ok(embedded) = serde_json::from_str::<WorkflowsRegistryFile>(EMBEDDED_WORKFLOWS) {
+        for (alias, entry) in embedded.workflows {
+            reg.workflows.entry(alias).or_insert(entry);
+        }
+    }
     Ok(reg
         .workflows
         .into_iter()
@@ -130,7 +140,17 @@ pub fn list_workflows() -> Result<Vec<WorkflowInfo>> {
 pub fn load_curated_registry() -> Result<CuratedRegistryFile> {
     let home = registry_home();
     let raw = registry_sync::read_registry_file(&home, "packages.json", EMBEDDED_REGISTRY);
-    serde_json::from_str(&raw).context("parse package registry")
+    let mut reg: CuratedRegistryFile =
+        serde_json::from_str(&raw).context("parse package registry")?;
+
+    // Robustness guarantee: always merge embedded aliases so built-ins (@matt-skills, etc.)
+    // are never dropped even if a stale or incomplete cached file exists on disk.
+    if let Ok(embedded) = serde_json::from_str::<CuratedRegistryFile>(EMBEDDED_REGISTRY) {
+        for (alias, entry) in embedded.aliases {
+            reg.aliases.entry(alias).or_insert(entry);
+        }
+    }
+    Ok(reg)
 }
 
 fn registry_home() -> PathBuf {
@@ -297,7 +317,6 @@ mod tests {
         let resolved = lookup_alias("@supervisor").unwrap().unwrap();
         assert_eq!(resolved, ResolvedAlias::Bundle("supervisor".into()));
     }
-    #[test]
     #[test]
     fn utilities_catalog_includes_agent_body() {
         let utils = list_utilities().unwrap();
