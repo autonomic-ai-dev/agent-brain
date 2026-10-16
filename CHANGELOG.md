@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Default package `@matt-skills`** — installs/indexes [mattpocock/skills](https://github.com/mattpocock/skills) on `doctor --fix` / install; `recommend_boost: 0.35` so those skills rank higher in `route_task`
 - **`VerifySource::Orchestrator`** — `agent-brain verify --source orchestrator` (aliases `spine`/`muscle`) for trusted workflow exits
 - **Command allowlist** — `.verify/verify.toml` (`[verify].commands`); empty/missing falls back to common runners; `true`/`echo` never match
 - **Stage 0/1 scaffold** — `.verify/` README, threat checklist, manual baseline template; `docs/proofs/stage0-baseline.md`; protected-paths CI sketch; `docs/CONTEXT.md`

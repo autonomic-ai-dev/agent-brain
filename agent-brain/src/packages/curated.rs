@@ -22,6 +22,12 @@ pub struct CuratedAlias {
     pub bundle: Option<String>,
     #[serde(default)]
     pub packages: Vec<String>,
+    /// Install automatically on `doctor --fix` / first install when missing.
+    #[serde(default)]
+    pub default: bool,
+    /// Additive route score boost for skills/rules from this package (0 = none).
+    #[serde(default)]
+    pub recommend_boost: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -30,6 +36,8 @@ pub struct CuratedAliasInfo {
     pub description: String,
     pub bundle: Option<String>,
     pub packages: Vec<String>,
+    pub default: bool,
+    pub recommend_boost: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -146,8 +154,43 @@ pub fn list_aliases() -> Result<Vec<CuratedAliasInfo>> {
             description: entry.description,
             bundle: entry.bundle,
             packages: entry.packages,
+            default: entry.default,
+            recommend_boost: entry.recommend_boost,
         })
         .collect())
+}
+
+/// Git sources marked `default: true` in the curated registry (deduped).
+pub fn default_git_sources() -> Result<Vec<String>> {
+    let mut out = Vec::new();
+    for entry in list_aliases()? {
+        if !entry.default || entry.bundle.is_some() {
+            continue;
+        }
+        for src in entry.packages {
+            if !out.iter().any(|s| s == &src) {
+                out.push(src);
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Max `recommend_boost` per git source from the curated registry.
+pub fn recommend_boost_by_source() -> Result<std::collections::HashMap<String, f64>> {
+    let mut map = std::collections::HashMap::new();
+    for entry in list_aliases()? {
+        if entry.recommend_boost <= 0.0 {
+            continue;
+        }
+        for src in entry.packages {
+            let e = map.entry(src).or_insert(0.0);
+            if entry.recommend_boost > *e {
+                *e = entry.recommend_boost;
+            }
+        }
+    }
+    Ok(map)
 }
 
 /// Resolve user input to one or more GitHub owner/repo sources.
@@ -165,7 +208,7 @@ pub fn lookup_alias(input: &str) -> Result<Option<ResolvedAlias>> {
     if let Some(alias) = trimmed.strip_prefix('@') {
         let alias = alias.trim();
         if alias.is_empty() {
-            bail!("empty package alias; use @starter, @supervisor, @nextjs, @ecc, or owner/repo");
+            bail!("empty package alias; use @matt-skills, @starter, @supervisor, @nextjs, @ecc, or owner/repo");
         }
         let reg = load_curated_registry()?;
         let entry = reg.aliases.get(alias).with_context(|| {
@@ -205,7 +248,20 @@ mod tests {
     fn resolves_starter_alias() {
         let sources = resolve_package_inputs("@starter").unwrap();
         assert_eq!(sources.len(), 2);
-        assert!(sources.iter().any(|s| s.contains("vercel-labs/skills")));
+        assert!(sources.iter().any(|s| s.contains("mattpocock/skills")));
+        assert!(sources.iter().any(|s| s.contains("vercel-labs/agent-skills")));
+    }
+
+    #[test]
+    fn resolves_matt_skills_as_default_with_boost() {
+        let sources = resolve_package_inputs("@matt-skills").unwrap();
+        assert_eq!(sources, vec!["mattpocock/skills"]);
+        let aliases = list_aliases().unwrap();
+        let matt = aliases.iter().find(|a| a.alias == "matt-skills").unwrap();
+        assert!(matt.default);
+        assert!(matt.recommend_boost >= 0.3);
+        let defaults = default_git_sources().unwrap();
+        assert!(defaults.iter().any(|s| s == "mattpocock/skills"));
     }
 
     #[test]

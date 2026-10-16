@@ -90,6 +90,22 @@ pub fn run(target: HostTarget, print_only: bool, reload: bool) -> Result<()> {
         }
     }
 
+    if let Ok(config) = crate::config::Config::load() {
+        match crate::packages::bootstrap_default_packages(&config) {
+            Ok(installed) => {
+                for pkg in &installed {
+                    println!(
+                        "Default package: installed '{}' from {}",
+                        pkg.name, pkg.source
+                    );
+                }
+            }
+            Err(err) => {
+                eprintln!("Warning: default package bootstrap: {err}");
+            }
+        }
+    }
+
     if let Err(err) = run_post_install_warmup(false) {
         eprintln!("Warning: post-install index/session ingest: {err}");
     }
