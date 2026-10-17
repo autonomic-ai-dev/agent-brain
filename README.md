@@ -19,7 +19,7 @@ flowchart LR
 | MCP disconnects drop durable facts | Pending queue + `memory put` CLI fallback |
 | Verifications lost across turns | Auto-record via hooks + `verify` / `report` |
 
-Full usage: [docs/USAGE.md](docs/USAGE.md) · Agent context: [docs/CONTEXT.md](docs/CONTEXT.md) · Contract: [docs/AGENT-CONTEXT.md](docs/AGENT-CONTEXT.md) · Hosts: [docs/host-integration.md](docs/host-integration.md) · Architecture: [docs/architecture/README.md](docs/architecture/README.md) · CI path filters: [docs/ci-path-filter-pattern.md](docs/ci-path-filter-pattern.md)
+Full usage: [docs/USAGE.md](docs/USAGE.md) · Agent context: [docs/CONTEXT.md](docs/CONTEXT.md) · Contract: [docs/AGENT-CONTEXT.md](docs/AGENT-CONTEXT.md) · Hosts: [docs/host-integration.md](docs/host-integration.md) · Architecture: [https://autonomic-ai.dev/docs/architecture](https://autonomic-ai.dev/docs/architecture) · CI path filters: [docs/ci-path-filter-pattern.md](docs/ci-path-filter-pattern.md)
 
 ---
 
@@ -90,6 +90,12 @@ Packages: `agent-brain registry list` · defaults `@matt-skills` · `agent-brain
 ## Data
 
 Default store: `~/.autonomic/memory/` (`brain.db`, packages, route logs). Override with `AGENT_BRAIN_HOME`. First start downloads the embedding model (~90MB).
+
+---
+
+## Architecture
+
+For the complete 11-organ architecture specification, data flows, and MCP tool contracts, see the centralized [Autonomic AI Architecture Hub](https://autonomic-ai.dev/docs/architecture).
 
 ---
 
