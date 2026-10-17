@@ -93,9 +93,11 @@ Default store: `~/.autonomic/memory/` (`brain.db`, packages, route logs). Overri
 
 ---
 
-## Architecture
+## Architecture & Documentation
 
-For the complete 11-organ architecture specification, data flows, and MCP tool contracts, see the centralized [Autonomic AI Architecture Hub](https://autonomic-ai.dev/docs/architecture).
+For complete architectural specifications, memory data flows, and MCP tool contracts, visit the centralized documentation hub:
+- **Memory & Context Routing Guide**: [https://autonomic-ai.dev/docs/memory](https://autonomic-ai.dev/docs/memory)
+- **Ecosystem Architecture**: [https://autonomic-ai.dev/docs/architecture](https://autonomic-ai.dev/docs/architecture)
 
 ---
 

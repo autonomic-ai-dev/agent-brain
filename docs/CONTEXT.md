@@ -5,8 +5,8 @@ Local turn router and verification ledger for the Autonomic stack. Part of [agen
 | Field | Value |
 |-------|-------|
 | Role | Context / memory / route gate (PV analog) |
-| Binary | `agent-brain` (MCP stdio) |
-| Version | 0.40.0+ |
+| Version | v1.0.0-beta.3 |
+| Docs Hub | [https://autonomic-ai.dev/docs/memory](https://autonomic-ai.dev/docs/memory) · [Architecture](https://autonomic-ai.dev/docs/architecture) |
 | Home | `~/.autonomic/memory/` (override `AGENT_BRAIN_HOME`) |
 
 ## Mental model
@@ -43,4 +43,4 @@ Push path filter + PR skip for docs-only diffs. Protected paths require label `p
 
 ## Related
 
-Operator usage: [USAGE.md](USAGE.md) · Slim contract: [AGENT-CONTEXT.md](AGENT-CONTEXT.md) · Ecosystem deep dive: agent-body `docs/CONTEXT.md`
+Operator usage: [USAGE.md](USAGE.md) · Slim contract: [AGENT-CONTEXT.md](AGENT-CONTEXT.md) · Architecture: [https://autonomic-ai.dev/docs/architecture](https://autonomic-ai.dev/docs/architecture) · Organ Guide: [https://autonomic-ai.dev/docs/memory](https://autonomic-ai.dev/docs/memory)
