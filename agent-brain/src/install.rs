@@ -578,6 +578,8 @@ pub fn mcp_server_entry(exe: &Path) -> Value {
         chrono::Utc::now().timestamp()
     );
     let cache_dir = crate::embed::default_cache_dir();
+    let gate_scope = std::env::var("AGENT_BRAIN_ROUTE_GATE_SCOPE").unwrap_or_else(|_| "all".to_string());
+    let read_gate = std::env::var("AGENT_BRAIN_READ_GATE").unwrap_or_else(|_| "hard".to_string());
     json!({
         "command": exe.display().to_string(),
         "args": ["serve"],
@@ -585,13 +587,13 @@ pub fn mcp_server_entry(exe: &Path) -> Value {
             "RUST_LOG": "agent_brain=info",
             "FASTEMBED_CACHE_DIR": cache_dir.display().to_string(),
             "AGENT_BRAIN_BUILD": build_id,
-            "AGENT_BRAIN_ROUTE_GATE_SCOPE": "brain_mcp",
-            "AGENT_BRAIN_READ_GATE": "hard"
+            "AGENT_BRAIN_ROUTE_GATE_SCOPE": gate_scope,
+            "AGENT_BRAIN_READ_GATE": read_gate
         }
     })
 }
 
-pub fn merge_mcp_config(path: &Path, server_entry: Value) -> Result<Value> {
+pub fn merge_mcp_config(path: &Path, mut server_entry: Value) -> Result<Value> {
     let mut root = if path.exists() {
         let raw = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
         serde_json::from_str(&raw).with_context(|| format!("parse {}", path.display()))?
@@ -604,6 +606,19 @@ pub fn merge_mcp_config(path: &Path, server_entry: Value) -> Result<Value> {
         .and_then(|o| o.get_mut("mcpServers"))
         .and_then(|v| v.as_object_mut())
         .context("mcp.json must contain an mcpServers object")?;
+
+    // Preserve existing custom env variables configured for agent-brain (e.g. AGENT_BRAIN_ROUTE_GATE_SCOPE)
+    if let Some(existing) = servers.get("agent-brain") {
+        if let Some(existing_env) = existing.get("env").and_then(|e| e.as_object()) {
+            if let Some(new_env) = server_entry.get_mut("env").and_then(|e| e.as_object_mut()) {
+                for (k, v) in existing_env {
+                    if k != "AGENT_BRAIN_BUILD" {
+                        new_env.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
+    }
 
     servers.insert("agent-brain".to_string(), server_entry);
     crate::mcp_federation::ensure_agent_body_cursor_server(servers);

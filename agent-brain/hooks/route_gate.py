@@ -280,18 +280,18 @@ def is_agent_brain_mcp_tool(event: dict) -> bool:
         return True
     if is_claude_agent_brain_mcp(tool):
         return True
-    if tool_lower.startswith("mcp_agent-brain_"):
+    if tool_lower.startswith("mcp_agent-brain_") or tool_lower.startswith("mcp_agent-body_"):
         return True
-    if tool_lower.startswith("mcp_agent_brain_"):
+    if tool_lower.startswith("mcp_agent_brain_") or tool_lower.startswith("mcp_agent_body_"):
         return True
-    if tool_lower.startswith("mcp_agent-brain-"):
+    if tool_lower.startswith("mcp_agent-brain-") or tool_lower.startswith("mcp_agent-body-"):
         return True
-    if tool_lower.startswith("mcp_agent_brain-"):
+    if tool_lower.startswith("mcp_agent_brain-") or tool_lower.startswith("mcp_agent_body-"):
         return True
-    if "agent-brain" in tool_lower and "mcp" in tool_lower:
+    if ("agent-brain" in tool_lower or "agent-body" in tool_lower) and "mcp" in tool_lower:
         return True
     server = str(event.get("server") or "").strip().lower()
-    if server in {"agent-brain", "agent_brain"}:
+    if server in {"agent-brain", "agent_brain", "agent-body", "agent_body"}:
         return True
     return is_agent_brain_command(event)
 
@@ -541,7 +541,10 @@ def is_cursor_read_tool(event: dict) -> bool:
         "read_file",
         "readfile",
         "readfiletool",
-    } or tool.endswith("_read") or tool.startswith("read_")
+        "fileread",
+        "view",
+        "view_file",
+    } or tool.endswith("_read") or tool.startswith("read_") or tool.startswith("view_")
 
 
 def is_cursor_edit_tool(event: dict) -> bool:
@@ -557,6 +560,9 @@ def is_cursor_edit_tool(event: dict) -> bool:
             "applypatch",
             "editnotebook",
             "edit_notebook",
+            "fileedit",
+            "replace_file_content",
+            "write_to_file",
         )
     ) or tool in {"edit", "searchreplace"}
 
@@ -566,7 +572,17 @@ def extract_read_path(event: dict) -> str | None:
         raw = event.get(key)
         parsed = parse_json_value(raw)
         if isinstance(parsed, dict):
-            for field in ("path", "target_file", "file", "file_path", "filePath"):
+            for field in (
+                "path",
+                "target_file",
+                "file",
+                "file_path",
+                "filePath",
+                "AbsolutePath",
+                "absolutePath",
+                "TargetFile",
+                "targetFile",
+            ):
                 value = parsed.get(field)
                 if isinstance(value, str) and value.strip():
                     return value.strip()
@@ -860,7 +876,7 @@ def extract_shell_command(event: dict, *, max_len: int | None = 240) -> str | No
         raw = event.get(key)
         parsed = parse_json_value(raw)
         if isinstance(parsed, dict):
-            for field in ("command", "cmd"):
+            for field in ("command", "cmd", "CommandLine", "commandLine", "script", "code"):
                 value = parsed.get(field)
                 if isinstance(value, str) and value.strip():
                     candidates.append(value.strip())
@@ -897,6 +913,43 @@ def check_python_shell_policy(cmd: str | None) -> dict | None:
         return python_shell_deny_payload("piped to python")
     if PYTHON_STDIN_MODE_RE.search(cmd):
         return python_shell_deny_payload("python stdin (-)")
+    return None
+
+
+def check_mouth_ast_policy(cmd: str | None) -> dict | None:
+    """Validate bash command against agent-mouth AST approval policy if available."""
+    if not cmd:
+        return None
+    stripped = cmd.strip()
+    if not stripped:
+        return None
+    mouth_bin = shutil.which("agent-mouth") or "/opt/homebrew/bin/agent-mouth"
+    if not os.path.exists(mouth_bin):
+        return None
+    try:
+        res = subprocess.run(
+            [mouth_bin, "validate", "--command", stripped],
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+        )
+        if res.returncode != 0:
+            reason = "destructive command pattern detected"
+            try:
+                data = json.loads(res.stdout)
+                reason = data.get("reason", reason)
+            except Exception:
+                pass
+            return {
+                "permission": "deny",
+                "agent_message": (
+                    f"agent-mouth AST safety violation: {reason}. Destructive host execution "
+                    "is blocked. Delegate to agent-muscle (muscle_execute_bash) or request explicit user approval."
+                ),
+                "user_message": f"agent-mouth: blocked command ({reason}).",
+            }
+    except Exception:
+        pass
     return None
 
 
@@ -1072,9 +1125,13 @@ def handle_pre_tool_use(event: dict) -> dict:
         return read_gate
     tool = str(event.get("tool_name") or "")
     if is_shell_tool(tool):
-        denied = check_python_shell_policy(extract_shell_command(event, max_len=None))
+        cmd = extract_shell_command(event, max_len=None)
+        denied = check_python_shell_policy(cmd)
         if denied is not None:
             return denied
+        mouth_denied = check_mouth_ast_policy(cmd)
+        if mouth_denied is not None:
+            return mouth_denied
     return gate_tool_use(event)
 
 
@@ -1083,10 +1140,17 @@ def handle_before_mcp_execution(event: dict) -> dict:
 
 
 def handle_before_shell_execution(event: dict) -> dict:
-    """Host shell pre-hook (Cursor beforeShellExecution) — Python deny, failClosed."""
-    denied = check_python_shell_policy(extract_shell_command(event, max_len=None))
+    """Host shell pre-hook (Cursor beforeShellExecution) — gate route, Python deny, mouth AST validation, failClosed."""
+    gate = gate_tool_use(event)
+    if gate.get("permission") == "deny":
+        return gate
+    cmd = extract_shell_command(event, max_len=None)
+    denied = check_python_shell_policy(cmd)
     if denied is not None:
         return denied
+    mouth_denied = check_mouth_ast_policy(cmd)
+    if mouth_denied is not None:
+        return mouth_denied
     return {"permission": "allow"}
 
 

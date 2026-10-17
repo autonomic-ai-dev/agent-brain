@@ -412,7 +412,7 @@ fn opencode_server_entry(exe: &Path) -> Value {
     entry
 }
 
-pub fn merge_opencode_config(path: &Path, server_entry: Value, user: bool) -> Result<Value> {
+pub fn merge_opencode_config(path: &Path, mut server_entry: Value, user: bool) -> Result<Value> {
     let mut root = if path.exists() {
         let raw = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
         serde_json::from_str(&raw).with_context(|| format!("parse {}", path.display()))?
@@ -438,6 +438,17 @@ pub fn merge_opencode_config(path: &Path, server_entry: Value, user: bool) -> Re
 
     match mcp {
         Some(mcp) => {
+            if let Some(existing) = mcp.get("agent-brain") {
+                if let Some(existing_env) = existing.get("environment").and_then(|e| e.as_object()) {
+                    if let Some(new_env) = server_entry.get_mut("environment").and_then(|e| e.as_object_mut()) {
+                        for (k, v) in existing_env {
+                            if k != "AGENT_BRAIN_BUILD" {
+                                new_env.insert(k.clone(), v.clone());
+                            }
+                        }
+                    }
+                }
+            }
             mcp.insert("agent-brain".to_string(), server_entry);
             crate::mcp_federation::ensure_agent_body_opencode_server(mcp);
         }
@@ -1124,7 +1135,7 @@ fn install_claude_code_rule(user: bool, quiet: bool) -> Result<()> {
     Ok(())
 }
 
-pub fn merge_claude_json_mcp(path: &Path, server_entry: Value) -> Result<Value> {
+pub fn merge_claude_json_mcp(path: &Path, mut server_entry: Value) -> Result<Value> {
     let mut root = if path.exists() {
         let raw = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
         match serde_json::from_str::<Value>(&raw) {
@@ -1155,6 +1166,17 @@ pub fn merge_claude_json_mcp(path: &Path, server_entry: Value) -> Result<Value> 
 
     match servers {
         Some(servers) => {
+            if let Some(existing) = servers.get("agent-brain") {
+                if let Some(existing_env) = existing.get("env").and_then(|e| e.as_object()) {
+                    if let Some(new_env) = server_entry.get_mut("env").and_then(|e| e.as_object_mut()) {
+                        for (k, v) in existing_env {
+                            if k != "AGENT_BRAIN_BUILD" {
+                                new_env.insert(k.clone(), v.clone());
+                            }
+                        }
+                    }
+                }
+            }
             servers.insert("agent-brain".to_string(), server_entry);
         }
         None => {
