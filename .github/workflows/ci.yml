@@ -41,7 +41,7 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             BASE_REF="${{ github.base_ref }}"
             CHANGED=$(git diff --name-only "origin/$BASE_REF...HEAD" || git diff --name-only HEAD~1)
-            MATCHED=$(echo "$CHANGED" | grep -E '^(agent-brain/|Cargo\.|Makefile|Containerfile|scripts/|\.github/)' || true)
+            MATCHED=$(echo "$CHANGED" | grep -v -i -E '(^|/)(changelog\.md|context\.md)$' | grep -v -E '\.md$' | grep -E '^(agent-brain/|Cargo\.|Makefile|Containerfile|scripts/|\.github/)' || true)
             if [ -z "$MATCHED" ]; then
               echo "skip_pipeline=true" >> "$GITHUB_OUTPUT"
               echo "Only non-runtime paths modified; skipping compose pipeline."
