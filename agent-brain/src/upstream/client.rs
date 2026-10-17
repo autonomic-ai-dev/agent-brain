@@ -111,6 +111,86 @@ pub async fn call_upstream_tool(
     Ok(result)
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct UpstreamBatchItem {
+    pub tool: String,
+    #[serde(default)]
+    pub arguments: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct UpstreamBatchOutcome {
+    pub tool: String,
+    pub is_error: bool,
+    pub result: serde_json::Value,
+}
+
+pub async fn call_upstream_tools_batch(
+    server: &UpstreamServerConfig,
+    batch: Vec<UpstreamBatchItem>,
+) -> Result<Vec<UpstreamBatchOutcome>> {
+    validate_server_config(server)?;
+    if batch.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let service = connect(server).await?;
+    let mut outcomes = Vec::with_capacity(batch.len());
+
+    for item in batch {
+        let mut req = CallToolRequestParams::new(item.tool.clone());
+        if let Some(args) = item.arguments.as_object().cloned() {
+            req = req.with_arguments(args);
+        }
+
+        match service.call_tool(req).await {
+            Ok(res) => {
+                let is_error = res.is_error.unwrap_or(false);
+                let (raw, structured) = call_tool_result_to_text(&res);
+                let val = structured.unwrap_or_else(|| serde_json::json!({ "text": raw }));
+                outcomes.push(UpstreamBatchOutcome {
+                    tool: item.tool,
+                    is_error,
+                    result: val,
+                });
+            }
+            Err(e) => {
+                outcomes.push(UpstreamBatchOutcome {
+                    tool: item.tool,
+                    is_error: true,
+                    result: serde_json::json!({ "error": format!("{e}") }),
+                });
+            }
+        }
+    }
+
+    service.cancel().await.ok();
+    Ok(outcomes)
+}
+
+pub async fn get_upstream_tool_schema(
+    server: &UpstreamServerConfig,
+    tool_name: &str,
+) -> Result<Option<serde_json::Value>> {
+    validate_server_config(server)?;
+    let service = connect(server).await?;
+    let tools = service.list_all_tools().await?;
+    service.cancel().await.ok();
+
+    for t in tools {
+        if t.name == tool_name {
+            let schema = serde_json::to_value(&t).unwrap_or_else(|_| {
+                serde_json::json!({
+                    "name": t.name,
+                    "description": t.description,
+                })
+            });
+            return Ok(Some(schema));
+        }
+    }
+    Ok(None)
+}
+
 async fn connect(
     server: &UpstreamServerConfig,
 ) -> Result<rmcp::service::RunningService<rmcp::RoleClient, ()>> {

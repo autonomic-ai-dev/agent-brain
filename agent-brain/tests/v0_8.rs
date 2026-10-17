@@ -97,3 +97,38 @@ upstream_mcp:
     assert!(settings.upstream_mcp.enabled);
     assert_eq!(settings.upstream_mcp.servers[0].name, "demo");
 }
+
+#[test]
+fn semantic_truncation_compacts_entities_before_omission() {
+    let items = vec![
+        serde_json::json!({
+            "id": "ABH-1",
+            "title": "First Issue",
+            "state": "Done",
+            "massive_body": "x".repeat(300),
+            "comments": vec!["c1", "c2", "c3"]
+        }),
+        serde_json::json!({
+            "id": "ABH-2",
+            "title": "Second Issue",
+            "state": "Todo",
+            "massive_body": "y".repeat(300),
+            "comments": vec!["c4", "c5", "c6"]
+        }),
+    ];
+    let raw = serde_json::to_string(&items).unwrap();
+    // Budget tight enough to not fit all full items, but enough to fit compacted entities
+    let truncated = truncate_upstream_result(&raw, None, 80).unwrap();
+    assert!(truncated.content.is_array());
+    let arr = truncated.content.as_array().unwrap();
+    assert!(!arr.is_empty());
+    // Check first item has compacted key fields without massive_body
+    let first = &arr[0];
+    if let Some(obj) = first.as_object() {
+        assert_eq!(obj.get("id").unwrap(), "ABH-1");
+        assert_eq!(obj.get("title").unwrap(), "First Issue");
+        assert_eq!(obj.get("state").unwrap(), "Done");
+        assert!(obj.get("massive_body").is_none());
+    }
+}
+

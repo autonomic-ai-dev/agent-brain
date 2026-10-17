@@ -293,6 +293,17 @@ pub fn run(conn: &Connection) -> rusqlite::Result<()> {
         conn.execute("UPDATE schema_version SET version = 19", [])?;
     }
 
+    let version: i64 = conn
+        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
+            r.get(0)
+        })
+        .unwrap_or(0);
+
+    if version < 20 {
+        migrate_v20(conn)?;
+        conn.execute("UPDATE schema_version SET version = 20", [])?;
+    }
+
     Ok(())
 }
 
@@ -705,6 +716,34 @@ fn migrate_v19(conn: &Connection) -> rusqlite::Result<()> {
             [],
         )?;
     }
+    Ok(())
+}
+
+fn migrate_v20(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS turn_telemetry (
+            id TEXT PRIMARY KEY,
+            session_id TEXT,
+            organ TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            model TEXT NOT NULL,
+            prompt_tokens INTEGER NOT NULL,
+            completion_tokens INTEGER NOT NULL,
+            cache_read_tokens INTEGER NOT NULL,
+            cache_write_tokens INTEGER NOT NULL,
+            estimated_cost_usd REAL NOT NULL,
+            estimated_dollars_saved REAL NOT NULL,
+            cache_hit_pct REAL NOT NULL,
+            latency_ms INTEGER NOT NULL,
+            task_phase TEXT,
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_turn_telemetry_created ON turn_telemetry(created_at);
+        CREATE INDEX IF NOT EXISTS idx_turn_telemetry_session ON turn_telemetry(session_id);
+        CREATE INDEX IF NOT EXISTS idx_turn_telemetry_model ON turn_telemetry(model);
+        "#,
+    )?;
     Ok(())
 }
 

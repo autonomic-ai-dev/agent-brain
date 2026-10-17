@@ -132,6 +132,34 @@ fn default_limit() -> usize {
     50
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+struct RecordTurnTelemetryParams {
+    provider: String,
+    model: String,
+    prompt_tokens: u64,
+    completion_tokens: u64,
+    #[serde(default)]
+    cache_read_tokens: u64,
+    #[serde(default)]
+    cache_write_tokens: u64,
+    #[serde(default)]
+    session_id: Option<String>,
+    #[serde(default)]
+    latency_ms: u64,
+    #[serde(default)]
+    task_phase: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct GetCacheSavingsParams {
+    #[serde(default = "default_telemetry_lookback")]
+    lookback_days: u32,
+}
+
+fn default_telemetry_lookback() -> u32 {
+    30
+}
+
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct RecordVerifyOutcomeParams {
@@ -229,11 +257,16 @@ fn default_merge_policy() -> String {
 #[derive(Debug, Deserialize, JsonSchema)]
 struct RouteToMcpParams {
     server: String,
-    tool: String,
+    #[serde(default)]
+    tool: Option<String>,
     #[serde(default)]
     arguments: serde_json::Value,
     #[serde(default = "default_upstream_tokens")]
     max_tokens: usize,
+    #[serde(default)]
+    describe_tool: bool,
+    #[serde(default)]
+    batch: Option<Vec<crate::upstream::UpstreamBatchItem>>,
 }
 
 fn default_upstream_tokens() -> usize {
@@ -737,6 +770,46 @@ impl BrainMcp {
         json_result(stats)
     }
 
+    #[tool(description = "Record LLM turn telemetry, calculate prompt/cache costs and savings, and sync with agent-heart usage governor.")]
+    async fn record_turn_telemetry(
+        &self,
+        params: Parameters<RecordTurnTelemetryParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let req = crate::telemetry::TurnTelemetryRequest {
+            session_id: p.session_id,
+            provider: p.provider,
+            model: p.model,
+            prompt_tokens: p.prompt_tokens,
+            completion_tokens: p.completion_tokens,
+            cache_read_tokens: p.cache_read_tokens,
+            cache_write_tokens: p.cache_write_tokens,
+            latency_ms: p.latency_ms,
+            task_phase: p.task_phase.clone(),
+        };
+        let outcome = crate::telemetry::process_turn_telemetry(req);
+        self.engine
+            .store
+            .insert_turn_telemetry(&outcome, p.task_phase.as_deref())
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        json_result(outcome)
+    }
+
+    #[tool(description = "Get aggregated cache savings and token attribution report across recent agent turns.")]
+    async fn get_cache_savings_summary(
+        &self,
+        params: Parameters<GetCacheSavingsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let _req = self.engine.mcp_activity.begin_request();
+        let summary = self
+            .engine
+            .store
+            .query_turn_telemetry_summary(params.0.lookback_days)
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        json_result(summary)
+    }
+
     #[tool(description = "List stored memory facts.")]
     async fn list_memory(
         &self,
@@ -854,7 +927,7 @@ impl BrainMcp {
     }
 
     #[tool(
-        description = "Call a configured upstream MCP tool. Response is semantically truncated to max_tokens. Agent must call explicitly; router never auto-executes upstream tools."
+        description = "Call a configured upstream MCP tool, batch of tools, or inspect a tool schema. Response is semantically truncated to max_tokens. Agent must call explicitly; router never auto-executes upstream tools."
     )]
     async fn route_to_mcp(
         &self,
@@ -872,12 +945,76 @@ impl BrainMcp {
                     None,
                 )
             })?;
+
+        if p.describe_tool {
+            let tool_name = p.tool.as_deref().ok_or_else(|| {
+                McpError::invalid_params("tool name required when describe_tool is true", None)
+            })?;
+            let schema = crate::upstream::get_upstream_tool_schema(server, tool_name)
+                .await
+                .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+            return match schema {
+                Some(s) => json_result(serde_json::json!({
+                    "server": server.name,
+                    "tool": tool_name,
+                    "schema": s,
+                })),
+                None => Err(McpError::invalid_params(
+                    format!("tool '{}' not found on server '{}'", tool_name, server.name),
+                    None,
+                )),
+            };
+        }
+
+        if let Some(batch) = p.batch {
+            let count = batch.len();
+            let outcomes = crate::upstream::call_upstream_tools_batch(server, batch)
+                .await
+                .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+            let is_any_error = outcomes.iter().any(|o| o.is_error);
+            let log_id = uuid::Uuid::new_v4().to_string();
+            let latency_ms = started.elapsed().as_millis() as u64;
+
+            let serialized = serde_json::to_string(&outcomes).unwrap_or_default();
+            let structured_val = serde_json::to_value(&outcomes).ok();
+            let truncated =
+                crate::upstream::truncate_upstream_result(&serialized, structured_val.as_ref(), p.max_tokens)
+                    .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+
+            if let Err(err) = crate::observability::log_upstream_call(
+                &self.engine.store,
+                &log_id,
+                &server.name,
+                &format!("batch({})", count),
+                truncated.tokens_used,
+                truncated.truncated,
+                is_any_error,
+                latency_ms,
+            ) {
+                tracing::warn!(error = %err, "upstream retrieval log write failed");
+            }
+
+            return json_result(serde_json::json!({
+                "log_id": log_id,
+                "server": server.name,
+                "batch_count": count,
+                "is_error": is_any_error,
+                "truncated": truncated.truncated,
+                "tokens_used": truncated.tokens_used,
+                "tokens_budget": truncated.tokens_budget,
+                "content": truncated.content,
+            }));
+        }
+
+        let tool_name = p.tool.ok_or_else(|| {
+            McpError::invalid_params("tool name or batch array required", None)
+        })?;
         let arguments = if p.arguments.is_null() {
             serde_json::json!({})
         } else {
             p.arguments
         };
-        let result = crate::upstream::call_upstream_tool(server, &p.tool, arguments)
+        let result = crate::upstream::call_upstream_tool(server, &tool_name, arguments)
             .await
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         let is_error = result.is_error.unwrap_or(false);
@@ -891,7 +1028,7 @@ impl BrainMcp {
             &self.engine.store,
             &log_id,
             &server.name,
-            &p.tool,
+            &tool_name,
             truncated.tokens_used,
             truncated.truncated,
             is_error,
@@ -902,7 +1039,7 @@ impl BrainMcp {
         json_result(serde_json::json!({
             "log_id": log_id,
             "server": server.name,
-            "tool": p.tool,
+            "tool": tool_name,
             "is_error": is_error,
             "truncated": truncated.truncated,
             "tokens_used": truncated.tokens_used,
