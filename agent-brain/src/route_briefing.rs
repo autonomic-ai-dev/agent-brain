@@ -87,6 +87,17 @@ pub fn format_briefing(resp: &RouteTaskResponse) -> String {
             tools.join(", ")
         ));
     }
+    if !resp.verified_recipes.is_empty() {
+        let recipes: Vec<_> = resp
+            .verified_recipes
+            .iter()
+            .map(|r| r.cmd.as_str())
+            .collect();
+        out.push_str(&format!(
+            "**Verified recipes:** prefer [{}] (exit 0 verified)\n",
+            recipes.join(", ")
+        ));
+    }
     if !resp.suggested_tools.is_empty() {
         let tools: Vec<_> = resp
             .suggested_tools
@@ -195,6 +206,15 @@ pub fn format_summary_line(resp: &RouteTaskResponse) -> String {
         );
         format!(" · delegate: [{names}]")
     };
+    let recipes_str = if resp.verified_recipes.is_empty() {
+        String::new()
+    } else {
+        let names = join_top_names(
+            resp.verified_recipes.iter().map(|r| r.cmd.as_str()),
+            2,
+        );
+        format!(" · recipes: [{names}]")
+    };
     let read_gate = if read_gate_mode() == "off" {
         String::new()
     } else {
@@ -206,7 +226,7 @@ pub fn format_summary_line(resp: &RouteTaskResponse) -> String {
         .map(|s| format!(" · repo: {s}"))
         .unwrap_or_default();
     format!(
-        "phase={} · skills: {} [{skill_names}] · agents: {} [{agent_names}] · {} rules · {} memory · {}/{} tok{}{}{}{}{}{} · {}ms · log={} · {}",
+        "phase={} · skills: {} [{skill_names}] · agents: {} [{agent_names}] · {} rules · {} memory · {}/{} tok{}{}{}{}{}{}{} · {}ms · log={} · {}",
         resp.recommended_phase,
         resp.recommended_skills.len(),
         resp.recommended_agents.len(),
@@ -218,6 +238,7 @@ pub fn format_summary_line(resp: &RouteTaskResponse) -> String {
         constraints,
         native_tools,
         delegate_tools,
+        recipes_str,
         read_gate,
         repo,
         resp.latency_ms,
@@ -299,6 +320,10 @@ pub fn publish_route_state(home: &Path, resp: &RouteTaskResponse) {
         obj.insert(
             "suggested_native_tools".into(),
             serde_json::to_value(&resp.suggested_native_tools).unwrap_or_default(),
+        );
+        obj.insert(
+            "verified_recipes".into(),
+            serde_json::to_value(&resp.verified_recipes).unwrap_or_default(),
         );
         obj.insert(
             "route_context_at".into(),

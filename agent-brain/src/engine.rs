@@ -835,6 +835,11 @@ impl Engine {
             &phase,
             &resp.must_apply,
         );
+        resp.verified_recipes = crate::verify::suggest_verified_recipes(
+            &self.store,
+            user_message,
+            3,
+        );
         #[cfg(feature = "extras")]
         if let Some(repo) = ws.repo_root.as_deref() {
             if settings.graphify.enabled {

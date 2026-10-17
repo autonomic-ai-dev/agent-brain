@@ -228,6 +228,15 @@ pub struct SuggestedNativeTool {
     pub score: f64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct VerifiedRecipe {
+    pub cmd: String,
+    pub exit_code: i32,
+    pub source: String,
+    pub recorded_at: i64,
+    pub rationale: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RouteTaskResponse {
     pub recommended_agents: Vec<AgentRec>,
@@ -241,6 +250,8 @@ pub struct RouteTaskResponse {
     pub suggested_tools: Vec<SuggestedTool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub suggested_native_tools: Vec<SuggestedNativeTool>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub verified_recipes: Vec<VerifiedRecipe>,
     pub recommended_phase: String,
     pub tokens_used: usize,
     pub tokens_budget: usize,

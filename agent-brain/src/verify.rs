@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
 use crate::db::store::BrainStore;
+use crate::types::VerifiedRecipe;
 
 const MIN_SAMPLE_FOR_RATES: usize = 30;
 pub const VERIFY_DIR_NAME: &str = ".verify";
@@ -438,6 +439,76 @@ fn hash_tree(dir: &Path) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+/// Suggest high-confidence verified command recipes (exit 0) matching user intent or query keywords.
+pub fn suggest_verified_recipes(
+    store: &BrainStore,
+    user_message: &str,
+    limit: usize,
+) -> Vec<VerifiedRecipe> {
+    let lower = user_message.to_lowercase();
+    let has_execution_intent = [
+        "test", "cargo", "npm", "pytest", "build", "run", "check", "clippy",
+        "verify", "lint", "recipe", "benchmark", "prove", "proof", "exec", "compile",
+    ]
+    .iter()
+    .any(|k| lower.contains(k));
+
+    let Ok(outcomes) = store.list_verify_outcomes(100) else {
+        return Vec::new();
+    };
+
+    let words: Vec<&str> = lower
+        .split(|c: char| !c.is_alphanumeric() && c != '-' && c != '_')
+        .filter(|w| w.len() >= 3)
+        .collect();
+
+    let mut seen_cmds = std::collections::HashSet::new();
+    let mut candidates: Vec<(i32, VerifiedRecipe)> = Vec::new();
+
+    for row in outcomes {
+        if row.exit_code != 0 {
+            continue;
+        }
+        let trimmed_cmd = row.cmd.trim().to_string();
+        if trimmed_cmd.is_empty() || seen_cmds.contains(&trimmed_cmd) {
+            continue;
+        }
+        let cmd_lower = trimmed_cmd.to_lowercase();
+
+        let mut score = 0;
+        if has_execution_intent {
+            score += 10;
+        }
+        for word in &words {
+            if cmd_lower.contains(word) {
+                score += 20;
+            }
+        }
+
+        let src = row.source.clone().unwrap_or_else(|| "cli".to_string());
+        if matches!(src.as_str(), "cli" | "orchestrator" | "hook") {
+            score += 5;
+        }
+
+        if score > 0 {
+            seen_cmds.insert(trimmed_cmd.clone());
+            candidates.push((
+                score,
+                VerifiedRecipe {
+                    cmd: trimmed_cmd,
+                    exit_code: row.exit_code,
+                    source: src,
+                    recorded_at: row.recorded_at,
+                    rationale: "Previously verified exit 0 execution".to_string(),
+                },
+            ));
+        }
+    }
+
+    candidates.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.recorded_at.cmp(&a.1.recorded_at)));
+    candidates.into_iter().take(limit).map(|(_, r)| r).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -533,5 +604,51 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
         assert!(command_is_allowlisted("cargo test", Some(dir.path())));
         assert!(command_is_allowlisted(".verify/run.sh", Some(dir.path())));
     }
+
+    #[test]
+    fn suggest_verified_recipes_ranks_exit_zero_matching_commands() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("t.db");
+        let store = BrainStore::open(&db).unwrap();
+
+        // Insert a failed outcome and a successful outcome
+        let _ = store.insert_verify_outcome(
+            None,
+            1,
+            Some("fail"),
+            None,
+            None,
+            "cargo test --failed",
+            "dev1",
+            "cli",
+        );
+        let _ = store.insert_verify_outcome(
+            None,
+            0,
+            None,
+            None,
+            None,
+            "cargo test -p agent-muscle",
+            "dev1",
+            "orchestrator",
+        );
+        let _ = store.insert_verify_outcome(
+            None,
+            0,
+            None,
+            None,
+            None,
+            "npm test",
+            "dev1",
+            "cli",
+        );
+
+        let recipes = suggest_verified_recipes(&store, "run tests for muscle", 2);
+        assert!(!recipes.is_empty());
+        assert_eq!(recipes[0].cmd, "cargo test -p agent-muscle");
+        assert_eq!(recipes[0].exit_code, 0);
+        assert_eq!(recipes[0].source, "orchestrator");
+    }
 }
+
 
