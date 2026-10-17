@@ -229,10 +229,23 @@ class RouteGateTests(unittest.TestCase):
         self.assertEqual(out.get("permission"), "allow")
 
     def test_should_gate_tool_brain_mcp(self) -> None:
-        self.assertFalse(should_gate_tool({"tool_name": "Shell"}))
-        self.assertTrue(
-            should_gate_tool({"tool_name": "mcp_agent-brain_store_memory"})
-        )
+        import route_gate
+
+        orig = route_gate.GATE_SCOPE
+        try:
+            route_gate.GATE_SCOPE = "brain_mcp"
+            self.assertFalse(should_gate_tool({"tool_name": "Shell"}))
+            self.assertTrue(
+                should_gate_tool({"tool_name": "mcp_agent-brain_store_memory"})
+            )
+
+            route_gate.GATE_SCOPE = "all"
+            self.assertTrue(should_gate_tool({"tool_name": "Shell"}))
+            self.assertTrue(
+                should_gate_tool({"tool_name": "mcp_agent-brain_store_memory"})
+            )
+        finally:
+            route_gate.GATE_SCOPE = orig
 
     def _hook_latency_p95(self, handler, event: dict, iterations: int = 500) -> float:
         import route_gate

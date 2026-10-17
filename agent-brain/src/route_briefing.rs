@@ -117,21 +117,23 @@ pub fn format_briefing(resp: &RouteTaskResponse) -> String {
     }
     out.push('\n');
 
-    section_list(
+    section_list_with_hint(
         &mut out,
         "Agents",
         resp.recommended_agents
             .iter()
             .map(|a| format!("**{}** — {} _(score {:.2})_", a.name, a.rationale, a.score)),
+        Some("No specialized subagent matched (score < 0.70). Add subagents in `~/.autonomic/agents/<name>.json` or `.claude/agents/` to enable delegation."),
     );
-    section_list(
+    section_list_with_hint(
         &mut out,
         "Skills",
         resp.recommended_skills
             .iter()
             .map(|s| format!("**{}** — {} _(score {:.2})_", s.name, s.rationale, s.score)),
+        Some("No domain skill matched (score < 0.70). Promote this session with `promote_to_skill` or add a markdown playbook at `~/.autonomic/skills/<name>/SKILL.md`."),
     );
-    section_list(
+    section_list_with_hint(
         &mut out,
         "Rules",
         resp.applicable_rules.iter().map(|r| {
@@ -146,30 +148,49 @@ pub fn format_briefing(resp: &RouteTaskResponse) -> String {
                 r.topic, preview, ellipsis, r.score
             )
         }),
+        Some("No custom rules matched. Add team rules in `~/.autonomic/rules/` or project rules in `.cursor/rules/`."),
     );
-    section_list(
+    section_list_with_hint(
         &mut out,
         "Memory",
         resp.relevant_memory
             .iter()
             .map(|m| format!("**{}** — {} _(score {:.2})_", m.topic, m.text, m.score)),
+        None,
     );
-    section_list(
+    section_list_with_hint(
         &mut out,
         "Must apply",
         resp.must_apply
             .iter()
             .map(|m| format!("**{}** — {}", m.topic, m.text)),
+        None,
     );
+
+    if resp.recommended_agents.is_empty() && resp.recommended_skills.is_empty() {
+        out.push_str("## Growth Opportunities\n");
+        out.push_str("- **Unassisted Turn:** Neither specialized subagents nor domain skills matched this context.\n");
+        out.push_str("- **Capture Learnings:** Call `store_memory` or `record_verify_outcome` upon task completion to train future routing.\n");
+        out.push_str("- **Promote to Skill:** If this workflow is recurring, run `promote_to_skill` to index it for automated delegation.\n\n");
+    }
 
     out
 }
 
-fn section_list(out: &mut String, title: &str, items: impl Iterator<Item = String>) {
+fn section_list_with_hint(
+    out: &mut String,
+    title: &str,
+    items: impl Iterator<Item = String>,
+    empty_hint: Option<&str>,
+) {
     let rows: Vec<String> = items.collect();
     out.push_str(&format!("## {title} ({})\n", rows.len()));
     if rows.is_empty() {
-        out.push_str("_none_\n\n");
+        if let Some(hint) = empty_hint {
+            out.push_str(&format!("_none_ — {hint}\n\n"));
+        } else {
+            out.push_str("_none_\n\n");
+        }
         return;
     }
     for row in rows {
@@ -503,5 +524,18 @@ mod tests {
         assert_eq!(s.naive_tokens, 240_000);
         assert_eq!(s.saved_tokens, 239_523);
         assert!(s.routed_tokens <= s.tokens_budget);
+    }
+
+    #[test]
+    fn briefing_lists_growth_opportunities_when_unassisted() {
+        let resp = RouteTaskResponse {
+            recommended_phase: "implementing".into(),
+            ..Default::default()
+        };
+        let text = format_briefing(&resp);
+        assert!(text.contains("Growth Opportunities"));
+        assert!(text.contains("promote_to_skill"));
+        assert!(text.contains("No specialized subagent matched"));
+        assert!(text.contains("No domain skill matched"));
     }
 }
