@@ -18,4 +18,7 @@ cargo test -p agent-brain --lib host_hooks
 echo "==> [Playbook: Multi-Agent Enforcement] Running Rust MCP route gate unit tests..."
 cargo test -p agent-brain --lib mcp::route_gate
 
+echo "==> [Playbook: Multi-Agent Enforcement] Running multi-agent harness simulation suite..."
+python3 agent-brain/hooks/simulate_multi_agent_session.py
+
 echo "==> [Playbook: Multi-Agent Enforcement] Passed cleanly (exit 0)."
