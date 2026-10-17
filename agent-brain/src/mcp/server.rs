@@ -257,11 +257,16 @@ fn default_merge_policy() -> String {
 #[derive(Debug, Deserialize, JsonSchema)]
 struct RouteToMcpParams {
     server: String,
-    tool: String,
+    #[serde(default)]
+    tool: Option<String>,
     #[serde(default)]
     arguments: serde_json::Value,
     #[serde(default = "default_upstream_tokens")]
     max_tokens: usize,
+    #[serde(default)]
+    describe_tool: bool,
+    #[serde(default)]
+    batch: Option<Vec<crate::upstream::UpstreamBatchItem>>,
 }
 
 fn default_upstream_tokens() -> usize {
@@ -922,7 +927,7 @@ impl BrainMcp {
     }
 
     #[tool(
-        description = "Call a configured upstream MCP tool. Response is semantically truncated to max_tokens. Agent must call explicitly; router never auto-executes upstream tools."
+        description = "Call a configured upstream MCP tool, batch of tools, or inspect a tool schema. Response is semantically truncated to max_tokens. Agent must call explicitly; router never auto-executes upstream tools."
     )]
     async fn route_to_mcp(
         &self,
@@ -940,12 +945,76 @@ impl BrainMcp {
                     None,
                 )
             })?;
+
+        if p.describe_tool {
+            let tool_name = p.tool.as_deref().ok_or_else(|| {
+                McpError::invalid_params("tool name required when describe_tool is true", None)
+            })?;
+            let schema = crate::upstream::get_upstream_tool_schema(server, tool_name)
+                .await
+                .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+            return match schema {
+                Some(s) => json_result(serde_json::json!({
+                    "server": server.name,
+                    "tool": tool_name,
+                    "schema": s,
+                })),
+                None => Err(McpError::invalid_params(
+                    format!("tool '{}' not found on server '{}'", tool_name, server.name),
+                    None,
+                )),
+            };
+        }
+
+        if let Some(batch) = p.batch {
+            let count = batch.len();
+            let outcomes = crate::upstream::call_upstream_tools_batch(server, batch)
+                .await
+                .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+            let is_any_error = outcomes.iter().any(|o| o.is_error);
+            let log_id = uuid::Uuid::new_v4().to_string();
+            let latency_ms = started.elapsed().as_millis() as u64;
+
+            let serialized = serde_json::to_string(&outcomes).unwrap_or_default();
+            let structured_val = serde_json::to_value(&outcomes).ok();
+            let truncated =
+                crate::upstream::truncate_upstream_result(&serialized, structured_val.as_ref(), p.max_tokens)
+                    .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+
+            if let Err(err) = crate::observability::log_upstream_call(
+                &self.engine.store,
+                &log_id,
+                &server.name,
+                &format!("batch({})", count),
+                truncated.tokens_used,
+                truncated.truncated,
+                is_any_error,
+                latency_ms,
+            ) {
+                tracing::warn!(error = %err, "upstream retrieval log write failed");
+            }
+
+            return json_result(serde_json::json!({
+                "log_id": log_id,
+                "server": server.name,
+                "batch_count": count,
+                "is_error": is_any_error,
+                "truncated": truncated.truncated,
+                "tokens_used": truncated.tokens_used,
+                "tokens_budget": truncated.tokens_budget,
+                "content": truncated.content,
+            }));
+        }
+
+        let tool_name = p.tool.ok_or_else(|| {
+            McpError::invalid_params("tool name or batch array required", None)
+        })?;
         let arguments = if p.arguments.is_null() {
             serde_json::json!({})
         } else {
             p.arguments
         };
-        let result = crate::upstream::call_upstream_tool(server, &p.tool, arguments)
+        let result = crate::upstream::call_upstream_tool(server, &tool_name, arguments)
             .await
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         let is_error = result.is_error.unwrap_or(false);
@@ -959,7 +1028,7 @@ impl BrainMcp {
             &self.engine.store,
             &log_id,
             &server.name,
-            &p.tool,
+            &tool_name,
             truncated.tokens_used,
             truncated.truncated,
             is_error,
@@ -970,7 +1039,7 @@ impl BrainMcp {
         json_result(serde_json::json!({
             "log_id": log_id,
             "server": server.name,
-            "tool": p.tool,
+            "tool": tool_name,
             "is_error": is_error,
             "truncated": truncated.truncated,
             "tokens_used": truncated.tokens_used,

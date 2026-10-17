@@ -48,23 +48,48 @@ fn truncate_value(value: &Value, max_tokens: usize) -> (Value, bool) {
     }
 }
 
+fn compact_entity(val: &Value) -> Option<Value> {
+    if let Value::Object(map) = val {
+        let mut compact = serde_json::Map::new();
+        for key in ["id", "uuid", "key", "title", "name", "status", "state", "type"] {
+            if let Some(v) = map.get(key) {
+                compact.insert(key.to_string(), v.clone());
+            }
+        }
+        if !compact.is_empty() {
+            return Some(Value::Object(compact));
+        }
+    }
+    None
+}
+
 fn truncate_array(items: &[Value], max_tokens: usize) -> (Value, bool) {
     let mut kept = Vec::new();
     let mut tokens = 0;
     for item in items {
         let item_tokens = estimate_json_tokens(item);
-        if tokens + item_tokens > max_tokens && !kept.is_empty() {
-            return (
-                Value::Array({
-                    let mut out = kept;
-                    out.push(Value::String(format!(
-                        "... truncated {} more items",
-                        items.len() - out.len()
-                    )));
-                    out
-                }),
-                true,
-            );
+        if tokens + item_tokens > max_tokens {
+            if let Some(compact) = compact_entity(item) {
+                let compact_tokens = estimate_json_tokens(&compact);
+                if tokens + compact_tokens <= max_tokens {
+                    tokens += compact_tokens;
+                    kept.push(compact);
+                    continue;
+                }
+            }
+            if !kept.is_empty() {
+                return (
+                    Value::Array({
+                        let mut out = kept;
+                        out.push(Value::String(format!(
+                            "... truncated {} more items",
+                            items.len() - out.len()
+                        )));
+                        out
+                    }),
+                    true,
+                );
+            }
         }
         if item_tokens > max_tokens {
             let (inner, inner_truncated) = truncate_value(item, max_tokens);

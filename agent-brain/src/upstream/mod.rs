@@ -5,8 +5,9 @@ mod suggest;
 mod truncate;
 
 pub use client::{
-    call_tool_result_to_text, call_upstream_tool, list_server_tools, refresh_upstream_index,
-    refresh_upstream_index_blocking, UpstreamCallLog,
+    call_tool_result_to_text, call_upstream_tool, call_upstream_tools_batch,
+    get_upstream_tool_schema, list_server_tools, refresh_upstream_index,
+    refresh_upstream_index_blocking, UpstreamBatchItem, UpstreamBatchOutcome, UpstreamCallLog,
 };
 pub use suggest::suggest_upstream_tools;
 pub use truncate::truncate_upstream_result;
