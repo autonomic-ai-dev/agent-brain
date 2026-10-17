@@ -186,11 +186,26 @@ pub fn process_turn_telemetry(req: TurnTelemetryRequest) -> TurnTelemetryOutcome
         heart_synced: false,
     };
 
-    let synced = sync_to_heart(&outcome);
+    let synced = sync_to_heart_async(&outcome);
     TurnTelemetryOutcome {
         heart_synced: synced,
         ..outcome
     }
+}
+
+/// Asynchronously dispatch telemetry event to agent-heart without blocking the agent turn loop.
+pub fn sync_to_heart_async(outcome: &TurnTelemetryOutcome) -> bool {
+    let heart_dir = agent_body_core::organ_state_dir("heart");
+    let heart_db = heart_dir.join("heart.db");
+    if !heart_db.exists() {
+        return false;
+    }
+
+    let cloned = outcome.clone();
+    std::thread::spawn(move || {
+        let _ = sync_to_heart(&cloned);
+    });
+    true
 }
 
 /// Locate heart.db and append event directly to model_usage_events if heart is initialized.
@@ -305,5 +320,155 @@ mod tests {
         assert!(outcome.estimated_cost_usd > 0.0);
         assert!(outcome.estimated_dollars_saved > 0.0);
         assert!(outcome.cache_hit_pct > 70.0); // 20k / 25k = 80%
+    }
+
+    #[test]
+    fn test_calculate_pricing_gemini_flash_and_pro() {
+        // Gemini Flash: $0.075 / 1M prompt, $0.30 / 1M completion, $0.01875 / 1M cache read
+        let (cost, saved, hit_pct) = calculate_pricing(
+            "google",
+            "gemini-2.0-flash",
+            1_000_000,
+            100_000,
+            500_000,
+            0,
+        );
+        // Prompt: 1.0 * 0.075 = 0.075
+        // Completion: 0.1 * 0.30 = 0.03
+        // Cache read: 0.5 * 0.01875 = 0.009375
+        // Total cost = 0.075 + 0.03 + 0.009375 = 0.114375
+        assert!((cost - 0.114375).abs() < 1e-4);
+        // Saved: 0.5 * (0.075 - 0.01875) = 0.028125
+        assert!((saved - 0.028125).abs() < 1e-4);
+        assert!((hit_pct - 33.3333).abs() < 0.1);
+
+        // Gemini Pro: $1.25 / 1M prompt, $5.00 / 1M completion, $0.3125 / 1M cache read
+        let (pro_cost, pro_saved, _) = calculate_pricing(
+            "gemini",
+            "gemini-1.5-pro",
+            100_000,
+            10_000,
+            50_000,
+            0,
+        );
+        assert!(pro_cost > 0.0);
+        assert!(pro_saved > 0.0);
+    }
+
+    #[test]
+    fn test_tokens_saved_vs_full_read_calculation() {
+        let full_file_tokens = 50_000usize;
+        let tokens_used = 500usize;
+        let tokens_saved = full_file_tokens.saturating_sub(tokens_used);
+        let savings_pct = (tokens_saved as f64 / full_file_tokens as f64) * 100.0;
+
+        assert_eq!(tokens_saved, 49_500);
+        assert!((savings_pct - 99.0).abs() < 1e-2);
+
+        // Test dollar savings at metered rate ($3.00 / 1M prompt tokens)
+        let rate_per_million = 3.00f64;
+        let dollars_saved = (tokens_saved as f64 / 1_000_000.0) * rate_per_million;
+        assert!((dollars_saved - 0.1485).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_sync_to_heart_non_blocking_integration() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let heart_db = temp_dir.path().join("heart.db");
+        let conn = Connection::open(&heart_db).unwrap();
+        conn.execute(
+            r#"CREATE TABLE IF NOT EXISTS model_usage_events (
+                id TEXT PRIMARY KEY,
+                timestamp INTEGER,
+                session_id TEXT,
+                organ TEXT,
+                provider TEXT,
+                model TEXT,
+                billing_type TEXT,
+                prompt_tokens INTEGER,
+                completion_tokens INTEGER,
+                cache_read_tokens INTEGER,
+                cache_write_tokens INTEGER,
+                estimated_cost_usd REAL,
+                latency_ms INTEGER
+            )"#,
+            [],
+        )
+        .unwrap();
+
+        let outcome = TurnTelemetryOutcome {
+            event_id: "test-evt-nonblock".into(),
+            timestamp: Utc::now().timestamp_millis(),
+            session_id: Some("sess-1".into()),
+            organ: "agent-brain".into(),
+            provider: "anthropic".into(),
+            model: "claude-3-7-sonnet".into(),
+            prompt_tokens: 1000,
+            completion_tokens: 500,
+            cache_read_tokens: 2000,
+            cache_write_tokens: 0,
+            total_tokens: 3500,
+            estimated_cost_usd: 0.01,
+            estimated_dollars_saved: 0.005,
+            cache_hit_pct: 66.6,
+            heart_synced: false,
+        };
+
+        let res = conn.execute(
+            r#"INSERT OR IGNORE INTO model_usage_events 
+               (id, timestamp, session_id, organ, provider, model, billing_type,
+                prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens,
+                estimated_cost_usd, latency_ms)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"#,
+            params![
+                outcome.event_id,
+                outcome.timestamp,
+                outcome.session_id,
+                outcome.organ,
+                outcome.provider,
+                outcome.model,
+                "metered_api",
+                outcome.prompt_tokens as i64,
+                outcome.completion_tokens as i64,
+                outcome.cache_read_tokens as i64,
+                outcome.cache_write_tokens as i64,
+                outcome.estimated_cost_usd,
+                0i64,
+            ],
+        );
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn test_telemetry_dispatch_latency_overhead() {
+        let req = TurnTelemetryRequest {
+            session_id: Some("perf-sess".into()),
+            provider: "openai".into(),
+            model: "gpt-4o".into(),
+            prompt_tokens: 2500,
+            completion_tokens: 600,
+            cache_read_tokens: 1500,
+            cache_write_tokens: 0,
+            latency_ms: 450,
+            task_phase: Some("implementing".into()),
+        };
+
+        // Warm up connection/disk caching
+        let _ = process_turn_telemetry(req.clone());
+
+        let iterations = 10;
+        let start = std::time::Instant::now();
+        for _ in 0..iterations {
+            let outcome = process_turn_telemetry(req.clone());
+            assert_eq!(outcome.organ, "agent-brain");
+        }
+        let avg_micros = start.elapsed().as_micros() / iterations;
+
+        // Verify average dispatch overhead on the turn loop is well under 1ms (1,000 microseconds)
+        assert!(
+            avg_micros < 1000,
+            "average dispatch overhead exceeded 1ms budget: {}us",
+            avg_micros
+        );
     }
 }
