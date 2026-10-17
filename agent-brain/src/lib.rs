@@ -92,6 +92,7 @@ pub mod suggest_memory;
 pub mod supervisor_bench;
 pub mod sync;
 pub mod temporal;
+pub mod telemetry;
 pub mod token_tools;
 pub mod tokens;
 pub mod tool_events;

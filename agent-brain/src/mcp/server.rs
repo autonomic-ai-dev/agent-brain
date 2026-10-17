@@ -132,6 +132,34 @@ fn default_limit() -> usize {
     50
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+struct RecordTurnTelemetryParams {
+    provider: String,
+    model: String,
+    prompt_tokens: u64,
+    completion_tokens: u64,
+    #[serde(default)]
+    cache_read_tokens: u64,
+    #[serde(default)]
+    cache_write_tokens: u64,
+    #[serde(default)]
+    session_id: Option<String>,
+    #[serde(default)]
+    latency_ms: u64,
+    #[serde(default)]
+    task_phase: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct GetCacheSavingsParams {
+    #[serde(default = "default_telemetry_lookback")]
+    lookback_days: u32,
+}
+
+fn default_telemetry_lookback() -> u32 {
+    30
+}
+
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct RecordVerifyOutcomeParams {
@@ -735,6 +763,46 @@ impl BrainMcp {
         let stats = gc::run_gc(&self.engine.store, p.min_confidence, p.max_age_days)
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         json_result(stats)
+    }
+
+    #[tool(description = "Record LLM turn telemetry, calculate prompt/cache costs and savings, and sync with agent-heart usage governor.")]
+    async fn record_turn_telemetry(
+        &self,
+        params: Parameters<RecordTurnTelemetryParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let req = crate::telemetry::TurnTelemetryRequest {
+            session_id: p.session_id,
+            provider: p.provider,
+            model: p.model,
+            prompt_tokens: p.prompt_tokens,
+            completion_tokens: p.completion_tokens,
+            cache_read_tokens: p.cache_read_tokens,
+            cache_write_tokens: p.cache_write_tokens,
+            latency_ms: p.latency_ms,
+            task_phase: p.task_phase.clone(),
+        };
+        let outcome = crate::telemetry::process_turn_telemetry(req);
+        self.engine
+            .store
+            .insert_turn_telemetry(&outcome, p.task_phase.as_deref())
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        json_result(outcome)
+    }
+
+    #[tool(description = "Get aggregated cache savings and token attribution report across recent agent turns.")]
+    async fn get_cache_savings_summary(
+        &self,
+        params: Parameters<GetCacheSavingsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let _req = self.engine.mcp_activity.begin_request();
+        let summary = self
+            .engine
+            .store
+            .query_turn_telemetry_summary(params.0.lookback_days)
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        json_result(summary)
     }
 
     #[tool(description = "List stored memory facts.")]

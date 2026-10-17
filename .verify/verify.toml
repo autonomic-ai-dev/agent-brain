@@ -3,8 +3,8 @@ commands = [
   "cargo test",
   "cargo clippy",
   "cargo check",
-  "make test",
-  "agent-brain proofs",
-  "agent-brain doctor",
-  ".verify/",
+  ".verify/playbooks/verify_usage_telemetry.sh",
+  ".verify/playbooks/verify_token_tools.sh",
+  ".verify/playbooks/verify_routing.sh",
+  ".verify/playbooks/verify_full_suite.sh",
 ]

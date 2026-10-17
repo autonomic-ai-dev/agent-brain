@@ -2910,6 +2910,106 @@ impl BrainStore {
             crate::ann::AnnSettings::default(),
         )
     }
+
+    pub fn insert_turn_telemetry(
+        &self,
+        outcome: &crate::telemetry::TurnTelemetryOutcome,
+        task_phase: Option<&str>,
+    ) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                r#"INSERT INTO turn_telemetry 
+                   (id, session_id, organ, provider, model, prompt_tokens, completion_tokens,
+                    cache_read_tokens, cache_write_tokens, estimated_cost_usd, estimated_dollars_saved,
+                    cache_hit_pct, latency_ms, task_phase, created_at)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)"#,
+                params![
+                    outcome.event_id,
+                    outcome.session_id,
+                    outcome.organ,
+                    outcome.provider,
+                    outcome.model,
+                    outcome.prompt_tokens as i64,
+                    outcome.completion_tokens as i64,
+                    outcome.cache_read_tokens as i64,
+                    outcome.cache_write_tokens as i64,
+                    outcome.estimated_cost_usd,
+                    outcome.estimated_dollars_saved,
+                    outcome.cache_hit_pct,
+                    0i64,
+                    task_phase,
+                    outcome.timestamp,
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn query_turn_telemetry_summary(
+        &self,
+        lookback_days: u32,
+    ) -> Result<crate::telemetry::CacheSavingsSummary> {
+        let since_ms = chrono::Utc::now().timestamp_millis()
+            - (lookback_days as i64 * 86_400_000);
+
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT provider, model, prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens,
+                          estimated_cost_usd, estimated_dollars_saved
+                   FROM turn_telemetry
+                   WHERE created_at >= ?1"#,
+            )?;
+
+            let mut summary = crate::telemetry::CacheSavingsSummary::default();
+
+            let rows = stmt.query_map([since_ms], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)? as u64,
+                    row.get::<_, i64>(3)? as u64,
+                    row.get::<_, i64>(4)? as u64,
+                    row.get::<_, i64>(5)? as u64,
+                    row.get::<_, f64>(6)?,
+                    row.get::<_, f64>(7)?,
+                ))
+            })?;
+
+            for row in rows {
+                let (provider, model, prompt, comp, c_read, c_write, cost, saved) = row?;
+                summary.total_turns += 1;
+                summary.total_prompt_tokens += prompt;
+                summary.total_completion_tokens += comp;
+                summary.total_cache_read_tokens += c_read;
+                summary.total_cache_write_tokens += c_write;
+                summary.total_cost_usd += cost;
+                summary.total_dollars_saved += saved;
+
+                let p_entry = summary.by_provider.entry(provider.clone()).or_default();
+                p_entry.prompt_tokens += prompt;
+                p_entry.completion_tokens += comp;
+                p_entry.cache_read_tokens += c_read;
+                p_entry.cache_write_tokens += c_write;
+                p_entry.estimated_cost_usd += cost;
+                p_entry.estimated_dollars_saved += saved;
+
+                let m_entry = summary.by_model.entry(model.clone()).or_default();
+                m_entry.prompt_tokens += prompt;
+                m_entry.completion_tokens += comp;
+                m_entry.cache_read_tokens += c_read;
+                m_entry.cache_write_tokens += c_write;
+                m_entry.estimated_cost_usd += cost;
+                m_entry.estimated_dollars_saved += saved;
+            }
+
+            let total_prompt_side = summary.total_prompt_tokens + summary.total_cache_read_tokens;
+            if total_prompt_side > 0 {
+                summary.overall_cache_hit_pct = (summary.total_cache_read_tokens as f64 / total_prompt_side as f64) * 100.0;
+            }
+
+            Ok(summary)
+        })
+    }
 }
 
 fn memory_fact_meta<'a>(
@@ -3007,6 +3107,41 @@ mod tests {
         assert!(memory_source_score_adjustment(Some("session_digest"), "session-digest-x") < 0.0);
         assert!(memory_source_score_adjustment(None, "legacy-cursor-de") < 0.0);
         assert_eq!(memory_source_score_adjustment(Some("user"), "routing"), 0.0);
+    }
+
+    #[test]
+    fn test_turn_telemetry_persistence_and_summary() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test_brain.db");
+        let store = BrainStore::open(&db_path).unwrap();
+
+        let outcome = crate::telemetry::TurnTelemetryOutcome {
+            event_id: "evt-test-1".into(),
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            session_id: Some("sess-1".into()),
+            organ: "agent-brain".into(),
+            provider: "anthropic".into(),
+            model: "claude-3-5-sonnet".into(),
+            prompt_tokens: 10_000,
+            completion_tokens: 2_000,
+            cache_read_tokens: 40_000,
+            cache_write_tokens: 5_000,
+            total_tokens: 57_000,
+            estimated_cost_usd: 0.15,
+            estimated_dollars_saved: 0.108,
+            cache_hit_pct: 80.0,
+            heart_synced: false,
+        };
+
+        store.insert_turn_telemetry(&outcome, Some("planning")).unwrap();
+
+        let summary = store.query_turn_telemetry_summary(30).unwrap();
+        assert_eq!(summary.total_turns, 1);
+        assert_eq!(summary.total_prompt_tokens, 10_000);
+        assert_eq!(summary.total_cache_read_tokens, 40_000);
+        assert_eq!(summary.overall_cache_hit_pct, 80.0);
+        assert_eq!(summary.by_provider.get("anthropic").unwrap().prompt_tokens, 10_000);
+        assert_eq!(summary.by_model.get("claude-3-5-sonnet").unwrap().cache_read_tokens, 40_000);
     }
 }
 
