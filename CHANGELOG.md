@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0-beta.3.2] - 2026-10-18
+## [1.0.0-beta.3.3] - 2026-10-18
 
 ### Added
 - **Multi-Agent Hard Interception & AST Safety Validation (ABH-16)**:
@@ -17,12 +17,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added exact model pricing extraction for `gemini-2.5-pro` and `gemini-2.5-flash` in turn telemetry calculation.
   - Implemented async non-blocking heart usage emission, preventing slow NATS or network bottlenecks from adding latency to LLM agent turns (<30ms turn budget).
   - Validated telemetry attribution and verified overhead benchmark tests.
-- **Turn Telemetry & Token Attribution (ABH-7)**: Introduced `turn_telemetry` SQLite table, recording per-turn input/output tokens, prompt cache hits, and duration.
-- **Cache Savings Attribution Tools**: Added `record_turn_telemetry` and `get_cache_savings_summary` MCP tools to quantify dollar savings from vector memory deduplication.
-- **Universal Upstream Pre-Flight Schema Inspection**: Added `describe_tool: true` to `route_to_mcp` for instant JSON schema inspection on any upstream MCP server.
-- **Multi-Tool Upstream Batching**: Added `batch: [...]` parameter to `route_to_mcp` executing multiple calls over a single persistent transport session.
-- **Dynamic Semantic Entity Compaction**: Implemented `compact_entity` in upstream truncation preserving essential entity rows (`id`, `key`, `title`, `name`, `status`, `state`) before falling back to array truncation.
 - **CI Skip Path Optimizations**: Enhanced `.github/workflows/ci.yml` to skip pipeline execution when changes only affect `CHANGELOG.md`, `CONTEXT.md`, and markdown documentation files.
+
+### Changed
+- Bumped patch version to `1.0.0-beta.3.3`.
+
+## [1.0.0-beta.3.2] - 2026-10-17
+
+### Added
+- **Turn Telemetry & Token Attribution** — Introduced `turn_telemetry` SQLite table, recording per-turn input/output tokens, prompt cache hits, and duration.
+- **Cache Savings Attribution Tools** — Added `record_turn_telemetry` and `get_cache_savings_summary` MCP tools to quantify dollar savings from vector memory deduplication.
+- **Universal Upstream Pre-Flight Schema Inspection** — Added `describe_tool: true` to `route_to_mcp` for instant JSON schema inspection on any upstream MCP server.
+- **Multi-Tool Upstream Batching** — Added `batch: [...]` parameter to `route_to_mcp` executing multiple calls over a single persistent transport session.
+- **Dynamic Semantic Entity Compaction** — Implemented `compact_entity` in upstream truncation preserving essential entity rows (`id`, `key`, `title`, `name`, `status`, `state`) before falling back to array truncation.
 
 ### Changed
 - Bumped patch version to `1.0.0-beta.3.2`.

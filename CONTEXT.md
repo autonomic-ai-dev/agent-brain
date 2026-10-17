@@ -1,7 +1,7 @@
 # agent-brain — Deep Operational & Architectural Context for Agents
 
 > **Cognitive Core, Persistent Volume & Turn Router** — In-depth architectural guide, mental model, complete CLI matrix, MCP tool contracts, and failure recovery runbooks for `agent-brain`.  
-> **Ecosystem Version Baseline:** `v1.0.0-beta.3.2`  
+> **Ecosystem Version Baseline:** `v1.0.0-beta.3.3`  
 > **Documentation Hub:** [https://autonomic-ai.dev/docs/memory](https://autonomic-ai.dev/docs/memory) · [Architecture Hub](https://autonomic-ai.dev/docs/architecture)  
 > **Default Storage:** `~/.autonomic/memory/` (`brain.db`, `packages/`, `pending/`, `serve.lock`)
 
