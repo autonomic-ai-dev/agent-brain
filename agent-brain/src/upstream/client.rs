@@ -53,7 +53,7 @@ fn register_secret_refs(store: &BrainStore, server: &UpstreamServerConfig) -> Re
     Ok(())
 }
 
-async fn list_server_tools(server: &UpstreamServerConfig) -> Result<Vec<IndexedUpstreamTool>> {
+pub async fn list_server_tools(server: &UpstreamServerConfig) -> Result<Vec<IndexedUpstreamTool>> {
     let service = connect(server).await?;
     let tools = service.list_all_tools().await?;
     service.cancel().await.ok();

@@ -48,6 +48,7 @@ pub mod intelligence;
 pub mod log;
 pub mod mcp;
 pub mod mcp_activity;
+pub mod mcp_cli;
 #[cfg(feature = "extras")]
 pub mod mcp_bench;
 pub mod mcp_federation;

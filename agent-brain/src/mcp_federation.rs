@@ -294,11 +294,11 @@ pub fn ensure_upstream_agent_body() -> Result<bool> {
             }
         }
     }
-    persist_brain_upstream(&settings)?;
+    persist_brain_settings(&settings)?;
     Ok(true)
 }
 
-fn persist_brain_upstream(settings: &crate::settings::AgentBrainSettings) -> Result<()> {
+pub fn persist_brain_settings(settings: &crate::settings::AgentBrainSettings) -> Result<()> {
     if std::env::var("AGENT_BRAIN_HOME").is_ok() {
         let home = crate::config::Config::load()?.home;
         let path = home.join("config.yaml");
