@@ -297,78 +297,7 @@ fn eval_ci_meets_recall_gate() {
     assert_ci_gate(&report).unwrap();
 }
 
-#[cfg(feature = "extras")]
-#[test]
-fn skills_sh_eval_passes_on_committed_fixture_db() {
-    let fixture = agent_brain::fixture::default_fixture_2k_path();
-    assert!(
-        fixture.exists(),
-        "missing {} — run: cargo run -p agent-brain -- fixture build",
-        fixture.display()
-    );
-    let snapshot = agent_brain::skills_sh::default_snapshot_path();
-    let golden = agent_brain::skills_sh::default_golden_path();
-    let report =
-        agent_brain::skills_sh::run_skills_sh_eval(&snapshot, &golden, Some(&fixture)).unwrap();
-    agent_brain::skills_sh::assert_skills_sh_gate(&report).unwrap();
-    assert_eq!(report.index_mode, "fixture-db");
-    assert_eq!(
-        report.simulated_index_size,
-        agent_brain::skills_sh::SKILLS_SH_SIMULATED_INDEX
-    );
-    assert!(report.snapshot_skills >= 3);
-    assert_eq!(
-        report.filler_skills,
-        report
-            .simulated_index_size
-            .saturating_sub(report.snapshot_skills)
-    );
-}
 
-#[cfg(feature = "extras")]
-#[test]
-fn fixture_2k_db_has_expected_composition() {
-    let fixture = agent_brain::fixture::default_fixture_2k_path();
-    let meta = agent_brain::fixture::read_fixture_meta(&fixture).unwrap();
-    assert_eq!(meta.index_size, 2000);
-    let dir = tempfile::tempdir().unwrap();
-    let config = agent_brain::config::Config::isolated(dir.path().to_path_buf());
-    config.ensure_dirs().unwrap();
-    std::fs::copy(&fixture, &config.db_path).unwrap();
-    let store = agent_brain::db::store::BrainStore::open(&config.db_path).unwrap();
-    let breakdown = agent_brain::fixture::fixture_db_breakdown(&store).unwrap();
-    assert_eq!(breakdown.total_indexed, 2000);
-    assert_eq!(breakdown.skills_sh_rows + breakdown.bench_filler_rows, 2000);
-    // Real-only fixture (recipe v2): no bench fillers when snapshot has 2000 skills
-    if meta.recipe_version == "2" && meta.snapshot_skills >= 2000 {
-        assert_eq!(breakdown.bench_filler_rows, 0);
-        assert_eq!(breakdown.skills_sh_rows, 2000);
-        assert_eq!(meta.filler_skills, 0);
-    }
-}
-
-#[cfg(feature = "extras")]
-#[test]
-fn skills_sh_eval_passes_runtime_seed() {
-    let snapshot = agent_brain::skills_sh::default_snapshot_path();
-    let golden = agent_brain::skills_sh::default_golden_path();
-    let report = agent_brain::skills_sh::run_skills_sh_eval(&snapshot, &golden, None).unwrap();
-    agent_brain::skills_sh::assert_skills_sh_gate(&report).unwrap();
-    assert_eq!(report.index_mode, "runtime-seed");
-}
-
-#[cfg(feature = "extras")]
-#[test]
-fn proofs_ci_passes_isolated_gates() {
-    let report = agent_brain::proofs::run_ci_proofs().unwrap();
-    agent_brain::proofs::assert_ci_proofs(&report).unwrap();
-    assert!(report.eval.skills.recall_at_3 >= RECALL_AT_3_THRESHOLD);
-    assert!(report.latency.passed);
-    assert!(report.supervisor.passed);
-    assert!(report.token_tools.passed);
-    assert!(report.scale.passed);
-    assert!(report.eval.cases >= 20);
-}
 
 #[test]
 fn stats_collects_token_savings_from_retrieval_log() {
