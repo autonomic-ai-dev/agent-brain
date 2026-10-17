@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Multi-Agent Hard Interception & AST Safety Validation (ABH-16)**:
+  - Enforced turn-level routing gates on host shell execution (`beforeShellExecution`, `PreToolUse` for `Bash`/`run_command`) across Cursor, Claude Code, OpenCode, Codex, and Gemini/Antigravity.
+  - Integrated `agent-mouth validate` inline AST approval policy into shell interception to deny destructive patterns and steer to `agent-muscle`.
+  - Added support for Gemini/Antigravity CLI parameters (`CommandLine`, `AbsolutePath`, `TargetFile`) in path and command extractors.
+  - Federated `agent-body` organ proxy detection in `is_agent_brain_mcp_tool` ensuring all 11 organs are gated behind `route_task`.
+
 ## [1.0.0-beta.3.2] - 2026-10-17
 
 ### Added

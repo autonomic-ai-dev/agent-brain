@@ -629,9 +629,75 @@ class ScoutUnlockTests(unittest.TestCase):
         gemini = adapt_hook_output("BeforeTool", gemini_raw, gemini_event)
         self.assertEqual(gemini.get("decision"), "deny")
 
+    def test_before_shell_execution_denied_when_route_needed(self) -> None:
+        from route_gate import STATE_PATH, save_state
 
-if __name__ == "__main__":
-    unittest.main()
+        STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        save_state({"needs_route": True, "needs_route_since": time.time(), "route_grace_until": 0})
+        res = handle_before_shell_execution({"command": "cargo test"})
+        self.assertEqual(res.get("permission"), "deny")
+        self.assertIn("route_task", res.get("agent_message", ""))
+
+    def test_agent_mouth_ast_validation(self) -> None:
+        from route_gate import check_mouth_ast_policy
+
+        safe = check_mouth_ast_policy("cargo test")
+        self.assertIsNone(safe)
+        blocked = check_mouth_ast_policy("rm -rf /")
+        if blocked is not None:
+            self.assertEqual(blocked.get("permission"), "deny")
+            self.assertIn("agent-mouth", blocked.get("agent_message", ""))
+
+    def test_antigravity_gemini_extractors(self) -> None:
+        from route_gate import extract_read_path, extract_shell_command
+
+        read_ev = {"tool_name": "view_file", "tool_input": {"AbsolutePath": "/tmp/test.rs"}}
+        self.assertEqual(extract_read_path(read_ev), "/tmp/test.rs")
+
+        shell_ev = {"tool_name": "run_command", "tool_input": {"CommandLine": "git status"}}
+        self.assertEqual(extract_shell_command(shell_ev), "git status")
+
+    def test_agent_body_federated_mcp_matching(self) -> None:
+        from route_gate import is_agent_brain_mcp_tool
+
+        self.assertTrue(is_agent_brain_mcp_tool({"tool_name": "mcp_agent-body_muscle_execute_bash"}))
+        self.assertTrue(is_agent_brain_mcp_tool({"tool_name": "eyes_describe_dom", "server": "agent-body"}))
+        self.assertFalse(is_agent_brain_mcp_tool({"tool_name": "route_task"}))
+
+    def test_before_shell_execution_allowed_when_routed(self) -> None:
+        from route_gate import STATE_PATH, save_state
+
+        STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        save_state({"needs_route": False, "route_grace_until": 0})
+        res = handle_before_shell_execution({"command": "cargo test"})
+        self.assertEqual(res.get("permission"), "allow")
+
+    def test_claude_bash_pre_tool_use_denied_when_route_needed(self) -> None:
+        from route_gate import STATE_PATH, save_state, adapt_hook_output
+
+        STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        save_state({"needs_route": True, "needs_route_since": time.time(), "route_grace_until": 0})
+        ev = {"tool_name": "Bash", "tool_input": {"command": "cargo test"}}
+        raw = handle_pre_tool_use(ev)
+        self.assertEqual(raw.get("permission"), "deny")
+        claude = adapt_hook_output("PreToolUse", raw, ev)
+        self.assertEqual(claude.get("hookSpecificOutput", {}).get("permissionDecision"), "deny")
+        self.assertIn("route_task", claude.get("hookSpecificOutput", {}).get("permissionDecisionReason", ""))
+
+    def test_edit_tools_bypass_read_gate(self) -> None:
+        from route_gate import is_cursor_edit_tool, is_cursor_read_tool
+
+        for edit_tool in ("Write", "StrReplace", "replace_file_content", "write_to_file", "FileEdit"):
+            ev = {"tool_name": edit_tool}
+            self.assertTrue(is_cursor_edit_tool(ev), f"Expected {edit_tool} to be an edit tool")
+            self.assertFalse(is_cursor_read_tool(ev), f"Expected {edit_tool} NOT to be a read tool")
+
+    def test_claude_and_antigravity_read_tools_detected(self) -> None:
+        from route_gate import is_cursor_read_tool
+
+        for read_tool in ("read", "read_file", "FileRead", "view", "view_file"):
+            ev = {"tool_name": read_tool}
+            self.assertTrue(is_cursor_read_tool(ev), f"Expected {read_tool} to be recognized as a read tool")
 
 
 def test_looks_like_verification_allowlist():

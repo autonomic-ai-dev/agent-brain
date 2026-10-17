@@ -22,6 +22,9 @@ echo "==> Running Playbook: Token Tools..."
 echo "==> Running Playbook: Routing..."
 "$DIR/playbooks/verify_routing.sh"
 
+echo "==> Running Playbook: Multi-Agent Enforcement & Interception..."
+"$DIR/playbooks/verify_multi_agent_enforcement.sh"
+
 echo "==> Running Playbook: Full Suite..."
 "$DIR/playbooks/verify_full_suite.sh"
 
