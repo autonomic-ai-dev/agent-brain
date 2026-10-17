@@ -2480,7 +2480,7 @@ impl BrainStore {
         Ok(updated)
     }
 
-    fn load_context_weights(&self, ids: &[String]) -> Result<HashMap<String, f64>> {
+    pub fn load_context_weights(&self, ids: &[String]) -> Result<HashMap<String, f64>> {
         if ids.is_empty() {
             return Ok(HashMap::new());
         }

@@ -840,6 +840,15 @@ impl Engine {
             user_message,
             3,
         );
+        if let Some(top) = resp.verified_recipes.first() {
+            resp.must_apply.push(crate::types::MustApply {
+                topic: "verified-recipe".into(),
+                text: format!(
+                    "Prefer verified recipe `{}` (exit 0 verified via {}) over unverified raw commands.",
+                    top.cmd, top.source
+                ),
+            });
+        }
         #[cfg(feature = "extras")]
         if let Some(repo) = ws.repo_root.as_deref() {
             if settings.graphify.enabled {

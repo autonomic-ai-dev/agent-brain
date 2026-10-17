@@ -329,3 +329,20 @@ agent-brain sessions ingest --source gemini,opencode
 - Topics: `session-digest-{source}-{slug}` (one fact per session, not one global topic)
 - Disable with `AGENT_BRAIN_SESSION_INGEST=0` or `AGENT_BRAIN_SESSION_DIGEST=0`
 - Override scan root: `AGENT_BRAIN_SESSION_HOME`, OpenCode DB: `AGENT_BRAIN_OPENCODE_DB`
+
+## Closed-Loop Self-Correction & Verification Recipes (v1.0.0-beta.3)
+
+`agent-brain` bridges the gap between advisory suggestions and operational execution adherence:
+
+1. **Adherence Gating (`must_apply`)**:
+   - High-confidence verified recipes (`exit 0`) from trusted runners (`orchestrator`, `cli`, `hook`) are promoted into `must_apply` constraints in `route_task`.
+   - Host instructions require agents to treat `must_apply` as mandatory pre-execution conditions rather than optional suggestions.
+
+2. **Automated Outcome Attribution**:
+   - `agent-brain verify -- <cmd>` and shell post-tool hooks record process exit codes and automatically correlate them with the active turn's `route_log_id`.
+   - **On Success (`exit 0`)**: Automatically calls `record_context_feedback(&item_ids, true)`, increasing context weights by `+0.05`.
+   - **On Failure (`exit != 0`)**: Automatically calls `record_context_feedback(&item_ids, false)`, reducing context weights by `-0.05` and increasing `useless_count`.
+
+3. **Instant Squelching**:
+   - If a command's most recent execution in `verify_outcomes` returned a non-zero exit code, it is immediately excluded from `suggest_verified_recipes`, preventing broken commands from recurring in suggestions.
+

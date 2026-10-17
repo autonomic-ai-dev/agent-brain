@@ -203,9 +203,34 @@ pub fn record_from_result(
             Some(cmd.to_string())
         }
     });
+    let resolved_log_id = route_log_id
+        .map(String::from)
+        .or_else(|| store.latest_retrieval_log().ok().flatten().map(|r| r.id));
+
+    // Closed-loop outcome attribution: automatically attribute context feedback for the route turn
+    if let Some(ref log_id) = resolved_log_id {
+        if let Ok(Some(retrieval_log)) = store.get_retrieval_log(log_id) {
+            if let Ok(items) =
+                serde_json::from_str::<Vec<serde_json::Value>>(&retrieval_log.items_json)
+            {
+                let item_ids: Vec<String> = items
+                    .iter()
+                    .filter_map(|item| {
+                        item.get("id")
+                            .and_then(|v| v.as_str())
+                            .map(ToString::to_string)
+                    })
+                    .collect();
+                if !item_ids.is_empty() {
+                    let _ = store.record_context_feedback(&item_ids, success);
+                }
+            }
+        }
+    }
+
     let device_id = store.ensure_device_id()?;
     let id = store.insert_verify_outcome(
-        route_log_id,
+        resolved_log_id.as_deref(),
         exit_code,
         cause.as_deref(),
         config_hash.as_deref(),
@@ -466,11 +491,15 @@ pub fn suggest_verified_recipes(
     let mut candidates: Vec<(i32, VerifiedRecipe)> = Vec::new();
 
     for row in outcomes {
-        if row.exit_code != 0 {
-            continue;
-        }
         let trimmed_cmd = row.cmd.trim().to_string();
         if trimmed_cmd.is_empty() || seen_cmds.contains(&trimmed_cmd) {
+            continue;
+        }
+        seen_cmds.insert(trimmed_cmd.clone());
+
+        // Because outcomes are ordered by recorded_at DESC, the first encounter
+        // of trimmed_cmd is its latest run. If its latest execution failed, squelch it!
+        if row.exit_code != 0 {
             continue;
         }
         let cmd_lower = trimmed_cmd.to_lowercase();
@@ -491,7 +520,6 @@ pub fn suggest_verified_recipes(
         }
 
         if score > 0 {
-            seen_cmds.insert(trimmed_cmd.clone());
             candidates.push((
                 score,
                 VerifiedRecipe {
@@ -648,6 +676,88 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
         assert_eq!(recipes[0].cmd, "cargo test -p agent-muscle");
         assert_eq!(recipes[0].exit_code, 0);
         assert_eq!(recipes[0].source, "orchestrator");
+    }
+
+    #[test]
+    fn suggest_verified_recipes_squelches_recently_failed_commands() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("t.db");
+        let store = BrainStore::open(&db).unwrap();
+
+        // Older successful run
+        let _ = store.insert_verify_outcome(
+            None,
+            0,
+            None,
+            None,
+            None,
+            "cargo test -p agent-muscle",
+            "dev1",
+            "orchestrator",
+        );
+        // Latest run failed!
+        let _ = store.insert_verify_outcome(
+            None,
+            1,
+            Some("build error"),
+            None,
+            None,
+            "cargo test -p agent-muscle",
+            "dev1",
+            "cli",
+        );
+
+        let recipes = suggest_verified_recipes(&store, "run tests for muscle", 2);
+        assert!(
+            recipes.is_empty(),
+            "recently failed command must be squelched"
+        );
+    }
+
+    #[test]
+    fn record_from_result_updates_context_feedback_automatically() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("t.db");
+        let store = BrainStore::open(&db).unwrap();
+
+        let log_id = "route-log-123";
+        let items_json = r#"[{"id":"fact-item-1","item_type":"memory","topic":"test","score":0.9}]"#;
+        store
+            .insert_retrieval_log(
+                log_id,
+                "qhash",
+                "implementing",
+                items_json,
+                100,
+                false,
+                false,
+                10,
+                Some(10),
+                Some(50),
+                Some(1),
+            )
+            .unwrap();
+
+        // Record a successful outcome associated with this route log
+        let report = record_from_result(
+            &store,
+            0,
+            "cargo test",
+            Some(log_id),
+            None,
+            None,
+            None,
+            Some(dir.path()),
+            VerifySource::Cli,
+        )
+        .unwrap();
+        assert!(report.success);
+
+        // Feedback weights should reflect the positive feedback
+        let weights = store
+            .load_context_weights(&["fact-item-1".to_string()])
+            .unwrap();
+        assert!(weights.get("fact-item-1").copied().unwrap_or(1.0) > 1.0);
     }
 }
 
