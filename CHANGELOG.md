@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0-beta.3.2] - 2026-10-17
+
+### Added
+- **Turn Telemetry & Token Attribution** — Introduced `turn_telemetry` SQLite table, recording per-turn input/output tokens, prompt cache hits, and duration.
+- **Cache Savings Attribution Tools** — Added `record_turn_telemetry` and `get_cache_savings_summary` MCP tools to quantify dollar savings from vector memory deduplication.
+- **Universal Upstream Pre-Flight Schema Inspection** — Added `describe_tool: true` to `route_to_mcp` for instant JSON schema inspection on any upstream MCP server.
+- **Multi-Tool Upstream Batching** — Added `batch: [...]` parameter to `route_to_mcp` executing multiple calls over a single persistent transport session.
+- **Dynamic Semantic Entity Compaction** — Implemented `compact_entity` in upstream truncation preserving essential entity rows (`id`, `key`, `title`, `name`, `status`, `state`) before falling back to array truncation.
+
+### Changed
+- Bumped patch version to `1.0.0-beta.3.2`.
+
 ## [1.0.0-beta.3.1] - 2026-10-17
 
 ### Added
