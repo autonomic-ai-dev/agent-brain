@@ -512,12 +512,22 @@ pub fn suggest_native_token_tools(
     let lower = user_message.to_lowercase();
     let supervisor = crate::retrieval::supervisor_query_strength(user_message);
     let file_intent = file_exploration_intent(&lower, open_files);
+    let verify_intent = verify_command_intent(&lower);
 
-    if !file_intent && supervisor < 0.15 && phase != "debugging" {
+    if !file_intent && supervisor < 0.15 && phase != "debugging" && !verify_intent {
         return candidates;
     }
 
     let constraint_boost = if must_apply.is_empty() { 0.0 } else { 0.12 };
+
+    if verify_intent {
+        candidates.push(SuggestedNativeTool {
+            tool: "agent-brain verify".into(),
+            description: "Run verification commands with exit code capture and learning".into(),
+            rationale: "Capture real exits to build reliable recipes and quality signals".into(),
+            score: 0.90 + constraint_boost + supervisor * 0.05,
+        });
+    }
 
     if grep_intent(&lower) || file_intent {
         candidates.push(SuggestedNativeTool {
@@ -604,6 +614,12 @@ fn grep_intent(lower: &str) -> bool {
 
 fn log_intent(lower: &str) -> bool {
     ["log", "trace", "stderr", "tail", "error", "crash", "panic"]
+        .iter()
+        .any(|k| lower.contains(k))
+}
+
+fn verify_command_intent(lower: &str) -> bool {
+    ["verify", "test", "check", "clippy", "lint", "proof", "benchmark"]
         .iter()
         .any(|k| lower.contains(k))
 }

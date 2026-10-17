@@ -87,6 +87,28 @@ pub fn format_briefing(resp: &RouteTaskResponse) -> String {
             tools.join(", ")
         ));
     }
+    if !resp.verified_recipes.is_empty() {
+        let recipes: Vec<_> = resp
+            .verified_recipes
+            .iter()
+            .map(|r| r.cmd.as_str())
+            .collect();
+        out.push_str(&format!(
+            "**Verified recipes:** prefer [{}] (exit 0 verified)\n",
+            recipes.join(", ")
+        ));
+    }
+    if !resp.suggested_tools.is_empty() {
+        let tools: Vec<_> = resp
+            .suggested_tools
+            .iter()
+            .map(|t| format!("{}:{}", t.server, t.tool))
+            .collect();
+        out.push_str(&format!(
+            "**Organ delegation:** prefer {} for autonomic execution\n",
+            tools.join(", ")
+        ));
+    }
     if !resp.log_id.is_empty() {
         out.push_str(&format!("Log: `{}`\n", resp.log_id));
     }
@@ -95,21 +117,23 @@ pub fn format_briefing(resp: &RouteTaskResponse) -> String {
     }
     out.push('\n');
 
-    section_list(
+    section_list_with_hint(
         &mut out,
         "Agents",
         resp.recommended_agents
             .iter()
             .map(|a| format!("**{}** — {} _(score {:.2})_", a.name, a.rationale, a.score)),
+        Some("No specialized subagent matched (score < 0.70). Add subagents in `~/.autonomic/agents/<name>.json` or `.claude/agents/` to enable delegation."),
     );
-    section_list(
+    section_list_with_hint(
         &mut out,
         "Skills",
         resp.recommended_skills
             .iter()
             .map(|s| format!("**{}** — {} _(score {:.2})_", s.name, s.rationale, s.score)),
+        Some("No domain skill matched (score < 0.70). Promote this session with `promote_to_skill` or add a markdown playbook at `~/.autonomic/skills/<name>/SKILL.md`."),
     );
-    section_list(
+    section_list_with_hint(
         &mut out,
         "Rules",
         resp.applicable_rules.iter().map(|r| {
@@ -124,30 +148,49 @@ pub fn format_briefing(resp: &RouteTaskResponse) -> String {
                 r.topic, preview, ellipsis, r.score
             )
         }),
+        Some("No custom rules matched. Add team rules in `~/.autonomic/rules/` or project rules in `.cursor/rules/`."),
     );
-    section_list(
+    section_list_with_hint(
         &mut out,
         "Memory",
         resp.relevant_memory
             .iter()
             .map(|m| format!("**{}** — {} _(score {:.2})_", m.topic, m.text, m.score)),
+        None,
     );
-    section_list(
+    section_list_with_hint(
         &mut out,
         "Must apply",
         resp.must_apply
             .iter()
             .map(|m| format!("**{}** — {}", m.topic, m.text)),
+        None,
     );
+
+    if resp.recommended_agents.is_empty() && resp.recommended_skills.is_empty() {
+        out.push_str("## Growth Opportunities\n");
+        out.push_str("- **Unassisted Turn:** Neither specialized subagents nor domain skills matched this context.\n");
+        out.push_str("- **Capture Learnings:** Call `store_memory` or `record_verify_outcome` upon task completion to train future routing.\n");
+        out.push_str("- **Promote to Skill:** If this workflow is recurring, run `promote_to_skill` to index it for automated delegation.\n\n");
+    }
 
     out
 }
 
-fn section_list(out: &mut String, title: &str, items: impl Iterator<Item = String>) {
+fn section_list_with_hint(
+    out: &mut String,
+    title: &str,
+    items: impl Iterator<Item = String>,
+    empty_hint: Option<&str>,
+) {
     let rows: Vec<String> = items.collect();
     out.push_str(&format!("## {title} ({})\n", rows.len()));
     if rows.is_empty() {
-        out.push_str("_none_\n\n");
+        if let Some(hint) = empty_hint {
+            out.push_str(&format!("_none_ — {hint}\n\n"));
+        } else {
+            out.push_str("_none_\n\n");
+        }
         return;
     }
     for row in rows {
@@ -175,6 +218,24 @@ pub fn format_summary_line(resp: &RouteTaskResponse) -> String {
         );
         format!(" · tools: [{names}]")
     };
+    let delegate_tools = if resp.suggested_tools.is_empty() {
+        String::new()
+    } else {
+        let names = join_top_names(
+            resp.suggested_tools.iter().map(|t| t.tool.as_str()),
+            3,
+        );
+        format!(" · delegate: [{names}]")
+    };
+    let recipes_str = if resp.verified_recipes.is_empty() {
+        String::new()
+    } else {
+        let names = join_top_names(
+            resp.verified_recipes.iter().map(|r| r.cmd.as_str()),
+            2,
+        );
+        format!(" · recipes: [{names}]")
+    };
     let read_gate = if read_gate_mode() == "off" {
         String::new()
     } else {
@@ -186,7 +247,7 @@ pub fn format_summary_line(resp: &RouteTaskResponse) -> String {
         .map(|s| format!(" · repo: {s}"))
         .unwrap_or_default();
     format!(
-        "phase={} · skills: {} [{skill_names}] · agents: {} [{agent_names}] · {} rules · {} memory · {}/{} tok{}{}{}{}{} · {}ms · log={} · {}",
+        "phase={} · skills: {} [{skill_names}] · agents: {} [{agent_names}] · {} rules · {} memory · {}/{} tok{}{}{}{}{}{}{} · {}ms · log={} · {}",
         resp.recommended_phase,
         resp.recommended_skills.len(),
         resp.recommended_agents.len(),
@@ -197,6 +258,8 @@ pub fn format_summary_line(resp: &RouteTaskResponse) -> String {
         savings.unwrap_or_default(),
         constraints,
         native_tools,
+        delegate_tools,
+        recipes_str,
         read_gate,
         repo,
         resp.latency_ms,
@@ -278,6 +341,10 @@ pub fn publish_route_state(home: &Path, resp: &RouteTaskResponse) {
         obj.insert(
             "suggested_native_tools".into(),
             serde_json::to_value(&resp.suggested_native_tools).unwrap_or_default(),
+        );
+        obj.insert(
+            "verified_recipes".into(),
+            serde_json::to_value(&resp.verified_recipes).unwrap_or_default(),
         );
         obj.insert(
             "route_context_at".into(),
@@ -457,5 +524,18 @@ mod tests {
         assert_eq!(s.naive_tokens, 240_000);
         assert_eq!(s.saved_tokens, 239_523);
         assert!(s.routed_tokens <= s.tokens_budget);
+    }
+
+    #[test]
+    fn briefing_lists_growth_opportunities_when_unassisted() {
+        let resp = RouteTaskResponse {
+            recommended_phase: "implementing".into(),
+            ..Default::default()
+        };
+        let text = format_briefing(&resp);
+        assert!(text.contains("Growth Opportunities"));
+        assert!(text.contains("promote_to_skill"));
+        assert!(text.contains("No specialized subagent matched"));
+        assert!(text.contains("No domain skill matched"));
     }
 }

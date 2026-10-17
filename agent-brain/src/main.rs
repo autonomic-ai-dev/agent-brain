@@ -334,14 +334,18 @@ async fn main() -> Result<()> {
             let reload = args.iter().any(|a| a == "--reload");
             let print_only = args.iter().any(|a| a == "--print-only");
             let global = args.iter().any(|a| a == "--global");
-            install::run(target, print_only, reload)?;
+            let verbose = args.iter().any(|a| a == "--verbose" || a == "-v");
+            let quiet = args.iter().any(|a| a == "--quiet" || a == "-q");
+            install::run(target, print_only, reload, verbose, quiet)?;
             if (global || matches!(target, host_install::HostTarget::All)) && !print_only {
                 let user_scope = global || matches!(target, host_install::HostTarget::All);
-                host_install::install_agent_brain_modes(user_scope, true)?;
+                host_install::install_agent_brain_modes(user_scope, !verbose)?;
                 let config = Config::load()?;
                 if settings::config_path_optional(&config.home).is_none() {
                     let path = settings::AgentBrainSettings::save_default(&config.home)?;
-                    println!("Wrote default auto-update config at {}", path.display());
+                    if verbose {
+                        println!("Wrote default auto-update config at {}", path.display());
+                    }
                 }
             }
         }
@@ -752,9 +756,18 @@ async fn main() -> Result<()> {
             agent_brain::bootstrap_device::run(remote.as_deref(), skip_install)?;
         }
         "verify" => {
+            let sub = args.get(2).map(String::as_str).unwrap_or("");
+            if sub == "init" {
+                let force = args.iter().any(|a| a == "--force" || a == "-f");
+                let target_dir = flag_value(&args, "--dir")
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")));
+                let path = agent_brain::verify::init_verify(&target_dir, force)?;
+                println!("Initialized verification suite in {}", path.display());
+                return Ok(());
+            }
             let config = Config::load()?;
             let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
-            let sub = args.get(2).map(String::as_str).unwrap_or("");
             if sub == "record" {
                 let route_log_id = flag_value(&args, "--route-log-id");
                 let cause = flag_value(&args, "--cause");
@@ -800,7 +813,7 @@ async fn main() -> Result<()> {
                     args[idx + 1..].to_vec()
                 } else {
                     eprintln!(
-                        "Usage: agent-brain verify [--source cli|orchestrator] [--config PATH] [--scenarios DIR] [--route-log-id ID] [--cause TAG] -- <cmd> [args...]\n       agent-brain verify record --exit N [--source ...] -- <cmd summary...>"
+                        "Usage: agent-brain verify [--source cli|orchestrator] [--config PATH] [--scenarios DIR] [--route-log-id ID] [--cause TAG] -- <cmd> [args...]\n       agent-brain verify init [--force] [--dir DIR]\n       agent-brain verify record --exit N [--source ...] -- <cmd summary...>"
                     );
                     std::process::exit(1);
                 };

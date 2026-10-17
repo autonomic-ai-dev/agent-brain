@@ -70,11 +70,20 @@ Packages: `agent-brain registry list` · defaults `@matt-skills` · `agent-brain
 | `doctor` / `doctor --fix` | Health check (clears quarantine; does not re-sign) |
 | `briefing` | Last `route_task` summary |
 | `index` | Reindex skills/rules/memory |
+| `verify init` | Scaffold `.verify/verify.toml`, executable `run.sh`, and `README.md` |
 | `verify [--source cli\|orchestrator] -- <cmd>` | Run command & record trusted exit (prefer over MCP assert) |
 | `verify record` / `report` | Record known exit · aggregate by source |
 | `memory put\|enqueue\|flush-pending` | CLI write and retry fallback for durable facts |
 | `sync git\|cloud …` | Multi-machine brain sync |
 | `bootstrap` | Bootstrap new device into sync repo |
+
+### Autonomic Capabilities & Adaptive Routing
+
+- **Organ Catalog Discovery**: `get_autonomic_catalog` MCP tool gives AI agents complete specifications and tool definitions across all 8 cluster organs without being blocked by route gates.
+- **Adaptive Tool Suggestion**: Upstream tool recommendations in `route_task` dynamically evaluate historical `verify_outcomes` from `brain.db`, reinforcing tools that succeed and dampening those that fail.
+- **Adherence Gating (`must_apply` Promotion)**: High-confidence verified recipes (exit `0`) are automatically elevated into `must_apply` constraints in `RouteTaskResponse`, converting advisory recommendations into mandatory execution directives.
+- **Instant Failure Squelching**: When a command fails (`exit != 0`), its latest failure instantly removes it from few-shot recipe recommendations, preventing broken suggestions from propagating.
+- **Automatic Outcome Attribution**: Command executions captured via `agent-brain verify` or host shell hooks automatically correlate with the active turn's `route_log_id`, boosting or penalizing retrieved context weights without manual feedback calls.
 
 ---
 

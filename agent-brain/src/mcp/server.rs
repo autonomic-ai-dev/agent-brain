@@ -26,6 +26,7 @@ use crate::types::{deserialize_route_limits, ItemType, RouteLimits};
 #[derive(Clone)]
 pub struct BrainMcp {
     engine: Arc<Engine>,
+    #[allow(dead_code)]
     tool_router: ToolRouter<Self>,
     route_gate: Arc<McpRouteGate>,
 }
@@ -303,7 +304,16 @@ fn default_grep_matches() -> usize {
     crate::token_tools::DEFAULT_GREP_MAX_MATCHES
 }
 
+#[derive(Debug, Deserialize, JsonSchema, Default)]
+struct GetAutonomicCatalogParams {
+    #[serde(default)]
+    organ: Option<String>,
+    #[serde(default)]
+    verbose: bool,
+}
+
 #[derive(Debug, Deserialize, JsonSchema)]
+#[allow(dead_code)]
 struct QueryCodebaseParams {
     question: String,
     #[serde(default)]
@@ -317,6 +327,7 @@ fn default_query_budget() -> usize {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+#[allow(dead_code)]
 struct TriggerDeepAnalysisParams {
     #[serde(default)]
     repo_root: Option<String>,
@@ -327,6 +338,7 @@ struct TriggerDeepAnalysisParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+#[allow(dead_code)]
 struct GraphifyJobStatusParams {
     job_id: String,
 }
@@ -358,6 +370,7 @@ fn default_node_tokens() -> usize {
 // ── KG Phase 2: symbol navigation params ────────────────
 
 #[derive(Debug, Deserialize, JsonSchema)]
+#[allow(dead_code)]
 struct SearchSymbolsParams {
     query: String,
     #[serde(default)]
@@ -375,6 +388,7 @@ fn default_symbol_limit() -> usize {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+#[allow(dead_code)]
 struct GetSymbolDefinitionParams {
     name: String,
     #[serde(default)]
@@ -384,6 +398,7 @@ struct GetSymbolDefinitionParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+#[allow(dead_code)]
 struct GetFileOutlineParams {
     path: String,
     #[serde(default)]
@@ -391,6 +406,7 @@ struct GetFileOutlineParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+#[allow(dead_code)]
 struct FindCallersParams {
     name: String,
     #[serde(default)]
@@ -398,6 +414,7 @@ struct FindCallersParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+#[allow(dead_code)]
 struct GetLocalGraphParams {
     name: String,
     #[serde(default = "default_graph_depth")]
@@ -444,6 +461,7 @@ fn default_scratchpad_limit() -> usize {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+#[allow(dead_code)]
 struct RecentSymbolsParams {
     #[serde(default = "default_symbol_limit")]
     limit: usize,
@@ -518,6 +536,18 @@ impl BrainMcp {
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         self.route_gate.record_route(&p.user_message);
         json_result(resp)
+    }
+
+    #[tool(
+        description = "Returns the complete capability catalog, delegation rules, and organ tools for all autonomic organs (agent-body, agent-spine, agent-heart, agent-muscle, agent-immune, agent-eyes, agent-mouth). Call during agent initialization or before complex tasks to discover available specialized tools."
+    )]
+    async fn get_autonomic_catalog(
+        &self,
+        params: Parameters<GetAutonomicCatalogParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let p = params.0;
+        let catalog = build_autonomic_catalog(p.organ.as_deref(), p.verbose);
+        json_result(catalog)
     }
 
     #[tool(
@@ -1018,7 +1048,7 @@ impl BrainMcp {
     )]
     async fn query_codebase(
         &self,
-        params: Parameters<QueryCodebaseParams>,
+        #[allow(unused_variables)] params: Parameters<QueryCodebaseParams>,
     ) -> Result<CallToolResult, McpError> {
         #[cfg(not(feature = "extras"))]
         {
@@ -1048,7 +1078,7 @@ self.require_route("query_codebase")?;
     )]
     async fn trigger_deep_analysis(
         &self,
-        params: Parameters<TriggerDeepAnalysisParams>,
+        #[allow(unused_variables)] params: Parameters<TriggerDeepAnalysisParams>,
     ) -> Result<CallToolResult, McpError> {
         #[cfg(not(feature = "extras"))]
         {
@@ -1085,7 +1115,7 @@ self.require_route("trigger_deep_analysis")?;
     #[tool(description = "Poll status for trigger_deep_analysis job.")]
     async fn graphify_job_status(
         &self,
-        params: Parameters<GraphifyJobStatusParams>,
+        #[allow(unused_variables)] params: Parameters<GraphifyJobStatusParams>,
     ) -> Result<CallToolResult, McpError> {
         #[cfg(not(feature = "extras"))]
         {
@@ -1170,7 +1200,7 @@ self.require_route("graphify_job_status")?;
     #[tool(description = "Search code symbols by name across the current repo. Optionally filter by language or file. Results are ranked by label similarity.")]
     async fn search_symbols(
         &self,
-        params: Parameters<SearchSymbolsParams>,
+        #[allow(unused_variables)] params: Parameters<SearchSymbolsParams>,
     ) -> Result<CallToolResult, McpError> {
         #[cfg(not(feature = "extras"))]
         {
@@ -1196,7 +1226,7 @@ self.require_route("search_symbols")?;
     #[tool(description = "Get the full definition (source + docstring) of a named symbol. Optionally scope to a file.")]
     async fn get_symbol_definition(
         &self,
-        params: Parameters<GetSymbolDefinitionParams>,
+        #[allow(unused_variables)] params: Parameters<GetSymbolDefinitionParams>,
     ) -> Result<CallToolResult, McpError> {
         #[cfg(not(feature = "extras"))]
         {
@@ -1222,7 +1252,7 @@ self.require_route("get_symbol_definition")?;
     #[tool(description = "Get all symbols defined in a file, sorted by start line. Returns label, kind, lines, and source for each symbol.")]
     async fn get_file_outline(
         &self,
-        params: Parameters<GetFileOutlineParams>,
+        #[allow(unused_variables)] params: Parameters<GetFileOutlineParams>,
     ) -> Result<CallToolResult, McpError> {
         #[cfg(not(feature = "extras"))]
         {
@@ -1248,7 +1278,7 @@ self.require_route("get_file_outline")?;
     #[tool(description = "Find all callers of a named symbol. Returns caller symbols with source locations.")]
     async fn find_callers(
         &self,
-        params: Parameters<FindCallersParams>,
+        #[allow(unused_variables)] params: Parameters<FindCallersParams>,
     ) -> Result<CallToolResult, McpError> {
         #[cfg(not(feature = "extras"))]
         {
@@ -1274,7 +1304,7 @@ self.require_route("find_callers")?;
     #[tool(description = "Explore the local dependency graph around a symbol via BFS over code_graph_edges. Depth defaults to 2 hops (max 5).")]
     async fn get_local_graph(
         &self,
-        params: Parameters<GetLocalGraphParams>,
+        #[allow(unused_variables)] params: Parameters<GetLocalGraphParams>,
     ) -> Result<CallToolResult, McpError> {
         #[cfg(not(feature = "extras"))]
         {
@@ -1338,7 +1368,7 @@ self.require_route("get_local_graph")?;
     #[tool(description = "List recently indexed AST symbols (code_graph_nodes with ast_symbol), newest first. Useful to see what the indexer has discovered recently.")]
     async fn recent_symbols(
         &self,
-        params: Parameters<RecentSymbolsParams>,
+        #[allow(unused_variables)] params: Parameters<RecentSymbolsParams>,
     ) -> Result<CallToolResult, McpError> {
         #[cfg(not(feature = "extras"))]
         {
@@ -1734,5 +1764,154 @@ async fn serve_health(addr: SocketAddr) {
                 sleep(Duration::from_secs(1)).await;
             }
         }
+    }
+}
+
+fn build_autonomic_catalog(organ_filter: Option<&str>, verbose: bool) -> serde_json::Value {
+    let mut organs = vec![
+        serde_json::json!({
+            "name": "agent-body",
+            "role": "Mesh Gateway & Supervisor",
+            "description": "Unified MCP gateway and daemon supervisor managing all autonomic organs.",
+            "preferred_over": "Unmanaged background processes and raw host socket calls",
+            "primary_tools": [
+                "muscle_execute_bash",
+                "spine_submit_workflow",
+                "heart_budget_status",
+                "immune_scan_manifest"
+            ],
+            "status_check": "agent-body status"
+        }),
+        serde_json::json!({
+            "name": "agent-muscle",
+            "role": "Execution Engine",
+            "description": "Sandboxed bash & python execution with strict CPU/memory caps, timeout controls, and isolated environment.",
+            "preferred_over": "Native host terminal / raw shell execution",
+            "primary_tools": [
+                "muscle_execute_bash",
+                "muscle_execute_python"
+            ],
+            "delegation_guideline": "Always delegate compilation, tests, scripts, and package management commands to muscle_execute_bash instead of running raw host bash."
+        }),
+        serde_json::json!({
+            "name": "agent-spine",
+            "role": "Workflow Orchestration",
+            "description": "YAML DAG workflow orchestrator with step rollbacks, failure isolation, and approval checkpoints.",
+            "preferred_over": "Sequential long-running manual edits or bash loops",
+            "primary_tools": [
+                "spine_submit_workflow",
+                "spine_list_workflows",
+                "spine_check_status"
+            ],
+            "delegation_guideline": "Use spine_submit_workflow for multi-step tasks (e.g. build -> test -> lint -> bench -> pr) with built-in rollback gates."
+        }),
+        serde_json::json!({
+            "name": "agent-immune",
+            "role": "Security & Validation",
+            "description": "Vulnerability scanning against OSV/CVE databases, AST safety analysis, and sandbox verification.",
+            "preferred_over": "Unsanitized dependency upgrades and blind regex edits",
+            "primary_tools": [
+                "immune_scan_manifest",
+                "immune_sandbox_run",
+                "immune_lint_ast"
+            ],
+            "delegation_guideline": "Call immune_scan_manifest when modifying dependencies or Cargo/npm files, and immune_lint_ast for syntax safety."
+        }),
+        serde_json::json!({
+            "name": "agent-eyes",
+            "role": "Perception & UI Verification",
+            "description": "Local browser capture, DOM indexing, visual regression diffing, and local Candle VLM image captioning.",
+            "preferred_over": "Unrendered HTML inspection or blind scraping",
+            "primary_tools": [
+                "eyes_diff_screenshots",
+                "eyes_describe_dom",
+                "eyes_vlm_caption"
+            ],
+            "delegation_guideline": "Use eyes_diff_screenshots for frontend regression and eyes_describe_dom to inspect dynamic client DOM."
+        }),
+        serde_json::json!({
+            "name": "agent-heart",
+            "role": "Homeostasis & Budget",
+            "description": "Token/WASM fuel budget monitor, background distillation scheduler, and memory garbage collection.",
+            "primary_tools": [
+                "heart_budget_status",
+                "heart_status",
+                "heart_gc",
+                "heart_memory_distill"
+            ],
+            "delegation_guideline": "Check heart_budget_status periodically during large sessions to ensure token homeostasis."
+        }),
+        serde_json::json!({
+            "name": "agent-mouth",
+            "role": "Approval & Notifications",
+            "description": "AST-level command validation, Slack notifications, and human-in-the-loop approval gates.",
+            "primary_tools": [
+                "mouth_request_approval",
+                "mouth_validate_ast"
+            ],
+            "delegation_guideline": "Use mouth_request_approval when an action requires human review (e.g. force push, credential deletion)."
+        }),
+        serde_json::json!({
+            "name": "agent-brain",
+            "role": "Cognitive Router & Durable Memory",
+            "description": "Semantic route gating, team rules, verified receipts, and durable knowledge storage.",
+            "primary_tools": [
+                "route_task",
+                "store_memory",
+                "store_trajectory",
+                "record_verify_outcome",
+                "grep_search",
+                "file_summary",
+                "get_autonomic_catalog"
+            ],
+            "delegation_guideline": "Call route_task on EVERY turn. Call agent-brain verify -- <cmd> for tamper-evident test outcomes."
+        })
+    ];
+
+    if let Some(filter) = organ_filter {
+        let f = filter.trim().to_ascii_lowercase();
+        organs.retain(|o| {
+            o.get("name")
+                .and_then(|v| v.as_str())
+                .map(|n| n.to_ascii_lowercase().contains(&f))
+                .unwrap_or(false)
+        });
+    }
+
+    serde_json::json!({
+        "ecosystem": "autonomic-ai",
+        "version": env!("CARGO_PKG_VERSION"),
+        "total_organs": organs.len(),
+        "organs": organs,
+        "governance_rules": [
+            "1. Route Task: Call agent-brain route_task at the beginning of each turn before using any other tools.",
+            "2. Delegation: Prefer specialized organ tools (e.g. muscle_execute_bash) over native host improvisation.",
+            "3. Durable Outcomes: Use agent-brain verify -- <cmd> to produce cryptographically signed proof in brain.db.",
+            "4. Feedback: Store learned facts and decisions via store_memory."
+        ],
+        "verbose": verbose
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_autonomic_catalog_returns_all_organs() {
+        let catalog = build_autonomic_catalog(None, false);
+        assert_eq!(catalog["total_organs"], 8);
+        let organs = catalog["organs"].as_array().unwrap();
+        let names: Vec<_> = organs.iter().filter_map(|o| o["name"].as_str()).collect();
+        assert!(names.contains(&"agent-muscle"));
+        assert!(names.contains(&"agent-spine"));
+        assert!(names.contains(&"agent-brain"));
+    }
+
+    #[test]
+    fn test_build_autonomic_catalog_filters_organ() {
+        let catalog = build_autonomic_catalog(Some("muscle"), false);
+        assert_eq!(catalog["total_organs"], 1);
+        assert_eq!(catalog["organs"][0]["name"], "agent-muscle");
     }
 }

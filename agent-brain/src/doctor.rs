@@ -186,7 +186,7 @@ pub fn run(fix: bool) -> Result<()> {
     let hooks_step = progress.step("Cursor hooks");
     if hooks_path.exists() {
         let raw = fs::read_to_string(&hooks_path)?;
-        if raw.contains("route_gate.py") {
+        if raw.contains("route_gate.py") || raw.contains("route_gate_run.sh") {
             println!("  hooks:                 OK (route_gate installed)");
             hooks_step.done();
         } else {

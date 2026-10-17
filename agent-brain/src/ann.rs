@@ -47,6 +47,7 @@ pub struct AnnIndex {
     codes: Vec<u8>,
     /// Per-vector dequantization scale (`value = (code as i8) as f32 * scale`).
     scales: Vec<f32>,
+    #[allow(dead_code)]
     filter_buckets: Vec<u32>,
     scopes: Vec<String>,
     scope_keys: Vec<Option<String>>,
@@ -56,7 +57,7 @@ pub struct AnnIndex {
 }
 
 impl AnnIndex {
-    pub fn from_rows(rows: &[CachedRow]) -> Option<Self> {
+    pub(crate) fn from_rows(rows: &[CachedRow]) -> Option<Self> {
         let mut ids = Vec::new();
         let mut codes = Vec::new();
         let mut scales = Vec::new();

@@ -450,7 +450,7 @@ fn run_task_scoped_verification_suite(engine: &Engine) -> Result<SuiteResult> {
         None,
         Some("verification"),
     )?;
-    let mut ok = resp.task_kind.as_deref() == Some("verification")
+    let ok = resp.task_kind.as_deref() == Some("verification")
         && resp.recommended_agents.len() <= 1
         && resp.recommended_skills.len() <= 2
         && resp.relevant_memory.len() <= 3;

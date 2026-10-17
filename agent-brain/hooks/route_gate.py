@@ -44,8 +44,8 @@ OPENCODE_BRAIN_PREFIXES = ("agent-brain_", "agent_brain_")
 GRACE_SECS = float(os.environ.get("AGENT_BRAIN_ROUTE_GRACE_SECS", "120"))
 STALE_ROUTE_SECS = float(os.environ.get("AGENT_BRAIN_ROUTE_STALE_SECS", "45"))
 OFFLINE_SECS = float(os.environ.get("AGENT_BRAIN_ROUTE_OFFLINE_SECS", "1800"))
-# brain_mcp = gate only agent-brain MCP tools; all = gate every tool (legacy strict mode).
-GATE_SCOPE = os.environ.get("AGENT_BRAIN_ROUTE_GATE_SCOPE", "brain_mcp").strip().lower()
+# all = gate every tool (hard blocking across all agents); brain_mcp = gate only agent-brain tools.
+GATE_SCOPE = os.environ.get("AGENT_BRAIN_ROUTE_GATE_SCOPE", "all").strip().lower()
 READ_GATE_MODE = os.environ.get("AGENT_BRAIN_READ_GATE", "hard").strip().lower()
 READ_WARN_BYTES = int(os.environ.get("AGENT_BRAIN_READ_WARN_BYTES", "65536"))
 # After a bounded MCP scout on a path, allow native Read/StrReplace for this long

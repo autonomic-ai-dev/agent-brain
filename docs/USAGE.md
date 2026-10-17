@@ -261,6 +261,21 @@ agent-brain sync git push
 - Check network access to GitHub
 - Try explicit ref: `agent-brain add affaan-m/ecc --ref main`
 
+## Verification and Scaffolding
+
+```bash
+# Scaffold .verify/verify.toml, executable run.sh, and README.md
+agent-brain verify init
+
+# Run verified check and record trusted outcome
+agent-brain verify -- cargo test
+
+# View aggregated verification results
+agent-brain verify report
+```
+
+When `.verify/` exists in the repository, `agent-brain verify` matches against allowlists and records outcomes directly into `brain.db`. Historical successes and failures from these runs adaptively adjust tool recommendation rankings in `route_task`.
+
 ## Environment variables
 
 | Variable | Default | Purpose |
@@ -275,6 +290,7 @@ agent-brain sync git push
 | `AGENT_BRAIN_ALLOW_PYTHON_SHELL` | `0` | Set `1` to override Python Shell deny policy (`python -c` / heredoc / piped stdin) |
 | `AGENT_BRAIN_AUTO_UPDATE_DELAY_SEC` | `300` | Delay before background auto-update checks |
 | `AGENT_BRAIN_AUTO_UPDATE_DEFER_SECS` | `60` | Defer applying updates while MCP server is actively handling requests |
+| `AUTONOMIC_SELF_LEARNING` | `0` | Set `1` to activate background trajectory critic loop in agent-heart |
 | `RUST_LOG` | `agent_brain=info` | Log level (stderr only) |
 
 ## Route gate (enforcement)
@@ -313,3 +329,20 @@ agent-brain sessions ingest --source gemini,opencode
 - Topics: `session-digest-{source}-{slug}` (one fact per session, not one global topic)
 - Disable with `AGENT_BRAIN_SESSION_INGEST=0` or `AGENT_BRAIN_SESSION_DIGEST=0`
 - Override scan root: `AGENT_BRAIN_SESSION_HOME`, OpenCode DB: `AGENT_BRAIN_OPENCODE_DB`
+
+## Closed-Loop Self-Correction & Verification Recipes (v1.0.0-beta.3)
+
+`agent-brain` bridges the gap between advisory suggestions and operational execution adherence:
+
+1. **Adherence Gating (`must_apply`)**:
+   - High-confidence verified recipes (`exit 0`) from trusted runners (`orchestrator`, `cli`, `hook`) are promoted into `must_apply` constraints in `route_task`.
+   - Host instructions require agents to treat `must_apply` as mandatory pre-execution conditions rather than optional suggestions.
+
+2. **Automated Outcome Attribution**:
+   - `agent-brain verify -- <cmd>` and shell post-tool hooks record process exit codes and automatically correlate them with the active turn's `route_log_id`.
+   - **On Success (`exit 0`)**: Automatically calls `record_context_feedback(&item_ids, true)`, increasing context weights by `+0.05`.
+   - **On Failure (`exit != 0`)**: Automatically calls `record_context_feedback(&item_ids, false)`, reducing context weights by `-0.05` and increasing `useless_count`.
+
+3. **Instant Squelching**:
+   - If a command's most recent execution in `verify_outcomes` returned a non-zero exit code, it is immediately excluded from `suggest_verified_recipes`, preventing broken commands from recurring in suggestions.
+

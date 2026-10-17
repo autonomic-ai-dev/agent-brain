@@ -835,6 +835,20 @@ impl Engine {
             &phase,
             &resp.must_apply,
         );
+        resp.verified_recipes = crate::verify::suggest_verified_recipes(
+            &self.store,
+            user_message,
+            3,
+        );
+        if let Some(top) = resp.verified_recipes.first() {
+            resp.must_apply.push(crate::types::MustApply {
+                topic: "verified-recipe".into(),
+                text: format!(
+                    "Prefer verified recipe `{}` (exit 0 verified via {}) over unverified raw commands.",
+                    top.cmd, top.source
+                ),
+            });
+        }
         #[cfg(feature = "extras")]
         if let Some(repo) = ws.repo_root.as_deref() {
             if settings.graphify.enabled {
@@ -910,7 +924,7 @@ impl Engine {
         if !memory_topics.is_empty() {
             let store = self.store.clone();
             let embedder = self.embedder.clone();
-            let config = self.config.clone();
+            let _config = self.config.clone();
             std::thread::spawn(move || {
                 if let Err(err) = auto_observe_topics(&store, &embedder, &memory_topics) {
                     tracing::warn!(error = %err, "auto-observe failed");

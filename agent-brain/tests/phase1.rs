@@ -1,14 +1,12 @@
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use agent_brain::cache::{
-    fingerprint_open_files, fingerprint_query, route_cache_key, CacheKey, QueryEmbeddingCache,
+    fingerprint_open_files, fingerprint_query, route_cache_key, CacheKey,
     TurnCache,
 };
 use agent_brain::config::Config;
 use agent_brain::db::store::{content_hash, looks_like_secret, BrainStore};
-use agent_brain::db::RouteLatencyStats;
 use agent_brain::embed::{deterministic_embedding, Embedder};
 use agent_brain::engine::Engine;
 use agent_brain::tokens::estimate_tokens;
@@ -219,7 +217,7 @@ fn truncates_context_to_token_budget() {
     let config = test_config(&dir);
     config.ensure_dirs().unwrap();
     let store = BrainStore::open(&config.db_path).unwrap();
-    let embedder = test_embedder();
+    let _embedder = test_embedder();
 
     for i in 0..20 {
         let text =
@@ -255,7 +253,7 @@ fn route_task_respects_max_tokens() {
     let config = test_config(&dir);
     config.ensure_dirs().unwrap();
     let store = BrainStore::open(&config.db_path).unwrap();
-    let embedder = test_embedder();
+    let _embedder = test_embedder();
 
     for i in 0..10 {
         let text = format!("Agent capability {i} for rust backend work");
@@ -366,7 +364,7 @@ fn dedupes_duplicate_skill_names_in_route_task() {
     let config = test_config(&dir);
     config.ensure_dirs().unwrap();
     let store = BrainStore::open(&config.db_path).unwrap();
-    let embedder = test_embedder();
+    let _embedder = test_embedder();
 
     let query = "configure vitest for react testing";
     let strong = format!("{query} vitest react testing patterns");
@@ -531,7 +529,7 @@ fn route_task_with_all_zero_limits_returns_skills() {
     let config = test_config(&dir);
     config.ensure_dirs().unwrap();
     let store = BrainStore::open(&config.db_path).unwrap();
-    let embedder = test_embedder();
+    let _embedder = test_embedder();
 
     let text = "spring boot junit mockmvc test patterns";
     let emb = deterministic_embedding(text);

@@ -1,4 +1,3 @@
-use agent_brain::bench::run_ci_bench;
 use agent_brain::fixture::{new_isolated_engine, seed_bench_fixture, BENCH_FIXTURE_SKILLS};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 

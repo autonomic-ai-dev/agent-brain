@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
 use crate::db::store::BrainStore;
+use crate::types::VerifiedRecipe;
 
 const MIN_SAMPLE_FOR_RATES: usize = 30;
 pub const VERIFY_DIR_NAME: &str = ".verify";
@@ -202,9 +203,34 @@ pub fn record_from_result(
             Some(cmd.to_string())
         }
     });
+    let resolved_log_id = route_log_id
+        .map(String::from)
+        .or_else(|| store.latest_retrieval_log().ok().flatten().map(|r| r.id));
+
+    // Closed-loop outcome attribution: automatically attribute context feedback for the route turn
+    if let Some(ref log_id) = resolved_log_id {
+        if let Ok(Some(retrieval_log)) = store.get_retrieval_log(log_id) {
+            if let Ok(items) =
+                serde_json::from_str::<Vec<serde_json::Value>>(&retrieval_log.items_json)
+            {
+                let item_ids: Vec<String> = items
+                    .iter()
+                    .filter_map(|item| {
+                        item.get("id")
+                            .and_then(|v| v.as_str())
+                            .map(ToString::to_string)
+                    })
+                    .collect();
+                if !item_ids.is_empty() {
+                    let _ = store.record_context_feedback(&item_ids, success);
+                }
+            }
+        }
+    }
+
     let device_id = store.ensure_device_id()?;
     let id = store.insert_verify_outcome(
-        route_log_id,
+        resolved_log_id.as_deref(),
         exit_code,
         cause.as_deref(),
         config_hash.as_deref(),
@@ -224,6 +250,102 @@ pub fn record_from_result(
         source: source.as_str().to_string(),
         verify_root: verify_root.map(|p| p.display().to_string()),
     })
+}
+
+/// Initialize `.verify/` in `project_root` with `verify.toml`, `run.sh`, and `README.md`.
+pub fn init_verify(project_root: &Path, force: bool) -> Result<PathBuf> {
+    let verify_dir = project_root.join(VERIFY_DIR_NAME);
+    fs::create_dir_all(&verify_dir)
+        .with_context(|| format!("create verify directory at {}", verify_dir.display()))?;
+
+    let toml_path = verify_dir.join("verify.toml");
+    if force || !toml_path.exists() {
+        let mut commands = Vec::new();
+        if project_root.join("Cargo.toml").exists() {
+            commands.push("cargo test".to_string());
+            commands.push("cargo clippy".to_string());
+            commands.push("cargo check".to_string());
+        }
+        if project_root.join("package.json").exists() {
+            commands.push("npm test".to_string());
+        }
+        if project_root.join("pyproject.toml").exists()
+            || project_root.join("requirements.txt").exists()
+            || project_root.join("pytest.ini").exists()
+        {
+            commands.push("pytest".to_string());
+        }
+        if project_root.join("go.mod").exists() {
+            commands.push("go test ./...".to_string());
+        }
+        if project_root.join("Makefile").exists() {
+            commands.push("make test".to_string());
+        }
+        if commands.is_empty() {
+            commands.push("cargo test".to_string());
+            commands.push("pytest".to_string());
+            commands.push("npm test".to_string());
+            commands.push("make test".to_string());
+        }
+        commands.push(".verify/".to_string());
+
+        let mut toml_content = String::from("[verify]\ncommands = [\n");
+        for cmd in &commands {
+            toml_content.push_str(&format!("  \"{cmd}\",\n"));
+        }
+        toml_content.push_str("]\n");
+
+        fs::write(&toml_path, toml_content)
+            .with_context(|| format!("write {}", toml_path.display()))?;
+    }
+
+    let run_sh_path = verify_dir.join("run.sh");
+    if force || !run_sh_path.exists() {
+        let script = r#"#!/usr/bin/env bash
+set -euo pipefail
+
+# Project verification entrypoint executed by `agent-brain verify -- .verify/run.sh`
+echo "==> Running verification suite..."
+
+if [ -f Cargo.toml ]; then
+  cargo test
+elif [ -f package.json ]; then
+  npm test
+elif [ -f pyproject.toml ] || [ -f requirements.txt ]; then
+  pytest
+elif [ -f Makefile ]; then
+  make test
+else
+  echo "No default test runner detected. Please edit .verify/run.sh."
+fi
+
+echo "==> Verification completed successfully."
+"#;
+        fs::write(&run_sh_path, script)
+            .with_context(|| format!("write {}", run_sh_path.display()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&run_sh_path, fs::Permissions::from_mode(0o755));
+        }
+    }
+
+    let readme_path = verify_dir.join("README.md");
+    if force || !readme_path.exists() {
+        let readme = r#"# Project Verification (`.verify/`)
+
+Discovered by `agent-brain verify` and `agent-brain report`.
+
+## Usage
+- Run verify: `agent-brain verify -- .verify/run.sh`
+- Allowlisted test commands are recorded into `~/.autonomic/memory/brain.db` with tamper-evident cryptographic hashes.
+- Edit `verify.toml` to customize allowlisted commands for your project.
+"#;
+        fs::write(&readme_path, readme)
+            .with_context(|| format!("write {}", readme_path.display()))?;
+    }
+
+    Ok(verify_dir)
 }
 
 pub fn run_verify(
@@ -342,6 +464,79 @@ fn hash_tree(dir: &Path) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+/// Suggest high-confidence verified command recipes (exit 0) matching user intent or query keywords.
+pub fn suggest_verified_recipes(
+    store: &BrainStore,
+    user_message: &str,
+    limit: usize,
+) -> Vec<VerifiedRecipe> {
+    let lower = user_message.to_lowercase();
+    let has_execution_intent = [
+        "test", "cargo", "npm", "pytest", "build", "run", "check", "clippy",
+        "verify", "lint", "recipe", "benchmark", "prove", "proof", "exec", "compile",
+    ]
+    .iter()
+    .any(|k| lower.contains(k));
+
+    let Ok(outcomes) = store.list_verify_outcomes(100) else {
+        return Vec::new();
+    };
+
+    let words: Vec<&str> = lower
+        .split(|c: char| !c.is_alphanumeric() && c != '-' && c != '_')
+        .filter(|w| w.len() >= 3)
+        .collect();
+
+    let mut seen_cmds = std::collections::HashSet::new();
+    let mut candidates: Vec<(i32, VerifiedRecipe)> = Vec::new();
+
+    for row in outcomes {
+        let trimmed_cmd = row.cmd.trim().to_string();
+        if trimmed_cmd.is_empty() || seen_cmds.contains(&trimmed_cmd) {
+            continue;
+        }
+        seen_cmds.insert(trimmed_cmd.clone());
+
+        // Because outcomes are ordered by recorded_at DESC, the first encounter
+        // of trimmed_cmd is its latest run. If its latest execution failed, squelch it!
+        if row.exit_code != 0 {
+            continue;
+        }
+        let cmd_lower = trimmed_cmd.to_lowercase();
+
+        let mut score = 0;
+        if has_execution_intent {
+            score += 10;
+        }
+        for word in &words {
+            if cmd_lower.contains(word) {
+                score += 20;
+            }
+        }
+
+        let src = row.source.clone().unwrap_or_else(|| "cli".to_string());
+        if matches!(src.as_str(), "cli" | "orchestrator" | "hook") {
+            score += 5;
+        }
+
+        if score > 0 {
+            candidates.push((
+                score,
+                VerifiedRecipe {
+                    cmd: trimmed_cmd,
+                    exit_code: row.exit_code,
+                    source: src,
+                    recorded_at: row.recorded_at,
+                    rationale: "Previously verified exit 0 execution".to_string(),
+                },
+            ));
+        }
+    }
+
+    candidates.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.recorded_at.cmp(&a.1.recorded_at)));
+    candidates.into_iter().take(limit).map(|(_, r)| r).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -419,4 +614,151 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
         assert!(!command_is_allowlisted("true", Some(dir.path())));
         assert!(!command_is_allowlisted("echo hi", Some(dir.path())));
     }
+
+    #[test]
+    fn init_verify_scaffolding() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("Cargo.toml"), b"[package]\nname = \"test\"\n").unwrap();
+        let verify_path = init_verify(dir.path(), false).unwrap();
+        assert!(verify_path.exists());
+        assert!(verify_path.join("verify.toml").exists());
+        assert!(verify_path.join("run.sh").exists());
+        assert!(verify_path.join("README.md").exists());
+
+        let toml_str = fs::read_to_string(verify_path.join("verify.toml")).unwrap();
+        assert!(toml_str.contains("cargo test"));
+        assert!(toml_str.contains(".verify/"));
+
+        assert!(command_is_allowlisted("cargo test", Some(dir.path())));
+        assert!(command_is_allowlisted(".verify/run.sh", Some(dir.path())));
+    }
+
+    #[test]
+    fn suggest_verified_recipes_ranks_exit_zero_matching_commands() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("t.db");
+        let store = BrainStore::open(&db).unwrap();
+
+        // Insert a failed outcome and a successful outcome
+        let _ = store.insert_verify_outcome(
+            None,
+            1,
+            Some("fail"),
+            None,
+            None,
+            "cargo test --failed",
+            "dev1",
+            "cli",
+        );
+        let _ = store.insert_verify_outcome(
+            None,
+            0,
+            None,
+            None,
+            None,
+            "cargo test -p agent-muscle",
+            "dev1",
+            "orchestrator",
+        );
+        let _ = store.insert_verify_outcome(
+            None,
+            0,
+            None,
+            None,
+            None,
+            "npm test",
+            "dev1",
+            "cli",
+        );
+
+        let recipes = suggest_verified_recipes(&store, "run tests for muscle", 2);
+        assert!(!recipes.is_empty());
+        assert_eq!(recipes[0].cmd, "cargo test -p agent-muscle");
+        assert_eq!(recipes[0].exit_code, 0);
+        assert_eq!(recipes[0].source, "orchestrator");
+    }
+
+    #[test]
+    fn suggest_verified_recipes_squelches_recently_failed_commands() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("t.db");
+        let store = BrainStore::open(&db).unwrap();
+
+        // Older successful run
+        let _ = store.insert_verify_outcome(
+            None,
+            0,
+            None,
+            None,
+            None,
+            "cargo test -p agent-muscle",
+            "dev1",
+            "orchestrator",
+        );
+        // Latest run failed!
+        let _ = store.insert_verify_outcome(
+            None,
+            1,
+            Some("build error"),
+            None,
+            None,
+            "cargo test -p agent-muscle",
+            "dev1",
+            "cli",
+        );
+
+        let recipes = suggest_verified_recipes(&store, "run tests for muscle", 2);
+        assert!(
+            recipes.is_empty(),
+            "recently failed command must be squelched"
+        );
+    }
+
+    #[test]
+    fn record_from_result_updates_context_feedback_automatically() {
+        let dir = tempdir().unwrap();
+        let db = dir.path().join("t.db");
+        let store = BrainStore::open(&db).unwrap();
+
+        let log_id = "route-log-123";
+        let items_json = r#"[{"id":"fact-item-1","item_type":"memory","topic":"test","score":0.9}]"#;
+        store
+            .insert_retrieval_log(
+                log_id,
+                "qhash",
+                "implementing",
+                items_json,
+                100,
+                false,
+                false,
+                10,
+                Some(10),
+                Some(50),
+                Some(1),
+            )
+            .unwrap();
+
+        // Record a successful outcome associated with this route log
+        let report = record_from_result(
+            &store,
+            0,
+            "cargo test",
+            Some(log_id),
+            None,
+            None,
+            None,
+            Some(dir.path()),
+            VerifySource::Cli,
+        )
+        .unwrap();
+        assert!(report.success);
+
+        // Feedback weights should reflect the positive feedback
+        let weights = store
+            .load_context_weights(&["fact-item-1".to_string()])
+            .unwrap();
+        assert!(weights.get("fact-item-1").copied().unwrap_or(1.0) > 1.0);
+    }
 }
+
+

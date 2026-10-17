@@ -55,6 +55,7 @@ Ops:
   inspect       Retrieval logs, facts, conflicts
   learn         Ingest allowlisted docs into skills + memory
   log           Print or follow a named log file
+  verify        Execute allowlisted check and record trusted outcome
 
 Extras (build with `--features extras`):
   dataset       Export trajectories as training JSONL
@@ -408,6 +409,32 @@ Options:
       --list      List available logs
 "
         }
+        "verify" => {
+            "\
+Usage:  agent-brain verify [OPTIONS] -- <cmd> [args...]
+        agent-brain verify init [--force] [--dir <DIR>]
+        agent-brain verify record --exit N [OPTIONS] -- <cmd summary...>
+
+Run an allowlisted verification command and record trusted outcome.
+
+Subcommands:
+  init                  Initialize .verify/ directory with verify.toml and run.sh template
+  record                Record already-known exit code without executing
+
+Options:
+      --source <SOURCE>    Outcome source: cli (default) or orchestrator (spine/muscle)
+      --config <PATH>      Path to config to hash for drift detection
+      --scenarios <DIR>    Path to scenario dir (defaults to .verify/ in ancestor)
+      --route-log-id <ID>  Route log ID that prompted this verification
+      --cause <TAG>        Failure cause tag (defaults to cmd if exit non-zero)
+      --force              Overwrite existing .verify files during init
+      --dir <DIR>          Target project directory for init (defaults to cwd)
+
+Allowlist:
+  Configured in .verify/verify.toml or verify.toml under project root.
+  Default fallback matches common test runners (cargo test, pytest, make test, .verify/).
+"
+        }
         "dataset" | "digest" | "eval" | "bench" | "fixture" | "skills-sh" | "proofs"
         | "distill" | "graphify" | "grpc" => {
             print_extras_command(cmd);
@@ -499,7 +526,7 @@ mod tests {
 
     #[test]
     fn known_commands_have_detail() {
-        for cmd in ["serve", "install", "doctor", "add", "sync", "eval", "dataset"] {
+        for cmd in ["serve", "install", "doctor", "add", "sync", "eval", "dataset", "verify"] {
             assert!(print_command(cmd), "{cmd}");
         }
         assert!(!print_command("not-a-real-command"));
