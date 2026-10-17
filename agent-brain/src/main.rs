@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use agent_brain::{
     auto_update, config::Config, doctor, engine::Engine, host_install, index, install, mcp,
-    packages, registry_sync, serve_meta, settings,
+    mcp_cli, packages, registry_sync, serve_meta, settings,
 };
 use anyhow::{Context, Result};
 use tracing_subscriber::EnvFilter;
@@ -151,50 +151,7 @@ async fn main() -> Result<()> {
             );
         }
         "add" => {
-            let source = args
-                .get(2)
-                .context("missing package source (@alias, owner/repo, or GitHub URL)")?;
-            let git_ref = flag_value(&args, "--ref");
-            let skip_index = args.iter().any(|a| a == "--no-index");
-            let config = Config::load()?;
-            if let Some(resolved) = packages::lookup_alias(source)? {
-                match resolved {
-                    packages::ResolvedAlias::Bundle(name) => {
-                        let record = packages::install_bundled(&config, &name)?;
-                        println!(
-                            "Installed bundled package '{}' ({})",
-                            record.name, record.source
-                        );
-                    }
-                    packages::ResolvedAlias::Git(sources) => {
-                        for src in &sources {
-                            let record = packages::add_package(&config, src, git_ref.as_deref())?;
-                            println!(
-                                "Installed package '{}' from {} ({})",
-                                record.name,
-                                record.source,
-                                record.commit.unwrap_or_else(|| "unknown".into())
-                            );
-                        }
-                    }
-                }
-            } else {
-                let record = packages::add_package(&config, source, git_ref.as_deref())?;
-                println!(
-                    "Installed package '{}' from {} ({})",
-                    record.name,
-                    record.source,
-                    record.commit.unwrap_or_else(|| "unknown".into())
-                );
-            }
-            if !skip_index {
-                let mut config = config;
-                config.bootstrap_background = false;
-                config.session_ingest_background = false;
-                let engine = Arc::new(Engine::new(config)?);
-                let n = engine.bootstrap(None)?;
-                println!("Indexed {n} items");
-            }
+            handle_package_add(&args, 2)?;
         }
         "registry" => match args.get(2).map(String::as_str).unwrap_or("list") {
             "list" => {
@@ -203,8 +160,8 @@ async fn main() -> Result<()> {
                     || kind == Some("skill_package")
                     || kind == Some("skill")
                     || kind == Some("skills");
-                let show_utils = kind.is_none() || kind == Some("utility") || kind == Some("utilities");
-                let show_workflows = kind.is_none() || kind == Some("workflow") || kind == Some("workflows");
+                let show_utils = kind == Some("utility") || kind == Some("utilities");
+                let show_workflows = kind == Some("workflow") || kind == Some("workflows");
 
                 if show_skills {
                     println!("skill_packages:");
@@ -275,6 +232,9 @@ async fn main() -> Result<()> {
             let sub = args.get(2).map(String::as_str).unwrap_or("list");
             let config = Config::load()?;
             match sub {
+                "add" => {
+                    handle_package_add(&args, 3)?;
+                }
                 "list" => {
                     for pkg in packages::list_packages(&config)? {
                         println!(
@@ -313,6 +273,9 @@ async fn main() -> Result<()> {
                     std::process::exit(1);
                 }
             }
+        }
+        "mcp" => {
+            mcp_cli::handle_mcp_command(&args).await?;
         }
         "mode" => {
             let sub = args.get(2).map(String::as_str).unwrap_or("paths");
@@ -1264,4 +1227,52 @@ fn parse_session_sources(args: &[String]) -> Result<Vec<agent_brain::sessions::S
         }
     }
     Ok(out)
+}
+
+fn handle_package_add(args: &[String], source_index: usize) -> Result<()> {
+    let source = args
+        .get(source_index)
+        .context("missing package source (@alias, owner/repo, or GitHub URL)")?;
+    let git_ref = flag_value(args, "--ref");
+    let skip_index = args.iter().any(|a| a == "--no-index");
+    let config = Config::load()?;
+    if let Some(resolved) = packages::lookup_alias(source)? {
+        match resolved {
+            packages::ResolvedAlias::Bundle(name) => {
+                let record = packages::install_bundled(&config, &name)?;
+                println!(
+                    "Installed bundled package '{}' ({})",
+                    record.name, record.source
+                );
+            }
+            packages::ResolvedAlias::Git(sources) => {
+                for src in &sources {
+                    let record = packages::add_package(&config, src, git_ref.as_deref())?;
+                    println!(
+                        "Installed package '{}' from {} ({})",
+                        record.name,
+                        record.source,
+                        record.commit.unwrap_or_else(|| "unknown".into())
+                    );
+                }
+            }
+        }
+    } else {
+        let record = packages::add_package(&config, source, git_ref.as_deref())?;
+        println!(
+            "Installed package '{}' from {} ({})",
+            record.name,
+            record.source,
+            record.commit.unwrap_or_else(|| "unknown".into())
+        );
+    }
+    if !skip_index {
+        let mut config = config;
+        config.bootstrap_background = false;
+        config.session_ingest_background = false;
+        let engine = Arc::new(Engine::new(config)?);
+        let n = engine.bootstrap(None)?;
+        println!("Indexed {n} items");
+    }
+    Ok(())
 }

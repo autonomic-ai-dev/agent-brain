@@ -23,14 +23,16 @@ Common Commands:
   serve         Start MCP server (stdio)
   install       Configure MCP + hooks for an editor
   doctor        Check install, binary, hooks, codesign
-  add           Install a package (@alias, owner/repo, or URL)
+  package add   Install a package (@alias, owner/repo, or URL)
+  mcp           Manage and test upstream MCP servers
   index         Reindex skills, rules, and memory
   briefing      Print the last human-readable route summary
   onboarding    5-minute getting-started checklist
   version       Print installed version
 
-Package Commands:
-  package       Manage installed packages
+Package & MCP Commands:
+  package       Manage installed packages (add, list, update, remove)
+  mcp           Manage upstream MCP servers (add, list, remove, sync, test)
   registry      List or sync curated @aliases
 
 Config Commands:
@@ -61,7 +63,6 @@ Extras (build with `--features extras`):
   dataset       Export trajectories as training JSONL
   digest        Weekly operator digest
   eval          Recall gates (fixture / skills.sh / beam)
-  bench         Latency and scale benches
   fixture       Build committed fixture DBs
   skills-sh     Refresh skills.sh snapshot
   proofs        CI proof aggregate
@@ -181,19 +182,43 @@ Print the installed agent-brain version.
         }
         "package" => {
             "\
-Usage:  agent-brain package COMMAND
+Usage:  agent-brain package COMMAND [OPTIONS]
 
-Manage installed packages.
+Manage installed skill and prompt packages.
 
 Commands:
-  list              List installed packages
+  add <source> [--ref <git_ref>] [--no-index]
+                    Install a package (@alias, owner/repo, or GitHub URL)
+  list              List all installed packages and their local paths
   update [name]     Update one package, or all if name omitted
-  remove <name>     Remove an installed package
+  remove <name>     Remove an installed package and purge indexed items
 
 Examples:
+  agent-brain package add @matt-skills
+  agent-brain package add anthropics/skills
   agent-brain package list
-  agent-brain package update ecc
-  agent-brain package remove ecc
+  agent-brain package remove matt-skills
+"
+        }
+        "mcp" => {
+            "\
+Usage:  agent-brain mcp COMMAND [OPTIONS]
+
+Manage upstream MCP servers, dynamic tool indexing, and schemas.
+
+Commands:
+  list                          List registered MCP servers, statuses, and tool counts
+  add <name> -- <cmd> [args...] Register a new upstream MCP server and index its tools
+  remove <name>                 Remove a registered MCP server and purge its tools
+  sync                          Re-query all servers and refresh vector tool catalog
+  test <name>                   Probe connection and list available tool schemas
+
+Examples:
+  agent-brain mcp add github -- npx -y @modelcontextprotocol/server-github
+  agent-brain mcp add postgres --env=DATABASE_URL=postgres://... -- npx -y @modelcontextprotocol/server-postgres
+  agent-brain mcp list
+  agent-brain mcp test github
+  agent-brain mcp sync
 "
         }
         "registry" => {
