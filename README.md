@@ -57,7 +57,7 @@ agent-brain install --all --global
 # or: --claude-code | --codex | --opencode | --gemini | --antigravity | --vscode | --claude-desktop
 ```
 
-Packages: `agent-brain registry list` · defaults `@matt-skills` · `agent-brain add @supervisor`
+Packages: `agent-brain registry list` · defaults `@matt-skills` · `agent-brain package add @supervisor`
 
 ---
 
@@ -66,7 +66,7 @@ Packages: `agent-brain registry list` · defaults `@matt-skills` · `agent-brain
 | Command | Purpose |
 |---------|---------|
 | `install --global` | MCP + hooks + permissions |
-| `add <pkg\|owner/repo>` | Install skill package |
+| `package add <pkg\|alias>` | Install skill package |
 | `doctor` / `doctor --fix` | Health check (clears quarantine; does not re-sign) |
 | `briefing` | Last `route_task` summary |
 | `index` | Reindex skills/rules/memory |
