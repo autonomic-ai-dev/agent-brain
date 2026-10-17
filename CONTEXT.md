@@ -5,7 +5,7 @@ Local turn router and verification ledger for the Autonomic stack. Part of [agen
 | Field | Value |
 |-------|-------|
 | Role | Context / memory / route gate (PV analog) |
-| Version | v1.0.0-beta.3 |
+| Version | v1.0.0-beta.3.1 |
 | Docs Hub | [https://autonomic-ai.dev/docs/memory](https://autonomic-ai.dev/docs/memory) · [Architecture](https://autonomic-ai.dev/docs/architecture) |
 | Home | `~/.autonomic/memory/` (override `AGENT_BRAIN_HOME`) |
 
