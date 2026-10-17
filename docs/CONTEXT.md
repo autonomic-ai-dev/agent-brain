@@ -43,4 +43,4 @@ Push path filter + PR skip for docs-only diffs. Protected paths require label `p
 
 ## Related
 
-Operator usage: [USAGE.md](USAGE.md) · Slim contract: [AGENT-CONTEXT.md](AGENT-CONTEXT.md) · Architecture: [https://autonomic-ai.dev/docs/architecture](https://autonomic-ai.dev/docs/architecture) · Organ Guide: [https://autonomic-ai.dev/docs/memory](https://autonomic-ai.dev/docs/memory)
+Docs Hub: [https://autonomic-ai.dev/docs/memory](https://autonomic-ai.dev/docs/memory) · Architecture: [https://autonomic-ai.dev/docs/architecture](https://autonomic-ai.dev/docs/architecture)
