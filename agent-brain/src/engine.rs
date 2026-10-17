@@ -910,7 +910,7 @@ impl Engine {
         if !memory_topics.is_empty() {
             let store = self.store.clone();
             let embedder = self.embedder.clone();
-            let config = self.config.clone();
+            let _config = self.config.clone();
             std::thread::spawn(move || {
                 if let Err(err) = auto_observe_topics(&store, &embedder, &memory_topics) {
                     tracing::warn!(error = %err, "auto-observe failed");

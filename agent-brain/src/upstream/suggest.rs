@@ -45,7 +45,7 @@ pub fn suggest_upstream_tools(
         .filter(|(score, _)| *score > 0.0)
         .collect();
 
-    let prefer_body = mcp_task || wants_agent_body(&query);
+    let prefer_body = mcp_task || wants_agent_body(&query) || allowed.contains("agent-body");
     if scored.is_empty() && prefer_body {
         scored = tools
             .iter()
@@ -141,28 +141,43 @@ fn wants_agent_body(query: &str) -> bool {
         "test",
         "clippy",
         "verify",
+        "build",
+        "run",
+        "compile",
+        "lint",
+        "pr",
+        "git",
+        "commit",
+        "review",
+        "fix",
+        "check",
+        "audit",
+        "optimize",
+        "docker",
+        "install",
+        "refactor",
     ];
     KEYS.iter().any(|k| query.contains(k))
 }
 
 fn default_agent_body_mcp_score(tool: &IndexedUpstreamTool) -> f64 {
     match tool.name.as_str() {
-        "muscle_execute_bash" => 4.0,
-        "spine_submit_workflow" => 3.8,
-        "spine_list_workflows" => 3.5,
-        "heart_budget_status" => 3.4,
-        "heart_status" => 3.2,
-        "immune_scan_manifest" => 3.3,
-        "immune_sandbox_run" => 3.3,
-        "eyes_describe_dom" => 3.1,
+        "muscle_execute_bash" => 4.5,
+        "spine_submit_workflow" => 4.2,
+        "spine_list_workflows" => 3.8,
+        "heart_budget_status" => 3.7,
+        "heart_status" => 3.5,
+        "immune_sandbox_run" => 3.6,
+        "immune_scan_manifest" => 3.4,
+        "eyes_describe_dom" => 3.2,
         "eyes_diff_screenshots" => 3.1,
         "mouth_request_approval" => 3.0,
-        name if name.starts_with("spine_") => 3.0,
+        name if name.starts_with("muscle_") => 4.0,
+        name if name.starts_with("spine_") => 3.8,
+        name if name.starts_with("heart_") => 3.5,
+        name if name.starts_with("immune_") => 3.4,
+        name if name.starts_with("eyes_") => 3.0,
         name if name.starts_with("mouth_") => 2.8,
-        name if name.starts_with("heart_") => 2.8,
-        name if name.starts_with("muscle_") => 3.2,
-        name if name.starts_with("immune_") => 2.9,
-        name if name.starts_with("eyes_") => 2.9,
         _ => 2.5,
     }
 }

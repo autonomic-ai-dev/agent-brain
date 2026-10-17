@@ -26,6 +26,7 @@ use crate::types::{deserialize_route_limits, ItemType, RouteLimits};
 #[derive(Clone)]
 pub struct BrainMcp {
     engine: Arc<Engine>,
+    #[allow(dead_code)]
     tool_router: ToolRouter<Self>,
     route_gate: Arc<McpRouteGate>,
 }
@@ -304,6 +305,7 @@ fn default_grep_matches() -> usize {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+#[allow(dead_code)]
 struct QueryCodebaseParams {
     question: String,
     #[serde(default)]
@@ -317,6 +319,7 @@ fn default_query_budget() -> usize {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+#[allow(dead_code)]
 struct TriggerDeepAnalysisParams {
     #[serde(default)]
     repo_root: Option<String>,
@@ -327,6 +330,7 @@ struct TriggerDeepAnalysisParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+#[allow(dead_code)]
 struct GraphifyJobStatusParams {
     job_id: String,
 }
@@ -358,6 +362,7 @@ fn default_node_tokens() -> usize {
 // ── KG Phase 2: symbol navigation params ────────────────
 
 #[derive(Debug, Deserialize, JsonSchema)]
+#[allow(dead_code)]
 struct SearchSymbolsParams {
     query: String,
     #[serde(default)]
@@ -375,6 +380,7 @@ fn default_symbol_limit() -> usize {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+#[allow(dead_code)]
 struct GetSymbolDefinitionParams {
     name: String,
     #[serde(default)]
@@ -384,6 +390,7 @@ struct GetSymbolDefinitionParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+#[allow(dead_code)]
 struct GetFileOutlineParams {
     path: String,
     #[serde(default)]
@@ -391,6 +398,7 @@ struct GetFileOutlineParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+#[allow(dead_code)]
 struct FindCallersParams {
     name: String,
     #[serde(default)]
@@ -398,6 +406,7 @@ struct FindCallersParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+#[allow(dead_code)]
 struct GetLocalGraphParams {
     name: String,
     #[serde(default = "default_graph_depth")]
@@ -444,6 +453,7 @@ fn default_scratchpad_limit() -> usize {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+#[allow(dead_code)]
 struct RecentSymbolsParams {
     #[serde(default = "default_symbol_limit")]
     limit: usize,
@@ -1018,7 +1028,7 @@ impl BrainMcp {
     )]
     async fn query_codebase(
         &self,
-        params: Parameters<QueryCodebaseParams>,
+        _params: Parameters<QueryCodebaseParams>,
     ) -> Result<CallToolResult, McpError> {
         #[cfg(not(feature = "extras"))]
         {
@@ -1048,7 +1058,7 @@ self.require_route("query_codebase")?;
     )]
     async fn trigger_deep_analysis(
         &self,
-        params: Parameters<TriggerDeepAnalysisParams>,
+        _params: Parameters<TriggerDeepAnalysisParams>,
     ) -> Result<CallToolResult, McpError> {
         #[cfg(not(feature = "extras"))]
         {
@@ -1085,7 +1095,7 @@ self.require_route("trigger_deep_analysis")?;
     #[tool(description = "Poll status for trigger_deep_analysis job.")]
     async fn graphify_job_status(
         &self,
-        params: Parameters<GraphifyJobStatusParams>,
+        _params: Parameters<GraphifyJobStatusParams>,
     ) -> Result<CallToolResult, McpError> {
         #[cfg(not(feature = "extras"))]
         {
@@ -1170,7 +1180,7 @@ self.require_route("graphify_job_status")?;
     #[tool(description = "Search code symbols by name across the current repo. Optionally filter by language or file. Results are ranked by label similarity.")]
     async fn search_symbols(
         &self,
-        params: Parameters<SearchSymbolsParams>,
+        _params: Parameters<SearchSymbolsParams>,
     ) -> Result<CallToolResult, McpError> {
         #[cfg(not(feature = "extras"))]
         {
@@ -1196,7 +1206,7 @@ self.require_route("search_symbols")?;
     #[tool(description = "Get the full definition (source + docstring) of a named symbol. Optionally scope to a file.")]
     async fn get_symbol_definition(
         &self,
-        params: Parameters<GetSymbolDefinitionParams>,
+        _params: Parameters<GetSymbolDefinitionParams>,
     ) -> Result<CallToolResult, McpError> {
         #[cfg(not(feature = "extras"))]
         {
@@ -1222,7 +1232,7 @@ self.require_route("get_symbol_definition")?;
     #[tool(description = "Get all symbols defined in a file, sorted by start line. Returns label, kind, lines, and source for each symbol.")]
     async fn get_file_outline(
         &self,
-        params: Parameters<GetFileOutlineParams>,
+        _params: Parameters<GetFileOutlineParams>,
     ) -> Result<CallToolResult, McpError> {
         #[cfg(not(feature = "extras"))]
         {
@@ -1248,7 +1258,7 @@ self.require_route("get_file_outline")?;
     #[tool(description = "Find all callers of a named symbol. Returns caller symbols with source locations.")]
     async fn find_callers(
         &self,
-        params: Parameters<FindCallersParams>,
+        _params: Parameters<FindCallersParams>,
     ) -> Result<CallToolResult, McpError> {
         #[cfg(not(feature = "extras"))]
         {
@@ -1274,7 +1284,7 @@ self.require_route("find_callers")?;
     #[tool(description = "Explore the local dependency graph around a symbol via BFS over code_graph_edges. Depth defaults to 2 hops (max 5).")]
     async fn get_local_graph(
         &self,
-        params: Parameters<GetLocalGraphParams>,
+        _params: Parameters<GetLocalGraphParams>,
     ) -> Result<CallToolResult, McpError> {
         #[cfg(not(feature = "extras"))]
         {
@@ -1338,7 +1348,7 @@ self.require_route("get_local_graph")?;
     #[tool(description = "List recently indexed AST symbols (code_graph_nodes with ast_symbol), newest first. Useful to see what the indexer has discovered recently.")]
     async fn recent_symbols(
         &self,
-        params: Parameters<RecentSymbolsParams>,
+        _params: Parameters<RecentSymbolsParams>,
     ) -> Result<CallToolResult, McpError> {
         #[cfg(not(feature = "extras"))]
         {

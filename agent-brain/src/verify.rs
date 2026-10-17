@@ -226,6 +226,102 @@ pub fn record_from_result(
     })
 }
 
+/// Initialize `.verify/` in `project_root` with `verify.toml`, `run.sh`, and `README.md`.
+pub fn init_verify(project_root: &Path, force: bool) -> Result<PathBuf> {
+    let verify_dir = project_root.join(VERIFY_DIR_NAME);
+    fs::create_dir_all(&verify_dir)
+        .with_context(|| format!("create verify directory at {}", verify_dir.display()))?;
+
+    let toml_path = verify_dir.join("verify.toml");
+    if force || !toml_path.exists() {
+        let mut commands = Vec::new();
+        if project_root.join("Cargo.toml").exists() {
+            commands.push("cargo test".to_string());
+            commands.push("cargo clippy".to_string());
+            commands.push("cargo check".to_string());
+        }
+        if project_root.join("package.json").exists() {
+            commands.push("npm test".to_string());
+        }
+        if project_root.join("pyproject.toml").exists()
+            || project_root.join("requirements.txt").exists()
+            || project_root.join("pytest.ini").exists()
+        {
+            commands.push("pytest".to_string());
+        }
+        if project_root.join("go.mod").exists() {
+            commands.push("go test ./...".to_string());
+        }
+        if project_root.join("Makefile").exists() {
+            commands.push("make test".to_string());
+        }
+        if commands.is_empty() {
+            commands.push("cargo test".to_string());
+            commands.push("pytest".to_string());
+            commands.push("npm test".to_string());
+            commands.push("make test".to_string());
+        }
+        commands.push(".verify/".to_string());
+
+        let mut toml_content = String::from("[verify]\ncommands = [\n");
+        for cmd in &commands {
+            toml_content.push_str(&format!("  \"{cmd}\",\n"));
+        }
+        toml_content.push_str("]\n");
+
+        fs::write(&toml_path, toml_content)
+            .with_context(|| format!("write {}", toml_path.display()))?;
+    }
+
+    let run_sh_path = verify_dir.join("run.sh");
+    if force || !run_sh_path.exists() {
+        let script = r#"#!/usr/bin/env bash
+set -euo pipefail
+
+# Project verification entrypoint executed by `agent-brain verify -- .verify/run.sh`
+echo "==> Running verification suite..."
+
+if [ -f Cargo.toml ]; then
+  cargo test
+elif [ -f package.json ]; then
+  npm test
+elif [ -f pyproject.toml ] || [ -f requirements.txt ]; then
+  pytest
+elif [ -f Makefile ]; then
+  make test
+else
+  echo "No default test runner detected. Please edit .verify/run.sh."
+fi
+
+echo "==> Verification completed successfully."
+"#;
+        fs::write(&run_sh_path, script)
+            .with_context(|| format!("write {}", run_sh_path.display()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&run_sh_path, fs::Permissions::from_mode(0o755));
+        }
+    }
+
+    let readme_path = verify_dir.join("README.md");
+    if force || !readme_path.exists() {
+        let readme = r#"# Project Verification (`.verify/`)
+
+Discovered by `agent-brain verify` and `agent-brain report`.
+
+## Usage
+- Run verify: `agent-brain verify -- .verify/run.sh`
+- Allowlisted test commands are recorded into `~/.autonomic/memory/brain.db` with tamper-evident cryptographic hashes.
+- Edit `verify.toml` to customize allowlisted commands for your project.
+"#;
+        fs::write(&readme_path, readme)
+            .with_context(|| format!("write {}", readme_path.display()))?;
+    }
+
+    Ok(verify_dir)
+}
+
 pub fn run_verify(
     store: &BrainStore,
     cmd: &[String],
@@ -419,4 +515,23 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
         assert!(!command_is_allowlisted("true", Some(dir.path())));
         assert!(!command_is_allowlisted("echo hi", Some(dir.path())));
     }
+
+    #[test]
+    fn init_verify_scaffolding() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("Cargo.toml"), b"[package]\nname = \"test\"\n").unwrap();
+        let verify_path = init_verify(dir.path(), false).unwrap();
+        assert!(verify_path.exists());
+        assert!(verify_path.join("verify.toml").exists());
+        assert!(verify_path.join("run.sh").exists());
+        assert!(verify_path.join("README.md").exists());
+
+        let toml_str = fs::read_to_string(verify_path.join("verify.toml")).unwrap();
+        assert!(toml_str.contains("cargo test"));
+        assert!(toml_str.contains(".verify/"));
+
+        assert!(command_is_allowlisted("cargo test", Some(dir.path())));
+        assert!(command_is_allowlisted(".verify/run.sh", Some(dir.path())));
+    }
 }
+

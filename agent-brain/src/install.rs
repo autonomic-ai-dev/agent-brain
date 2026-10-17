@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -6,12 +7,18 @@ use serde_json::{json, Value};
 
 use crate::host_install::{self, HostTarget};
 
-pub fn run(target: HostTarget, print_only: bool, reload: bool) -> Result<()> {
+pub fn run(
+    target: HostTarget,
+    print_only: bool,
+    reload: bool,
+    verbose: bool,
+    quiet: bool,
+) -> Result<()> {
     let exe = std::env::current_exe().context("resolve agent-brain binary path")?;
     let mcp_exe = if print_only {
         exe.clone()
     } else {
-        ensure_mcp_runnable_binary(&exe, false)?
+        ensure_mcp_runnable_binary(&exe, !verbose)?
     };
     let snippet = mcp_server_entry(&mcp_exe);
 
@@ -49,65 +56,117 @@ pub fn run(target: HostTarget, print_only: bool, reload: bool) -> Result<()> {
     }
 
     if matches!(target, HostTarget::Cursor { global: true }) || reload {
-        if reload && !matches!(target, HostTarget::Cursor { .. } | HostTarget::All) {
+        if reload && !matches!(target, HostTarget::Cursor { .. } | HostTarget::All) && verbose {
             eprintln!("Note: --reload only applies to Cursor MCP config.");
         }
     }
 
-    let paths = host_install::install_host(target, &mcp_exe, false)?;
-    println!("agent-brain MCP configured for {}", target.label());
-    println!("Binary: {}", exe.display());
-    if mcp_exe != exe {
-        println!("MCP spawn path: {} (signed copy for Cursor)", mcp_exe.display());
-    }
-    for path in paths {
-        println!("  {}", path.display());
-    }
-    println!();
+    let is_tty = std::io::stdout().is_terminal() && !verbose && !quiet;
 
-    match target {
-        HostTarget::Cursor { global: true } if reload => {
-            println!("Reload nudge: refreshed Cursor mcp.json (AGENT_BRAIN_BUILD bumped).");
-            println!("Toggle agent-brain under Settings → MCP if it does not reconnect.");
-        }
-        HostTarget::All if reload => {
-            println!("Reload nudge: refreshed Cursor mcp.json (AGENT_BRAIN_BUILD bumped).");
-            println!("Toggle agent-brain under Settings → MCP if it does not reconnect.");
-        }
-        HostTarget::Cursor { global: true } => {
-            print_cursor_next_steps();
-        }
-        HostTarget::All => print_cursor_next_steps(),
-        _ => {}
+    // Step 1: Binary check
+    if is_tty {
+        print!("  => [1/4] Preparing binary...\r");
+        let _ = std::io::stdout().flush();
     }
-
     #[cfg(target_os = "macos")]
     {
         if mcp_exe == exe {
             if let Err(err) = crate::doctor::prepare_macos_release_binary(&exe) {
-                eprintln!("Warning: macOS release binary check failed: {err}");
-            }
-        }
-    }
-
-    if let Ok(config) = crate::config::Config::load() {
-        match crate::packages::bootstrap_default_packages(&config) {
-            Ok(installed) => {
-                for pkg in &installed {
-                    println!(
-                        "Default package: installed '{}' from {}",
-                        pkg.name, pkg.source
-                    );
+                if verbose {
+                    eprintln!("Warning: macOS release binary check failed: {err}");
                 }
             }
-            Err(err) => {
-                eprintln!("Warning: default package bootstrap: {err}");
+        }
+    }
+    if !is_tty && !quiet && !verbose {
+        println!(" ✔ [1/4] Binary verified: {}", exe.display());
+    }
+
+    // Step 2: Host configuration
+    if is_tty {
+        print!("  => [2/4] Configuring host integrations...\r");
+        let _ = std::io::stdout().flush();
+    }
+    let paths = host_install::install_host(target.clone(), &mcp_exe, !verbose)?;
+    if verbose {
+        println!("agent-brain MCP configured for {}", target.label());
+        println!("Binary: {}", exe.display());
+        if mcp_exe != exe {
+            println!("MCP spawn path: {} (signed copy for Cursor)", mcp_exe.display());
+        }
+        for path in &paths {
+            println!("  {}", path.display());
+        }
+        println!();
+    } else if !is_tty && !quiet {
+        println!(" ✔ [2/4] Hosts configured ({})", target.label());
+    }
+
+    // Step 3: Default packages
+    if is_tty {
+        print!("  => [3/4] Syncing default packages...\r");
+        let _ = std::io::stdout().flush();
+    }
+    let mut pkg_count = 0;
+    if let Ok(config) = crate::config::Config::load() {
+        if let Ok(installed) = crate::packages::bootstrap_default_packages(&config) {
+            pkg_count = installed.len();
+            if verbose {
+                for pkg in &installed {
+                    println!("Default package: installed '{}' from {}", pkg.name, pkg.source);
+                }
             }
         }
     }
+    if !is_tty && !quiet && !verbose {
+        println!(" ✔ [3/4] Packages synced ({pkg_count} default packages)");
+    }
 
-    if let Err(err) = run_post_install_warmup(false) {
-        eprintln!("Warning: post-install index/session ingest: {err}");
+    // Step 4: Memory warmup
+    if is_tty {
+        print!("  => [4/4] Ingesting memory & warming index...\r");
+        let _ = std::io::stdout().flush();
+    }
+    let (_indexed, sessions, total) = match run_post_install_warmup(!verbose) {
+        Ok(counts) => counts,
+        Err(err) => {
+            if verbose {
+                eprintln!("Warning: post-install index/session ingest: {err}");
+            }
+            (0, 0, 0)
+        }
+    };
+    if !is_tty && !quiet && !verbose {
+        println!(" ✔ [4/4] Brain warmed ({} items, {} sessions)", total, sessions);
+    }
+
+    // Final verdict
+    if is_tty {
+        print!("\r\x1b[2K");
+        println!(
+            "✔ agent-brain v{} installed successfully\n  • binary:  {}\n  • targets: {} (route gate active)\n  • memory:  {} items indexed · {} sessions ingested",
+            env!("CARGO_PKG_VERSION"),
+            exe.display(),
+            target.label(),
+            total,
+            sessions
+        );
+    } else if !quiet && !verbose {
+        println!(
+            "✔ agent-brain v{} installed successfully (hosts: {}, index: {} items, {} sessions).",
+            env!("CARGO_PKG_VERSION"),
+            target.label(),
+            total,
+            sessions
+        );
+    }
+
+    if verbose {
+        match target {
+            HostTarget::Cursor { global: true } => print_cursor_next_steps(),
+            HostTarget::All => print_cursor_next_steps(),
+            _ => {}
+        }
     }
 
     Ok(())
@@ -119,7 +178,7 @@ pub fn format_new_index_count(new_items: usize, total_items: usize) -> String {
 }
 
 /// Index skills/rules and ingest Cursor/OpenCode/Codex/Gemini session digests into brain.db.
-pub fn run_post_install_warmup(quiet: bool) -> Result<()> {
+pub fn run_post_install_warmup(quiet: bool) -> Result<(usize, usize, usize)> {
     let config = crate::config::Config::load()?;
     config.ensure_dirs()?;
     let engine = crate::engine::Engine::new(config)?;
@@ -131,7 +190,7 @@ pub fn run_post_install_warmup(quiet: bool) -> Result<()> {
             format_new_index_count(indexed, total)
         );
     }
-    Ok(())
+    Ok((indexed, sessions, total))
 }
 
 fn print_cursor_next_steps() {
@@ -197,6 +256,14 @@ pub fn ensure_mcp_runnable_binary(exe: &Path, quiet: bool) -> Result<PathBuf> {
 
 #[cfg(target_os = "macos")]
 fn needs_mcp_binary_copy(path: &Path) -> bool {
+    if std::env::var("AGENT_BRAIN_SINGLE_BIN").map(|v| v != "0").unwrap_or(false)
+        || std::env::var("AGENT_BRAIN_NO_MCP_COPY").map(|v| v != "0").unwrap_or(false)
+    {
+        return false;
+    }
+    if crate::doctor::is_developer_id_signed(path) && !crate::doctor::macos_has_quarantine_attrs(path) {
+        return false;
+    }
     is_homebrew_managed(path) || crate::doctor::macos_has_quarantine_attrs(path)
 }
 

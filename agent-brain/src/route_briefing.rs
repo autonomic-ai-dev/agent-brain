@@ -87,6 +87,17 @@ pub fn format_briefing(resp: &RouteTaskResponse) -> String {
             tools.join(", ")
         ));
     }
+    if !resp.suggested_tools.is_empty() {
+        let tools: Vec<_> = resp
+            .suggested_tools
+            .iter()
+            .map(|t| format!("{}:{}", t.server, t.tool))
+            .collect();
+        out.push_str(&format!(
+            "**Organ delegation:** prefer {} for autonomic execution\n",
+            tools.join(", ")
+        ));
+    }
     if !resp.log_id.is_empty() {
         out.push_str(&format!("Log: `{}`\n", resp.log_id));
     }
@@ -175,6 +186,15 @@ pub fn format_summary_line(resp: &RouteTaskResponse) -> String {
         );
         format!(" · tools: [{names}]")
     };
+    let delegate_tools = if resp.suggested_tools.is_empty() {
+        String::new()
+    } else {
+        let names = join_top_names(
+            resp.suggested_tools.iter().map(|t| t.tool.as_str()),
+            3,
+        );
+        format!(" · delegate: [{names}]")
+    };
     let read_gate = if read_gate_mode() == "off" {
         String::new()
     } else {
@@ -186,7 +206,7 @@ pub fn format_summary_line(resp: &RouteTaskResponse) -> String {
         .map(|s| format!(" · repo: {s}"))
         .unwrap_or_default();
     format!(
-        "phase={} · skills: {} [{skill_names}] · agents: {} [{agent_names}] · {} rules · {} memory · {}/{} tok{}{}{}{}{} · {}ms · log={} · {}",
+        "phase={} · skills: {} [{skill_names}] · agents: {} [{agent_names}] · {} rules · {} memory · {}/{} tok{}{}{}{}{}{} · {}ms · log={} · {}",
         resp.recommended_phase,
         resp.recommended_skills.len(),
         resp.recommended_agents.len(),
@@ -197,6 +217,7 @@ pub fn format_summary_line(resp: &RouteTaskResponse) -> String {
         savings.unwrap_or_default(),
         constraints,
         native_tools,
+        delegate_tools,
         read_gate,
         repo,
         resp.latency_ms,

@@ -61,7 +61,7 @@ pub fn run(remote: Option<&str>, skip_install: bool) -> Result<()> {
 
     if !skip_install {
         println!("Installing host integrations (--global)…");
-        install::run(HostTarget::All, false, false)?;
+        install::run(HostTarget::All, false, false, false, true)?;
         host_install::install_agent_brain_modes(true, true)?;
     }
 

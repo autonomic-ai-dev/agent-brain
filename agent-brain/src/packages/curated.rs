@@ -11,6 +11,7 @@ const EMBEDDED_WORKFLOWS: &str = include_str!("../../registry/workflows.json");
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct CuratedRegistryFile {
+    #[allow(dead_code)]
     pub version: u32,
     pub aliases: std::collections::BTreeMap<String, CuratedAlias>,
 }

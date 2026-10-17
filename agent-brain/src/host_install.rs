@@ -25,6 +25,9 @@ impl HostTarget {
             return Self::All;
         }
         let global = args.iter().any(|a| a == "--global");
+        if args.iter().any(|a| a == "--cursor") {
+            return Self::Cursor { global };
+        }
         if args.iter().any(|a| a == "--claude-desktop") {
             return Self::ClaudeDesktop;
         }
@@ -46,7 +49,8 @@ impl HostTarget {
         if args.iter().any(|a| a == "--antigravity") {
             return Self::Antigravity { user: global };
         }
-        Self::Cursor { global }
+        // Default to configuring all agent hosts so agent-brain is agent-agnostic out of the box
+        Self::All
     }
 
     pub fn label(self) -> &'static str {
