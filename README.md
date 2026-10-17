@@ -19,7 +19,7 @@ flowchart LR
 | MCP disconnects drop durable facts | Pending queue + `memory put` CLI fallback |
 | Verifications lost across turns | Auto-record via hooks + `verify` / `report` |
 
-Full usage: [docs/USAGE.md](docs/USAGE.md) · Agent context: [docs/CONTEXT.md](docs/CONTEXT.md) · Contract: [docs/AGENT-CONTEXT.md](docs/AGENT-CONTEXT.md) · Hosts: [docs/host-integration.md](docs/host-integration.md) · Architecture: [https://autonomic-ai.dev/docs/architecture](https://autonomic-ai.dev/docs/architecture) · CI path filters: [docs/ci-path-filter-pattern.md](docs/ci-path-filter-pattern.md)
+Agent context: [docs/CONTEXT.md](docs/CONTEXT.md) · Memory & Context Routing Guide: [https://autonomic-ai.dev/docs/memory](https://autonomic-ai.dev/docs/memory) · Architecture: [https://autonomic-ai.dev/docs/architecture](https://autonomic-ai.dev/docs/architecture)
 
 ---
 
