@@ -70,11 +70,17 @@ Packages: `agent-brain registry list` · defaults `@matt-skills` · `agent-brain
 | `doctor` / `doctor --fix` | Health check (clears quarantine; does not re-sign) |
 | `briefing` | Last `route_task` summary |
 | `index` | Reindex skills/rules/memory |
+| `verify init` | Scaffold `.verify/verify.toml`, executable `run.sh`, and `README.md` |
 | `verify [--source cli\|orchestrator] -- <cmd>` | Run command & record trusted exit (prefer over MCP assert) |
 | `verify record` / `report` | Record known exit · aggregate by source |
 | `memory put\|enqueue\|flush-pending` | CLI write and retry fallback for durable facts |
 | `sync git\|cloud …` | Multi-machine brain sync |
 | `bootstrap` | Bootstrap new device into sync repo |
+
+### Autonomic Capabilities & Adaptive Routing
+
+- **Organ Catalog Discovery**: `get_autonomic_catalog` MCP tool gives AI agents complete specifications and tool definitions across all 8 cluster organs without being blocked by route gates.
+- **Adaptive Tool Suggestion**: Upstream tool recommendations in `route_task` dynamically evaluate historical `verify_outcomes` from `brain.db`, reinforcing tools that succeed and dampening those that fail.
 
 ---
 

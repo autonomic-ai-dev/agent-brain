@@ -261,6 +261,21 @@ agent-brain sync git push
 - Check network access to GitHub
 - Try explicit ref: `agent-brain add affaan-m/ecc --ref main`
 
+## Verification and Scaffolding
+
+```bash
+# Scaffold .verify/verify.toml, executable run.sh, and README.md
+agent-brain verify init
+
+# Run verified check and record trusted outcome
+agent-brain verify -- cargo test
+
+# View aggregated verification results
+agent-brain verify report
+```
+
+When `.verify/` exists in the repository, `agent-brain verify` matches against allowlists and records outcomes directly into `brain.db`. Historical successes and failures from these runs adaptively adjust tool recommendation rankings in `route_task`.
+
 ## Environment variables
 
 | Variable | Default | Purpose |
@@ -275,6 +290,7 @@ agent-brain sync git push
 | `AGENT_BRAIN_ALLOW_PYTHON_SHELL` | `0` | Set `1` to override Python Shell deny policy (`python -c` / heredoc / piped stdin) |
 | `AGENT_BRAIN_AUTO_UPDATE_DELAY_SEC` | `300` | Delay before background auto-update checks |
 | `AGENT_BRAIN_AUTO_UPDATE_DEFER_SECS` | `60` | Defer applying updates while MCP server is actively handling requests |
+| `AUTONOMIC_SELF_LEARNING` | `0` | Set `1` to activate background trajectory critic loop in agent-heart |
 | `RUST_LOG` | `agent_brain=info` | Log level (stderr only) |
 
 ## Route gate (enforcement)
