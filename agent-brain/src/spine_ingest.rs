@@ -12,6 +12,7 @@ use crate::dataset::DatasetEntry;
 struct ExecutionGraph {
     execution_id: String,
     workflow_name: String,
+    #[allow(dead_code)]
     snapshot_count: usize,
     snapshots: Vec<SnapshotRecord>,
 }

@@ -37,11 +37,16 @@ pub fn suggest_upstream_tools(
         .collect();
 
     let mcp_task = is_mcp_host_task(user_message);
+    let history_adjustments = compute_historical_outcome_adjustments(store);
 
     let mut scored: Vec<(f64, &IndexedUpstreamTool)> = tools
         .iter()
         .filter(|tool| allowed.contains(&tool.server.to_ascii_lowercase()))
-        .map(|tool| (score_tool(&query, &query_tokens, tool, mcp_task), tool))
+        .map(|tool| {
+            let base = score_tool(&query, &query_tokens, tool, mcp_task);
+            let hist = history_adjustments.get(&tool.name).copied().unwrap_or(0.0);
+            (base + hist, tool)
+        })
         .filter(|(score, _)| *score > 0.0)
         .collect();
 
@@ -53,7 +58,11 @@ pub fn suggest_upstream_tools(
                 allowed.contains(&tool.server.to_ascii_lowercase())
                     && tool.server.eq_ignore_ascii_case("agent-body")
             })
-            .map(|tool| (default_agent_body_mcp_score(tool), tool))
+            .map(|tool| {
+                let base = default_agent_body_mcp_score(tool);
+                let hist = history_adjustments.get(&tool.name).copied().unwrap_or(0.0);
+                (base + hist, tool)
+            })
             .collect();
     }
 
@@ -62,18 +71,83 @@ pub fn suggest_upstream_tools(
     scored
         .into_iter()
         .take(limit)
-        .map(|(score, tool)| SuggestedTool {
-            server: tool.server.clone(),
-            tool: tool.name.clone(),
-            description: tool.description.clone(),
-            rationale: if tool.server.eq_ignore_ascii_case("agent-body") {
-                format!("prefer agent-body gateway tool {}", tool.name)
+        .map(|(score, tool)| {
+            let hist_note = match history_adjustments.get(&tool.name).copied() {
+                Some(adj) if adj > 0.1 => format!(" (outcome reinforced: +{:.1})", adj),
+                Some(adj) if adj < -0.1 => format!(" (outcome dampened: {:.1})", adj),
+                _ => String::new(),
+            };
+            let rationale = if tool.server.eq_ignore_ascii_case("agent-body") {
+                format!("prefer agent-body gateway tool {}{}", tool.name, hist_note)
             } else {
-                format!("keyword match for {}", tool.name)
-            },
-            score,
+                format!("keyword match for {}{}", tool.name, hist_note)
+            };
+            SuggestedTool {
+                server: tool.server.clone(),
+                tool: tool.name.clone(),
+                description: tool.description.clone(),
+                rationale,
+                score,
+            }
         })
         .collect()
+}
+
+fn compute_historical_outcome_adjustments(
+    store: &BrainStore,
+) -> std::collections::HashMap<String, f64> {
+    let mut adjustments = std::collections::HashMap::new();
+    let Ok(outcomes) = store.list_verify_outcomes(50) else {
+        return adjustments;
+    };
+    if outcomes.is_empty() {
+        return adjustments;
+    }
+
+    for row in outcomes {
+        let cmd_lower = row.cmd.to_ascii_lowercase();
+        let delta = if row.exit_code == 0 { 0.4 } else { -0.4 };
+
+        if cmd_lower.contains("bash")
+            || cmd_lower.contains("sh")
+            || cmd_lower.contains("cargo")
+            || cmd_lower.contains("test")
+        {
+            *adjustments
+                .entry("muscle_execute_bash".to_string())
+                .or_insert(0.0) += delta;
+        }
+        if cmd_lower.contains("workflow")
+            || cmd_lower.contains("dag")
+            || cmd_lower.contains("spine")
+        {
+            *adjustments
+                .entry("spine_submit_workflow".to_string())
+                .or_insert(0.0) += delta;
+        }
+        if cmd_lower.contains("budget")
+            || cmd_lower.contains("cost")
+            || cmd_lower.contains("token")
+        {
+            *adjustments
+                .entry("heart_budget_status".to_string())
+                .or_insert(0.0) += delta;
+        }
+        if cmd_lower.contains("scan")
+            || cmd_lower.contains("cve")
+            || cmd_lower.contains("sandbox")
+        {
+            *adjustments
+                .entry("immune_sandbox_run".to_string())
+                .or_insert(0.0) += delta;
+        }
+    }
+
+    for val in adjustments.values_mut() {
+        *val = val.clamp(-2.0, 2.0);
+    }
+
+    adjustments
 }
 
 fn score_tool(
@@ -223,7 +297,6 @@ mod tests {
         assert!(boosted >= 3.0);
     }
 
-    #[test]
     #[test]
     fn boosts_agent_body_on_workflow_task() {
         let tool = IndexedUpstreamTool {

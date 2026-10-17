@@ -1,13 +1,9 @@
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use agent_brain::cache::{QueryEmbeddingCache, TurnCache};
 use agent_brain::config::Config;
 use agent_brain::db::store::{content_hash, BrainStore};
-use agent_brain::db::RouteLatencyStats;
 use agent_brain::embed::{deterministic_embedding, Embedder};
 use agent_brain::engine::Engine;
-use agent_brain::mcp_activity::McpActivity;
 use agent_brain::sync::{export_bundle, import_bundle, MergePolicy};
 use agent_brain::types::{ItemType, RouteLimits};
 use tempfile::TempDir;

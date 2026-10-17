@@ -7,6 +7,10 @@ use tempfile::TempDir;
 fn install_flags_resolve_hosts() {
     assert_eq!(
         HostTarget::from_args(&["install".into(), "--global".into()]),
+        HostTarget::All
+    );
+    assert_eq!(
+        HostTarget::from_args(&["install".into(), "--cursor".into(), "--global".into()]),
         HostTarget::Cursor { global: true }
     );
     assert_eq!(

@@ -105,7 +105,7 @@ fn run_job(
     engine: &Engine,
     job_id: &str,
     repo_root: &Path,
-    trigger: JobTrigger,
+    _trigger: JobTrigger,
     mode: JobMode,
     graphify_bin: &str,
 ) -> Result<()> {
