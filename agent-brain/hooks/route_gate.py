@@ -56,6 +56,9 @@ SCOUT_TOOL_MARKERS = (
     "file_summary",
     "read_file_head",
     "read_file_tail",
+    "read_file",
+    "list_directory",
+    "find_files",
     "grep_search",
 )
 # Tool-level enforcement for coding-policy §3 (instructions alone do not stop Shell+python).
