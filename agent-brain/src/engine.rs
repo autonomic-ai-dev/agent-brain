@@ -813,6 +813,8 @@ impl Engine {
             max_tokens,
             project_key_opt,
             ws.repo_root.as_deref(),
+            &ws.tags,
+            user_message,
         );
         resp.index_total = index_total;
         if let Some(repo) = ws.repo_root.as_deref() {
@@ -892,7 +894,7 @@ impl Engine {
         self.route_latency.record(timing.total_us / 1000);
         timing.log_line(p95, &phase);
 
-        crate::bridge::enrich_route_response(&mut resp, &scored, task_kind);
+        crate::bridge::enrich_route_response(&mut resp, &scored, task_kind, user_message);
 
         let memory_ids: Vec<String> = scored
             .iter()
@@ -1113,17 +1115,38 @@ impl Engine {
             task_description,
         )?;
 
-        let mut items = Vec::new();
+        let mut items: Vec<GetContextItem> = Vec::new();
         let mut tokens_used = 0;
         let mut truncated = false;
         let mut seen_topics = HashSet::new();
+
+        let top_score = scored.first().map(|i| i.score).unwrap_or(0.0);
+        let min_score = crate::retrieval::minimum_recommendation_score(top_score);
 
         for item in scored {
             if !include_types.contains(&item.item_type) {
                 continue;
             }
+            if item.score < min_score {
+                continue;
+            }
+            if is_domain_incompatible(
+                &item.topic,
+                &item.text,
+                item.source_path.as_deref().unwrap_or(""),
+                &ws.tags,
+                task_description,
+            ) {
+                continue;
+            }
             if is_duplicate_topic(&mut seen_topics, &item) {
                 continue;
+            }
+            if let Some(top) = items.first() {
+                let min_relative = (top.score * 0.70).max(top.score - 0.20);
+                if item.score < min_relative {
+                    continue;
+                }
             }
             let entry = GetContextItem {
                 item_type: item.item_type.as_str().to_string(),
@@ -1159,6 +1182,87 @@ fn is_duplicate_topic(seen: &mut HashSet<String>, item: &ScoredItem) -> bool {
     }
 }
 
+fn is_domain_incompatible(
+    topic: &str,
+    text: &str,
+    path: &str,
+    ws_tags: &[String],
+    user_message: &str,
+) -> bool {
+    let msg_lower = user_message.to_lowercase();
+    let target = format!(
+        "{} {} {}",
+        topic.to_lowercase(),
+        text.to_lowercase(),
+        path.to_lowercase()
+    );
+
+    let is_rust = ws_tags.iter().any(|t| t == "rust" || t == "cargo");
+    let is_python = ws_tags.iter().any(|t| t == "python");
+    let has_web = ws_tags.iter().any(|t| {
+        t == "node"
+            || t == "pnpm"
+            || t == "yarn"
+            || t == "npm"
+            || t == "typescript"
+            || t == "javascript"
+            || t == "web"
+    });
+
+    if (is_rust || is_python) && !has_web {
+        let web_markers = [
+            "react",
+            "nextjs",
+            "next.js",
+            "vue",
+            "svelte",
+            "tailwind",
+            "css",
+            "html",
+            "browser-dom",
+            "angular",
+            "frontend",
+            "jsx",
+            "tsx",
+            "vercel",
+        ];
+        let has_web_marker = web_markers.iter().any(|m| target.contains(m));
+        if has_web_marker {
+            let msg_has_web_intent = web_markers.iter().any(|m| msg_lower.contains(m));
+            if !msg_has_web_intent {
+                return true;
+            }
+        }
+    }
+
+    let is_js = ws_tags
+        .iter()
+        .any(|t| t == "typescript" || t == "javascript" || t == "node" || t == "pnpm");
+    if is_js && !is_rust {
+        let rust_markers = ["cargo", "clippy", "rust", "tokio", "diesel", "actix", "axum"];
+        let has_rust_marker = rust_markers.iter().any(|m| target.contains(m));
+        if has_rust_marker {
+            let msg_has_rust_intent = rust_markers.iter().any(|m| msg_lower.contains(m));
+            if !msg_has_rust_intent {
+                return true;
+            }
+        }
+    }
+
+    if is_js && !is_python {
+        let py_markers = ["pytest", "django", "fastapi", "flask", "pydantic"];
+        let has_py_marker = py_markers.iter().any(|m| target.contains(m));
+        if has_py_marker {
+            let msg_has_py_intent = py_markers.iter().any(|m| msg_lower.contains(m));
+            if !msg_has_py_intent {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 fn build_route_response(
     scored: &[ScoredItem],
     limits: &RouteLimits,
@@ -1166,6 +1270,8 @@ fn build_route_response(
     max_tokens: usize,
     project_key: Option<&str>,
     repo_root: Option<&str>,
+    ws_tags: &[String],
+    user_message: &str,
 ) -> RouteTaskResponse {
     let mut resp = RouteTaskResponse {
         recommended_phase: phase.to_string(),
@@ -1180,22 +1286,49 @@ fn build_route_response(
         .map(|i| i.score)
         .fold(0.0_f64, f64::max);
     let min_score = crate::retrieval::minimum_recommendation_score(top_non_memory);
-    let top_skill = scored
-        .iter()
-        .filter(|i| matches!(i.item_type, ItemType::Skill))
-        .map(|i| i.score)
-        .fold(0.0_f64, f64::max);
-    // Absolute skill floor when the index has a strong hit; avoid emptying weak fixtures.
-    let skill_floor = if top_skill >= 0.50 {
-        min_score.max(0.35)
-    } else {
-        min_score
+
+    let calc_floor = |item_type: ItemType| -> f64 {
+        let top = scored
+            .iter()
+            .filter(|i| i.item_type == item_type)
+            .map(|i| i.score)
+            .fold(0.0_f64, f64::max);
+        if top >= 0.60 {
+            min_score.max(0.42)
+        } else if top >= 0.45 {
+            min_score.max(0.38)
+        } else {
+            min_score.max(0.35)
+        }
     };
-    let agent_floor = min_score;
 
-    resp.must_apply = collect_must_apply_from_scored(scored, 3, project_key, repo_root);
+    let skill_floor = calc_floor(ItemType::Skill);
+    let agent_floor = calc_floor(ItemType::Agent);
+    let rule_floor = calc_floor(ItemType::Rule);
+    let workflow_floor = calc_floor(ItemType::Workflow);
+    let memory_floor = {
+        let top = scored
+            .iter()
+            .filter(|i| matches!(i.item_type, ItemType::Memory))
+            .map(|i| i.score)
+            .fold(0.0_f64, f64::max);
+        if top >= 0.60 {
+            min_score.max(0.35)
+        } else {
+            min_score
+        }
+    };
 
-    // Pass 1: agents, skills, rules — before memory consumes the token budget.
+    resp.must_apply = collect_must_apply_from_scored(
+        scored,
+        3,
+        project_key,
+        repo_root,
+        ws_tags,
+        user_message,
+    );
+
+    // Pass 1: workflows, agents, skills, rules — before memory consumes the token budget.
     for item in scored.iter() {
         if matches!(item.item_type, ItemType::Memory) {
             continue;
@@ -1203,26 +1336,57 @@ fn build_route_response(
         let type_floor = match item.item_type {
             ItemType::Skill => skill_floor,
             ItemType::Agent => agent_floor,
+            ItemType::Rule => rule_floor,
+            ItemType::Workflow => workflow_floor,
             _ => min_score,
         };
         if item.score < type_floor {
             continue;
         }
-        // Margin: additional skills/agents must stay close to the top hit.
-        if matches!(item.item_type, ItemType::Skill) {
-            if let Some(top) = resp.recommended_skills.first() {
-                if item.score < top.score - 0.25 {
+        if is_domain_incompatible(
+            &item.topic,
+            &item.text,
+            item.source_path.as_deref().unwrap_or(""),
+            ws_tags,
+            user_message,
+        ) {
+            continue;
+        }
+
+        // Margin: additional items must stay close to the top hit of their type.
+        match item.item_type {
+            ItemType::Skill => {
+                if let Some(top) = resp.recommended_skills.first() {
+                    let min_relative = (top.score * 0.70).max(top.score - 0.18);
+                    if item.score < min_relative {
+                        continue;
+                    }
+                }
+            }
+            ItemType::Agent => {
+                if let Some(top) = resp.recommended_agents.first() {
+                    let min_relative = (top.score * 0.70).max(top.score - 0.15);
+                    if item.score < min_relative {
+                        continue;
+                    }
+                }
+            }
+            ItemType::Rule => {
+                if let Some(top) = resp.applicable_rules.first() {
+                    let min_relative = (top.score * 0.70).max(top.score - 0.18);
+                    if item.score < min_relative {
+                        continue;
+                    }
+                }
+            }
+            ItemType::Workflow => {
+                if resp.suggested_workflow.is_some() {
                     continue;
                 }
             }
+            _ => {}
         }
-        if matches!(item.item_type, ItemType::Agent) {
-            if let Some(top) = resp.recommended_agents.first() {
-                if item.score < top.score - 0.12 {
-                    continue;
-                }
-            }
-        }
+
         try_add_route_item(
             &mut resp,
             &mut state,
@@ -1235,13 +1399,28 @@ fn build_route_response(
         );
     }
 
-    // Pass 2: memory with whatever budget remains (same score floor; no digest/obs noise).
+    // Pass 2: memory with whatever budget remains (same score floor; domain filter; no digest/obs noise).
     for item in scored.iter() {
         if !matches!(item.item_type, ItemType::Memory) {
             continue;
         }
-        if item.score < min_score {
+        if item.score < memory_floor {
             continue;
+        }
+        if is_domain_incompatible(
+            &item.topic,
+            &item.text,
+            item.source_path.as_deref().unwrap_or(""),
+            ws_tags,
+            user_message,
+        ) {
+            continue;
+        }
+        if let Some(top) = resp.relevant_memory.first() {
+            let min_relative = (top.score * 0.65).max(top.score - 0.22);
+            if item.score < min_relative {
+                continue;
+            }
         }
         try_add_route_item(
             &mut resp,
@@ -1332,15 +1511,22 @@ fn try_add_route_item(
             (PendingRec::Memory(rec), t)
         }
         ItemType::Workflow => {
-            if resp.must_apply.len() < 3 {
-                let rec = MustApply {
-                    topic: "trigger_workflow".to_string(),
-                    text: item.text.clone(),
-                };
-                let t = estimate_json_tokens(&serde_json::to_value(&rec).unwrap_or_default());
-                if resp.tokens_used + t <= max_tokens {
-                    resp.tokens_used += t;
-                    resp.must_apply.push(rec);
+            if resp.suggested_workflow.is_none() && item.score >= 0.35 {
+                let workflow_slug = item.topic.clone();
+                resp.suggested_workflow = Some(workflow_slug.clone());
+                if resp.must_apply.len() < 3 {
+                    let rec = MustApply {
+                        topic: "spine-workflow".to_string(),
+                        text: format!(
+                            "Recommended Spine workflow: `{}` (relevance: {:.2}). Orchestrate via `spine_submit_workflow` (workflow=\"{}\") or `agent-spine run --workflow {}`.",
+                            workflow_slug, item.score, workflow_slug, workflow_slug
+                        ),
+                    };
+                    let t = estimate_json_tokens(&serde_json::to_value(&rec).unwrap_or_default());
+                    if resp.tokens_used + t <= max_tokens {
+                        resp.tokens_used += t;
+                        resp.must_apply.push(rec);
+                    }
                 }
             }
             return;
@@ -1452,6 +1638,8 @@ fn collect_must_apply_from_scored(
     max: usize,
     project_key: Option<&str>,
     repo_root: Option<&str>,
+    ws_tags: &[String],
+    user_message: &str,
 ) -> Vec<MustApply> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
@@ -1474,6 +1662,15 @@ fn collect_must_apply_from_scored(
     for item in memories {
         if out.len() >= max {
             break;
+        }
+        if is_domain_incompatible(
+            &item.topic,
+            &item.text,
+            item.source_path.as_deref().unwrap_or(""),
+            ws_tags,
+            user_message,
+        ) {
+            continue;
         }
         if let Some(constraint) = must_apply_for_memory(item, project_key, repo_root) {
             if seen.insert(constraint.topic.clone()) {
@@ -1588,7 +1785,16 @@ mod tests {
             rules: 3,
             memory: 5,
         };
-        let resp = build_route_response(&scored, &limits, "implementing", 800, None, None);
+        let resp = build_route_response(
+            &scored,
+            &limits,
+            "implementing",
+            800,
+            None,
+            None,
+            &[],
+            "",
+        );
         assert!(
             resp.relevant_memory.iter().all(|m| {
                 !m.topic.starts_with("session-digest-")
@@ -1668,8 +1874,205 @@ mod tests {
             rules: 0,
             memory: 0,
         };
-        let resp = build_route_response(&scored, &limits, "planning", 800, None, None);
+        let resp = build_route_response(&scored, &limits, "planning", 800, None, None, &[], "");
         assert_eq!(resp.recommended_skills.len(), 1);
         assert_eq!(resp.recommended_skills[0].name, "rust-patterns");
+    }
+
+    #[test]
+    fn skill_domain_incompatibility_filter() {
+        let scored = vec![
+            skill("vercel-react-patterns", 0.85),
+            skill("rust-testing-guide", 0.75),
+        ];
+        let limits = RouteLimits {
+            agents: 0,
+            skills: 3,
+            rules: 0,
+            memory: 0,
+        };
+        let ws_tags = vec!["rust".to_string(), "cargo".to_string()];
+        // 1. Rust workspace without web, user prompt does not mention react -> react skill filtered out, rust skill kept
+        let resp = build_route_response(
+            &scored,
+            &limits,
+            "implementing",
+            800,
+            None,
+            None,
+            &ws_tags,
+            "implement tests for engine",
+        );
+        assert_eq!(resp.recommended_skills.len(), 1);
+        assert_eq!(resp.recommended_skills[0].name, "rust-testing-guide");
+
+        // 2. User prompt explicitly mentions react -> react skill allowed
+        let resp_explicit = build_route_response(
+            &scored,
+            &limits,
+            "implementing",
+            800,
+            None,
+            None,
+            &ws_tags,
+            "refactor react frontend",
+        );
+        assert_eq!(resp_explicit.recommended_skills.len(), 2);
+        assert_eq!(resp_explicit.recommended_skills[0].name, "vercel-react-patterns");
+    }
+
+    #[test]
+    fn skill_relative_dropoff_gap_drops_weak_secondary_skills() {
+        let scored = vec![
+            skill("rust-core-patterns", 0.90),
+            skill("rust-advanced-unsafe", 0.78),
+            skill("rust-random-utility", 0.55),
+        ];
+        let limits = RouteLimits {
+            agents: 0,
+            skills: 5,
+            rules: 0,
+            memory: 0,
+        };
+        let resp = build_route_response(
+            &scored,
+            &limits,
+            "implementing",
+            800,
+            None,
+            None,
+            &["rust".to_string()],
+            "refactor rust code",
+        );
+        // 0.90 top hit -> min_relative is max(0.90 * 0.70 = 0.63, 0.90 - 0.18 = 0.72) = 0.72.
+        // 0.78 >= 0.72 -> kept
+        // 0.55 < 0.72 -> dropped despite available limits
+        assert_eq!(resp.recommended_skills.len(), 2);
+        assert_eq!(resp.recommended_skills[0].name, "rust-core-patterns");
+        assert_eq!(resp.recommended_skills[1].name, "rust-advanced-unsafe");
+    }
+
+    fn workflow(topic: &str, score: f64) -> ScoredItem {
+        ScoredItem {
+            id: format!("wf-{}", topic),
+            item_type: ItemType::Workflow,
+            topic: topic.into(),
+            text: format!("Spine workflow for {}", topic),
+            source_path: Some(format!("/tmp/workflows/{}.yaml", topic)),
+            scope: "global".into(),
+            score,
+            polarity: None,
+            apply_when_matched: false,
+            lexical: 0.0,
+            scope_key: None,
+        }
+    }
+
+    fn agent(topic: &str, score: f64) -> ScoredItem {
+        ScoredItem {
+            id: format!("agent-{}", topic),
+            item_type: ItemType::Agent,
+            topic: topic.into(),
+            text: format!("Specialist agent for {}", topic),
+            source_path: Some(format!("/tmp/agents/{}.md", topic)),
+            scope: "global".into(),
+            score,
+            polarity: None,
+            apply_when_matched: false,
+            lexical: 0.0,
+            scope_key: None,
+        }
+    }
+
+    fn rule(topic: &str, score: f64, text: &str) -> ScoredItem {
+        ScoredItem {
+            id: format!("rule-{}", topic),
+            item_type: ItemType::Rule,
+            topic: topic.into(),
+            text: text.into(),
+            source_path: Some(format!("/tmp/rules/{}.md", topic)),
+            scope: "global".into(),
+            score,
+            polarity: None,
+            apply_when_matched: false,
+            lexical: 0.0,
+            scope_key: None,
+        }
+    }
+
+    #[test]
+    fn workflow_domain_and_gap_filtering() {
+        let scored = vec![
+            workflow("react-component-pipeline", 0.88),
+            workflow("engineering-safety", 0.75),
+        ];
+        let limits = RouteLimits {
+            agents: 0,
+            skills: 0,
+            rules: 0,
+            memory: 0,
+        };
+        let ws_tags = vec!["rust".to_string(), "cargo".to_string()];
+        // 1. Rust workspace, non-web query: react workflow is domain-incompatible and filtered out, engineering-safety selected
+        let resp = build_route_response(
+            &scored,
+            &limits,
+            "implementing",
+            800,
+            None,
+            None,
+            &ws_tags,
+            "verify safety gates before release",
+        );
+        assert_eq!(resp.suggested_workflow.as_deref(), Some("engineering-safety"));
+
+        // 2. Explicit react prompt allows react workflow
+        let resp_explicit = build_route_response(
+            &scored,
+            &limits,
+            "implementing",
+            800,
+            None,
+            None,
+            &ws_tags,
+            "run react component pipeline",
+        );
+        assert_eq!(resp_explicit.suggested_workflow.as_deref(), Some("react-component-pipeline"));
+    }
+
+    #[test]
+    fn agent_and_rule_domain_and_gap_filtering() {
+        let scored = vec![
+            agent("rust-architect", 0.90),
+            agent("react-frontend-dev", 0.82),
+            agent("rust-junior-assistant", 0.55),
+            rule("rust-safety-rule", 0.88, "Always use RAII and avoid unwrap"),
+            rule("react-hooks-rule", 0.84, "Always follow React hooks rules"),
+            rule("rust-minor-style", 0.50, "Prefer snake_case identifiers"),
+        ];
+        let limits = RouteLimits {
+            agents: 5,
+            skills: 0,
+            rules: 5,
+            memory: 0,
+        };
+        let ws_tags = vec!["rust".to_string(), "cargo".to_string()];
+        let resp = build_route_response(
+            &scored,
+            &limits,
+            "implementing",
+            800,
+            None,
+            None,
+            &ws_tags,
+            "design rust architecture",
+        );
+        // Agents: react-frontend-dev filtered by domain; rust-junior-assistant (0.55) dropped by relative gap
+        assert_eq!(resp.recommended_agents.len(), 1);
+        assert_eq!(resp.recommended_agents[0].name, "rust-architect");
+
+        // Rules: react-hooks-rule filtered by domain; rust-minor-style (0.50) dropped by relative gap
+        assert_eq!(resp.applicable_rules.len(), 1);
+        assert_eq!(resp.applicable_rules[0].topic, "rust-safety-rule");
     }
 }

@@ -187,8 +187,18 @@ pub fn sync_index_opts(
     }
 
     // Index workflow definitions
-    let workflow_dirs = &config.workflow_dirs;
-    let workflows = crate::workflow_indexer::discover_workflows(workflow_dirs);
+    let mut workflow_dirs = config.workflow_dirs.clone();
+    if let Some(ref r) = cwd.and_then(crate::config::find_repo_root) {
+        let spine_dir = r.join(".spine");
+        if spine_dir.is_dir() {
+            workflow_dirs.push(spine_dir);
+        }
+        let wf_dir = r.join("workflows");
+        if wf_dir.is_dir() {
+            workflow_dirs.push(wf_dir);
+        }
+    }
+    let workflows = crate::workflow_indexer::discover_workflows(&workflow_dirs);
     for (path, wf) in &workflows {
         let source_path = path.display().to_string();
         let hash = content_hash(&serde_json::to_string(wf).unwrap_or_default());
@@ -205,11 +215,23 @@ pub fn sync_index_opts(
             continue;
         }
         let mtime = file_mtime_of(path);
-        let text = serde_json::to_string_pretty(wf).unwrap_or_default();
+        let slug = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| wf.name.to_lowercase().replace(' ', "-"));
+        let mut desc = format!("Workflow: {}\nSlug: {}\n", wf.name, slug);
+        if let Some(ref d) = wf.description {
+            desc.push_str(&format!("Description: {}\n", d));
+        }
+        for node in &wf.nodes {
+            if let Some(ref nd) = node.description {
+                desc.push_str(&format!("- {}: {}\n", node.name, nd));
+            }
+        }
         let item = ParsedItem {
             item_type: ItemType::Workflow,
-            topic: wf.name.clone(),
-            text,
+            topic: slug,
+            text: desc,
             source_path,
             scope: "global".into(),
             scope_key: None,

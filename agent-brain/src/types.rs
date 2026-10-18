@@ -265,6 +265,8 @@ pub struct RouteTaskResponse {
     pub briefing: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suggested_workflow: Option<String>,
     #[serde(default)]
     pub route_confidence: f64,
     #[serde(default)]

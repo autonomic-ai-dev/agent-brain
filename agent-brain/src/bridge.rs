@@ -50,12 +50,29 @@ pub fn enrich_route_response(
     resp: &mut RouteTaskResponse,
     scored: &[ScoredItem],
     task_kind: TaskKind,
+    _user_message: &str,
 ) {
     resp.task_kind = Some(task_kind.as_str().to_string());
     resp.route_confidence = compute_route_confidence(resp, scored);
     hydrate_high_confidence_skills(resp);
     resp.context_bundle = Some(build_context_bundle(resp, scored));
     resp.escalate_recommended = should_escalate(resp, task_kind);
+
+    // Fallback: If vector search did not surface a specific workflow, select default based on task_kind
+    if resp.suggested_workflow.is_none() {
+        let default_wf = match task_kind {
+            TaskKind::Verification | TaskKind::Implementing | TaskKind::Debugging => "engineering-safety",
+            TaskKind::Review => "deep-code-review",
+            TaskKind::Architecture => "system-architect",
+        };
+        resp.suggested_workflow = Some(default_wf.to_string());
+        if resp.must_apply.len() < 3 {
+            resp.must_apply.push(crate::types::MustApply {
+                topic: "spine-workflow".into(),
+                text: format!("Recommended Spine workflow: `{default_wf}`. Orchestrate via `spine_submit_workflow` (workflow=\"{default_wf}\") or `agent-spine run --workflow {default_wf}`."),
+            });
+        }
+    }
 }
 
 const SKILL_AUTOLOAD_MIN_SCORE: f64 = 0.8;
@@ -298,5 +315,16 @@ mod tests {
         }];
         let c = compute_route_confidence(&resp, &scored);
         assert!(c > 0.5);
+    }
+
+    #[test]
+    fn test_workflow_fallback_by_task_kind() {
+        let mut resp = RouteTaskResponse::default();
+        enrich_route_response(&mut resp, &[], TaskKind::Verification, "verify clippy");
+        assert_eq!(resp.suggested_workflow.as_deref(), Some("engineering-safety"));
+
+        let mut resp_rev = RouteTaskResponse::default();
+        enrich_route_response(&mut resp_rev, &[], TaskKind::Review, "review PR");
+        assert_eq!(resp_rev.suggested_workflow.as_deref(), Some("deep-code-review"));
     }
 }
