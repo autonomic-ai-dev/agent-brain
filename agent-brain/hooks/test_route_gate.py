@@ -60,6 +60,27 @@ class RouteGateTests(unittest.TestCase):
         )
         self.assertFalse(load_state().get("needs_route"))
 
+    def test_post_tool_use_clears_gate_with_list_shaped_tool_response(self) -> None:
+        from route_gate import STATE_PATH, handle_post_tool_use, load_state, save_state, set_active_session
+
+        set_active_session("global")
+        STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        save_state({"needs_route": True})
+        inner_payload = {
+            "recommended_skills": [{"name": "rust-testing"}],
+            "tokens_used": 120,
+        }
+        # Claude Code returns a list of content blocks in tool_response / tool_result
+        list_response = [{"type": "text", "text": json.dumps(inner_payload)}]
+        handle_post_tool_use(
+            {
+                "hook_event_name": "PostToolUse",
+                "tool_name": "mcp__agent-brain__route_task",
+                "tool_response": list_response,
+            }
+        )
+        self.assertFalse(load_state().get("needs_route"))
+
     def test_cursor_mcp_tool_names(self) -> None:
         for name in (
             "mcp_agent-brain_route_task",

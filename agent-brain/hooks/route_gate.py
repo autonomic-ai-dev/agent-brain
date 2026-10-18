@@ -358,6 +358,8 @@ def parse_json_value(raw: object) -> object | None:
 
 def unwrap_mcp_payload(data: object) -> dict | None:
     parsed = parse_json_value(data)
+    if isinstance(parsed, list):
+        parsed = {"content": parsed}
     if not isinstance(parsed, dict):
         return None
 
