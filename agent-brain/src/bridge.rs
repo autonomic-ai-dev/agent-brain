@@ -46,55 +46,11 @@ pub fn limits_for_task_kind(kind: TaskKind, base: RouteLimits) -> RouteLimits {
     }
 }
 
-pub fn infer_suggested_workflow(task_kind: TaskKind, user_message: &str) -> Option<&'static str> {
-    let lower = user_message.to_lowercase();
-    if lower.contains("migration") || lower.contains("schema") || lower.contains("sql") {
-        Some("database-migration")
-    } else if lower.contains("security")
-        || lower.contains("vulnerability")
-        || lower.contains("cve")
-        || lower.contains("audit")
-    {
-        Some("security-patcher")
-    } else if lower.contains("pr review") || (lower.contains("review") && !lower.contains("preview")) {
-        Some("deep-code-review")
-    } else if lower.contains("refactor") || lower.contains("rewrite") {
-        Some("brutal-refactor")
-    } else if lower.contains("architect")
-        || lower.contains("system design")
-        || lower.contains("design doc")
-    {
-        Some("system-architect")
-    } else if lower.contains("incident")
-        || lower.contains("root cause")
-        || lower.contains("outage")
-        || lower.contains("crash")
-    {
-        Some("root-cause-analysis")
-    } else if lower.contains("spec") || lower.contains("prd") {
-        Some("feature-from-spec")
-    } else if matches!(
-        task_kind,
-        TaskKind::Verification | TaskKind::Implementing | TaskKind::Debugging
-    ) || lower.contains("safety")
-        || lower.contains("gate")
-        || lower.contains("release")
-        || lower.contains("fix")
-        || lower.contains("bug")
-    {
-        Some("engineering-safety")
-    } else if lower.contains("workflow") || lower.contains("task") || lower.contains("implement") {
-        Some("universal-developer")
-    } else {
-        None
-    }
-}
-
 pub fn enrich_route_response(
     resp: &mut RouteTaskResponse,
     scored: &[ScoredItem],
     task_kind: TaskKind,
-    user_message: &str,
+    _user_message: &str,
 ) {
     resp.task_kind = Some(task_kind.as_str().to_string());
     resp.route_confidence = compute_route_confidence(resp, scored);
@@ -102,12 +58,20 @@ pub fn enrich_route_response(
     resp.context_bundle = Some(build_context_bundle(resp, scored));
     resp.escalate_recommended = should_escalate(resp, task_kind);
 
-    if let Some(wf) = infer_suggested_workflow(task_kind, user_message) {
-        resp.suggested_workflow = Some(wf.to_string());
-        resp.must_apply.push(crate::types::MustApply {
-            topic: "spine-workflow".into(),
-            text: format!("Recommended Spine workflow: `{wf}`. Orchestrate via `spine_submit_workflow` (workflow=\"{wf}\") or `agent-spine run --workflow {wf}`."),
-        });
+    // Fallback: If vector search did not surface a specific workflow, select default based on task_kind
+    if resp.suggested_workflow.is_none() {
+        let default_wf = match task_kind {
+            TaskKind::Verification | TaskKind::Implementing | TaskKind::Debugging => "engineering-safety",
+            TaskKind::Review => "deep-code-review",
+            TaskKind::Architecture => "system-architect",
+        };
+        resp.suggested_workflow = Some(default_wf.to_string());
+        if resp.must_apply.len() < 3 {
+            resp.must_apply.push(crate::types::MustApply {
+                topic: "spine-workflow".into(),
+                text: format!("Recommended Spine workflow: `{default_wf}`. Orchestrate via `spine_submit_workflow` (workflow=\"{default_wf}\") or `agent-spine run --workflow {default_wf}`."),
+            });
+        }
     }
 }
 
@@ -354,26 +318,13 @@ mod tests {
     }
 
     #[test]
-    fn test_infer_suggested_workflow_mapping() {
-        assert_eq!(
-            infer_suggested_workflow(TaskKind::Implementing, "run database migration for user table"),
-            Some("database-migration")
-        );
-        assert_eq!(
-            infer_suggested_workflow(TaskKind::Implementing, "fix critical CVE security vulnerability in parser"),
-            Some("security-patcher")
-        );
-        assert_eq!(
-            infer_suggested_workflow(TaskKind::Review, "conduct pr review of auth module"),
-            Some("deep-code-review")
-        );
-        assert_eq!(
-            infer_suggested_workflow(TaskKind::Verification, "verify engineering safety release and clippy gates"),
-            Some("engineering-safety")
-        );
-        assert_eq!(
-            infer_suggested_workflow(TaskKind::Implementing, "refactor the AST engine"),
-            Some("brutal-refactor")
-        );
+    fn test_workflow_fallback_by_task_kind() {
+        let mut resp = RouteTaskResponse::default();
+        enrich_route_response(&mut resp, &[], TaskKind::Verification, "verify clippy");
+        assert_eq!(resp.suggested_workflow.as_deref(), Some("engineering-safety"));
+
+        let mut resp_rev = RouteTaskResponse::default();
+        enrich_route_response(&mut resp_rev, &[], TaskKind::Review, "review PR");
+        assert_eq!(resp_rev.suggested_workflow.as_deref(), Some("deep-code-review"));
     }
 }

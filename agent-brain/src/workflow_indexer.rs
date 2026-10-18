@@ -7,7 +7,11 @@ use walkdir::WalkDir;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkflowDef {
     pub name: String,
-    pub start_node: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub start_node: Option<String>,
+    #[serde(default)]
     pub nodes: Vec<WorkflowNodeDef>,
 }
 

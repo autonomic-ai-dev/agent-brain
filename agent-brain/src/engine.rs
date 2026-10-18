@@ -1332,15 +1332,22 @@ fn try_add_route_item(
             (PendingRec::Memory(rec), t)
         }
         ItemType::Workflow => {
-            if resp.must_apply.len() < 3 {
-                let rec = MustApply {
-                    topic: "trigger_workflow".to_string(),
-                    text: item.text.clone(),
-                };
-                let t = estimate_json_tokens(&serde_json::to_value(&rec).unwrap_or_default());
-                if resp.tokens_used + t <= max_tokens {
-                    resp.tokens_used += t;
-                    resp.must_apply.push(rec);
+            if resp.suggested_workflow.is_none() && item.score >= 0.35 {
+                let workflow_slug = item.topic.clone();
+                resp.suggested_workflow = Some(workflow_slug.clone());
+                if resp.must_apply.len() < 3 {
+                    let rec = MustApply {
+                        topic: "spine-workflow".to_string(),
+                        text: format!(
+                            "Recommended Spine workflow: `{}` (relevance: {:.2}). Orchestrate via `spine_submit_workflow` (workflow=\"{}\") or `agent-spine run --workflow {}`.",
+                            workflow_slug, item.score, workflow_slug, workflow_slug
+                        ),
+                    };
+                    let t = estimate_json_tokens(&serde_json::to_value(&rec).unwrap_or_default());
+                    if resp.tokens_used + t <= max_tokens {
+                        resp.tokens_used += t;
+                        resp.must_apply.push(rec);
+                    }
                 }
             }
             return;
