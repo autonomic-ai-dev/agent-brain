@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0-beta.3.6] - 2026-10-18
+
+### Added
+- **Claude Code Stop gate** (`agent-brain stop-gate`): blocks ending a turn after repo edits until a passing `agent-brain verify` run is recorded after the last edit. Allows up to three blocks per edit and session, then stops with a logged warning.
+- **Claude Code commit gate** (`agent-brain commit-gate`): denies `git commit` with `--no-verify`, `-n`, or a `core.hooksPath` override.
+- **Coding policy for Claude Code**: `install --claude-code` writes the policy to `~/.claude/rules/agent-brain-coding-policy.md`, so it loads without editing `CLAUDE.md`.
+- **Routed tool choice** in the Claude route rule (`instructions-version` 10): pick shell and organ tools from `route_task` `suggested_tools`, prefer agent-body, and report skips and fallbacks.
+- `install --claude-code` warns when `python3` is missing, since the route gate needs it.
+
+### Fixed
+- `verify -- <cmd>` enforces the `.verify/verify.toml` allowlist. The allowlist was defined but never checked on the run path.
+- `verify record` rejects `cli` and `orchestrator` sources, so gate evidence must come from commands that actually ran.
+- Route gate allows ToolSearch and meta discovery tools, which resolves a circular deadlock in Claude Code, and accepts list-shaped MCP tool responses.
+- Install no longer removes a user's own catch-all `PreToolUse` hooks. Agent-brain gate hooks are written in one fragment, so later writes do not remove earlier ones.
+
+### Changed
+- `doctor` refresh detects Claude Code installs that lack the Stop and commit gates.
+- Bumped patch version to `1.0.0-beta.3.6`.
+
 ## [1.0.0-beta.3.5] - 2026-10-18
 
 ### Fixed
