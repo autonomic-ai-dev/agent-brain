@@ -68,8 +68,12 @@ pub fn suggest_upstream_tools(
 
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
+    let top_score = scored.first().map(|s| s.0).unwrap_or(0.0);
+    let min_relative = (top_score * 0.50).max(top_score - 1.5);
+
     scored
         .into_iter()
+        .filter(|(score, _)| *score >= min_relative)
         .take(limit)
         .map(|(score, tool)| {
             let hist_note = match history_adjustments.get(&tool.name).copied() {
