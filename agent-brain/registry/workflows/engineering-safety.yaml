@@ -1,0 +1,63 @@
+name: Engineering Safety
+version: 1
+min_spine_version: "0.8.0"
+start_node: Understand
+
+nodes:
+  - name: Understand
+    kind: hydrate
+    description: "Gate 1: Gathers context from the repository — callers, interfaces, type contracts, current test suite, and git status."
+    retry_policy:
+      max_attempts: 3
+      backoff_ms: 500
+
+  - name: PredictFailure
+    kind: agent
+    description: "Gate 2: Conducts failure-mode pre-analysis — enumerates invariants, boundary conditions, failure paths, compatibility, and rollback requirements."
+    retry_policy:
+      max_attempts: 3
+      backoff_ms: 500
+
+  - name: Implement
+    kind: agent
+    description: "Gate 3: Implements minimal diff satisfying requirements while strictly preserving contracts and immutability."
+    retry_policy:
+      max_attempts: 2
+      backoff_ms: 1000
+
+  - name: AttemptToBreak
+    kind: checkpoint
+    description: "Gate 4: Executes regression tests, edge-case tests, static analysis (clippy), and fault injection."
+    retry_policy:
+      max_attempts: 2
+      backoff_ms: 1000
+
+  - name: QualityGate
+    kind: verify
+    description: "Machine-evaluates test exit codes, AST lint outputs, and verification evidence. Rejects unearned certainty."
+
+  - name: ReviewGate
+    kind: approval_gate
+    description: "Gate 5: External verification gate (agent-mouth / human approval) certifying machine evidence before release."
+
+  - name: VerifiedRelease
+    kind: agent
+    description: "Generates verified release report with observable evidence, tested failure modes, and explicit unresolved risks."
+
+edges:
+  - from: Understand
+    to: PredictFailure
+  - from: PredictFailure
+    to: Implement
+  - from: Implement
+    to: AttemptToBreak
+  - from: AttemptToBreak
+    to: QualityGate
+  - from: QualityGate
+    to: ReviewGate
+    condition: state.verified == true
+  - from: QualityGate
+    to: Implement
+    condition: state.verified == false
+  - from: ReviewGate
+    to: VerifiedRelease

@@ -72,6 +72,51 @@ fn is_zero(n: &usize) -> bool {
     *n == 0
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct DirectoryEntry {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+    pub is_file: bool,
+    pub is_symlink: bool,
+    pub size_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modified_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ListDirectoryResponse {
+    pub path: String,
+    pub entries: Vec<DirectoryEntry>,
+    pub entry_count: usize,
+    pub total_entries: usize,
+    pub truncated: bool,
+    pub tokens_used: usize,
+    pub tokens_budget: usize,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FileMatch {
+    pub path: String,
+    pub name: String,
+    pub is_dir: bool,
+    pub size_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FindFilesResponse {
+    pub root: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extension: Option<String>,
+    pub matches: Vec<FileMatch>,
+    pub match_count: usize,
+    pub truncated: bool,
+    pub tokens_used: usize,
+    pub tokens_budget: usize,
+}
+
 pub fn resolve_tool_path(path: &str, cwd: Option<&Path>) -> Result<PathBuf> {
     let raw = PathBuf::from(path);
     let joined = if raw.is_absolute() {
@@ -217,6 +262,250 @@ pub fn read_file_tail(
     )
 }
 
+pub fn read_file(
+    path: &Path,
+    start_line: usize,
+    end_line: usize,
+    max_bytes: usize,
+    allow_blocked: bool,
+    max_tokens: usize,
+) -> Result<TokenToolResponse> {
+    if is_blocked_path(path, allow_blocked) {
+        bail!("path is in a blocked directory (dist/, node_modules/, etc.); set allow_blocked_paths=true with user approval");
+    }
+    if !path.is_file() {
+        bail!("not a file: {}", path.display());
+    }
+    let file_bytes = std::fs::metadata(path)?.len();
+    let total_lines = count_lines(path)?;
+    let start = start_line.max(1);
+    let end = end_line.max(start).min(start + DEFAULT_MAX_LINES);
+    let mut out = String::new();
+    let mut lines_returned = 0usize;
+    let mut bytes_read = 0usize;
+    let mut reader = BufReader::new(File::open(path).context("open file")?);
+    let mut current_line = 1usize;
+    loop {
+        if current_line > end {
+            break;
+        }
+        match read_bounded_line(&mut reader, max_bytes.min(MAX_GREP_LINE_BYTES)) {
+            Ok(None) => break,
+            Ok(Some(line)) => {
+                if current_line >= start {
+                    let chunk = format!("{line}\n");
+                    if bytes_read + chunk.len() > max_bytes {
+                        break;
+                    }
+                    out.push_str(&chunk);
+                    bytes_read += chunk.len();
+                    lines_returned += 1;
+                }
+                current_line += 1;
+            }
+            Err(BoundedLineError::Oversized) => {
+                current_line += 1;
+                continue;
+            }
+            Err(BoundedLineError::Io(e)) => return Err(e).context("read line"),
+        }
+    }
+    let full_estimate = estimate_tokens(&std::fs::read_to_string(path).unwrap_or_default());
+    build_response(
+        path,
+        out,
+        max_tokens,
+        lines_returned,
+        Some(total_lines),
+        Some(file_bytes),
+        Some(full_estimate),
+    )
+}
+
+pub fn list_directory(
+    path: &Path,
+    max_entries: usize,
+    include_hidden: bool,
+    allow_blocked: bool,
+    max_tokens: usize,
+) -> Result<ListDirectoryResponse> {
+    if is_blocked_path(path, allow_blocked) {
+        bail!("path is in a blocked directory (dist/, node_modules/, etc.); set allow_blocked_paths=true with user approval");
+    }
+    if !path.is_dir() {
+        bail!("not a directory: {}", path.display());
+    }
+
+    let mut raw_entries = Vec::new();
+    for entry in std::fs::read_dir(path).context("read directory")? {
+        let entry = entry?;
+        let file_name = entry.file_name().to_string_lossy().to_string();
+        if !include_hidden && file_name.starts_with('.') {
+            continue;
+        }
+        let full_path = entry.path();
+        if is_blocked_path(&full_path, allow_blocked) {
+            continue;
+        }
+        let file_type = entry.file_type().ok();
+        let metadata = entry.metadata().ok();
+        let size_bytes = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+        let modified_ms = metadata
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as u64);
+
+        raw_entries.push(DirectoryEntry {
+            name: file_name,
+            path: full_path.to_string_lossy().to_string(),
+            is_dir: file_type.as_ref().map(|t| t.is_dir()).unwrap_or(false),
+            is_file: file_type.as_ref().map(|t| t.is_file()).unwrap_or(false),
+            is_symlink: file_type.as_ref().map(|t| t.is_symlink()).unwrap_or(false),
+            size_bytes,
+            modified_ms,
+        });
+    }
+
+    // Sort: directories first, then alphabetical by name
+    raw_entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+    });
+
+    let total_entries = raw_entries.len();
+    let limit = max_entries.clamp(1, 500);
+    let mut selected = Vec::new();
+    let mut truncated = false;
+
+    for entry in raw_entries {
+        if selected.len() >= limit {
+            truncated = true;
+            break;
+        }
+        selected.push(entry);
+        let current_json = serde_json::to_string(&selected).unwrap_or_default();
+        let tokens = estimate_tokens(&current_json);
+        if tokens > max_tokens && selected.len() > 1 {
+            selected.pop();
+            truncated = true;
+            break;
+        }
+    }
+
+    let tokens_used = estimate_tokens(&serde_json::to_string(&selected).unwrap_or_default());
+    Ok(ListDirectoryResponse {
+        path: path.to_string_lossy().to_string(),
+        entry_count: selected.len(),
+        entries: selected,
+        total_entries,
+        truncated,
+        tokens_used,
+        tokens_budget: max_tokens,
+    })
+}
+
+pub fn find_files(
+    root: &Path,
+    pattern: Option<&str>,
+    extension: Option<&str>,
+    max_depth: usize,
+    max_matches: usize,
+    allow_blocked: bool,
+    max_tokens: usize,
+) -> Result<FindFilesResponse> {
+    if is_blocked_path(root, allow_blocked) {
+        bail!(
+            "root path is in a blocked directory; set allow_blocked_paths=true with user approval"
+        );
+    }
+    if !root.is_dir() {
+        bail!("not a directory: {}", root.display());
+    }
+
+    let pattern_lower = pattern.map(|p| p.to_lowercase());
+    let ext_lower = extension.map(|e| e.trim_start_matches('.').to_lowercase());
+    let limit = max_matches.clamp(1, 500);
+
+    let walker = WalkDir::new(root)
+        .max_depth(max_depth.clamp(1, 30))
+        .follow_links(false)
+        .into_iter();
+
+    let mut matches = Vec::new();
+    let mut truncated = false;
+
+    for entry in walker {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        let path = entry.path();
+        if path == root {
+            continue;
+        }
+
+        if is_blocked_path(path, allow_blocked) {
+            continue;
+        }
+
+        let name = entry.file_name().to_string_lossy().to_string();
+        if let Some(ref ext) = ext_lower {
+            if path
+                .extension()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_lowercase())
+                != Some(ext.clone())
+            {
+                continue;
+            }
+        }
+
+        if let Some(ref pat) = pattern_lower {
+            let path_str = path.to_string_lossy().to_lowercase();
+            if !name.to_lowercase().contains(pat) && !path_str.contains(pat) {
+                continue;
+            }
+        }
+
+        let file_type = entry.file_type();
+        let is_dir = file_type.is_dir();
+        let size_bytes = entry.metadata().map(|m| m.len()).unwrap_or(0);
+
+        matches.push(FileMatch {
+            path: path.to_string_lossy().to_string(),
+            name,
+            is_dir,
+            size_bytes,
+        });
+
+        if matches.len() >= limit {
+            truncated = true;
+            break;
+        }
+
+        let current_json = serde_json::to_string(&matches).unwrap_or_default();
+        if estimate_tokens(&current_json) > max_tokens && matches.len() > 1 {
+            matches.pop();
+            truncated = true;
+            break;
+        }
+    }
+
+    let tokens_used = estimate_tokens(&serde_json::to_string(&matches).unwrap_or_default());
+    Ok(FindFilesResponse {
+        root: root.to_string_lossy().to_string(),
+        pattern: pattern.map(String::from),
+        extension: extension.map(String::from),
+        match_count: matches.len(),
+        matches,
+        truncated,
+        tokens_used,
+        tokens_budget: max_tokens,
+    })
+}
+
 pub fn grep_search(
     pattern: &str,
     path: &Path,
@@ -358,7 +647,7 @@ fn read_bounded_line(
     loop {
         let chunk = {
             let available = match reader.fill_buf() {
-                Ok(b) if b.is_empty() => break,
+                Ok([]) => break,
                 Ok(b) => b,
                 Err(e) => return Err(BoundedLineError::Io(e)),
             };
@@ -400,7 +689,7 @@ fn skip_until_newline(reader: &mut impl BufRead) -> Result<(), BoundedLineError>
     loop {
         let (consume, done) = {
             let available = match reader.fill_buf() {
-                Ok(b) if b.is_empty() => return Ok(()),
+                Ok([]) => return Ok(()),
                 Ok(b) => b,
                 Err(e) => return Err(BoundedLineError::Io(e)),
             };
@@ -619,9 +908,17 @@ fn log_intent(lower: &str) -> bool {
 }
 
 fn verify_command_intent(lower: &str) -> bool {
-    ["verify", "test", "check", "clippy", "lint", "proof", "benchmark"]
-        .iter()
-        .any(|k| lower.contains(k))
+    [
+        "verify",
+        "test",
+        "check",
+        "clippy",
+        "lint",
+        "proof",
+        "benchmark",
+    ]
+    .iter()
+    .any(|k| lower.contains(k))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -759,6 +1056,65 @@ mod tests {
         let resp = grep_search("needle", &path, 10, false, false, 500).unwrap();
         assert_eq!(resp.matches.len(), 1);
         assert_eq!(resp.matches[0].line_number, 2);
+    }
+
+    #[test]
+    fn test_read_file_range() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("numbered.txt");
+        let content = (1..=20)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(&path, content).unwrap();
+
+        let resp = read_file(&path, 5, 8, 4096, false, 500).unwrap();
+        assert_eq!(resp.lines_returned, 4);
+        assert!(resp.content.contains("line 5"));
+        assert!(resp.content.contains("line 8"));
+        assert!(!resp.content.contains("line 4"));
+        assert!(!resp.content.contains("line 9"));
+    }
+
+    #[test]
+    fn test_list_directory_returns_sorted_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("sub_dir")).unwrap();
+        std::fs::write(dir.path().join("file_b.txt"), "hello").unwrap();
+        std::fs::write(dir.path().join("file_a.txt"), "world").unwrap();
+        std::fs::write(dir.path().join(".hidden"), "secret").unwrap();
+
+        let resp = list_directory(dir.path(), 50, false, false, 500).unwrap();
+        assert_eq!(resp.total_entries, 3); // 1 dir + 2 non-hidden files
+        assert_eq!(resp.entries[0].name, "sub_dir");
+        assert!(resp.entries[0].is_dir);
+        assert_eq!(resp.entries[1].name, "file_a.txt");
+        assert_eq!(resp.entries[2].name, "file_b.txt");
+
+        // Hidden entries included when requested
+        let resp_hidden = list_directory(dir.path(), 50, true, false, 500).unwrap();
+        assert_eq!(resp_hidden.total_entries, 4);
+    }
+
+    #[test]
+    fn test_find_files_pattern_and_extension() {
+        let dir = tempfile::tempdir().unwrap();
+        let sub = dir.path().join("src");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::write(sub.join("main.rs"), "fn main() {}").unwrap();
+        std::fs::write(sub.join("lib.rs"), "pub mod foo;").unwrap();
+        std::fs::write(sub.join("readme.md"), "# Hello").unwrap();
+
+        // Filter by extension
+        let resp_ext = find_files(dir.path(), None, Some("rs"), 5, 50, false, 500).unwrap();
+        assert_eq!(resp_ext.match_count, 2);
+        assert!(resp_ext.matches.iter().any(|m| m.name == "main.rs"));
+        assert!(resp_ext.matches.iter().any(|m| m.name == "lib.rs"));
+
+        // Filter by pattern
+        let resp_pat = find_files(dir.path(), Some("main"), None, 5, 50, false, 500).unwrap();
+        assert_eq!(resp_pat.match_count, 1);
+        assert_eq!(resp_pat.matches[0].name, "main.rs");
     }
 
     #[test]

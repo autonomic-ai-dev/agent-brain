@@ -5,13 +5,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{UnixListener, UnixStream};
-use tokio::time::sleep;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, Content, Implementation, ServerCapabilities, ServerInfo};
 use rmcp::{tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler, ServiceExt};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::net::{UnixListener, UnixStream};
+use tokio::time::sleep;
 
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -159,7 +159,6 @@ struct GetCacheSavingsParams {
 fn default_telemetry_lookback() -> u32 {
     30
 }
-
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct RecordVerifyOutcomeParams {
@@ -337,6 +336,77 @@ fn default_grep_matches() -> usize {
     crate::token_tools::DEFAULT_GREP_MAX_MATCHES
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+struct ListDirectoryParams {
+    path: String,
+    #[serde(default)]
+    current_working_directory: Option<String>,
+    #[serde(default = "default_max_directory_entries")]
+    max_entries: usize,
+    #[serde(default)]
+    include_hidden: bool,
+    #[serde(default)]
+    allow_blocked_paths: bool,
+    #[serde(default = "default_max_tokens")]
+    max_tokens: usize,
+}
+
+fn default_max_directory_entries() -> usize {
+    100
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct FindFilesParams {
+    path: String,
+    #[serde(default)]
+    current_working_directory: Option<String>,
+    #[serde(default)]
+    pattern: Option<String>,
+    #[serde(default)]
+    extension: Option<String>,
+    #[serde(default = "default_find_depth")]
+    max_depth: usize,
+    #[serde(default = "default_find_matches")]
+    max_matches: usize,
+    #[serde(default)]
+    allow_blocked_paths: bool,
+    #[serde(default = "default_max_tokens")]
+    max_tokens: usize,
+}
+
+fn default_find_depth() -> usize {
+    10
+}
+
+fn default_find_matches() -> usize {
+    100
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct ReadFileParams {
+    path: String,
+    #[serde(default)]
+    current_working_directory: Option<String>,
+    #[serde(default = "default_start_line")]
+    start_line: usize,
+    #[serde(default = "default_end_line")]
+    end_line: usize,
+    #[serde(default = "default_read_bytes")]
+    max_bytes: usize,
+    #[serde(default)]
+    allow_blocked_paths: bool,
+    #[serde(default = "default_max_tokens")]
+    max_tokens: usize,
+}
+
+fn default_start_line() -> usize {
+    1
+}
+
+fn default_end_line() -> usize {
+    200
+}
+
 #[derive(Debug, Deserialize, JsonSchema, Default)]
 struct GetAutonomicCatalogParams {
     #[serde(default)]
@@ -512,7 +582,9 @@ struct GitLogParams {
     max_count: usize,
 }
 
-fn default_git_log_count() -> usize { 20 }
+fn default_git_log_count() -> usize {
+    20
+}
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct GitDiffParams {
@@ -533,7 +605,9 @@ struct GitTagsParams {
     max_count: usize,
 }
 
-fn default_git_tags_count() -> usize { 20 }
+fn default_git_tags_count() -> usize {
+    20
+}
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct GitCompareParams {
@@ -708,7 +782,6 @@ impl BrainMcp {
         json_result(value)
     }
 
-
     #[tool(
         description = "Record an already-known exit without wrapping the command (agent-asserted; not trusted for learning). Prefer `agent-brain verify -- <cmd>` or `--source orchestrator`. Hashes project-root `.verify/` when present. Does not require route_task."
     )]
@@ -770,7 +843,9 @@ impl BrainMcp {
         json_result(stats)
     }
 
-    #[tool(description = "Record LLM turn telemetry, calculate prompt/cache costs and savings, and sync with agent-heart usage governor.")]
+    #[tool(
+        description = "Record LLM turn telemetry, calculate prompt/cache costs and savings, and sync with agent-heart usage governor."
+    )]
     async fn record_turn_telemetry(
         &self,
         params: Parameters<RecordTurnTelemetryParams>,
@@ -796,7 +871,9 @@ impl BrainMcp {
         json_result(outcome)
     }
 
-    #[tool(description = "Get aggregated cache savings and token attribution report across recent agent turns.")]
+    #[tool(
+        description = "Get aggregated cache savings and token attribution report across recent agent turns."
+    )]
     async fn get_cache_savings_summary(
         &self,
         params: Parameters<GetCacheSavingsParams>,
@@ -977,9 +1054,12 @@ impl BrainMcp {
 
             let serialized = serde_json::to_string(&outcomes).unwrap_or_default();
             let structured_val = serde_json::to_value(&outcomes).ok();
-            let truncated =
-                crate::upstream::truncate_upstream_result(&serialized, structured_val.as_ref(), p.max_tokens)
-                    .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+            let truncated = crate::upstream::truncate_upstream_result(
+                &serialized,
+                structured_val.as_ref(),
+                p.max_tokens,
+            )
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
 
             if let Err(err) = crate::observability::log_upstream_call(
                 &self.engine.store,
@@ -1006,9 +1086,9 @@ impl BrainMcp {
             }));
         }
 
-        let tool_name = p.tool.ok_or_else(|| {
-            McpError::invalid_params("tool name or batch array required", None)
-        })?;
+        let tool_name = p
+            .tool
+            .ok_or_else(|| McpError::invalid_params("tool name or batch array required", None))?;
         let arguments = if p.arguments.is_null() {
             serde_json::json!({})
         } else {
@@ -1181,6 +1261,85 @@ impl BrainMcp {
     }
 
     #[tool(
+        description = "Read a specific line range from a file (1-indexed start_line to end_line). Token-bounded alternative to host cat/sed/awk."
+    )]
+    async fn read_file(
+        &self,
+        params: Parameters<ReadFileParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.require_route("read_file")?;
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let cwd = p.current_working_directory.as_ref().map(PathBuf::from);
+        let path = crate::token_tools::resolve_tool_path(&p.path, cwd.as_deref())
+            .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        let resp = crate::token_tools::read_file(
+            &path,
+            p.start_line,
+            p.end_line,
+            p.max_bytes,
+            p.allow_blocked_paths,
+            p.max_tokens,
+        )
+        .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        self.engine.record_file_access("read_file", &p.path);
+        self.log_token_tool("read_file", Some(&p.path), &resp);
+        json_result(resp)
+    }
+
+    #[tool(
+        description = "List files and subdirectories in a directory with types, sizes, and timestamps. Token-bounded alternative to host ls."
+    )]
+    async fn list_directory(
+        &self,
+        params: Parameters<ListDirectoryParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.require_route("list_directory")?;
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let cwd = p.current_working_directory.as_ref().map(PathBuf::from);
+        let path = crate::token_tools::resolve_tool_path(&p.path, cwd.as_deref())
+            .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        let resp = crate::token_tools::list_directory(
+            &path,
+            p.max_entries,
+            p.include_hidden,
+            p.allow_blocked_paths,
+            p.max_tokens,
+        )
+        .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        self.engine.record_file_access("list_directory", &p.path);
+        json_result(resp)
+    }
+
+    #[tool(
+        description = "Recursively find files matching name pattern, glob, or extension. Token-bounded alternative to host find."
+    )]
+    async fn find_files(
+        &self,
+        params: Parameters<FindFilesParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.require_route("find_files")?;
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let cwd = p.current_working_directory.as_ref().map(PathBuf::from);
+        let path = crate::token_tools::resolve_tool_path(&p.path, cwd.as_deref())
+            .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        let resp = crate::token_tools::find_files(
+            &path,
+            p.pattern.as_deref(),
+            p.extension.as_deref(),
+            p.max_depth,
+            p.max_matches,
+            p.allow_blocked_paths,
+            p.max_tokens,
+        )
+        .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        self.engine.record_file_access("find_files", &p.path);
+        json_result(resp)
+    }
+
+    #[tool(
         description = "Deep codebase navigation via graphify graph. Call for unfamiliar code paths — not every turn."
     )]
     async fn query_codebase(
@@ -1194,19 +1353,19 @@ impl BrainMcp {
 
         #[cfg(feature = "extras")]
         {
-self.require_route("query_codebase")?;
-        let _req = self.engine.mcp_activity.begin_request();
-        let p = params.0;
-        let repo = resolve_graphify_repo(p.current_working_directory.as_deref())?;
-        let settings = crate::settings::AgentBrainSettings::load(&self.engine.config.home);
-        let text = crate::graphify::query_codebase(
-            &repo,
-            &p.question,
-            p.max_tokens,
-            &settings.graphify.graphify_bin,
-        )
-        .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
-        json_result(serde_json::json!({ "answer": text }))
+            self.require_route("query_codebase")?;
+            let _req = self.engine.mcp_activity.begin_request();
+            let p = params.0;
+            let repo = resolve_graphify_repo(p.current_working_directory.as_deref())?;
+            let settings = crate::settings::AgentBrainSettings::load(&self.engine.config.home);
+            let text = crate::graphify::query_codebase(
+                &repo,
+                &p.question,
+                p.max_tokens,
+                &settings.graphify.graphify_bin,
+            )
+            .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+            json_result(serde_json::json!({ "answer": text }))
         }
     }
 
@@ -1224,28 +1383,28 @@ self.require_route("query_codebase")?;
 
         #[cfg(feature = "extras")]
         {
-self.require_route("trigger_deep_analysis")?;
-        let _req = self.engine.mcp_activity.begin_request();
-        let p = params.0;
-        let repo = resolve_graphify_repo(p.repo_root.as_deref())?;
-        let settings = crate::settings::AgentBrainSettings::load(&self.engine.config.home);
-        let mode = match p.mode.as_deref() {
-            Some("full") => crate::graphify::JobMode::Full,
-            _ => crate::graphify::JobMode::Update,
-        };
-        let job_id = crate::graphify::enqueue_job(
-            &self.engine,
-            &repo,
-            crate::graphify::JobTrigger::Agent,
-            mode,
-            &settings.graphify.graphify_bin,
-        )
-        .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-        json_result(serde_json::json!({
-            "job_id": job_id,
-            "status": "queued",
-            "reason": p.reason,
-        }))
+            self.require_route("trigger_deep_analysis")?;
+            let _req = self.engine.mcp_activity.begin_request();
+            let p = params.0;
+            let repo = resolve_graphify_repo(p.repo_root.as_deref())?;
+            let settings = crate::settings::AgentBrainSettings::load(&self.engine.config.home);
+            let mode = match p.mode.as_deref() {
+                Some("full") => crate::graphify::JobMode::Full,
+                _ => crate::graphify::JobMode::Update,
+            };
+            let job_id = crate::graphify::enqueue_job(
+                &self.engine,
+                &repo,
+                crate::graphify::JobTrigger::Agent,
+                mode,
+                &settings.graphify.graphify_bin,
+            )
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+            json_result(serde_json::json!({
+                "job_id": job_id,
+                "status": "queued",
+                "reason": p.reason,
+            }))
         }
     }
 
@@ -1261,12 +1420,12 @@ self.require_route("trigger_deep_analysis")?;
 
         #[cfg(feature = "extras")]
         {
-self.require_route("graphify_job_status")?;
-        let _req = self.engine.mcp_activity.begin_request();
-        let p = params.0;
-        let status = crate::graphify::job_status(&self.engine, &p.job_id)
-            .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
-        json_result(status)
+            self.require_route("graphify_job_status")?;
+            let _req = self.engine.mcp_activity.begin_request();
+            let p = params.0;
+            let status = crate::graphify::job_status(&self.engine, &p.job_id)
+                .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+            json_result(status)
         }
     }
 
@@ -1334,7 +1493,9 @@ self.require_route("graphify_job_status")?;
 
     // ── KG Phase 2: symbol navigation tools ────────────────
 
-    #[tool(description = "Search code symbols by name across the current repo. Optionally filter by language or file. Results are ranked by label similarity.")]
+    #[tool(
+        description = "Search code symbols by name across the current repo. Optionally filter by language or file. Results are ranked by label similarity."
+    )]
     async fn search_symbols(
         &self,
         #[allow(unused_variables)] params: Parameters<SearchSymbolsParams>,
@@ -1346,21 +1507,29 @@ self.require_route("graphify_job_status")?;
 
         #[cfg(feature = "extras")]
         {
-self.require_route("search_symbols")?;
-        let _req = self.engine.mcp_activity.begin_request();
-        let p = params.0;
-        let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
-        let repo_root = path.display().to_string();
-        let results = self
-            .engine
-            .store
-            .search_symbols(&repo_root, &p.query, p.language.as_deref(), p.file.as_deref(), p.limit)
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-        json_result(results)
+            self.require_route("search_symbols")?;
+            let _req = self.engine.mcp_activity.begin_request();
+            let p = params.0;
+            let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
+            let repo_root = path.display().to_string();
+            let results = self
+                .engine
+                .store
+                .search_symbols(
+                    &repo_root,
+                    &p.query,
+                    p.language.as_deref(),
+                    p.file.as_deref(),
+                    p.limit,
+                )
+                .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+            json_result(results)
         }
     }
 
-    #[tool(description = "Get the full definition (source + docstring) of a named symbol. Optionally scope to a file.")]
+    #[tool(
+        description = "Get the full definition (source + docstring) of a named symbol. Optionally scope to a file."
+    )]
     async fn get_symbol_definition(
         &self,
         #[allow(unused_variables)] params: Parameters<GetSymbolDefinitionParams>,
@@ -1372,21 +1541,23 @@ self.require_route("search_symbols")?;
 
         #[cfg(feature = "extras")]
         {
-self.require_route("get_symbol_definition")?;
-        let _req = self.engine.mcp_activity.begin_request();
-        let p = params.0;
-        let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
-        let repo_root = path.display().to_string();
-        let result = self
-            .engine
-            .store
-            .get_symbol_definition(&repo_root, &p.name, p.file.as_deref())
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-        json_result(result)
+            self.require_route("get_symbol_definition")?;
+            let _req = self.engine.mcp_activity.begin_request();
+            let p = params.0;
+            let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
+            let repo_root = path.display().to_string();
+            let result = self
+                .engine
+                .store
+                .get_symbol_definition(&repo_root, &p.name, p.file.as_deref())
+                .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+            json_result(result)
         }
     }
 
-    #[tool(description = "Get all symbols defined in a file, sorted by start line. Returns label, kind, lines, and source for each symbol.")]
+    #[tool(
+        description = "Get all symbols defined in a file, sorted by start line. Returns label, kind, lines, and source for each symbol."
+    )]
     async fn get_file_outline(
         &self,
         #[allow(unused_variables)] params: Parameters<GetFileOutlineParams>,
@@ -1398,21 +1569,23 @@ self.require_route("get_symbol_definition")?;
 
         #[cfg(feature = "extras")]
         {
-self.require_route("get_file_outline")?;
-        let _req = self.engine.mcp_activity.begin_request();
-        let p = params.0;
-        let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
-        let repo_root = path.display().to_string();
-        let results = self
-            .engine
-            .store
-            .get_file_outline(&repo_root, &p.path)
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-        json_result(results)
+            self.require_route("get_file_outline")?;
+            let _req = self.engine.mcp_activity.begin_request();
+            let p = params.0;
+            let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
+            let repo_root = path.display().to_string();
+            let results = self
+                .engine
+                .store
+                .get_file_outline(&repo_root, &p.path)
+                .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+            json_result(results)
         }
     }
 
-    #[tool(description = "Find all callers of a named symbol. Returns caller symbols with source locations.")]
+    #[tool(
+        description = "Find all callers of a named symbol. Returns caller symbols with source locations."
+    )]
     async fn find_callers(
         &self,
         #[allow(unused_variables)] params: Parameters<FindCallersParams>,
@@ -1424,21 +1597,23 @@ self.require_route("get_file_outline")?;
 
         #[cfg(feature = "extras")]
         {
-self.require_route("find_callers")?;
-        let _req = self.engine.mcp_activity.begin_request();
-        let p = params.0;
-        let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
-        let repo_root = path.display().to_string();
-        let results = self
-            .engine
-            .store
-            .find_callers(&repo_root, &p.name)
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-        json_result(results)
+            self.require_route("find_callers")?;
+            let _req = self.engine.mcp_activity.begin_request();
+            let p = params.0;
+            let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
+            let repo_root = path.display().to_string();
+            let results = self
+                .engine
+                .store
+                .find_callers(&repo_root, &p.name)
+                .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+            json_result(results)
         }
     }
 
-    #[tool(description = "Explore the local dependency graph around a symbol via BFS over code_graph_edges. Depth defaults to 2 hops (max 5).")]
+    #[tool(
+        description = "Explore the local dependency graph around a symbol via BFS over code_graph_edges. Depth defaults to 2 hops (max 5)."
+    )]
     async fn get_local_graph(
         &self,
         #[allow(unused_variables)] params: Parameters<GetLocalGraphParams>,
@@ -1450,23 +1625,25 @@ self.require_route("find_callers")?;
 
         #[cfg(feature = "extras")]
         {
-self.require_route("get_local_graph")?;
-        let _req = self.engine.mcp_activity.begin_request();
-        let p = params.0;
-        let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
-        let repo_root = path.display().to_string();
-        let results = self
-            .engine
-            .store
-            .get_local_graph(&repo_root, &p.name, p.depth)
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-        json_result(results)
+            self.require_route("get_local_graph")?;
+            let _req = self.engine.mcp_activity.begin_request();
+            let p = params.0;
+            let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
+            let repo_root = path.display().to_string();
+            let results = self
+                .engine
+                .store
+                .get_local_graph(&repo_root, &p.name, p.depth)
+                .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+            json_result(results)
         }
     }
 
     // ── Phase 6: scratchpad tools ───────────────────────────
 
-    #[tool(description = "Write a note to the cross-agent scratchpad. Other agents will see this in their next route_task briefing. Use context_type='decision' for binding decisions, 'insight' for observations, 'blocker' for stuck items.")]
+    #[tool(
+        description = "Write a note to the cross-agent scratchpad. Other agents will see this in their next route_task briefing. Use context_type='decision' for binding decisions, 'insight' for observations, 'blocker' for stuck items."
+    )]
     async fn write_scratchpad(
         &self,
         params: Parameters<WriteScratchpadParams>,
@@ -1479,12 +1656,20 @@ self.require_route("get_local_graph")?;
         let id = self
             .engine
             .store
-            .write_scratchpad(&repo_root, p.agent_id.as_deref(), &p.content, &p.context_type, p.tags.as_deref())
+            .write_scratchpad(
+                &repo_root,
+                p.agent_id.as_deref(),
+                &p.content,
+                &p.context_type,
+                p.tags.as_deref(),
+            )
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         json_result(serde_json::json!({"id": id}))
     }
 
-    #[tool(description = "Read recent scratchpad entries for this repo. Optionally filter by context_type (note/decision/insight/blocker). Ordered newest-first.")]
+    #[tool(
+        description = "Read recent scratchpad entries for this repo. Optionally filter by context_type (note/decision/insight/blocker). Ordered newest-first."
+    )]
     async fn read_scratchpad(
         &self,
         params: Parameters<ReadScratchpadParams>,
@@ -1502,7 +1687,9 @@ self.require_route("get_local_graph")?;
         json_result(entries)
     }
 
-    #[tool(description = "List recently indexed AST symbols (code_graph_nodes with ast_symbol), newest first. Useful to see what the indexer has discovered recently.")]
+    #[tool(
+        description = "List recently indexed AST symbols (code_graph_nodes with ast_symbol), newest first. Useful to see what the indexer has discovered recently."
+    )]
     async fn recent_symbols(
         &self,
         #[allow(unused_variables)] params: Parameters<RecentSymbolsParams>,
@@ -1514,17 +1701,17 @@ self.require_route("get_local_graph")?;
 
         #[cfg(feature = "extras")]
         {
-self.require_route("recent_symbols")?;
-        let _req = self.engine.mcp_activity.begin_request();
-        let p = params.0;
-        let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
-        let repo_root = path.display().to_string();
-        let results = self
-            .engine
-            .store
-            .recent_symbols(&repo_root, p.limit)
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-        json_result(results)
+            self.require_route("recent_symbols")?;
+            let _req = self.engine.mcp_activity.begin_request();
+            let p = params.0;
+            let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
+            let repo_root = path.display().to_string();
+            let results = self
+                .engine
+                .store
+                .recent_symbols(&repo_root, p.limit)
+                .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+            json_result(results)
         }
     }
 
@@ -1891,7 +2078,8 @@ async fn serve_health(addr: SocketAddr) {
                 tokio::spawn(async move {
                     let mut buf = [0u8; 1024];
                     let _ = stream.read(&mut buf).await;
-                    let resp = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK";
+                    let resp =
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK";
                     let _ = stream.write_all(resp).await;
                     let _ = stream.shutdown().await;
                 });
@@ -1997,12 +2185,17 @@ fn build_autonomic_catalog(organ_filter: Option<&str>, verbose: bool) -> serde_j
                 "store_memory",
                 "store_trajectory",
                 "record_verify_outcome",
+                "list_directory",
+                "find_files",
+                "read_file",
+                "read_file_head",
+                "read_file_tail",
                 "grep_search",
                 "file_summary",
                 "get_autonomic_catalog"
             ],
             "delegation_guideline": "Call route_task on EVERY turn. Call agent-brain verify -- <cmd> for tamper-evident test outcomes."
-        })
+        }),
     ];
 
     if let Some(filter) = organ_filter {
