@@ -813,6 +813,8 @@ impl Engine {
             max_tokens,
             project_key_opt,
             ws.repo_root.as_deref(),
+            &ws.tags,
+            user_message,
         );
         resp.index_total = index_total;
         if let Some(repo) = ws.repo_root.as_deref() {
@@ -1159,6 +1161,70 @@ fn is_duplicate_topic(seen: &mut HashSet<String>, item: &ScoredItem) -> bool {
     }
 }
 
+fn is_skill_domain_incompatible(
+    topic: &str,
+    path: &str,
+    ws_tags: &[String],
+    user_message: &str,
+) -> bool {
+    let msg_lower = user_message.to_lowercase();
+    let target = format!("{} {}", topic.to_lowercase(), path.to_lowercase());
+
+    let is_rust = ws_tags.iter().any(|t| t == "rust" || t == "cargo");
+    let is_python = ws_tags.iter().any(|t| t == "python");
+    let has_web = ws_tags.iter().any(|t| {
+        t == "node"
+            || t == "pnpm"
+            || t == "yarn"
+            || t == "npm"
+            || t == "typescript"
+            || t == "javascript"
+            || t == "web"
+    });
+
+    if (is_rust || is_python) && !has_web {
+        let web_markers = [
+            "react",
+            "nextjs",
+            "next.js",
+            "vue",
+            "svelte",
+            "tailwind",
+            "css",
+            "html",
+            "browser-dom",
+            "angular",
+            "frontend",
+            "jsx",
+            "tsx",
+            "vercel",
+        ];
+        let has_web_marker = web_markers.iter().any(|m| target.contains(m));
+        if has_web_marker {
+            let msg_has_web_intent = web_markers.iter().any(|m| msg_lower.contains(m));
+            if !msg_has_web_intent {
+                return true;
+            }
+        }
+    }
+
+    let is_js = ws_tags
+        .iter()
+        .any(|t| t == "typescript" || t == "javascript" || t == "node" || t == "pnpm");
+    if is_js && !is_rust {
+        let rust_markers = ["cargo", "clippy", "rust", "tokio", "diesel", "actix", "axum"];
+        let has_rust_marker = rust_markers.iter().any(|m| target.contains(m));
+        if has_rust_marker {
+            let msg_has_rust_intent = rust_markers.iter().any(|m| msg_lower.contains(m));
+            if !msg_has_rust_intent {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 fn build_route_response(
     scored: &[ScoredItem],
     limits: &RouteLimits,
@@ -1166,6 +1232,8 @@ fn build_route_response(
     max_tokens: usize,
     project_key: Option<&str>,
     repo_root: Option<&str>,
+    ws_tags: &[String],
+    user_message: &str,
 ) -> RouteTaskResponse {
     let mut resp = RouteTaskResponse {
         recommended_phase: phase.to_string(),
@@ -1186,10 +1254,12 @@ fn build_route_response(
         .map(|i| i.score)
         .fold(0.0_f64, f64::max);
     // Absolute skill floor when the index has a strong hit; avoid emptying weak fixtures.
-    let skill_floor = if top_skill >= 0.50 {
-        min_score.max(0.35)
+    let skill_floor = if top_skill >= 0.60 {
+        min_score.max(0.42)
+    } else if top_skill >= 0.45 {
+        min_score.max(0.38)
     } else {
-        min_score
+        min_score.max(0.35)
     };
     let agent_floor = min_score;
 
@@ -1210,8 +1280,17 @@ fn build_route_response(
         }
         // Margin: additional skills/agents must stay close to the top hit.
         if matches!(item.item_type, ItemType::Skill) {
+            if is_skill_domain_incompatible(
+                &item.topic,
+                item.source_path.as_deref().unwrap_or(""),
+                ws_tags,
+                user_message,
+            ) {
+                continue;
+            }
             if let Some(top) = resp.recommended_skills.first() {
-                if item.score < top.score - 0.25 {
+                let min_relative = (top.score * 0.70).max(top.score - 0.18);
+                if item.score < min_relative {
                     continue;
                 }
             }
@@ -1595,7 +1674,16 @@ mod tests {
             rules: 3,
             memory: 5,
         };
-        let resp = build_route_response(&scored, &limits, "implementing", 800, None, None);
+        let resp = build_route_response(
+            &scored,
+            &limits,
+            "implementing",
+            800,
+            None,
+            None,
+            &[],
+            "",
+        );
         assert!(
             resp.relevant_memory.iter().all(|m| {
                 !m.topic.starts_with("session-digest-")
@@ -1675,8 +1763,81 @@ mod tests {
             rules: 0,
             memory: 0,
         };
-        let resp = build_route_response(&scored, &limits, "planning", 800, None, None);
+        let resp = build_route_response(&scored, &limits, "planning", 800, None, None, &[], "");
         assert_eq!(resp.recommended_skills.len(), 1);
         assert_eq!(resp.recommended_skills[0].name, "rust-patterns");
+    }
+
+    #[test]
+    fn skill_domain_incompatibility_filter() {
+        let scored = vec![
+            skill("vercel-react-patterns", 0.85),
+            skill("rust-testing-guide", 0.75),
+        ];
+        let limits = RouteLimits {
+            agents: 0,
+            skills: 3,
+            rules: 0,
+            memory: 0,
+        };
+        let ws_tags = vec!["rust".to_string(), "cargo".to_string()];
+        // 1. Rust workspace without web, user prompt does not mention react -> react skill filtered out, rust skill kept
+        let resp = build_route_response(
+            &scored,
+            &limits,
+            "implementing",
+            800,
+            None,
+            None,
+            &ws_tags,
+            "implement tests for engine",
+        );
+        assert_eq!(resp.recommended_skills.len(), 1);
+        assert_eq!(resp.recommended_skills[0].name, "rust-testing-guide");
+
+        // 2. User prompt explicitly mentions react -> react skill allowed
+        let resp_explicit = build_route_response(
+            &scored,
+            &limits,
+            "implementing",
+            800,
+            None,
+            None,
+            &ws_tags,
+            "refactor react frontend",
+        );
+        assert_eq!(resp_explicit.recommended_skills.len(), 2);
+        assert_eq!(resp_explicit.recommended_skills[0].name, "vercel-react-patterns");
+    }
+
+    #[test]
+    fn skill_relative_dropoff_gap_drops_weak_secondary_skills() {
+        let scored = vec![
+            skill("rust-core-patterns", 0.90),
+            skill("rust-advanced-unsafe", 0.78),
+            skill("rust-random-utility", 0.55),
+        ];
+        let limits = RouteLimits {
+            agents: 0,
+            skills: 5,
+            rules: 0,
+            memory: 0,
+        };
+        let resp = build_route_response(
+            &scored,
+            &limits,
+            "implementing",
+            800,
+            None,
+            None,
+            &["rust".to_string()],
+            "refactor rust code",
+        );
+        // 0.90 top hit -> min_relative is max(0.90 * 0.70 = 0.63, 0.90 - 0.18 = 0.72) = 0.72.
+        // 0.78 >= 0.72 -> kept
+        // 0.55 < 0.72 -> dropped despite available limits
+        assert_eq!(resp.recommended_skills.len(), 2);
+        assert_eq!(resp.recommended_skills[0].name, "rust-core-patterns");
+        assert_eq!(resp.recommended_skills[1].name, "rust-advanced-unsafe");
     }
 }
