@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0-beta.3.5] - 2026-10-18
+
+### Added
+- **Semantic Vector & BM25 Spine Workflow Indexing**:
+  - Replaced brittle hardcoded `if-else` keyword routing with semantic vector indexing (FastEmbed dense vectors + BM25 full-text search) via `workflow_indexer.rs`.
+  - Automatically discovers and indexes workflows from `registry/workflows/`, `.spine/`, and repository `workflows/` directories.
+  - Added `engineering-safety.yaml` workflow implementing the machine-enforced 5-gate engineering safety policy into `agent-brain/registry/workflows/` and declared it in `manifest.json`.
+- **Domain-Aware Masking Across All Search Pipelines (`is_domain_incompatible`)**:
+  - Enforced contextual ecosystem filtering preventing irrelevant cross-domain items (e.g. React/Next.js/web frontend items in pure Rust/Python backends) from leaking into suggestions unless explicitly prompted by the user.
+  - Applied to Spine workflows, specialist agents, applicable rules, memories, and hard constraints (`MustApply`).
+- **Relative Drop-Off Gap Thresholding & Tight Token Budgeting**:
+  - Replaced flat, loose thresholds with dynamic relative score drop-off filtering ($\text{min\_relative} = \max(\text{top} \times 0.70, \;\text{top} - \text{margin})$).
+  - Eliminates slot-padding: if secondary items are not strongly relevant, return zero filler items rather than consuming tokens.
+  - Unified across `build_route_response`, `get_context`, and `suggest_upstream_tools`.
+
+### Changed
+- Bumped patch version to `1.0.0-beta.3.5`.
+
 ## [1.0.0-beta.3.4] - 2026-10-18
 
 ### Added
