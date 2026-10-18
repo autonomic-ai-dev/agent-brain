@@ -18,8 +18,13 @@ on:
       - ".github/pipelines/**"
       - ".github/actions/**"
       - ".github/scripts/**"
+      - "!**.md"
+      - "!docs/**"
   pull_request:
     branches: [master]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
   workflow_dispatch:
 
 permissions:
