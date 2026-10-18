@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0-beta.3.7] - 2026-10-18
+
+### Added
+- **Usage publishing to NATS**: each recorded turn is also published to `events.heart.usage` after the local `heart.db` write. The publish uses `AUTONOMIC_USAGE_NATS_URL` and `AUTONOMIC_USAGE_NATS_CREDS` and leaves the local broker untouched. The payload omits `session_id`. Failures are logged to stderr and never block a turn.
+
+### Changed
+- Bumped patch version to `1.0.0-beta.3.7`.
+
 ## [1.0.0-beta.3.6] - 2026-10-18
 
 ### Added
