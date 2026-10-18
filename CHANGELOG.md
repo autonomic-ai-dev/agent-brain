@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0-beta.3.4] - 2026-10-18
+
+### Added
+- **Token-Bounded Filesystem Discovery MCP Tools (`list_directory`, `find_files`, `read_file`)**:
+  - Implemented token-bounded directory traversal (`list_directory`) returning file metadata, byte size, directory flags, and token counts.
+  - Implemented token-bounded recursive file finding (`find_files`) with glob/pattern filtering, extension filtering, and depth limits.
+  - Implemented token-bounded full file reading (`read_file`) with truncation guards and automatic line offset calculation.
+  - Extended pre-flight scout tool markers in `route_gate.py` to recognize `list_directory`, `find_files`, and `read_file` for bounded host exploration.
+
+### Changed
+- Bumped patch version to `1.0.0-beta.3.4`.
+
 ## [1.0.0-beta.3.3] - 2026-10-18
 
 ### Added
