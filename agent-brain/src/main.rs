@@ -718,6 +718,9 @@ async fn main() -> Result<()> {
             let skip_install = args.iter().any(|a| a == "--skip-install");
             agent_brain::bootstrap_device::run(remote.as_deref(), skip_install)?;
         }
+        "stop-gate" => {
+            agent_brain::stop_gate::run_stop_gate()?;
+        }
         "verify" => {
             let sub = args.get(2).map(String::as_str).unwrap_or("");
             if sub == "init" {
@@ -738,6 +741,15 @@ async fn main() -> Result<()> {
                 let scenarios = flag_value(&args, "--scenarios").map(std::path::PathBuf::from);
                 let source_raw = flag_value(&args, "--source").unwrap_or_else(|| "hook".to_string());
                 let source = agent_brain::verify::VerifySource::parse(&source_raw)?;
+                if matches!(
+                    source,
+                    agent_brain::verify::VerifySource::Cli
+                        | agent_brain::verify::VerifySource::Orchestrator
+                ) {
+                    anyhow::bail!(
+                        "verify record cannot store cli/orchestrator evidence; run `agent-brain verify -- <cmd>` so the command executes"
+                    );
+                }
                 let exit_code: i32 = flag_value(&args, "--exit")
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(0);

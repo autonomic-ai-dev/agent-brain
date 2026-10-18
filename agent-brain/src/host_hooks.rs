@@ -242,7 +242,10 @@ fn is_agent_brain_hook_entry(entry: &Value, marker: &str) -> bool {
         }
     }
     if let Some(cmd) = entry.get("command").and_then(|v| v.as_str()) {
-        if cmd.contains(marker) || cmd.contains("agent-brain-route-gate") {
+        if cmd.contains(marker)
+            || cmd.contains("agent-brain-route-gate")
+            || is_stop_gate_command(cmd)
+        {
             return true;
         }
     }
@@ -262,11 +265,36 @@ pub fn write_settings_hooks(path: &Path, hooks_fragment: &Value) -> Result<()> {
     Ok(())
 }
 
+fn claude_stop_gate_hooks(stop_cmd: &str) -> Value {
+    json!({
+        "hooks": {
+            "Stop": [{
+                "hooks": [{
+                    "type": "command",
+                    "command": stop_cmd,
+                    "timeout": 60
+                }]
+            }]
+        }
+    })
+}
+
+fn stop_gate_command() -> Result<String> {
+    let exe = std::env::current_exe().context("resolve agent-brain binary")?;
+    let quoted = exe.display().to_string().replace('\'', r"'\''");
+    Ok(format!("'{quoted}' stop-gate"))
+}
+
+fn is_stop_gate_command(cmd: &str) -> bool {
+    cmd.trim_end().ends_with(" stop-gate")
+}
+
 pub fn install_claude_code_hooks(user: bool, quiet: bool) -> Result<PathBuf> {
     let hooks_dir = claude_code_hooks_dir(user)?;
     let script = deploy_route_gate_script(&hooks_dir)?;
     let settings = claude_code_settings_path(user)?;
     write_settings_hooks(&settings, &claude_code_hooks_fragment(&script))?;
+    write_settings_hooks(&settings, &claude_stop_gate_hooks(&stop_gate_command()?))?;
     if !quiet {
         println!(
             "Installed Claude Code route gate hooks at {}",
@@ -380,7 +408,7 @@ pub fn hooks_status(path: &Path, marker: &str) -> &'static str {
 }
 
 pub fn claude_hooks_need_refresh(path: &Path) -> bool {
-    if hooks_status(path, "route_gate.py") != "OK" {
+    if hooks_status(path, "route_gate.py") != "OK" || hooks_status(path, "stop-gate") != "OK" {
         return true;
     }
     let Ok(raw) = fs::read_to_string(path) else {
@@ -423,6 +451,11 @@ mod tests {
         );
         let path = dir.path().join("settings.json");
         write_settings_hooks(&path, &fragment).unwrap();
+        write_settings_hooks(
+            &path,
+            &claude_stop_gate_hooks("'/bin/agent-brain' stop-gate"),
+        )
+        .unwrap();
         assert!(!claude_hooks_need_refresh(&path));
 
         fs::write(
@@ -431,6 +464,33 @@ mod tests {
         )
         .unwrap();
         assert!(claude_hooks_need_refresh(&path));
+    }
+
+    #[test]
+    fn claude_stop_gate_hook_replaces_itself_on_reinstall() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("settings.json");
+        let stop = claude_stop_gate_hooks("'/bin/agent-brain' stop-gate");
+        write_settings_hooks(&path, &stop).unwrap();
+        write_settings_hooks(&path, &stop).unwrap();
+        let settings: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(settings["hooks"]["Stop"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn claude_hooks_need_refresh_until_stop_gate_installed() {
+        let dir = TempDir::new().unwrap();
+        let script = dir.path().join("route_gate.py");
+        fs::write(&script, "#!/usr/bin/env python3\n").unwrap();
+        let path = dir.path().join("settings.json");
+        write_settings_hooks(&path, &claude_code_hooks_fragment(&script)).unwrap();
+        assert!(claude_hooks_need_refresh(&path));
+        write_settings_hooks(
+            &path,
+            &claude_stop_gate_hooks("'/bin/agent-brain' stop-gate"),
+        )
+        .unwrap();
+        assert!(!claude_hooks_need_refresh(&path));
     }
 
     #[test]
