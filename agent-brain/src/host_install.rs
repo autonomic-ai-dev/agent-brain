@@ -1044,6 +1044,21 @@ fn write_hard_route_rule(rules_dir: &Path, quiet: bool, label: &str) -> Result<(
     Ok(())
 }
 
+const CODING_POLICY_RULE: &str = include_str!("../registry/coding-policy/claude/CLAUDE.md");
+
+fn write_coding_policy_rule(rules_dir: &Path, quiet: bool) -> Result<()> {
+    fs::create_dir_all(rules_dir).with_context(|| format!("create {}", rules_dir.display()))?;
+    let path = rules_dir.join("agent-brain-coding-policy.md");
+    if fs::read_to_string(&path).is_ok_and(|existing| existing == CODING_POLICY_RULE) {
+        return Ok(());
+    }
+    fs::write(&path, CODING_POLICY_RULE).with_context(|| format!("write {}", path.display()))?;
+    if !quiet {
+        println!("Installed Claude Code coding policy at {}", path.display());
+    }
+    Ok(())
+}
+
 fn write_mcp_servers_file(path: &Path, server_entry: Value) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
@@ -1132,6 +1147,7 @@ fn install_claude_code_rule(user: bool, quiet: bool) -> Result<()> {
         "Claude Code",
     )?;
     write_hard_route_rule(&base.join("rules"), quiet, "Claude Code")?;
+    write_coding_policy_rule(&base.join("rules"), quiet)?;
     write_agent_brain_mode(&base, quiet, "Claude Code")?;
     Ok(())
 }
@@ -1319,6 +1335,15 @@ mod tests {
         assert!(written.contains("instructions-version: 10"));
         assert!(written.contains("muscle_execute_bash"));
         assert!(written.contains("route_task"));
+    }
+
+    #[test]
+    fn coding_policy_rule_is_written_to_rules_dir() {
+        let dir = TempDir::new().unwrap();
+        write_coding_policy_rule(dir.path(), true).unwrap();
+        let written = fs::read_to_string(dir.path().join("agent-brain-coding-policy.md")).unwrap();
+        assert_eq!(written, CODING_POLICY_RULE);
+        assert!(written.contains("Engineering Policy"));
     }
 
     #[test]
