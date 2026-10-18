@@ -7,7 +7,9 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use uuid::Uuid;
 
-use crate::cache::{fingerprint_query, route_cache_key, session_route_cache_key, QueryEmbeddingCache, TurnCache};
+use crate::cache::{
+    fingerprint_query, route_cache_key, session_route_cache_key, QueryEmbeddingCache, TurnCache,
+};
 use crate::config::Config;
 use crate::db::store::{content_hash, BrainStore};
 use crate::db::{send_and_recv, spawn_write_handler, WriteOp, WriteQueue};
@@ -22,7 +24,9 @@ use crate::types::{
     AgentRec, GetContextItem, GetContextResponse, ItemType, MemoryRec, MustApply, RouteLimits,
     RouteTaskResponse, RuleRec, ScoredItem, SkillRec,
 };
-use crate::workspace::{agent_boost_keywords, infer_phase, is_low_signal_memory, mcp_route_expansion_tags, probe};
+use crate::workspace::{
+    agent_boost_keywords, infer_phase, is_low_signal_memory, mcp_route_expansion_tags, probe,
+};
 
 type RouteQueryParallelResult = (Vec<ScoredItem>, usize, usize, u64, u64, bool, bool);
 
@@ -143,7 +147,8 @@ impl Engine {
     }
 
     pub fn bootstrap(self: &Arc<Self>, cwd: Option<&Path>) -> Result<usize> {
-        let mut n = index::sync_index_opts(&self.store, &self.config, &self.embedder, cwd, false, true)?;
+        let mut n =
+            index::sync_index_opts(&self.store, &self.config, &self.embedder, cwd, false, true)?;
         if self.config.session_ingest_enabled && !self.config.session_ingest_background {
             let sessions =
                 crate::sessions::ingest_sessions(&self.store, &self.embedder, &self.config)?;
@@ -299,7 +304,8 @@ impl Engine {
 
     /// Index skills/rules and ingest session digests — run after install or doctor --fix.
     pub fn post_install_warmup(&self) -> Result<(usize, usize)> {
-        let indexed = index::sync_index_opts(&self.store, &self.config, &self.embedder, None, false, true)?;
+        let indexed =
+            index::sync_index_opts(&self.store, &self.config, &self.embedder, None, false, true)?;
         let sessions = self.run_session_ingest_sync()?;
         Ok((indexed, sessions))
     }
@@ -515,10 +521,8 @@ impl Engine {
 
         let mut by_id: std::collections::HashMap<String, crate::types::ScoredItem> =
             primary.iter().cloned().map(|s| (s.id.clone(), s)).collect();
-        let mut rankings: Vec<Vec<(String, f64)>> = vec![primary
-            .iter()
-            .map(|s| (s.id.clone(), s.score))
-            .collect()];
+        let mut rankings: Vec<Vec<(String, f64)>> =
+            vec![primary.iter().map(|s| (s.id.clone(), s.score)).collect()];
 
         let snapshot = self.store.search_cache_snapshot()?;
         let match_ctx = crate::intelligence::MatchContext {
@@ -564,7 +568,8 @@ impl Engine {
         }
 
         let ranking_refs: Vec<&[(String, f64)]> = rankings.iter().map(|r| r.as_slice()).collect();
-        let fused = crate::retrieval_fusion::rrf_fuse(&ranking_refs, crate::retrieval_fusion::RRF_K);
+        let fused =
+            crate::retrieval_fusion::rrf_fuse(&ranking_refs, crate::retrieval_fusion::RRF_K);
         let mut out = Vec::with_capacity(fused.len());
         for (id, score) in fused {
             if let Some(mut item) = by_id.remove(&id) {
@@ -633,8 +638,18 @@ impl Engine {
             if let Ok(prev) = self.prev_briefing.lock() {
                 if let Some(ref briefing) = *prev {
                     if !briefing.is_empty() {
-                        let files = self.touched_files.lock().ok().map(|f| f.clone()).unwrap_or_default();
-                        let tools = self.prev_tool_names.lock().ok().map(|t| t.clone()).unwrap_or_default();
+                        let files = self
+                            .touched_files
+                            .lock()
+                            .ok()
+                            .map(|f| f.clone())
+                            .unwrap_or_default();
+                        let tools = self
+                            .prev_tool_names
+                            .lock()
+                            .ok()
+                            .map(|t| t.clone())
+                            .unwrap_or_default();
                         let mut extras = Vec::new();
                         if !tools.is_empty() {
                             extras.push(format!("tools: {}", tools.join(", ")));
@@ -649,17 +664,18 @@ impl Engine {
                         };
                         let _ = self.write_queue.send(crate::db::WriteOp::StoreMemory {
                             resp_tx: std::sync::mpsc::channel().0,
-                            payload: crate::db::write_queue::store_memory_payload::StoreMemoryRequest {
-                                topic: "auto-route".into(),
-                                fact,
-                                scope: "project".into(),
-                                scope_key: None,
-                                confidence: 0.5,
-                                polarity: None,
-                                apply_when: None,
-                                valid_from: None,
-                                invalid_at: None,
-                            },
+                            payload:
+                                crate::db::write_queue::store_memory_payload::StoreMemoryRequest {
+                                    topic: "auto-route".into(),
+                                    fact,
+                                    scope: "project".into(),
+                                    scope_key: None,
+                                    confidence: 0.5,
+                                    polarity: None,
+                                    apply_when: None,
+                                    valid_from: None,
+                                    invalid_at: None,
+                                },
                         });
                     }
                 }
@@ -701,9 +717,7 @@ impl Engine {
             .map(|id| id.project_key.clone())
             .or_else(|| ws.repo_root.clone())
             .unwrap_or_default();
-        let project_key_opt = project_identity
-            .as_ref()
-            .map(|id| id.project_key.as_str());
+        let project_key_opt = project_identity.as_ref().map(|id| id.project_key.as_str());
         let cache_warm = self.warmed.load(Ordering::Relaxed);
 
         let cache_key = route_cache_key(
@@ -837,17 +851,19 @@ impl Engine {
             &phase,
             &resp.must_apply,
         );
-        resp.verified_recipes = crate::verify::suggest_verified_recipes(
-            &self.store,
-            user_message,
-            3,
-        );
+        resp.verified_recipes =
+            crate::verify::suggest_verified_recipes(&self.store, user_message, 3);
         if let Some(top) = resp.verified_recipes.first() {
+            let cmd_display = if top.cmd.len() > 200 {
+                format!("{}...", &top.cmd[..197])
+            } else {
+                top.cmd.clone()
+            };
             resp.must_apply.push(crate::types::MustApply {
                 topic: "verified-recipe".into(),
                 text: format!(
                     "Prefer verified recipe `{}` (exit 0 verified via {}) over unverified raw commands.",
-                    top.cmd, top.source
+                    cmd_display, top.source
                 ),
             });
         }
@@ -922,7 +938,11 @@ impl Engine {
             }
         }
 
-        let memory_topics: Vec<String> = resp.relevant_memory.iter().map(|m| m.topic.clone()).collect();
+        let memory_topics: Vec<String> = resp
+            .relevant_memory
+            .iter()
+            .map(|m| m.topic.clone())
+            .collect();
         if !memory_topics.is_empty() {
             let store = self.store.clone();
             let embedder = self.embedder.clone();
@@ -1053,7 +1073,12 @@ fn compute_delta_from_snapshot(prev: Option<&ResponseSnapshot>, cur: &ResponseSn
     let agents_diff = cur.agent_count as isize - prev.agent_count as isize;
     if agents_diff != 0 {
         let sign = if agents_diff > 0 { "+" } else { "" };
-        parts.push(format!("{}agents: {}{}", if agents_diff > 0 { "△ " } else { "" }, sign, agents_diff));
+        parts.push(format!(
+            "{}agents: {}{}",
+            if agents_diff > 0 { "△ " } else { "" },
+            sign,
+            agents_diff
+        ));
     }
 
     if prev.phase != cur.phase {
@@ -1074,7 +1099,11 @@ fn compute_delta_from_snapshot(prev: Option<&ResponseSnapshot>, cur: &ResponseSn
     }
 
     if (cur.confidence - prev.confidence).abs() > 0.05 {
-        parts.push(format!("conf: {:.0}%→{:.0}%", prev.confidence * 100.0, cur.confidence * 100.0));
+        parts.push(format!(
+            "conf: {:.0}%→{:.0}%",
+            prev.confidence * 100.0,
+            cur.confidence * 100.0
+        ));
     }
 
     if cur.escalate && !prev.escalate {
@@ -1174,7 +1203,6 @@ impl Engine {
     }
 }
 
-
 fn is_duplicate_topic(seen: &mut HashSet<String>, item: &ScoredItem) -> bool {
     match item.item_type {
         ItemType::Agent | ItemType::Skill => !seen.insert(item.topic.to_ascii_lowercase()),
@@ -1239,7 +1267,9 @@ fn is_domain_incompatible(
         .iter()
         .any(|t| t == "typescript" || t == "javascript" || t == "node" || t == "pnpm");
     if is_js && !is_rust {
-        let rust_markers = ["cargo", "clippy", "rust", "tokio", "diesel", "actix", "axum"];
+        let rust_markers = [
+            "cargo", "clippy", "rust", "tokio", "diesel", "actix", "axum",
+        ];
         let has_rust_marker = rust_markers.iter().any(|m| target.contains(m));
         if has_rust_marker {
             let msg_has_rust_intent = rust_markers.iter().any(|m| msg_lower.contains(m));
@@ -1319,14 +1349,8 @@ fn build_route_response(
         }
     };
 
-    resp.must_apply = collect_must_apply_from_scored(
-        scored,
-        3,
-        project_key,
-        repo_root,
-        ws_tags,
-        user_message,
-    );
+    resp.must_apply =
+        collect_must_apply_from_scored(scored, 3, project_key, repo_root, ws_tags, user_message);
 
     // Pass 1: workflows, agents, skills, rules — before memory consumes the token budget.
     for item in scored.iter() {
@@ -1606,13 +1630,11 @@ fn must_apply_for_memory(
         return None;
     }
     let labeled_negative = item.polarity.as_deref() == Some("negative");
-    let heuristic_negative = item.text.to_lowercase().contains("do not")
-        || item.text.to_lowercase().contains("never ");
+    let heuristic_negative =
+        item.text.to_lowercase().contains("do not") || item.text.to_lowercase().contains("never ");
     let scoped = project_scope_matches(item, project_key, repo_root);
 
-    let promote = (item.apply_when_matched
-        && item.score >= 0.55
-        && item.lexical >= 0.15)
+    let promote = (item.apply_when_matched && item.score >= 0.55 && item.lexical >= 0.15)
         || (labeled_negative
             && item.score >= 0.55
             && item.lexical >= 0.20
@@ -1651,13 +1673,11 @@ fn collect_must_apply_from_scored(
     memories.sort_by(|a, b| {
         let a_proj = if a.scope == "project" { 1 } else { 0 };
         let b_proj = if b.scope == "project" { 1 } else { 0 };
-        b_proj
-            .cmp(&a_proj)
-            .then_with(|| {
-                b.score
-                    .partial_cmp(&a.score)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
+        b_proj.cmp(&a_proj).then_with(|| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
     });
     for item in memories {
         if out.len() >= max {
@@ -1723,8 +1743,6 @@ fn auto_observe_topics(
     Ok(())
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1785,16 +1803,7 @@ mod tests {
             rules: 3,
             memory: 5,
         };
-        let resp = build_route_response(
-            &scored,
-            &limits,
-            "implementing",
-            800,
-            None,
-            None,
-            &[],
-            "",
-        );
+        let resp = build_route_response(&scored, &limits, "implementing", 800, None, None, &[], "");
         assert!(
             resp.relevant_memory.iter().all(|m| {
                 !m.topic.starts_with("session-digest-")
@@ -1918,7 +1927,10 @@ mod tests {
             "refactor react frontend",
         );
         assert_eq!(resp_explicit.recommended_skills.len(), 2);
-        assert_eq!(resp_explicit.recommended_skills[0].name, "vercel-react-patterns");
+        assert_eq!(
+            resp_explicit.recommended_skills[0].name,
+            "vercel-react-patterns"
+        );
     }
 
     #[test]
@@ -2024,7 +2036,10 @@ mod tests {
             &ws_tags,
             "verify safety gates before release",
         );
-        assert_eq!(resp.suggested_workflow.as_deref(), Some("engineering-safety"));
+        assert_eq!(
+            resp.suggested_workflow.as_deref(),
+            Some("engineering-safety")
+        );
 
         // 2. Explicit react prompt allows react workflow
         let resp_explicit = build_route_response(
@@ -2037,7 +2052,10 @@ mod tests {
             &ws_tags,
             "run react component pipeline",
         );
-        assert_eq!(resp_explicit.suggested_workflow.as_deref(), Some("react-component-pipeline"));
+        assert_eq!(
+            resp_explicit.suggested_workflow.as_deref(),
+            Some("react-component-pipeline")
+        );
     }
 
     #[test]
