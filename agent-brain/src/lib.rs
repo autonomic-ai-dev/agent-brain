@@ -79,6 +79,8 @@ pub mod route_briefing;
 pub mod scale_bench;
 pub mod secrets;
 pub mod serve_meta;
+pub mod commit_gate;
+pub mod stop_gate;
 pub mod serve_lock;
 pub mod sessions;
 pub mod settings;

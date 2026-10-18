@@ -60,6 +60,27 @@ class RouteGateTests(unittest.TestCase):
         )
         self.assertFalse(load_state().get("needs_route"))
 
+    def test_post_tool_use_clears_gate_with_list_shaped_tool_response(self) -> None:
+        from route_gate import STATE_PATH, handle_post_tool_use, load_state, save_state, set_active_session
+
+        set_active_session("global")
+        STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        save_state({"needs_route": True})
+        inner_payload = {
+            "recommended_skills": [{"name": "rust-testing"}],
+            "tokens_used": 120,
+        }
+        # Claude Code returns a list of content blocks in tool_response / tool_result
+        list_response = [{"type": "text", "text": json.dumps(inner_payload)}]
+        handle_post_tool_use(
+            {
+                "hook_event_name": "PostToolUse",
+                "tool_name": "mcp__agent-brain__route_task",
+                "tool_response": list_response,
+            }
+        )
+        self.assertFalse(load_state().get("needs_route"))
+
     def test_cursor_mcp_tool_names(self) -> None:
         for name in (
             "mcp_agent-brain_route_task",
@@ -774,5 +795,47 @@ class SessionGateTests(unittest.TestCase):
         handle_before_submit_prompt(event2)
         self.assertTrue(load_state(event2).get("needs_route"))
 
+    def test_toolsearch_allowed_during_needs_route(self) -> None:
+        from route_gate import (
+            STATE_PATH,
+            handle_pre_tool_use,
+            save_state,
+            load_state,
+            is_meta_or_discovery_tool,
+            set_active_session,
+        )
+
+        set_active_session("global")
+        STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        if STATE_PATH.exists():
+            STATE_PATH.unlink()
+        save_state({"needs_route": True, "needs_route_since": time.time()})
+        for name in ("ToolSearch", "tool_search", "mcp_list_tools", "mcp__toolsearch"):
+            self.assertTrue(is_meta_or_discovery_tool({"tool_name": name}))
+            out = handle_pre_tool_use({"tool_name": name, "tool_input": {"query": "route_task"}})
+            self.assertEqual(out.get("permission"), "allow", f"{name} should be allowed before route_task")
+        # Ensure gate is still active for standard tools (not prematurely cleared)
+        self.assertTrue(load_state().get("needs_route"))
+        blocked = handle_pre_tool_use({"tool_name": "read_file", "tool_input": {"path": "src/main.rs"}})
+        self.assertEqual(blocked.get("permission"), "deny")
+
+    def test_claude_code_pre_tool_use_toolsearch_allowed(self) -> None:
+        from route_gate import adapt_hook_output, handle_pre_tool_use, save_state, set_active_session
+
+        set_active_session("global")
+        save_state({"needs_route": True, "needs_route_since": time.time()})
+        event = {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "ToolSearch",
+            "tool_input": {"query": "route_task"},
+        }
+        out = handle_pre_tool_use(event)
+        adapted = adapt_hook_output("PreToolUse", out, event)
+        self.assertEqual(
+            adapted.get("hookSpecificOutput", {}).get("permissionDecision"),
+            "allow",
+        )
+
 if __name__ == "__main__":
     unittest.main()
+

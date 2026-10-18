@@ -359,6 +359,13 @@ pub fn run_verify(
         VerifySource::Mcp | VerifySource::Playbook | VerifySource::Hook => VerifySource::Cli,
         other => other,
     };
+    let joined = cmd.join(" ");
+    let project_root = std::env::current_dir()
+        .ok()
+        .map(|cwd| crate::config::find_repo_root(&cwd).unwrap_or(cwd));
+    if !command_is_allowlisted(&joined, project_root.as_deref()) {
+        bail!("`{joined}` is not in the verify allowlist; add it to .verify/verify.toml");
+    }
     let status = Command::new(&cmd[0])
         .args(&cmd[1..])
         .status()

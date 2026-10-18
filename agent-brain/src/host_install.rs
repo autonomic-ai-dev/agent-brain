@@ -509,6 +509,7 @@ const HARD_ROUTE_RULE: &str = r"## HARD RULES (never skip)
 - Prefer agent-brain `grep_search`, `file_summary`, `read_file_head`, `read_file_tail` over host Read/Cat/Grep when MCP is connected.
 - At task end call `store_memory` for durable outcomes (max 50 words, no secrets).
 - If a route gate denies a tool, call `route_task` first — do not work around the gate.
+- Choose shell and organ tools from the `route_task` result: read `suggested_tools` and `must_apply` before the first shell or organ call. Prefer routed agent-body tools (e.g. `muscle_execute_bash`, `spine_check_status`, `heart_record_usage`) over native Bash when they are listed. Test agent-body reachability once per session and reuse the result. If a routed tool is skipped, say so and why. If an agent-body call fails, report the failure and fall back to native tools.
 ";
 
 pub const AGENT_BRAIN_MODE_SNIPPET: &str = agent_body_core::BASE_AGENT_MODE;
@@ -854,10 +855,10 @@ fn write_host_instructions(path: &Path, content: &str, quiet: bool, label: &str)
     Ok(())
 }
 
-const HOST_INSTRUCTIONS_VERSION: &str = "9";
+const HOST_INSTRUCTIONS_VERSION: &str = "10";
 
 const HOST_AGENT_BRAIN_INSTRUCTIONS: &str = r#"# agent-brain MCP (required)
-instructions-version: 9
+instructions-version: 10
 
 ## The connection contract
 
@@ -915,7 +916,7 @@ Readable summary: `~/.agent_brain/logs/last-route.md` or `agent-brain briefing`.
 "#;
 
 const CLAUDE_CODE_AGENT_BRAIN_INSTRUCTIONS: &str = r#"# agent-brain MCP (required)
-instructions-version: 9
+instructions-version: 10
 
 ## The connection contract
 
@@ -963,7 +964,7 @@ Readable summary: `~/.agent_brain/logs/last-route.md` or `agent-brain briefing`.
 "#;
 
 const OPENCODE_AGENT_BRAIN_INSTRUCTIONS: &str = r#"# agent-brain MCP (required)
-instructions-version: 9
+instructions-version: 10
 
 ## The connection contract
 
@@ -993,7 +994,7 @@ Readable summary: `~/.agent_brain/logs/last-route.md` or `agent-brain briefing`.
 "#;
 
 const ANTIGRAVITY_AGENT_BRAIN_INSTRUCTIONS: &str = r#"# agent-brain MCP (required)
-instructions-version: 9
+instructions-version: 10
 
 ## The connection contract
 
@@ -1039,6 +1040,21 @@ fn write_hard_route_rule(rules_dir: &Path, quiet: bool, label: &str) -> Result<(
     fs::write(&path, body).with_context(|| format!("write {}", path.display()))?;
     if !quiet {
         println!("Installed {label} hard route rule at {}", path.display());
+    }
+    Ok(())
+}
+
+const CODING_POLICY_RULE: &str = include_str!("../registry/coding-policy/claude/CLAUDE.md");
+
+fn write_coding_policy_rule(rules_dir: &Path, quiet: bool) -> Result<()> {
+    fs::create_dir_all(rules_dir).with_context(|| format!("create {}", rules_dir.display()))?;
+    let path = rules_dir.join("agent-brain-coding-policy.md");
+    if fs::read_to_string(&path).is_ok_and(|existing| existing == CODING_POLICY_RULE) {
+        return Ok(());
+    }
+    fs::write(&path, CODING_POLICY_RULE).with_context(|| format!("write {}", path.display()))?;
+    if !quiet {
+        println!("Installed Claude Code coding policy at {}", path.display());
     }
     Ok(())
 }
@@ -1131,6 +1147,7 @@ fn install_claude_code_rule(user: bool, quiet: bool) -> Result<()> {
         "Claude Code",
     )?;
     write_hard_route_rule(&base.join("rules"), quiet, "Claude Code")?;
+    write_coding_policy_rule(&base.join("rules"), quiet)?;
     write_agent_brain_mode(&base, quiet, "Claude Code")?;
     Ok(())
 }
@@ -1302,6 +1319,31 @@ mod tests {
             HostTarget::from_args(&args),
             HostTarget::OpenCode { user: true }
         );
+    }
+
+    #[test]
+    fn hard_route_rule_upgrades_older_version_and_routes_tool_choice() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("agent-brain-route.md");
+        fs::write(
+            &path,
+            "# agent-brain route gate\ninstructions-version: 9\n\nold body",
+        )
+        .unwrap();
+        write_hard_route_rule(dir.path(), true, "test").unwrap();
+        let written = fs::read_to_string(&path).unwrap();
+        assert!(written.contains("instructions-version: 10"));
+        assert!(written.contains("muscle_execute_bash"));
+        assert!(written.contains("route_task"));
+    }
+
+    #[test]
+    fn coding_policy_rule_is_written_to_rules_dir() {
+        let dir = TempDir::new().unwrap();
+        write_coding_policy_rule(dir.path(), true).unwrap();
+        let written = fs::read_to_string(dir.path().join("agent-brain-coding-policy.md")).unwrap();
+        assert_eq!(written, CODING_POLICY_RULE);
+        assert!(written.contains("Engineering Policy"));
     }
 
     #[test]
