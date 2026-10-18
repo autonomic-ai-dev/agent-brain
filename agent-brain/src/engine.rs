@@ -892,7 +892,7 @@ impl Engine {
         self.route_latency.record(timing.total_us / 1000);
         timing.log_line(p95, &phase);
 
-        crate::bridge::enrich_route_response(&mut resp, &scored, task_kind);
+        crate::bridge::enrich_route_response(&mut resp, &scored, task_kind, user_message);
 
         let memory_ids: Vec<String> = scored
             .iter()
