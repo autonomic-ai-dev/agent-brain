@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0-beta.3.5] - 2026-10-18
+
+### Fixed
+- **Payload Truncation & Output Size Defense Caps**:
+  - Implemented length filters in `suggest_verified_recipes`: skips excessively large commands (> 300 characters or > 3 lines), preventing giant shell scripts, heredocs, and test harnesses from bloating briefings.
+  - Enforced 200-character truncation on `top.cmd` in `must_apply` constraints within `engine.rs` with `... [truncated]` annotation.
+  - Enforced 80–100 character truncation on recipe command descriptions in `route_briefing.rs`.
+  - Resolves payload size explosion (reduced response size from >50,000–90,000 characters to <4,500 characters), eliminating MCP tool output limit errors across Claude Code and other client hosts.
+
+### Changed
+- Bumped patch version to `1.0.0-beta.3.5`.
+
 ## [1.0.0-beta.3.4] - 2026-10-18
 
 ### Added

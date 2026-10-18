@@ -96,9 +96,7 @@ pub fn command_is_allowlisted(cmd: &str, project_root: Option<&Path>) -> bool {
     if cmd.is_empty() {
         return false;
     }
-    let list = project_root
-        .map(load_command_allowlist)
-        .unwrap_or_default();
+    let list = project_root.map(load_command_allowlist).unwrap_or_default();
     if list.is_empty() {
         return default_allowlist_match(cmd);
     }
@@ -192,10 +190,7 @@ pub fn record_from_result(
     let success = exit_code == 0;
     let config_hash = config_path.map(hash_path).transpose()?;
     let (scenarios, verify_root) = resolve_scenarios_dir(scenarios_dir, cwd)?;
-    let scenarios_hash = scenarios
-        .as_ref()
-        .map(|p| hash_tree(p))
-        .transpose()?;
+    let scenarios_hash = scenarios.as_ref().map(|p| hash_tree(p)).transpose()?;
     let cause = cause_tag.map(|s| s.to_string()).or_else(|| {
         if success {
             None
@@ -398,10 +393,7 @@ pub fn print_report(store: &BrainStore) -> Result<()> {
             .or_default() += 1;
     }
     if !by_source.is_empty() {
-        let parts: Vec<String> = by_source
-            .iter()
-            .map(|(k, v)| format!("{k}={v}"))
-            .collect();
+        let parts: Vec<String> = by_source.iter().map(|(k, v)| format!("{k}={v}")).collect();
         println!("by_source: {{{}}}", parts.join(", "));
     }
 
@@ -422,11 +414,7 @@ pub fn print_report(store: &BrainStore) -> Result<()> {
     if let Some((baseline, _)) = config_counts.iter().max_by_key(|(_, c)| *c) {
         let drifted: Vec<_> = rows
             .iter()
-            .filter(|r| {
-                r.verify_config_hash
-                    .as_ref()
-                    .is_some_and(|h| h != baseline)
-            })
+            .filter(|r| r.verify_config_hash.as_ref().is_some_and(|h| h != baseline))
             .collect();
         if !drifted.is_empty() {
             println!(
@@ -472,8 +460,22 @@ pub fn suggest_verified_recipes(
 ) -> Vec<VerifiedRecipe> {
     let lower = user_message.to_lowercase();
     let has_execution_intent = [
-        "test", "cargo", "npm", "pytest", "build", "run", "check", "clippy",
-        "verify", "lint", "recipe", "benchmark", "prove", "proof", "exec", "compile",
+        "test",
+        "cargo",
+        "npm",
+        "pytest",
+        "build",
+        "run",
+        "check",
+        "clippy",
+        "verify",
+        "lint",
+        "recipe",
+        "benchmark",
+        "prove",
+        "proof",
+        "exec",
+        "compile",
     ]
     .iter()
     .any(|k| lower.contains(k));
@@ -496,6 +498,11 @@ pub fn suggest_verified_recipes(
             continue;
         }
         seen_cmds.insert(trimmed_cmd.clone());
+
+        // Skip excessively large command blobs (e.g. embedded heredocs/scripts) that bloat route briefings
+        if trimmed_cmd.len() > 300 || trimmed_cmd.lines().count() > 3 {
+            continue;
+        }
 
         // Because outcomes are ordered by recorded_at DESC, the first encounter
         // of trimmed_cmd is its latest run. If its latest execution failed, squelch it!
@@ -533,7 +540,10 @@ pub fn suggest_verified_recipes(
         }
     }
 
-    candidates.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.recorded_at.cmp(&a.1.recorded_at)));
+    candidates.sort_by(|a, b| {
+        b.0.cmp(&a.0)
+            .then_with(|| b.1.recorded_at.cmp(&a.1.recorded_at))
+    });
     candidates.into_iter().take(limit).map(|(_, r)| r).collect()
 }
 
@@ -575,7 +585,10 @@ mod tests {
         .unwrap();
         assert_eq!(report.source, "hook");
         assert!(report.scenario_dir_hash.is_some());
-        assert_eq!(report.verify_root.as_deref(), Some(dir.path().to_str().unwrap()));
+        assert_eq!(
+            report.verify_root.as_deref(),
+            Some(dir.path().to_str().unwrap())
+        );
 
         let rows = store.list_verify_outcomes(10).unwrap();
         assert_eq!(rows.len(), 1);
@@ -589,7 +602,10 @@ mod tests {
             VerifySource::parse("orchestrator").unwrap(),
             VerifySource::Orchestrator
         );
-        assert_eq!(VerifySource::parse("spine").unwrap(), VerifySource::Orchestrator);
+        assert_eq!(
+            VerifySource::parse("spine").unwrap(),
+            VerifySource::Orchestrator
+        );
         assert!(VerifySource::Orchestrator.is_trusted_for_learning());
         assert!(!VerifySource::Mcp.is_trusted_for_learning());
     }
@@ -610,7 +626,10 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
             "./mvnw -q verify -DskipITs",
             Some(dir.path())
         ));
-        assert!(command_is_allowlisted("cargo test -p agent-brain", Some(dir.path())));
+        assert!(command_is_allowlisted(
+            "cargo test -p agent-brain",
+            Some(dir.path())
+        ));
         assert!(!command_is_allowlisted("true", Some(dir.path())));
         assert!(!command_is_allowlisted("echo hi", Some(dir.path())));
     }
@@ -618,7 +637,11 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
     #[test]
     fn init_verify_scaffolding() {
         let dir = tempdir().unwrap();
-        fs::write(dir.path().join("Cargo.toml"), b"[package]\nname = \"test\"\n").unwrap();
+        fs::write(
+            dir.path().join("Cargo.toml"),
+            b"[package]\nname = \"test\"\n",
+        )
+        .unwrap();
         let verify_path = init_verify(dir.path(), false).unwrap();
         assert!(verify_path.exists());
         assert!(verify_path.join("verify.toml").exists());
@@ -660,16 +683,7 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
             "dev1",
             "orchestrator",
         );
-        let _ = store.insert_verify_outcome(
-            None,
-            0,
-            None,
-            None,
-            None,
-            "npm test",
-            "dev1",
-            "cli",
-        );
+        let _ = store.insert_verify_outcome(None, 0, None, None, None, "npm test", "dev1", "cli");
 
         let recipes = suggest_verified_recipes(&store, "run tests for muscle", 2);
         assert!(!recipes.is_empty());
@@ -721,7 +735,8 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
         let store = BrainStore::open(&db).unwrap();
 
         let log_id = "route-log-123";
-        let items_json = r#"[{"id":"fact-item-1","item_type":"memory","topic":"test","score":0.9}]"#;
+        let items_json =
+            r#"[{"id":"fact-item-1","item_type":"memory","topic":"test","score":0.9}]"#;
         store
             .insert_retrieval_log(
                 log_id,
@@ -760,5 +775,3 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
         assert!(weights.get("fact-item-1").copied().unwrap_or(1.0) > 1.0);
     }
 }
-
-

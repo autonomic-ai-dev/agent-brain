@@ -48,9 +48,7 @@ pub fn format_token_savings_line(resp: &RouteTaskResponse) -> String {
     };
     format!(
         "Index: {} items · routed {}/{} tok",
-        s.index_total,
-        s.routed_tokens,
-        s.tokens_budget
+        s.index_total, s.routed_tokens, s.tokens_budget
     )
 }
 
@@ -88,10 +86,16 @@ pub fn format_briefing(resp: &RouteTaskResponse) -> String {
         ));
     }
     if !resp.verified_recipes.is_empty() {
-        let recipes: Vec<_> = resp
+        let recipes: Vec<String> = resp
             .verified_recipes
             .iter()
-            .map(|r| r.cmd.as_str())
+            .map(|r| {
+                if r.cmd.len() > 100 {
+                    format!("{}...", &r.cmd[..97])
+                } else {
+                    r.cmd.clone()
+                }
+            })
             .collect();
         out.push_str(&format!(
             "**Verified recipes:** prefer [{}] (exit 0 verified)\n",
@@ -207,7 +211,8 @@ fn section_list_with_hint(
 pub fn format_summary_line(resp: &RouteTaskResponse) -> String {
     let skill_names = join_top_names(resp.recommended_skills.iter().map(|s| s.name.as_str()), 3);
     let agent_names = join_top_names(resp.recommended_agents.iter().map(|a| a.name.as_str()), 2);
-    let savings = token_savings(resp).map(|s| format!(" · routed {}/{}", s.routed_tokens, s.tokens_budget));
+    let savings =
+        token_savings(resp).map(|s| format!(" · routed {}/{}", s.routed_tokens, s.tokens_budget));
     let constraints = if resp.must_apply.is_empty() {
         String::new()
     } else {
@@ -226,20 +231,25 @@ pub fn format_summary_line(resp: &RouteTaskResponse) -> String {
     let delegate_tools = if resp.suggested_tools.is_empty() {
         String::new()
     } else {
-        let names = join_top_names(
-            resp.suggested_tools.iter().map(|t| t.tool.as_str()),
-            3,
-        );
+        let names = join_top_names(resp.suggested_tools.iter().map(|t| t.tool.as_str()), 3);
         format!(" · delegate: [{names}]")
     };
     let recipes_str = if resp.verified_recipes.is_empty() {
         String::new()
     } else {
-        let names = join_top_names(
-            resp.verified_recipes.iter().map(|r| r.cmd.as_str()),
-            2,
-        );
-        format!(" · recipes: [{names}]")
+        let names_vec: Vec<String> = resp
+            .verified_recipes
+            .iter()
+            .take(2)
+            .map(|r| {
+                if r.cmd.len() > 80 {
+                    format!("{}...", &r.cmd[..77])
+                } else {
+                    r.cmd.clone()
+                }
+            })
+            .collect();
+        format!(" · recipes: [{}]", names_vec.join(", "))
     };
     let read_gate = if read_gate_mode() == "off" {
         String::new()
