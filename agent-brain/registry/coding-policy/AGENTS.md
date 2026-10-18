@@ -107,14 +107,13 @@ alwaysApply: true
 - Do not run destructive commands, reset the working tree, force-push, publish releases, deploy, or modify shared/production systems without explicit authorization.
 - Inspect the final diff for accidental edits, secrets, generated artifacts, unrelated formatting, and missing tests.
 
-## 14. Required workflow
-1. Understand the request and inspect relevant code and repository guidance.
-2. Identify the smallest sound implementation and any material risks.
-3. Implement the change using native project tools and existing conventions.
-4. Add or update meaningful tests, including regression coverage.
-5. Run focused tests first, then relevant broader checks and quality gates.
-6. Review the final diff and verify that only intended files changed.
-7. Report what changed, tests/checks actually run, measured coverage when available, and any remaining risks or blockers.
+## 14. Required workflow & 5 Mandatory Gates
+Never equate confidence, plausible reasoning, successful compilation, or passing a single test with correctness. Changes must be proven safe through machine-verifiable evidence.
+1. **Gate 1 — Understand**: Inspect code, callers, interfaces, contracts, dependencies, and baseline behavior before touching files.
+2. **Gate 2 — Predict Failure**: Enumerate invariants, boundary conditions (null/empty/overflow), failure paths (timeouts/restarts), API/data compatibility, concurrency/races, and rollback requirements.
+3. **Gate 3 — Implement**: Implement the smallest change satisfying requirements while strictly preserving existing contracts and immutability.
+4. **Gate 4 — Attempt to Break It**: Run regression tests, edge-case tests, static analysis (`clippy`), and fault-injection where relevant. Never modify tests merely to obtain a green result.
+5. **Gate 5 — Verify and Report**: Execute independent verification with observable outputs. Explicitly state tested failure modes, observed results, and any unresolved risks. Orchestrate complex pipelines via `agent-spine run --workflow engineering-safety` or `spine_submit_workflow`.
 
 ## 15. Completion standard
 - Do not claim success based on code inspection alone when verification is feasible.
