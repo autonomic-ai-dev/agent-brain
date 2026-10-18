@@ -38,6 +38,37 @@ ROUTE_TOOL_NAMES = {
     "agent_brain_route_task",
 }
 
+# Meta-discovery tools used across clients (e.g. Claude Code ToolSearch, Cursor/Codex mcp_list_tools)
+# to search, inspect, or load tool schemas before invoking route_task. Must never be blocked by the gate.
+META_DISCOVERY_TOOL_NAMES = {
+    "toolsearch",
+    "tool_search",
+    "tool-search",
+    "list_tools",
+    "listtools",
+    "list-tools",
+    "search_tools",
+    "searchtools",
+    "search-tools",
+    "mcp_list_tools",
+    "mcp_search_tools",
+}
+
+
+def is_meta_or_discovery_tool(event: dict) -> bool:
+    tool = str(event.get("tool_name") or event.get("tool") or event.get("name") or "").strip().lower()
+    if not tool:
+        return False
+    if tool in META_DISCOVERY_TOOL_NAMES:
+        return True
+    clean = tool
+    for prefix in ("mcp__", "mcp_", "mcp:"):
+        if clean.startswith(prefix):
+            clean = clean[len(prefix):]
+    if clean in META_DISCOVERY_TOOL_NAMES:
+        return True
+    return False
+
 # OpenCode exposes MCP tools as agent-brain_<tool> (no mcp_ prefix).
 OPENCODE_BRAIN_PREFIXES = ("agent-brain_", "agent_brain_")
 
@@ -221,7 +252,7 @@ def is_claude_agent_brain_mcp(tool_name: str) -> bool:
     if server is None:
         return False
     normalized = server.lower().replace("_", "-")
-    return normalized in {"agent-brain", "agentbrain"}
+    return normalized in {"agent-brain", "agentbrain", "agent-body", "agentbody"}
 
 
 def is_opencode_brain_tool(tool: str) -> bool:
@@ -1111,6 +1142,8 @@ def maybe_log_tool_trace(event: dict) -> None:
 
 def gate_tool_use(event: dict) -> dict:
     if is_route_task(event):
+        return {"permission": "allow"}
+    if is_meta_or_discovery_tool(event):
         return {"permission": "allow"}
     if not should_gate_tool(event):
         return {"permission": "allow"}
