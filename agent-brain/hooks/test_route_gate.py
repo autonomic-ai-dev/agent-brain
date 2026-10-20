@@ -674,6 +674,32 @@ class ScoutUnlockTests(unittest.TestCase):
             self.assertEqual(blocked.get("permission"), "deny")
             self.assertIn("agent-mouth", blocked.get("agent_message", ""))
 
+    def test_agent_mouth_timeout_fails_closed(self) -> None:
+        import subprocess
+        from unittest import mock
+
+        from route_gate import check_mouth_ast_policy
+
+        with mock.patch("route_gate.shutil.which", return_value="/bin/echo"), mock.patch(
+            "route_gate.subprocess.run", side_effect=subprocess.TimeoutExpired("agent-mouth", 2.0)
+        ):
+            denied = check_mouth_ast_policy("echo hello")
+        self.assertIsNotNone(denied)
+        self.assertEqual(denied.get("permission"), "deny")
+        self.assertIn("failing closed", denied.get("agent_message", ""))
+
+    def test_agent_mouth_os_error_fails_closed(self) -> None:
+        from unittest import mock
+
+        from route_gate import check_mouth_ast_policy
+
+        with mock.patch("route_gate.shutil.which", return_value="/bin/echo"), mock.patch(
+            "route_gate.subprocess.run", side_effect=OSError("exec failed")
+        ):
+            denied = check_mouth_ast_policy("echo hello")
+        self.assertIsNotNone(denied)
+        self.assertEqual(denied.get("permission"), "deny")
+
     def test_referenced_script_paths_only_returns_existing_scripts(self) -> None:
         from route_gate import referenced_script_paths
 
