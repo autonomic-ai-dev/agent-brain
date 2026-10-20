@@ -1013,24 +1013,28 @@ def check_mouth_ast_policy(cmd: str | None) -> dict | None:
                 text=True,
                 timeout=2.0,
             )
-        except Exception:
-            continue
+        except (subprocess.SubprocessError, OSError) as exc:
+            return mouth_denial(f"validation unavailable ({type(exc).__name__}); failing closed")
         if res.returncode != 0:
             reason = "destructive command pattern detected"
             try:
                 data = json.loads(res.stdout)
                 reason = data.get("reason", reason)
-            except Exception:
+            except (ValueError, AttributeError):
                 pass
-            return {
-                "permission": "deny",
-                "agent_message": (
-                    f"agent-mouth AST safety violation: {reason}. Destructive host execution "
-                    "is blocked. Delegate to agent-muscle (muscle_execute_bash) or request explicit user approval."
-                ),
-                "user_message": f"agent-mouth: blocked command ({reason}).",
-            }
+            return mouth_denial(reason)
     return None
+
+
+def mouth_denial(reason: str) -> dict:
+    return {
+        "permission": "deny",
+        "agent_message": (
+            f"agent-mouth AST safety violation: {reason}. Destructive host execution "
+            "is blocked. Delegate to agent-muscle (muscle_execute_bash) or request explicit user approval."
+        ),
+        "user_message": f"agent-mouth: blocked command ({reason}).",
+    }
 
 
 VERIFICATION_CMD_RE = re.compile(
