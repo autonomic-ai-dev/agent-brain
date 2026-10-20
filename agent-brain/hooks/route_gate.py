@@ -973,8 +973,28 @@ def check_python_shell_policy(cmd: str | None) -> dict | None:
     return None
 
 
+SHELL_INVOKERS = {"bash", "sh", "zsh", "dash", "ksh", "source", "."}
+SCRIPT_SUFFIXES = (".sh", ".bash", ".zsh")
+SCRIPT_SIZE_LIMIT = 256 * 1024
+
+
+def referenced_script_paths(cmd: str) -> list[str]:
+    tokens = cmd.split()
+    paths = []
+    for index, token in enumerate(tokens):
+        if token in SHELL_INVOKERS and index + 1 < len(tokens):
+            candidate = tokens[index + 1]
+        elif token.startswith(("./", "/")) and token.endswith(SCRIPT_SUFFIXES):
+            candidate = token
+        else:
+            continue
+        if os.path.isfile(candidate) and os.path.getsize(candidate) <= SCRIPT_SIZE_LIMIT:
+            paths.append(candidate)
+    return list(dict.fromkeys(paths))
+
+
 def check_mouth_ast_policy(cmd: str | None) -> dict | None:
-    """Validate bash command against agent-mouth AST approval policy if available."""
+    """Validate bash command and any script it runs against agent-mouth AST approval policy if available."""
     if not cmd:
         return None
     stripped = cmd.strip()
@@ -983,13 +1003,18 @@ def check_mouth_ast_policy(cmd: str | None) -> dict | None:
     mouth_bin = shutil.which("agent-mouth") or "/opt/homebrew/bin/agent-mouth"
     if not os.path.exists(mouth_bin):
         return None
-    try:
-        res = subprocess.run(
-            [mouth_bin, "validate", "--command", stripped],
-            capture_output=True,
-            text=True,
-            timeout=2.0,
-        )
+    targets = [["--command", stripped]]
+    targets += [["--script", path] for path in referenced_script_paths(stripped)]
+    for target in targets:
+        try:
+            res = subprocess.run(
+                [mouth_bin, "validate", *target],
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+            )
+        except Exception:
+            continue
         if res.returncode != 0:
             reason = "destructive command pattern detected"
             try:
@@ -1005,8 +1030,6 @@ def check_mouth_ast_policy(cmd: str | None) -> dict | None:
                 ),
                 "user_message": f"agent-mouth: blocked command ({reason}).",
             }
-    except Exception:
-        pass
     return None
 
 

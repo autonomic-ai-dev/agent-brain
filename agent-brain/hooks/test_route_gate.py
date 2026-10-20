@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
 import time
 import unittest
@@ -672,6 +673,31 @@ class ScoutUnlockTests(unittest.TestCase):
         if blocked is not None:
             self.assertEqual(blocked.get("permission"), "deny")
             self.assertIn("agent-mouth", blocked.get("agent_message", ""))
+
+    def test_referenced_script_paths_only_returns_existing_scripts(self) -> None:
+        from route_gate import referenced_script_paths
+
+        with tempfile.TemporaryDirectory() as tmp:
+            script = os.path.join(tmp, "run.sh")
+            with open(script, "w", encoding="utf-8") as handle:
+                handle.write("echo ok\n")
+            self.assertEqual(referenced_script_paths(f"bash {script}"), [script])
+            self.assertEqual(referenced_script_paths(f"source {script}"), [script])
+            self.assertEqual(referenced_script_paths(f"{script}"), [script])
+            self.assertEqual(referenced_script_paths("echo hi"), [])
+            self.assertEqual(referenced_script_paths(f"bash {tmp}/missing.sh"), [])
+
+    @unittest.skipUnless(shutil.which("agent-mouth"), "agent-mouth not installed")
+    def test_agent_mouth_validates_script_contents_not_only_command_text(self) -> None:
+        from route_gate import check_mouth_ast_policy
+
+        with tempfile.TemporaryDirectory() as tmp:
+            script = os.path.join(tmp, "cleanup.sh")
+            with open(script, "w", encoding="utf-8") as handle:
+                handle.write("rm -rf /\n")
+            blocked = check_mouth_ast_policy(f"bash {script}")
+            self.assertIsNotNone(blocked)
+            self.assertEqual(blocked.get("permission"), "deny")
 
     def test_antigravity_gemini_extractors(self) -> None:
         from route_gate import extract_read_path, extract_shell_command
