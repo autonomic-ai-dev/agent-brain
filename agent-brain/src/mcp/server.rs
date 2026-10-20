@@ -2051,21 +2051,125 @@ pub async fn run_proxy(socket_path: &Path) -> Result<()> {
     }
 }
 
-async fn serve_one_proxy_connection(mut stream: UnixStream) -> Result<()> {
-    let (mut rx, mut tx) = stream.split();
+const PROXY_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+async fn serve_one_proxy_connection(stream: UnixStream) -> Result<()> {
+    let (rx, mut tx) = stream.into_split();
     let mut stdin = BufReader::new(tokio::io::stdin());
     let mut stdout = tokio::io::stdout();
     let initial_line = match first_stdin_line(&mut stdin, &mut stdout).await? {
         Some(line) => line,
         None => return Ok(()),
     };
-    let mut combined = std::io::Cursor::new(initial_line).chain(stdin);
-    let to_socket = tokio::io::copy(&mut combined, &mut tx);
-    let to_stdout = tokio::io::copy(&mut rx, &mut stdout);
-    // Wait for both directions to drain so the daemon's response is fully flushed
-    // before the socket closes (avoids "broken pipe" on the last response).
-    let _ = tokio::join!(to_socket, to_stdout);
+    let pending = Arc::new(std::sync::Mutex::new(std::collections::HashMap::<
+        String,
+        std::time::Instant,
+    >::new()));
+    let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+
+    let writer = tokio::spawn(async move {
+        while let Some(line) = out_rx.recv().await {
+            if stdout.write_all(line.as_bytes()).await.is_err()
+                || stdout.write_all(b"\n").await.is_err()
+                || stdout.flush().await.is_err()
+            {
+                break;
+            }
+        }
+    });
+    let from_host = {
+        let pending = pending.clone();
+        tokio::spawn(async move {
+            let host = std::io::Cursor::new(initial_line).chain(stdin);
+            let mut lines = BufReader::new(host).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                if let Some(id) = request_id(&line) {
+                    pending
+                        .lock()
+                        .unwrap()
+                        .insert(id, std::time::Instant::now());
+                }
+                if tx.write_all(line.as_bytes()).await.is_err()
+                    || tx.write_all(b"\n").await.is_err()
+                {
+                    break;
+                }
+            }
+        })
+    };
+    let from_daemon = {
+        let pending = pending.clone();
+        let out_tx = out_tx.clone();
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(rx).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                if let Some(id) = response_id(&line) {
+                    pending.lock().unwrap().remove(&id);
+                }
+                if out_tx.send(line).is_err() {
+                    break;
+                }
+            }
+        })
+    };
+    let watchdog = tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(1));
+        loop {
+            tick.tick().await;
+            let expired: Vec<String> = {
+                let mut map = pending.lock().unwrap();
+                let expired: Vec<String> = map
+                    .iter()
+                    .filter(|(_, sent)| sent.elapsed() > PROXY_REQUEST_TIMEOUT)
+                    .map(|(id, _)| id.clone())
+                    .collect();
+                for id in &expired {
+                    map.remove(id);
+                }
+                expired
+            };
+            for id in expired {
+                let _ = out_tx.send(timeout_response(&id));
+            }
+        }
+    });
+
+    tokio::select! {
+        _ = from_host => {}
+        _ = from_daemon => {}
+    }
+    watchdog.abort();
+    writer.abort();
     Ok(())
+}
+
+fn request_id(line: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(line).ok()?;
+    value.get("method")?;
+    value.get("id").map(|id| id.to_string())
+}
+
+fn response_id(line: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(line).ok()?;
+    if value.get("result").is_none() && value.get("error").is_none() {
+        return None;
+    }
+    value.get("id").map(|id| id.to_string())
+}
+
+fn timeout_response(id: &str) -> String {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": serde_json::from_str::<serde_json::Value>(id).unwrap_or(serde_json::Value::Null),
+        "error": {
+            "code": -32000,
+            "message": format!(
+                "agent-brain did not answer within {}s; the daemon may be hung. Run `agent-brain doctor`, then restart serve or this session.",
+                PROXY_REQUEST_TIMEOUT.as_secs()
+            )
+        }
+    })
+    .to_string()
 }
 
 /// Supervised brain daemon: a single process owns the exclusive serve lock and `brain.db`,
@@ -2500,6 +2604,29 @@ mod tests {
         };
         assert_eq!(err.message, "skill file is unavailable; rebuild the index");
         assert!(!err.message.contains(&*gone.to_string_lossy()));
+    }
+
+    #[test]
+    fn proxy_tracks_requests_until_their_response() {
+        let request = r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{}}"#;
+        let response = r#"{"jsonrpc":"2.0","id":7,"result":{}}"#;
+        let notification = r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#;
+        assert_eq!(request_id(request).as_deref(), Some("7"));
+        assert_eq!(request_id(notification), None);
+        assert_eq!(response_id(response).as_deref(), Some("7"));
+        assert_eq!(response_id(request), None);
+        assert_eq!(request_id("not json"), None);
+    }
+
+    #[test]
+    fn proxy_timeout_answers_the_pending_request_with_an_error() {
+        let reply: serde_json::Value = serde_json::from_str(&timeout_response("\"abc\"")).unwrap();
+        assert_eq!(reply["id"], "abc");
+        assert_eq!(reply["error"]["code"], -32000);
+        assert!(reply["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("agent-brain doctor"));
     }
 
     #[test]
