@@ -505,7 +505,8 @@ const OPENCODE_PLUGIN_NAME: &str = "agent-brain-route-gate";
 
 const HARD_ROUTE_RULE: &str = r"## HARD RULES (never skip)
 
-- Call `route_task` (OpenCode: `agent-brain_route_task`) at the start of EVERY turn, before any other tool, skill, or action. Pass `user_message`, `current_working_directory`, and `open_files`.
+- Call `route_task` (OpenCode: `agent-brain_route_task`) once at session start, before any other tool, skill, or action. Pass `user_message`, `current_working_directory`, and `open_files`. Call it again only when the working directory changes, the last route is older than 4 hours, or a route gate denies a tool. Between those points the prior route stays valid; do not route every turn.
+- A bash-gate warning is advisory: state it and continue only if the action is what the user asked for. A bash-gate block means the command must not run as written; change it to stay inside the project, or ask the user to run it.
 - Prefer agent-brain `grep_search`, `file_summary`, `read_file_head`, `read_file_tail` over host Read/Cat/Grep when MCP is connected.
 - At task end call `store_memory` for durable outcomes (max 50 words, no secrets).
 - If a route gate denies a tool, call `route_task` first — do not work around the gate.
@@ -855,7 +856,7 @@ fn write_host_instructions(path: &Path, content: &str, quiet: bool, label: &str)
     Ok(())
 }
 
-const HOST_INSTRUCTIONS_VERSION: &str = "10";
+const HOST_INSTRUCTIONS_VERSION: &str = "11";
 
 const HOST_AGENT_BRAIN_INSTRUCTIONS: &str = r#"# agent-brain MCP (required)
 instructions-version: 10
@@ -1332,7 +1333,7 @@ mod tests {
         .unwrap();
         write_hard_route_rule(dir.path(), true, "test").unwrap();
         let written = fs::read_to_string(&path).unwrap();
-        assert!(written.contains("instructions-version: 10"));
+        assert!(written.contains("instructions-version: 11"));
         assert!(written.contains("muscle_execute_bash"));
         assert!(written.contains("route_task"));
     }

@@ -75,6 +75,7 @@ OPENCODE_BRAIN_PREFIXES = ("agent-brain_", "agent_brain_")
 GRACE_SECS = float(os.environ.get("AGENT_BRAIN_ROUTE_GRACE_SECS", "120"))
 STALE_ROUTE_SECS = float(os.environ.get("AGENT_BRAIN_ROUTE_STALE_SECS", "45"))
 OFFLINE_SECS = float(os.environ.get("AGENT_BRAIN_ROUTE_OFFLINE_SECS", "1800"))
+SESSION_ROUTE_TTL_SECS = float(os.environ.get("AGENT_BRAIN_ROUTE_SESSION_TTL_SECS", "14400"))
 # all = gate every tool (hard blocking across all agents); brain_mcp = gate only agent-brain tools.
 GATE_SCOPE = os.environ.get("AGENT_BRAIN_ROUTE_GATE_SCOPE", "all").strip().lower()
 READ_GATE_MODE = os.environ.get("AGENT_BRAIN_READ_GATE", "hard").strip().lower()
@@ -842,6 +843,8 @@ def try_clear_route_gate(event: dict) -> None:
     state["needs_route"] = False
     state.pop("needs_route_since", None)
     state["route_grace_until"] = 0
+    state["routed_at"] = time.time()
+    state["routed_cwd"] = current_cwd(event)
     clear_mcp_offline(state)
     gen = event.get("generation_id") or event.get("generationId") or state.get("pending_generation")
     if isinstance(gen, str) and gen.strip():
@@ -862,6 +865,20 @@ def handle_route_outcome(event: dict) -> None:
     try_clear_route_gate(event)
 
 
+def current_cwd(event: dict | None) -> str:
+    cwd = (event or {}).get("cwd")
+    return str(cwd) if cwd else os.getcwd()
+
+
+def session_route_reusable(state: dict, cwd: str) -> bool:
+    routed_at = state.get("routed_at")
+    if state.get("needs_route") or not isinstance(routed_at, (int, float)):
+        return False
+    if state.get("routed_cwd") != cwd:
+        return False
+    return time.time() - routed_at < SESSION_ROUTE_TTL_SECS
+
+
 def handle_before_submit_prompt(event: dict) -> dict:
     state = load_state(event)
     if in_mcp_offline(state):
@@ -876,6 +893,10 @@ def handle_before_submit_prompt(event: dict) -> dict:
     # Mid-turn / duplicate UserPromptSubmit for the same generation must NOT re-arm
     # the gate after a successful route_task (this was the main mid-turn flake).
     if gen and state.get("routed_generation") == gen and not state.get("needs_route"):
+        return {"continue": True}
+    if session_route_reusable(state, current_cwd(event)):
+        state["last_turn_ping"] = time.time()
+        save_state(state, event)
         return {"continue": True}
     state["needs_route"] = True
     state["needs_route_since"] = time.time()

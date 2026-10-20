@@ -4,10 +4,14 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import time
 import unittest
 from pathlib import Path
+
+_ISOLATED_HOME = tempfile.TemporaryDirectory(prefix="agent-brain-route-test-")
+os.environ["AGENT_BRAIN_HOME"] = _ISOLATED_HOME.name
 
 import route_gate
 from route_gate import (
@@ -835,6 +839,109 @@ class SessionGateTests(unittest.TestCase):
             adapted.get("hookSpecificOutput", {}).get("permissionDecision"),
             "allow",
         )
+
+class SessionRouteReuseTests(unittest.TestCase):
+    def setUp(self) -> None:
+        from unittest import mock
+
+        import route_gate
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        patcher = mock.patch.object(
+            route_gate, "STATE_PATH", Path(self._tmp.name) / "route_state.json"
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.cwd = str(Path(self._tmp.name) / "repo")
+
+    def _route_success(self, cwd: str) -> None:
+        from route_gate import try_clear_route_gate
+
+        try_clear_route_gate(
+            {
+                "tool_name": "mcp_agent-brain_route_task",
+                "tool_output": json.dumps(
+                    {"recommended_skills": [{"name": "rust-testing"}], "tokens_used": 120}
+                ),
+                "cwd": cwd,
+            }
+        )
+
+    def _prompt(self, cwd: str) -> None:
+        from route_gate import handle_before_submit_prompt
+
+        handle_before_submit_prompt({"cwd": cwd, "prompt": "continue"})
+
+    def test_first_prompt_of_a_session_requires_route(self) -> None:
+        from route_gate import load_state
+
+        self._prompt(self.cwd)
+
+        self.assertTrue(load_state().get("needs_route"))
+
+    def test_fresh_route_is_reused_on_later_prompts_in_same_directory(self) -> None:
+        from route_gate import load_state
+
+        self._route_success(self.cwd)
+        self._prompt(self.cwd)
+        self._prompt(self.cwd)
+
+        state = load_state()
+        self.assertFalse(state.get("needs_route"))
+        self.assertIn("last_turn_ping", state)
+
+    def test_route_expires_after_session_ttl(self) -> None:
+        from unittest import mock
+
+        import route_gate
+
+        self._route_success(self.cwd)
+        with mock.patch.object(route_gate, "SESSION_ROUTE_TTL_SECS", 0.0):
+            self._prompt(self.cwd)
+
+        self.assertTrue(route_gate.load_state().get("needs_route"))
+
+    def test_changing_directory_requires_route(self) -> None:
+        import route_gate
+
+        self._route_success(self.cwd)
+        self._prompt(str(Path(self._tmp.name) / "other-repo"))
+
+        self.assertTrue(route_gate.load_state().get("needs_route"))
+
+    def test_failed_route_is_not_reused(self) -> None:
+        import route_gate
+
+        self._route_success(self.cwd)
+        state = route_gate.load_state()
+        state["needs_route"] = True
+        route_gate.save_state(state)
+        self._prompt(self.cwd)
+
+        after = route_gate.load_state()
+        self.assertTrue(after.get("needs_route"))
+        self.assertNotIn("last_turn_ping", after)
+
+    def test_route_without_timestamp_is_not_reused(self) -> None:
+        import route_gate
+
+        state = route_gate.load_state()
+        state["routed_cwd"] = self.cwd
+        route_gate.save_state(state)
+        self._prompt(self.cwd)
+
+        self.assertTrue(route_gate.load_state().get("needs_route"))
+
+
+class TestIsolationTests(unittest.TestCase):
+    def test_hook_state_stays_inside_isolated_home(self) -> None:
+        self.assertEqual(
+            str(route_gate.default_brain_home()),
+            _ISOLATED_HOME.name,
+            "the default brain home must resolve to the isolated test home",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

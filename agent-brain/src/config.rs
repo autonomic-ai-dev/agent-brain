@@ -118,7 +118,7 @@ impl Config {
             route_briefing_enabled: env_bool("AGENT_BRAIN_ROUTE_BRIEFING", true),
             route_briefing_stderr: env_bool("AGENT_BRAIN_ROUTE_BRIEFING_STDERR", true),
             mcp_gate_enabled: env_bool("AGENT_BRAIN_MCP_GATE", true),
-            mcp_gate_ttl_secs: env_u64("AGENT_BRAIN_MCP_GATE_TTL", 600),
+            mcp_gate_ttl_secs: env_u64("AGENT_BRAIN_MCP_GATE_TTL", 14_400),
             session_stickiness_secs: env_u64("AGENT_BRAIN_SESSION_STICKINESS_SECS", 1800),
             ann_enabled: env_bool("AGENT_BRAIN_ANN", true),
             ann_min_index: env_usize(
@@ -165,7 +165,7 @@ impl Config {
             route_briefing_enabled: false,
             route_briefing_stderr: false,
             mcp_gate_enabled: false,
-            mcp_gate_ttl_secs: 600,
+            mcp_gate_ttl_secs: 14_400,
             session_stickiness_secs: 0,
             ann_enabled: true,
             ann_min_index: crate::ann::DEFAULT_ANN_MIN_INDEX,
