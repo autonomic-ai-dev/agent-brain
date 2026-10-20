@@ -509,6 +509,7 @@ const HARD_ROUTE_RULE: &str = r"## HARD RULES (never skip)
 - A bash-gate warning is advisory: state it and continue only if the action is what the user asked for. A bash-gate block means the command must not run as written; change it to stay inside the project, or ask the user to run it.
 - Prefer agent-brain `grep_search`, `file_summary`, `read_file_head`, `read_file_tail` over host Read/Cat/Grep when MCP is connected.
 - At task end call `store_memory` for durable outcomes (max 50 words, no secrets).
+- Skills and MCP tools: `route_task` returns only the skills it matched. If a task needs another skill, call `skill_search` with keywords, then `skill_get` with the exact name. If it needs an upstream MCP tool, call `mcp_search` with keywords, then `get_mcp` with the server and tool to read its schema, then `route_to_mcp` to call it. Never guess skill or tool names.
 - If a route gate denies a tool, call `route_task` first — do not work around the gate.
 - Choose shell and organ tools from the `route_task` result: read `suggested_tools` and `must_apply` before the first shell or organ call. Prefer routed agent-body tools (e.g. `muscle_execute_bash`, `spine_check_status`, `heart_record_usage`) over native Bash when they are listed. Test agent-body reachability once per session and reuse the result. If a routed tool is skipped, say so and why. If an agent-body call fails, report the failure and fall back to native tools.
 ";
@@ -856,10 +857,10 @@ fn write_host_instructions(path: &Path, content: &str, quiet: bool, label: &str)
     Ok(())
 }
 
-const HOST_INSTRUCTIONS_VERSION: &str = "11";
+const HOST_INSTRUCTIONS_VERSION: &str = "12";
 
 const HOST_AGENT_BRAIN_INSTRUCTIONS: &str = r#"# agent-brain MCP (required)
-instructions-version: 10
+instructions-version: 12
 
 ## The connection contract
 
@@ -877,7 +878,8 @@ If the agent skips route_task, cross-agent ingest and shared memory provide **ze
 1. Call **`route_task`** with `user_message`, `current_working_directory`, and `open_files`.
 2. Load skills/agents from returned paths; apply `applicable_rules` and `must_apply`.
 3. Use `relevant_memory` (includes session digests when relevant).
-4. At task end, call **`store_memory`** for durable outcomes (max 50 words, no secrets).
+4. If the task needs a skill or MCP tool that `route_task` did not return, use `skill_search` then `skill_get`, or `mcp_search` then `get_mcp` and `route_to_mcp`.
+5. At task end, call **`store_memory`** for durable outcomes (max 50 words, no secrets).
 
 ## Verification
 
@@ -917,7 +919,7 @@ Readable summary: `~/.agent_brain/logs/last-route.md` or `agent-brain briefing`.
 "#;
 
 const CLAUDE_CODE_AGENT_BRAIN_INSTRUCTIONS: &str = r#"# agent-brain MCP (required)
-instructions-version: 10
+instructions-version: 12
 
 ## The connection contract
 
@@ -935,7 +937,8 @@ If the agent skips route_task, cross-agent ingest and shared memory provide **ze
 1. Call **`route_task`** with `user_message`, `current_working_directory`, and `open_files`.
 2. Load skills/agents from returned paths; apply `applicable_rules` and `must_apply`.
 3. Use `relevant_memory` (includes session digests when relevant).
-4. At task end, call **`store_memory`** for durable outcomes (max 50 words, no secrets).
+4. If the task needs a skill or MCP tool that `route_task` did not return, use `skill_search` then `skill_get`, or `mcp_search` then `get_mcp` and `route_to_mcp`.
+5. At task end, call **`store_memory`** for durable outcomes (max 50 words, no secrets).
 
 ## Verification
 
@@ -965,7 +968,7 @@ Readable summary: `~/.agent_brain/logs/last-route.md` or `agent-brain briefing`.
 "#;
 
 const OPENCODE_AGENT_BRAIN_INSTRUCTIONS: &str = r#"# agent-brain MCP (required)
-instructions-version: 10
+instructions-version: 12
 
 ## The connection contract
 
@@ -995,7 +998,7 @@ Readable summary: `~/.agent_brain/logs/last-route.md` or `agent-brain briefing`.
 "#;
 
 const ANTIGRAVITY_AGENT_BRAIN_INSTRUCTIONS: &str = r#"# agent-brain MCP (required)
-instructions-version: 10
+instructions-version: 12
 
 ## The connection contract
 
@@ -1333,7 +1336,7 @@ mod tests {
         .unwrap();
         write_hard_route_rule(dir.path(), true, "test").unwrap();
         let written = fs::read_to_string(&path).unwrap();
-        assert!(written.contains("instructions-version: 11"));
+        assert!(written.contains("instructions-version: 12"));
         assert!(written.contains("muscle_execute_bash"));
         assert!(written.contains("route_task"));
     }

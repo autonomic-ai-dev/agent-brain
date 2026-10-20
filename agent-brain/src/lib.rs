@@ -80,6 +80,7 @@ pub mod scale_bench;
 pub mod secrets;
 pub mod serve_meta;
 pub mod command_policy;
+pub mod command_rules;
 pub mod commit_gate;
 pub mod skill_registry;
 pub mod stop_gate;
