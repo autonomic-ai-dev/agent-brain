@@ -724,6 +724,9 @@ async fn main() -> Result<()> {
         "commit-gate" => {
             agent_brain::commit_gate::run_commit_gate()?;
         }
+        "bash-gate" => {
+            agent_brain::command_policy::run_bash_gate()?;
+        }
         "verify" => {
             let sub = args.get(2).map(String::as_str).unwrap_or("");
             if sub == "init" {

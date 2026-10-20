@@ -29,6 +29,17 @@ pub(crate) struct IndexBatchItem {
     pub file_mtime: Option<i64>,
 }
 
+pub struct SkillItemRow {
+    pub name: String,
+    pub path: String,
+}
+
+fn escape_like(term: &str) -> String {
+    term.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
 const BM25_ITEMS_TOP: usize = 150;
 const BM25_FACTS_TOP: usize = 40;
 const MIN_CANDIDATES: usize = 15;
@@ -474,6 +485,42 @@ impl BrainStore {
         })
     }
 
+
+    pub fn find_skill_items(&self, terms: &[String], limit: usize) -> Result<Vec<SkillItemRow>> {
+        let clauses: Vec<String> = (1..=terms.len())
+            .map(|i| format!("(topic || ' ' || text) LIKE ?{i} ESCAPE '\\'"))
+            .collect();
+        let sql = format!(
+            "SELECT topic, source_path FROM indexed_items WHERE item_type = 'skill' AND {} ORDER BY topic LIMIT {limit}",
+            clauses.join(" AND ")
+        );
+        let patterns: Vec<String> = terms
+            .iter()
+            .map(|term| format!("%{}%", escape_like(term)))
+            .collect();
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(patterns.iter()), |row| {
+                Ok(SkillItemRow {
+                    name: row.get(0)?,
+                    path: row.get(1)?,
+                })
+            })?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+    }
+
+    pub fn skill_source_path(&self, name: &str) -> Result<Option<String>> {
+        self.with_conn(|conn| {
+            Ok(conn
+                .query_row(
+                    "SELECT source_path FROM indexed_items WHERE item_type = 'skill' AND topic = ?1 COLLATE NOCASE ORDER BY source_path LIMIT 1",
+                    params![name],
+                    |row| row.get(0),
+                )
+                .optional()?)
+        })
+    }
 
     pub fn load_searchable_items(&self) -> Result<Vec<SearchRow>> {
         self.with_conn(|conn| {

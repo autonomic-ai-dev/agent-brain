@@ -262,7 +262,7 @@ pub fn write_settings_hooks(path: &Path, hooks_fragment: &Value) -> Result<()> {
     Ok(())
 }
 
-fn claude_code_gate_fragment(script: &Path, stop_cmd: &str, commit_cmd: &str) -> Value {
+fn claude_code_gate_fragment(script: &Path, stop_cmd: &str, bash_cmd: &str) -> Value {
     let route = claude_code_hooks_fragment(script);
     let mut hooks = route["hooks"].clone();
     let mut pre_tool_use = hooks["PreToolUse"].as_array().cloned().unwrap_or_default();
@@ -270,7 +270,7 @@ fn claude_code_gate_fragment(script: &Path, stop_cmd: &str, commit_cmd: &str) ->
         "matcher": "Bash",
         "hooks": [{
             "type": "command",
-            "command": commit_cmd,
+            "command": bash_cmd,
             "timeout": 30
         }]
     }));
@@ -293,7 +293,7 @@ fn agent_brain_subcommand(subcommand: &str) -> Result<String> {
 
 fn is_gate_subcommand(cmd: &str) -> bool {
     let cmd = cmd.trim_end();
-    cmd.ends_with(" stop-gate") || cmd.ends_with(" commit-gate")
+    cmd.ends_with(" stop-gate") || cmd.ends_with(" commit-gate") || cmd.ends_with(" bash-gate")
 }
 
 fn python3_available() -> bool {
@@ -313,7 +313,7 @@ pub fn install_claude_code_hooks(user: bool, quiet: bool) -> Result<PathBuf> {
     let fragment = claude_code_gate_fragment(
         &script,
         &agent_brain_subcommand("stop-gate")?,
-        &agent_brain_subcommand("commit-gate")?,
+        &agent_brain_subcommand("bash-gate")?,
     );
     write_settings_hooks(&settings, &fragment)?;
     if !quiet {
@@ -431,7 +431,7 @@ pub fn hooks_status(path: &Path, marker: &str) -> &'static str {
 pub fn claude_hooks_need_refresh(path: &Path) -> bool {
     if hooks_status(path, "route_gate.py") != "OK"
         || hooks_status(path, "stop-gate") != "OK"
-        || hooks_status(path, "commit-gate") != "OK"
+        || hooks_status(path, "bash-gate") != "OK"
     {
         return true;
     }
@@ -477,7 +477,7 @@ mod tests {
         let gates = claude_code_gate_fragment(
             &script,
             "'/bin/agent-brain' stop-gate",
-            "'/bin/agent-brain' commit-gate",
+            "'/bin/agent-brain' bash-gate",
         );
         write_settings_hooks(&path, &gates).unwrap();
         assert!(!claude_hooks_need_refresh(&path));
@@ -499,7 +499,7 @@ mod tests {
         let gates = claude_code_gate_fragment(
             &script,
             "'/bin/agent-brain' stop-gate",
-            "'/bin/agent-brain' commit-gate",
+            "'/bin/agent-brain' bash-gate",
         );
         write_settings_hooks(&path, &gates).unwrap();
         write_settings_hooks(&path, &gates).unwrap();
@@ -511,7 +511,7 @@ mod tests {
             .filter_map(|entry| entry["hooks"][0]["command"].as_str())
             .collect();
         assert_eq!(
-            commands.iter().filter(|c| c.ends_with("commit-gate")).count(),
+            commands.iter().filter(|c| c.ends_with("bash-gate")).count(),
             1
         );
         assert!(commands.iter().any(|c| c.contains("route_gate.py")));
@@ -530,7 +530,7 @@ mod tests {
             &claude_code_gate_fragment(
                 &script,
                 "'/bin/agent-brain' stop-gate",
-                "'/bin/agent-brain' commit-gate",
+                "'/bin/agent-brain' bash-gate",
             ),
         )
         .unwrap();

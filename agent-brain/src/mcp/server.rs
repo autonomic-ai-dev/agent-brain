@@ -21,6 +21,7 @@ use crate::db::write_queue::{store_memory_payload, WriteOp};
 use crate::engine::Engine;
 use crate::gc;
 use crate::mcp::route_gate::McpRouteGate;
+use crate::skill_registry::{read_skill_file, search_terms, MAX_SKILL_RESULTS};
 use crate::types::{deserialize_route_limits, ItemType, RouteLimits};
 
 #[derive(Clone)]
@@ -126,6 +127,18 @@ fn default_scope() -> String {
 struct ListMemoryParams {
     #[serde(default = "default_limit")]
     limit: usize,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SkillSearchParams {
+    query: String,
+    #[serde(default = "default_limit")]
+    limit: usize,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct SkillGetParams {
+    name: String,
 }
 
 fn default_limit() -> usize {
@@ -979,6 +992,59 @@ impl BrainMcp {
             crate::observability::explain_last(&self.engine.store, params.0.log_id.as_deref())
                 .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         json_result(serde_json::json!({ "context": explain }))
+    }
+
+    #[tool(
+        description = "Search the skill registry by keywords; every word must match. Returns skill names and paths. Use skill_get to load one."
+    )]
+    async fn skill_search(
+        &self,
+        params: Parameters<SkillSearchParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.require_route("skill_search")?;
+        let _req = self.engine.mcp_activity.begin_request();
+        let terms = search_terms(&params.0.query);
+        if terms.is_empty() {
+            return Err(McpError::invalid_params(
+                "query must contain at least one word",
+                None,
+            ));
+        }
+        let limit = params.0.limit.min(MAX_SKILL_RESULTS);
+        let rows = self
+            .engine
+            .store
+            .find_skill_items(&terms, limit)
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        let skills: Vec<serde_json::Value> = rows
+            .into_iter()
+            .map(|row| serde_json::json!({ "name": row.name, "path": row.path }))
+            .collect();
+        json_result(serde_json::json!({ "skills": skills }))
+    }
+
+    #[tool(description = "Fetch the full SKILL.md instructions for a skill by its registry name.")]
+    async fn skill_get(
+        &self,
+        params: Parameters<SkillGetParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.require_route("skill_get")?;
+        let _req = self.engine.mcp_activity.begin_request();
+        let source = self
+            .engine
+            .store
+            .skill_source_path(&params.0.name)
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        let Some(source) = source else {
+            return Err(McpError::invalid_params(
+                format!("skill not found: {}", params.0.name),
+                None,
+            ));
+        };
+        let content = read_skill_file(Path::new(&source)).map_err(|_| {
+            McpError::internal_error("skill file is unavailable; rebuild the index", None)
+        })?;
+        json_result(serde_json::json!({ "name": params.0.name, "content": content }))
     }
 
     #[tool(description = "Import memory facts from a sync bundle directory.")]
@@ -2226,6 +2292,215 @@ fn build_autonomic_catalog(organ_filter: Option<&str>, verbose: bool) -> serde_j
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::store::{BrainStore, IndexBatchItem};
+    use crate::types::ItemType;
+    use tempfile::TempDir;
+
+    fn skill_test_server(dir: &TempDir, skills: &[IndexBatchItem]) -> BrainMcp {
+        let home = dir.path().to_path_buf();
+        std::fs::create_dir_all(home.join("data")).expect("create data dir");
+        let config = crate::config::Config {
+            home: home.clone(),
+            data_dir: home.join("data"),
+            logs_dir: home.join("logs"),
+            db_path: home.join("data").join("brain.db"),
+            vectors_path: home.join("data").join("vectors.bin"),
+            turn_ttl_secs: 60,
+            auto_capture_enabled: true,
+            session_ingest_enabled: true,
+            session_digest_enabled: true,
+            session_ingest_legacy: false,
+            session_max_age_days: 90,
+            prewarm_on_bootstrap: false,
+            bootstrap_background: false,
+            embedding_cache_enabled: true,
+            bm25_fast_path_enabled: true,
+            session_ingest_background: false,
+            turn_cache_ignore_open_files: true,
+            embedding_model: "mini".into(),
+            bootstrap_startup_delay_secs: 0,
+            bootstrap_interval_secs: 0,
+            auto_update_startup_delay_secs: 0,
+            session_ingest_delay_secs: 0,
+            session_ingest_route_interval_secs: 0,
+            route_briefing_enabled: false,
+            route_briefing_stderr: false,
+            mcp_gate_enabled: true,
+            mcp_gate_ttl_secs: 600,
+            session_stickiness_secs: 0,
+            precision_rerank_enabled: false,
+            query_decompose_enabled: false,
+            ann_enabled: true,
+            ann_min_index: 1_500,
+            ann_top_k: 100,
+            workflow_dirs: vec![],
+        };
+        let store = Arc::new(BrainStore::open(&config.db_path).expect("open store"));
+        store
+            .upsert_indexed_items_batch(skills)
+            .expect("seed indexed items");
+        let engine = Arc::new(Engine::new_with_store(config, store).expect("engine"));
+        BrainMcp::new(engine)
+    }
+
+    fn skill_row(topic: &str, text: &str, source_path: &str) -> IndexBatchItem {
+        IndexBatchItem {
+            id: format!("skill-{topic}"),
+            item_type: ItemType::Skill,
+            topic: topic.to_string(),
+            text: text.to_string(),
+            source_path: source_path.to_string(),
+            scope: "global".to_string(),
+            scope_key: None,
+            content_hash: format!("hash-{topic}"),
+            embedding: Vec::new(),
+            file_mtime: None,
+        }
+    }
+
+    fn json_body(result: CallToolResult) -> serde_json::Value {
+        let text = result.content[0]
+            .as_text()
+            .expect("text content")
+            .text
+            .clone();
+        serde_json::from_str(&text).expect("json body")
+    }
+
+    #[tokio::test]
+    async fn skill_search_requires_route_first() {
+        let dir = TempDir::new().expect("tempdir");
+        let server = skill_test_server(
+            &dir,
+            &[skill_row(
+                "rust-patterns",
+                "rust ownership",
+                "/skills/rust/SKILL.md",
+            )],
+        );
+
+        let result = server
+            .skill_search(Parameters(SkillSearchParams {
+                query: "rust".into(),
+                limit: 10,
+            }))
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn skill_search_returns_matching_skill_names_and_paths_after_routing() {
+        let dir = TempDir::new().expect("tempdir");
+        let server = skill_test_server(
+            &dir,
+            &[
+                skill_row("rust-patterns", "rust ownership", "/skills/rust/SKILL.md"),
+                skill_row("react-patterns", "hooks", "/skills/react/SKILL.md"),
+            ],
+        );
+        server.route_gate.record_route("find a rust skill");
+
+        let result = server
+            .skill_search(Parameters(SkillSearchParams {
+                query: "rust".into(),
+                limit: 10,
+            }))
+            .await
+            .expect("search succeeds");
+
+        let body = json_body(result);
+        let skills = body["skills"].as_array().expect("skills array");
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0]["name"], "rust-patterns");
+        assert_eq!(skills[0]["path"], "/skills/rust/SKILL.md");
+    }
+
+    #[tokio::test]
+    async fn skill_search_rejects_query_without_words() {
+        let dir = TempDir::new().expect("tempdir");
+        let server = skill_test_server(&dir, &[]);
+        server.route_gate.record_route("find a skill");
+
+        let result = server
+            .skill_search(Parameters(SkillSearchParams {
+                query: "   ".into(),
+                limit: 10,
+            }))
+            .await;
+
+        let Err(err) = result else {
+            panic!("blank query must be rejected");
+        };
+        assert_eq!(err.message, "query must contain at least one word");
+    }
+
+    #[tokio::test]
+    async fn skill_get_returns_full_instructions_for_registry_name() {
+        let dir = TempDir::new().expect("tempdir");
+        let skill_path = dir.path().join("SKILL.md");
+        std::fs::write(&skill_path, "# Rust Patterns\nUse ownership.").expect("write skill");
+        let server = skill_test_server(
+            &dir,
+            &[skill_row(
+                "rust-patterns",
+                "rust ownership",
+                &skill_path.to_string_lossy(),
+            )],
+        );
+        server.route_gate.record_route("load rust patterns");
+
+        let result = server
+            .skill_get(Parameters(SkillGetParams {
+                name: "RUST-PATTERNS".into(),
+            }))
+            .await
+            .expect("skill_get succeeds");
+
+        let body = json_body(result);
+        assert_eq!(body["content"], "# Rust Patterns\nUse ownership.");
+    }
+
+    #[tokio::test]
+    async fn skill_get_reports_unknown_skill_name() {
+        let dir = TempDir::new().expect("tempdir");
+        let server = skill_test_server(&dir, &[]);
+        server.route_gate.record_route("load a skill");
+
+        let result = server
+            .skill_get(Parameters(SkillGetParams {
+                name: "missing".into(),
+            }))
+            .await;
+
+        let Err(err) = result else {
+            panic!("unknown skill must be rejected");
+        };
+        assert_eq!(err.message, "skill not found: missing");
+    }
+
+    #[tokio::test]
+    async fn skill_get_hides_indexed_path_when_file_is_gone() {
+        let dir = TempDir::new().expect("tempdir");
+        let gone = dir.path().join("gone").join("SKILL.md");
+        let server = skill_test_server(
+            &dir,
+            &[skill_row("ghost", "ghost skill", &gone.to_string_lossy())],
+        );
+        server.route_gate.record_route("load ghost");
+
+        let result = server
+            .skill_get(Parameters(SkillGetParams {
+                name: "ghost".into(),
+            }))
+            .await;
+
+        let Err(err) = result else {
+            panic!("missing file must be reported");
+        };
+        assert_eq!(err.message, "skill file is unavailable; rebuild the index");
+        assert!(!err.message.contains(&*gone.to_string_lossy()));
+    }
 
     #[test]
     fn test_build_autonomic_catalog_returns_all_organs() {
