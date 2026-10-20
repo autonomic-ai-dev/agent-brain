@@ -4,7 +4,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::types::{
-    ContextBundle, MemoryRec, RouteLimits, RouteTaskResponse, ScoredItem, TaskKind,
+    ContextBundle, MemoryRec, RouteLimits, RouteTaskResponse, ScoredItem, SkillRec, TaskKind,
 };
 
 const ESCALATE_CONFIDENCE: f64 = 0.45;
@@ -145,7 +145,14 @@ pub fn build_context_bundle(resp: &RouteTaskResponse, scored: &[ScoredItem]) -> 
     ContextBundle {
         team_rules: resp.applicable_rules.clone(),
         negative_memory,
-        skill_docs: resp.recommended_skills.clone(),
+        skill_docs: resp
+            .recommended_skills
+            .iter()
+            .map(|skill| SkillRec {
+                text: None,
+                ..skill.clone()
+            })
+            .collect(),
         agents: resp.recommended_agents.clone(),
         observations,
     }
@@ -286,6 +293,25 @@ mod tests {
         assert!(bundle.observations.is_empty(), "obs must not re-enter MCP bundle");
         assert_eq!(bundle.negative_memory.len(), 1);
         assert_eq!(bundle.team_rules.len(), 1);
+    }
+
+    #[test]
+    fn context_bundle_does_not_repeat_skill_text() {
+        let resp = RouteTaskResponse {
+            recommended_skills: vec![SkillRec {
+                name: "testing".into(),
+                path: "/s.md".into(),
+                rationale: "r".into(),
+                score: 0.9,
+                text: Some("full skill body".into()),
+            }],
+            ..Default::default()
+        };
+        let bundle = build_context_bundle(&resp, &[]);
+        assert_eq!(bundle.skill_docs.len(), 1);
+        assert_eq!(bundle.skill_docs[0].name, "testing");
+        assert!(bundle.skill_docs[0].text.is_none());
+        assert_eq!(resp.recommended_skills[0].text.as_deref(), Some("full skill body"));
     }
 
     #[test]
