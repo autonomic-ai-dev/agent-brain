@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0-beta.3.8] - 2026-10-20
+
+### Added
+- **Bash policy gate** (`agent-brain bash-gate`): blocks or warns on destructive shell commands before they run. Blocks force pushes, recursive deletes outside the project, deletes of `.git`, system and protected home paths, git hook bypass, git alias and repository redirects, writes to system, protected, or device paths, `find -delete` outside the project, interpreter one-liners that delete at absolute paths, and `mkfs` or `dd` to devices. Warns on reversible or scoped destruction.
+- **Skill registry tools**: `skill_search` and `skill_get` MCP tools over indexed skills. `skill_get` reads only indexed paths and caps file size at 256 KB.
+- **Session-cached routing**: the route gate routes on session start, on directory change, or after 4 hours. A cheap local check runs per prompt.
+
+### Changed
+- Claude hook fragment uses `bash-gate` in place of `commit-gate`. Reinstall replaces old entries.
+- MCP gate TTL default raised from 10 minutes to 4 hours; override with `AGENT_BRAIN_MCP_GATE_TTL`.
+- Routing rule text bumped to `instructions-version: 11`.
+
+### Fixed
+- Commit gate parsing is quote-aware and handles wrappers (`env -u NAME git commit -n`) and command substitutions.
+
 ## [1.0.0-beta.3.7] - 2026-10-18
 
 ### Added
