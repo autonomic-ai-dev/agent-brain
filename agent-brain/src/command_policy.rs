@@ -5,8 +5,9 @@ use anyhow::Result;
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::command_rules::{self, Rule};
 use crate::commit_gate::{
-    bypasses_git_hooks, command_start, shell_payload, split_segments, substitutions,
+    base_name, bypasses_git_hooks, command_start, shell_payload, split_segments, substitutions,
 };
 
 const SCRATCH_ROOTS: &[&str] = &["/tmp", "/private/tmp", "/var/folders"];
@@ -63,11 +64,27 @@ const DESTRUCTIVE_CODE: &[&str] = &[
     "rm_rf",
     "FileUtils",
     "os.system",
+    "system(",
+    "exec(",
     "subprocess",
+    "child_process",
+    "execSync",
+    "execFile",
+    "spawnSync",
     "shutil",
     "truncate",
+    "open(",
+    "writeFile",
+    "write_text",
+    "os.remove",
+    "File.write",
+    "File.delete",
+    "removeSync",
+    "do shell script",
 ];
-const ABSOLUTE_IN_CODE: &[&str] = &["\"/", "'/", "~", "$HOME", ".."];
+const DESTRUCTIVE_GIT: &[&str] = &[
+    "clean", "reset", "checkout", "restore", "push", "stash", "rm",
+];
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Verdict {
@@ -89,28 +106,44 @@ struct BashToolInput {
     command: String,
 }
 
-pub fn classify(command: &str, root: Option<&Path>) -> Verdict {
-    classify_in(command, root, root.map(normalize))
+#[derive(Clone, Copy)]
+struct Ctx<'a> {
+    root: Option<&'a Path>,
+    rules: &'a [Rule],
+    piped: bool,
 }
 
-fn classify_in(command: &str, root: Option<&Path>, mut dir: Option<PathBuf>) -> Verdict {
+pub fn classify(command: &str, root: Option<&Path>, rules: &[Rule]) -> Verdict {
+    let ctx = Ctx {
+        root,
+        rules,
+        piped: false,
+    };
+    classify_in(command, ctx, root.map(normalize))
+}
+
+fn classify_in(command: &str, ctx: Ctx<'_>, mut dir: Option<PathBuf>) -> Verdict {
     if bypasses_git_hooks(command) {
         return Verdict::Block("it skips git hooks; commits must run the pre-commit guard".into());
     }
+    let ctx = Ctx {
+        piped: command.contains('|') || command.contains("<("),
+        ..ctx
+    };
     let mut verdict = Verdict::Allow;
     for segment in split_segments(command) {
         let words: Vec<&str> = segment.iter().map(String::as_str).collect();
         let start = command_start(&words);
-        let step = segment_verdict(&words[..start], &words[start..], root, &mut dir);
+        let step = segment_verdict(&words[..start], &words[start..], ctx, &mut dir);
         verdict = merge(verdict, step);
     }
     for target in redirect_targets(command) {
-        for base in [root, dir.as_deref()] {
-            verdict = merge(verdict, write_verdict(&target, root, base));
+        for base in [ctx.root, dir.as_deref()] {
+            verdict = merge(verdict, write_verdict(&target, ctx.root, base));
         }
     }
     for inner in substitutions(command) {
-        verdict = merge(verdict, classify_in(inner, root, dir.clone()));
+        verdict = merge(verdict, classify_in(inner, ctx, dir.clone()));
     }
     verdict
 }
@@ -118,69 +151,150 @@ fn classify_in(command: &str, root: Option<&Path>, mut dir: Option<PathBuf>) -> 
 fn segment_verdict(
     prefix: &[&str],
     argv: &[&str],
-    root: Option<&Path>,
+    ctx: Ctx<'_>,
     dir: &mut Option<PathBuf>,
 ) -> Verdict {
     if prefix.iter().any(|assignment| {
         GIT_REDIRECTS
             .iter()
-            .any(|name| assignment.starts_with(*name))
+            .any(|name| assignment.starts_with(name))
     }) {
         return Verdict::Block("it redirects git's repository, index, or config".into());
     }
-    let here = dir.clone();
-    let here = here.as_deref();
-    match argv.split_first() {
-        Some((&("cd" | "pushd"), args)) => {
-            *dir = change_dir(here, args);
+    let Some((&first, args)) = argv.split_first() else {
+        return Verdict::Allow;
+    };
+    if first.starts_with(['>', '<']) || first.chars().all(|c| c.is_ascii_digit()) {
+        return Verdict::Allow;
+    }
+    if first.contains(['$', '`', '(']) {
+        return Verdict::Block(format!("the command name is computed at runtime: {first}"));
+    }
+    let root = ctx.root;
+    match base_name(first) {
+        "cd" | "pushd" => {
+            *dir = change_dir(dir.as_deref(), args);
             Verdict::Allow
         }
-        Some((&"git", args)) => git_verdict(args),
-        Some((&"rm", args)) => rm_verdict(args, root, here),
-        Some((&("unlink" | "rmdir"), args)) => worst(&operands(args, &[]), |target| {
-            target_verdict(target, false, root, here)
-        }),
-        Some((&"shred", args)) => worst(&operands(args, &[]), |target| {
-            target_verdict(target, true, root, here)
-        }),
-        Some((&"truncate", args)) => worst(&operands(args, &["-s", "-r"]), |target| {
-            write_verdict(target, root, here)
-        }),
-        Some((&"tee", args)) => worst(&operands(args, &[]), |target| {
-            write_verdict(target, root, here)
-        }),
-        Some((&"cp", args)) => write_last(args, root, here),
-        Some((&"mv", args)) => mv_verdict(args, root, here),
-        Some((&("chmod" | "chown" | "chgrp"), args)) => recursive_verdict(args, root, here),
-        Some((&"find", args)) => find_verdict(args, root, here),
-        Some((name, args)) if INTERPRETERS.contains(name) => interpreter_verdict(args),
-        Some((&("sh" | "bash" | "zsh"), args)) => shell_payload(args)
-            .map_or(Verdict::Allow, |payload| {
-                classify_in(payload, root, dir.clone())
-            }),
-        Some((&"eval", args)) => classify_in(&args.join(" "), root, dir.clone()),
-        Some((&"dd", args)) if args.iter().any(|arg| arg.starts_with("of=/dev/")) => {
+        "git" => git_verdict(args, root, dir.as_deref()),
+        "find" => find_verdict(args, ctx, dir.as_deref()),
+        "eval" => {
+            let code = args.join(" ");
+            if code.contains(['$', '`']) {
+                Verdict::Block("eval runs code that is computed at runtime".into())
+            } else {
+                classify_in(&code, ctx, dir.clone())
+            }
+        }
+        "sh" | "bash" | "zsh" | "dash" | "ksh" => shell_verdict(args, ctx, dir.as_deref()),
+        "source" | "." => Verdict::Warn(format!("sources code that cannot be inspected: {first}")),
+        "dd" if args.iter().any(|arg| is_device_write(arg)) => {
             Verdict::Block("dd writes to a device".into())
         }
-        Some((name, _)) if name.starts_with("mkfs") => {
-            Verdict::Block("mkfs formats a filesystem".into())
+        "agent-brain" if matches!(args, ["rules", "add" | "remove" | "reset", ..]) => {
+            Verdict::Block("rule changes are made by the user, not by the agent".into())
         }
-        _ => Verdict::Allow,
+        name if name.starts_with("mkfs") => Verdict::Block("mkfs formats a filesystem".into()),
+        name if INTERPRETERS.contains(&name) => merge(
+            interpreter_verdict(args),
+            rule_verdict(name, args, ctx, dir.as_deref(), false),
+        ),
+        name => rule_verdict(name, args, ctx, dir.as_deref(), true),
     }
 }
 
-fn merge(current: Verdict, next: Verdict) -> Verdict {
-    if matches!(current, Verdict::Block(_)) || matches!(next, Verdict::Block(_)) {
-        return if matches!(current, Verdict::Block(_)) {
-            current
+fn rule_verdict(
+    name: &str,
+    args: &[&str],
+    ctx: Ctx<'_>,
+    dir: Option<&Path>,
+    warn_unknown: bool,
+) -> Verdict {
+    let rules: Vec<&Rule> = ctx
+        .rules
+        .iter()
+        .filter(|rule| rule.command == name)
+        .collect();
+    if rules.is_empty() {
+        return if warn_unknown {
+            Verdict::Warn(format!(
+                "unrecognised command {name}; allow it or add a rule with agent-brain rules add"
+            ))
         } else {
-            next
+            Verdict::Allow
         };
     }
-    if matches!(current, Verdict::Warn(_)) {
-        current
+    rules.iter().fold(Verdict::Allow, |verdict, rule| {
+        merge(verdict, apply_rule(rule, args, ctx.root, dir))
+    })
+}
+
+fn apply_rule(rule: &Rule, args: &[&str], root: Option<&Path>, dir: Option<&Path>) -> Verdict {
+    if !command_rules::is_triggered(&rule.trigger, args) {
+        return Verdict::Allow;
+    }
+    let reason = if rule.reason.is_empty() {
+        format!("blocked by the rule for {}", rule.command)
     } else {
-        next
+        rule.reason.clone()
+    };
+    match rule.mode.as_str() {
+        "allow" => Verdict::Allow,
+        "block" => Verdict::Block(reason),
+        "warn" => Verdict::Warn(reason),
+        "operands" => {
+            let value_flags = command_rules::value_flag_list(rule);
+            let recursive = !rule.recursive_on.is_empty()
+                && command_rules::is_triggered(&rule.recursive_on, args);
+            let targets = command_rules::select_targets(&rule.targets, args, &value_flags);
+            if rule.role == "delete" && recursive && targets.is_empty() {
+                return Verdict::Block("recursive delete without explicit targets".into());
+            }
+            worst(&targets, |target| {
+                if rule.role == "write" {
+                    write_verdict(target, root, dir)
+                } else {
+                    delete_verdict(target, recursive, root, dir)
+                }
+            })
+        }
+        other => Verdict::Block(format!("unknown rule mode {other}")),
+    }
+}
+
+fn shell_verdict(args: &[&str], ctx: Ctx<'_>, dir: Option<&Path>) -> Verdict {
+    match shell_payload(args) {
+        Some(payload) => classify_in(payload, ctx, dir.map(Path::to_path_buf)),
+        None if ctx.piped => Verdict::Block("it runs code piped into a shell".into()),
+        None => Verdict::Warn("runs a script file that cannot be inspected".into()),
+    }
+}
+
+fn quote_words(words: &[&str]) -> String {
+    words
+        .iter()
+        .map(|word| {
+            if word.is_empty() || word.contains(char::is_whitespace) {
+                format!("'{word}'")
+            } else {
+                (*word).to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn is_device_write(arg: &str) -> bool {
+    arg.strip_prefix("of=")
+        .is_some_and(|target| target.starts_with("/dev/") && !HARMLESS_DEVICES.contains(&target))
+}
+
+fn merge(current: Verdict, next: Verdict) -> Verdict {
+    match (&current, &next) {
+        (Verdict::Block(_), _) => current,
+        (_, Verdict::Block(_)) => next,
+        (Verdict::Warn(_), _) => current,
+        _ => next,
     }
 }
 
@@ -191,13 +305,11 @@ fn worst(targets: &[&str], check: impl Fn(&str) -> Verdict) -> Verdict {
 }
 
 fn change_dir(current: Option<&Path>, args: &[&str]) -> Option<PathBuf> {
-    let Some(&target) = args.first() else {
-        return home_dir();
-    };
-    if target == "-" {
-        return None;
+    match args.first() {
+        None => home_dir(),
+        Some(&"-") => None,
+        Some(&target) => resolve(target, current),
     }
-    resolve(target, current)
 }
 
 fn resolve(target: &str, dir: Option<&Path>) -> Option<PathBuf> {
@@ -210,143 +322,25 @@ fn resolve(target: &str, dir: Option<&Path>) -> Option<PathBuf> {
 }
 
 fn expand_path(target: &str) -> Option<PathBuf> {
-    if target.chars().any(|c| "$`*?[".contains(c)) {
+    let home_rest = target
+        .strip_prefix("$HOME")
+        .or_else(|| target.strip_prefix("${HOME}"));
+    if let Some(rest) = home_rest.filter(|rest| rest.is_empty() || rest.starts_with('/')) {
+        return home_dir().map(|home| home.join(rest.trim_start_matches('/')));
+    }
+    if target.contains(['$', '`', '*', '?', '[']) {
         return None;
     }
-    if target == "~" || target.starts_with("~/") {
-        let rest = target.trim_start_matches('~').trim_start_matches('/');
-        return home_dir().map(|home| home.join(rest));
-    }
-    if target.starts_with('~') {
-        return None;
+    if let Some(rest) = target.strip_prefix('~') {
+        if !rest.is_empty() && !rest.starts_with('/') {
+            return None;
+        }
+        return home_dir().map(|home| home.join(rest.trim_start_matches('/')));
     }
     Some(PathBuf::from(target))
 }
 
-fn operands<'a>(args: &[&'a str], value_flags: &[&str]) -> Vec<&'a str> {
-    let mut out = Vec::new();
-    let mut skip_value = false;
-    let mut options_open = true;
-    for &arg in args {
-        if skip_value {
-            skip_value = false;
-            continue;
-        }
-        if options_open && arg == "--" {
-            options_open = false;
-            continue;
-        }
-        if options_open && arg.starts_with('-') && arg.len() > 1 {
-            skip_value = value_flags.contains(&arg);
-            continue;
-        }
-        out.push(arg);
-    }
-    out
-}
-
-fn has_recursive_flag(args: &[&str]) -> bool {
-    args.iter().take_while(|arg| **arg != "--").any(|arg| {
-        *arg == "--recursive"
-            || (arg.starts_with('-')
-                && !arg.starts_with("--")
-                && arg.chars().skip(1).any(|c| c == 'r' || c == 'R'))
-    })
-}
-
-fn rm_verdict(args: &[&str], root: Option<&Path>, dir: Option<&Path>) -> Verdict {
-    let recursive = has_recursive_flag(args);
-    let targets = operands(args, &[]);
-    if targets.is_empty() {
-        return if recursive {
-            Verdict::Block("recursive rm without explicit targets".into())
-        } else {
-            Verdict::Allow
-        };
-    }
-    worst(&targets, |target| {
-        target_verdict(target, recursive, root, dir)
-    })
-}
-
-fn write_last(args: &[&str], root: Option<&Path>, dir: Option<&Path>) -> Verdict {
-    match operands(args, &[]).last() {
-        Some(destination) => write_verdict(destination, root, dir),
-        None => Verdict::Allow,
-    }
-}
-
-fn mv_verdict(args: &[&str], root: Option<&Path>, dir: Option<&Path>) -> Verdict {
-    let targets = operands(args, &[]);
-    let Some((destination, sources)) = targets.split_last() else {
-        return Verdict::Allow;
-    };
-    let removed = worst(sources, |source| target_verdict(source, false, root, dir));
-    merge(removed, write_verdict(destination, root, dir))
-}
-
-fn recursive_verdict(args: &[&str], root: Option<&Path>, dir: Option<&Path>) -> Verdict {
-    if !has_recursive_flag(args) {
-        return Verdict::Allow;
-    }
-    let targets = operands(args, &[]);
-    worst(targets.get(1..).unwrap_or(&[]), |target| {
-        target_verdict(target, true, root, dir)
-    })
-}
-
-fn find_verdict(args: &[&str], root: Option<&Path>, dir: Option<&Path>) -> Verdict {
-    let destructive = args.iter().enumerate().any(|(index, arg)| {
-        *arg == "-delete"
-            || (matches!(*arg, "-exec" | "-execdir" | "-ok")
-                && args
-                    .get(index + 1)
-                    .is_some_and(|cmd| matches!(*cmd, "rm" | "unlink" | "shred" | "rmdir")))
-    });
-    if !destructive {
-        return Verdict::Allow;
-    }
-    let starts: Vec<&str> = args
-        .iter()
-        .copied()
-        .take_while(|arg| !arg.starts_with('-') && *arg != "(" && *arg != "!")
-        .collect();
-    let starts = if starts.is_empty() { vec!["."] } else { starts };
-    worst(&starts, |start| {
-        if resolve(start, dir).as_deref() == root {
-            Verdict::Warn(format!("find -delete at the project root: {start}"))
-        } else {
-            target_verdict(start, true, root, dir)
-        }
-    })
-}
-
-fn interpreter_verdict(args: &[&str]) -> Verdict {
-    let Some(position) = args
-        .iter()
-        .position(|arg| matches!(*arg, "-e" | "-c" | "--eval" | "-p"))
-    else {
-        return Verdict::Allow;
-    };
-    let Some(&code) = args.get(position + 1) else {
-        return Verdict::Allow;
-    };
-    if !DESTRUCTIVE_CODE
-        .iter()
-        .any(|keyword| code.contains(*keyword))
-    {
-        return Verdict::Allow;
-    }
-    if ABSOLUTE_IN_CODE.iter().any(|marker| code.contains(*marker)) {
-        Verdict::Block(
-            "interpreter code deletes or spawns deletes at an absolute or home path".into(),
-        )
-    } else {
-        Verdict::Warn("interpreter code deletes files".into())
-    }
-}
-
-fn target_verdict(
+fn delete_verdict(
     target: &str,
     recursive: bool,
     root: Option<&Path>,
@@ -359,28 +353,18 @@ fn target_verdict(
             Verdict::Warn(format!("delete of an unresolved path: {target}"))
         };
     };
-    if path.components().any(|part| part.as_os_str() == ".git") {
-        return Verdict::Block(format!("would delete git metadata: {target}"));
+    let git_metadata = path.components().any(|part| part.as_os_str() == ".git");
+    if git_metadata || is_protected(&path) || is_root_or_home(&path) || in_system_root(&path) {
+        return Verdict::Block(format!(
+            "would delete a git, protected, system, root, or home path: {target}"
+        ));
     }
-    if is_protected(&path) {
-        return Verdict::Block(format!("would delete a protected path: {target}"));
-    }
-    if path == Path::new("/") || home_dir().is_some_and(|home| normalize(&home) == path) {
-        return Verdict::Block("target is the filesystem root or the home directory".into());
-    }
-    if in_system_root(&path) {
-        return Verdict::Block(format!("would delete a system path: {target}"));
-    }
-    if root.is_some_and(|root| path != root && path.starts_with(root)) {
+    let inside_project = root.is_some_and(|root| path != root && path.starts_with(root));
+    if inside_project || is_scratch(&path) {
         return if recursive {
-            Verdict::Warn(format!("recursive delete inside the project: {target}"))
-        } else {
-            Verdict::Allow
-        };
-    }
-    if is_scratch(&path) {
-        return if recursive {
-            Verdict::Warn(format!("recursive delete in a scratch directory: {target}"))
+            Verdict::Warn(format!(
+                "recursive delete inside the project or scratch: {target}"
+            ))
         } else {
             Verdict::Allow
         };
@@ -402,11 +386,8 @@ fn write_verdict(target: &str, root: Option<&Path>, dir: Option<&Path>) -> Verdi
     let Some(path) = resolve(target, dir) else {
         return Verdict::Warn(format!("write to an unresolved path: {target}"));
     };
-    if is_protected(&path) {
-        return Verdict::Block(format!("writes a protected path: {target}"));
-    }
-    if in_system_root(&path) {
-        return Verdict::Block(format!("writes a system path: {target}"));
+    if path == Path::new("/") || is_protected(&path) || in_system_root(&path) {
+        return Verdict::Block(format!("writes a protected or system path: {target}"));
     }
     if root.is_some_and(|root| path.starts_with(root)) || is_scratch(&path) {
         return Verdict::Allow;
@@ -431,6 +412,7 @@ fn redirect_targets(command: &str) -> Vec<String> {
                 if rest.starts_with('(') || rest.starts_with('&') {
                     continue;
                 }
+                rest = rest.strip_prefix('|').unwrap_or(rest);
                 if let Some(after) = rest.strip_prefix('>') {
                     rest = after;
                     chars.next();
@@ -451,12 +433,23 @@ fn redirect_targets(command: &str) -> Vec<String> {
     targets
 }
 
-fn git_verdict(args: &[&str]) -> Verdict {
+fn git_verdict(args: &[&str], root: Option<&Path>, dir: Option<&Path>) -> Verdict {
     let mut index = 0;
+    let mut outside_repo = None;
     while let Some(&token) = args.get(index) {
         let (config, step) = match token {
             "-c" | "--config-env" => (args.get(index + 1).copied(), 2),
-            "-C" | "--namespace" => (None, 2),
+            "-C" => {
+                if let Some(&target) = args.get(index + 1) {
+                    let inside = resolve(target, dir)
+                        .is_some_and(|path| root.is_some_and(|root| path.starts_with(root)));
+                    if !inside {
+                        outside_repo = Some(target);
+                    }
+                }
+                (None, 2)
+            }
+            "--namespace" => (None, 2),
             "--git-dir" | "--work-tree" => {
                 return Verdict::Block("it redirects git's repository or working tree".into());
             }
@@ -479,6 +472,17 @@ fn git_verdict(args: &[&str]) -> Verdict {
         return Verdict::Allow;
     };
     let rest = &args[index + 1..];
+    if let Some(target) = outside_repo {
+        return if DESTRUCTIVE_GIT.contains(&subcommand) {
+            Verdict::Block(format!(
+                "git -C targets a path outside the project: {target}"
+            ))
+        } else {
+            Verdict::Warn(format!(
+                "git -C targets a path outside the project: {target}"
+            ))
+        };
+    }
     match subcommand {
         "config" if rest.iter().any(|arg| is_redirecting_config(arg)) => {
             Verdict::Block("it changes git aliases, the hook path, or config includes".into())
@@ -495,11 +499,7 @@ fn git_verdict(args: &[&str]) -> Verdict {
         "checkout" | "restore" if rest.contains(&".") && !rest.contains(&"--staged") => {
             Verdict::Warn("git checkout or restore of . discards uncommitted changes".into())
         }
-        "stash"
-            if rest
-                .first()
-                .is_some_and(|arg| matches!(*arg, "drop" | "clear")) =>
-        {
+        "stash" if matches!(rest.first(), Some(&("drop" | "clear"))) => {
             Verdict::Warn("git stash drop or clear discards stashed changes".into())
         }
         _ => Verdict::Allow,
@@ -514,16 +514,91 @@ fn is_redirecting_config(config: &str) -> bool {
         || lower.starts_with("include.")
 }
 
+fn has_short_flag(arg: &str, flag: char) -> bool {
+    arg.starts_with('-') && !arg.starts_with("--") && arg.contains(flag)
+}
+
 fn is_force_push(arg: &str) -> bool {
     arg.starts_with("--force")
         || arg == "--mirror"
         || arg.starts_with('+')
-        || (arg.starts_with('-') && !arg.starts_with("--") && arg.chars().skip(1).any(|c| c == 'f'))
+        || has_short_flag(arg, 'f')
 }
 
 fn is_forced_clean(arg: &str) -> bool {
-    arg == "--force"
-        || (arg.starts_with('-') && !arg.starts_with("--") && arg.chars().skip(1).any(|c| c == 'f'))
+    arg == "--force" || has_short_flag(arg, 'f')
+}
+
+fn find_verdict(args: &[&str], ctx: Ctx<'_>, dir: Option<&Path>) -> Verdict {
+    let mut verdict = Verdict::Allow;
+    for (index, arg) in args.iter().enumerate() {
+        if !matches!(*arg, "-exec" | "-execdir" | "-ok") {
+            continue;
+        }
+        let inner: Vec<&str> = args[index + 1..]
+            .iter()
+            .copied()
+            .take_while(|arg| *arg != ";" && *arg != "+")
+            .collect();
+        if !inner.is_empty() {
+            verdict = merge(
+                verdict,
+                classify_in(&quote_words(&inner), ctx, dir.map(Path::to_path_buf)),
+            );
+        }
+    }
+    if !args.contains(&"-delete") {
+        return verdict;
+    }
+    let starts: Vec<&str> = args
+        .iter()
+        .copied()
+        .take_while(|arg| !arg.starts_with('-') && *arg != "(" && *arg != "!")
+        .collect();
+    let starts = if starts.is_empty() { vec!["."] } else { starts };
+    let root = ctx.root;
+    let deletes = worst(&starts, |start| {
+        if resolve(start, dir).as_deref() == root {
+            Verdict::Warn(format!("find -delete at the project root: {start}"))
+        } else {
+            delete_verdict(start, true, root, dir)
+        }
+    });
+    merge(verdict, deletes)
+}
+
+fn interpreter_verdict(args: &[&str]) -> Verdict {
+    let Some(position) = args
+        .iter()
+        .position(|arg| matches!(*arg, "-e" | "-c" | "--eval" | "-p" | "-r"))
+    else {
+        return Verdict::Allow;
+    };
+    let Some(&code) = args.get(position + 1) else {
+        return Verdict::Allow;
+    };
+    if !DESTRUCTIVE_CODE
+        .iter()
+        .any(|keyword| code.contains(keyword))
+    {
+        return Verdict::Allow;
+    }
+    if has_absolute_path(code) {
+        Verdict::Block(
+            "interpreter code deletes or spawns deletes at an absolute or home path".into(),
+        )
+    } else {
+        Verdict::Warn("interpreter code deletes or modifies files".into())
+    }
+}
+
+fn has_absolute_path(code: &str) -> bool {
+    code.contains('~')
+        || code.contains("$HOME")
+        || code.contains("..")
+        || code
+            .split(|c: char| " '\"(,=`".contains(c))
+            .any(|token| token.starts_with('/'))
 }
 
 fn is_scratch(path: &Path) -> bool {
@@ -543,6 +618,10 @@ fn is_protected(path: &Path) -> bool {
             .iter()
             .any(|name| path.starts_with(home.join(name)))
     })
+}
+
+fn is_root_or_home(path: &Path) -> bool {
+    path == Path::new("/") || home_dir().is_some_and(|home| normalize(&home) == path)
 }
 
 fn home_dir() -> Option<PathBuf> {
@@ -571,7 +650,9 @@ pub fn run_bash_gate() -> Result<()> {
         .cwd
         .map(PathBuf::from)
         .or_else(|| std::env::current_dir().ok());
-    match classify(&input.tool_input.command, root.as_deref()) {
+    let rules = command_rules::load(&command_rules::default_path())
+        .unwrap_or_else(|_| command_rules::defaults());
+    match classify(&input.tool_input.command, root.as_deref(), &rules) {
         Verdict::Allow => {}
         Verdict::Warn(reason) => println!(
             "{}",
@@ -598,190 +679,31 @@ mod tests {
     use super::*;
 
     const ROOT: &str = "/work/repo";
-
-    fn verdict(command: &str) -> Verdict {
-        classify(command, Some(Path::new(ROOT)))
-    }
-
-    fn is_allowed(command: &str) -> bool {
-        verdict(command) == Verdict::Allow
-    }
-
-    fn is_warned(command: &str) -> bool {
-        matches!(verdict(command), Verdict::Warn(_))
-    }
-
-    fn is_blocked(command: &str) -> bool {
-        matches!(verdict(command), Verdict::Block(_))
-    }
+    const CASES: &str = include_str!("command_policy_cases.txt");
 
     #[test]
-    fn allows_routine_commands() {
-        assert!(is_allowed("ls -la"));
-        assert!(is_allowed("git status"));
-        assert!(is_allowed("git push origin main"));
-        assert!(is_allowed("rm build/out.txt"));
-        assert!(is_allowed("rm -f notes.txt"));
-        assert!(is_allowed("cd src && rm lib.rs"));
-        assert!(is_allowed("echo rm -rf /"));
-        assert!(is_allowed(
-            "git commit -m \"remove -rf / and push --force\""
-        ));
-    }
-
-    #[test]
-    fn allows_ordinary_redirects_and_file_operations() {
-        assert!(is_allowed("echo hello > out.txt"));
-        assert!(is_allowed("echo x > /dev/null"));
-        assert!(is_allowed("make 2>&1 | tee build/log.txt"));
-        assert!(is_allowed("make 2>/dev/null"));
-        assert!(is_allowed("git log --oneline > /tmp/log.txt"));
-        assert!(is_allowed("grep -r 'a > b' src"));
-        assert!(is_allowed("mv src/a.rs src/b.rs"));
-        assert!(is_allowed("cp src/a.rs src/b.rs"));
-        assert!(is_allowed("chmod 644 README.md"));
-        assert!(is_allowed("truncate -s 0 build/out.log"));
-    }
-
-    #[test]
-    fn allows_harmless_git_and_search_commands() {
-        assert!(is_allowed("git config user.name dev"));
-        assert!(is_allowed("git checkout -b feature"));
-        assert!(is_allowed("git restore --staged src/lib.rs"));
-        assert!(is_allowed("find . -name '*.rs' -print"));
-        assert!(is_allowed("python3 -c 'print(1)'"));
-    }
-
-    #[test]
-    fn warns_on_reversible_or_scoped_destruction() {
-        assert!(is_warned("rm -rf build"));
-        assert!(is_warned("rm -r -f build"));
-        assert!(is_warned("rm -rf /tmp/probe-dir"));
-        assert!(is_warned("git reset --hard HEAD~1"));
-        assert!(is_warned("git clean -fd"));
-        assert!(is_warned("git checkout ."));
-        assert!(is_warned("git stash drop"));
-        assert!(is_warned("find . -name '*.o' -delete"));
-        assert!(is_warned("find . -exec rm -rf {} +"));
-        assert!(is_warned(
-            "node -e \"fs.rmSync('build', {recursive: true})\""
-        ));
-        assert!(is_warned("echo x > /Users/aeswibon/notes.txt"));
-    }
-
-    #[test]
-    fn allows_non_recursive_scratch_removal() {
-        assert!(is_allowed("rm /tmp/probe-file"));
-    }
-
-    #[test]
-    fn blocks_force_pushes() {
-        assert!(is_blocked("git push --force origin main"));
-        assert!(is_blocked("git push -f"));
-        assert!(is_blocked("git push -uf origin main"));
-        assert!(is_blocked("git push origin +main"));
-        assert!(is_blocked("git push --force-with-lease"));
-        assert!(is_blocked("git push --mirror"));
-    }
-
-    #[test]
-    fn blocks_recursive_deletes_outside_the_project() {
-        assert!(is_blocked("rm -rf /"));
-        assert!(is_blocked("rm -rf ~"));
-        assert!(is_blocked("rm -rf $HOME"));
-        assert!(is_blocked("rm -rf \"$PWD\"/.."));
-        assert!(is_blocked("rm -rf ../.."));
-        assert!(is_blocked("rm -rf /Users/aeswibon/Documents"));
-        assert!(is_blocked("rm -rf /tmp"));
-        assert!(is_blocked("rm -rf --no-preserve-root /"));
-    }
-
-    #[test]
-    fn blocks_deletes_of_system_and_protected_paths() {
-        assert!(is_blocked("rm /etc/hosts"));
-        assert!(is_blocked("rm /tmp/probe-file/../../etc/hosts"));
-        assert!(is_blocked("rm ~/.ssh/id_rsa"));
-        assert!(is_blocked("unlink ~/.autonomic/memory/brain.db"));
-        assert!(is_blocked("shred -u /etc/passwd"));
-        assert!(is_blocked("chmod -R 777 /usr"));
-    }
-
-    #[test]
-    fn blocks_writes_to_system_protected_and_device_paths() {
-        assert!(is_blocked("echo x > /etc/hosts"));
-        assert!(is_blocked("echo x >> /dev/sda"));
-        assert!(is_blocked("echo x > ~/.zshrc"));
-        assert!(is_blocked("echo x > \"/etc/hosts\""));
-        assert!(is_blocked("tee /etc/passwd"));
-        assert!(is_blocked("echo go | tee -a /etc/hosts"));
-        assert!(is_blocked("cp payload.sh /usr/local/bin/tool"));
-        assert!(is_blocked("mv src/a.rs /etc/a.rs"));
-        assert!(is_blocked("truncate -s 0 /etc/hosts"));
-    }
-
-    #[test]
-    fn blocks_git_alias_hook_path_and_repository_redirects() {
-        assert!(is_blocked("git config alias.ci '!git commit -n'"));
-        assert!(is_blocked("git config core.hooksPath /dev/null"));
-        assert!(is_blocked("git -c alias.ci=commit commit -m x"));
-        assert!(is_blocked("GIT_DIR=/tmp/other git commit -m x"));
-        assert!(is_blocked("GIT_INDEX_FILE=/tmp/i git add ."));
-        assert!(is_blocked("git --git-dir=/tmp/x status"));
-        assert!(is_blocked("git --work-tree /tmp/x status"));
-    }
-
-    #[test]
-    fn blocks_find_and_interpreter_deletes_at_absolute_paths() {
-        assert!(is_blocked("find / -name x -delete"));
-        assert!(is_blocked("find ~ -name cache -delete"));
-        assert!(is_blocked("perl -e 'unlink \"/etc/hosts\"'"));
-        assert!(is_blocked(
-            "python3 -c \"import shutil; shutil.rmtree('/')\""
-        ));
-    }
-
-    #[test]
-    fn blocks_deletes_of_git_metadata() {
-        assert!(is_blocked("rm -rf .git"));
-        assert!(is_blocked("rm -f ./.git/index"));
-    }
-
-    #[test]
-    fn blocks_directory_changes_that_escape_the_project() {
-        assert!(is_blocked("cd / && rm -rf etc"));
-        assert!(is_blocked("cd /etc; rm -rf hosts"));
-        assert!(is_blocked("cd $SOMEWHERE && rm -rf build"));
-        assert!(is_warned("cd src && rm -rf generated"));
-    }
-
-    #[test]
-    fn blocks_unresolvable_recursive_targets() {
-        assert!(is_blocked("rm -rf *"));
-        assert!(is_blocked("rm -rf $DIR"));
-        assert!(is_blocked("xargs rm -rf"));
-        assert!(is_blocked("rm -rf"));
-    }
-
-    #[test]
-    fn blocks_bypass_hidden_in_wrappers_and_substitutions() {
-        assert!(is_blocked("sh -c \"rm -rf /\""));
-        assert!(is_blocked("env -u X rm -rf /"));
-        assert!(is_blocked("echo go | xargs -0 rm -rf /"));
-        assert!(is_blocked("eval \"rm -rf ~\""));
-        assert!(is_blocked("echo \"$(rm -rf /)\""));
-        assert!(is_blocked("echo `rm -rf /`"));
-        assert!(is_blocked("true; git push -f"));
-    }
-
-    #[test]
-    fn blocks_device_writes_and_hook_bypass() {
-        assert!(is_blocked("mkfs.ext4 /dev/disk2"));
-        assert!(is_blocked("dd if=/dev/zero of=/dev/disk2"));
-        assert!(is_blocked("git commit -n -m x"));
+    fn verdicts_match_the_case_table() {
+        let rules = command_rules::defaults();
+        let failures: Vec<String> = CASES
+            .lines()
+            .filter_map(|line| line.split_once(' '))
+            .filter_map(|(want, command)| {
+                let got = match classify(command, Some(Path::new(ROOT)), &rules) {
+                    Verdict::Allow => "allow",
+                    Verdict::Warn(_) => "warn",
+                    Verdict::Block(_) => "block",
+                };
+                (got != want).then(|| format!("want {want}, got {got}: {command}"))
+            })
+            .collect();
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 
     #[test]
     fn falls_back_to_block_without_a_known_project_root() {
-        assert!(matches!(classify("rm -rf build", None), Verdict::Block(_)));
+        assert!(matches!(
+            classify("rm -rf build", None, &command_rules::defaults()),
+            Verdict::Block(_)
+        ));
     }
 }

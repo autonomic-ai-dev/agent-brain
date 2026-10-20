@@ -140,6 +140,8 @@ impl BrainStore {
         }
         let conn = Connection::open(db_path).context("open brain.db")?;
         crate::db::at_rest::apply_encryption_key(&conn)?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        conn.pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))?;
         migrations::run(&conn).context("run migrations")?;
         let index_version = conn
             .query_row(
@@ -3154,6 +3156,16 @@ mod tests {
         assert!(memory_source_score_adjustment(Some("session_digest"), "session-digest-x") < 0.0);
         assert!(memory_source_score_adjustment(None, "legacy-cursor-de") < 0.0);
         assert_eq!(memory_source_score_adjustment(Some("user"), "routing"), 0.0);
+    }
+
+    #[test]
+    fn store_opens_in_wal_mode_so_readers_do_not_block_writers() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = BrainStore::open(&tmp.path().join("wal_brain.db")).unwrap();
+        let mode: String = store
+            .with_conn(|conn| Ok(conn.query_row("PRAGMA journal_mode", [], |row| row.get(0))?))
+            .unwrap();
+        assert_eq!(mode, "wal");
     }
 
     #[test]

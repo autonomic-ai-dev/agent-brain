@@ -6,9 +6,28 @@ use serde_json::json;
 
 const DENY_REASON: &str = "Commits must not skip git hooks. The coding-policy comment guard runs in the pre-commit hook. Remove --no-verify, -n, and any core.hooksPath override, then commit again.";
 
-const WRAPPERS: &[&str] = &["command", "exec", "env", "nohup", "time", "xargs"];
+const WRAPPERS: &[&str] = &[
+    "command",
+    "builtin",
+    "exec",
+    "env",
+    "nohup",
+    "time",
+    "xargs",
+    "sudo",
+    "doas",
+    "timeout",
+    "gtimeout",
+    "nice",
+    "ionice",
+    "stdbuf",
+    "caffeinate",
+    "busybox",
+];
 
-const COMMANDS: &[&str] = &["git", "rm", "sh", "bash", "zsh", "eval", "dd"];
+const COMMANDS: &[&str] = &[
+    "git", "rm", "sh", "bash", "zsh", "dash", "ksh", "eval", "dd",
+];
 
 const VALUE_FLAGS: &[&str] = &[
     "-m",
@@ -52,24 +71,37 @@ fn segment_bypasses(words: &[&str]) -> bool {
         return true;
     }
     match words[start..].split_first() {
-        Some((&"git", args)) => git_bypasses(args),
-        Some((&"eval", args)) => bypasses_git_hooks(&args.join(" ")),
-        Some((&("sh" | "bash" | "zsh"), args)) => {
-            shell_payload(args).is_some_and(bypasses_git_hooks)
-        }
-        _ => false,
+        Some((first, args)) => match base_name(first) {
+            "git" => git_bypasses(args),
+            "eval" => bypasses_git_hooks(&args.join(" ")),
+            "sh" | "bash" | "zsh" | "dash" | "ksh" => {
+                shell_payload(args).is_some_and(bypasses_git_hooks)
+            }
+            _ => false,
+        },
+        None => false,
     }
 }
 
 pub(crate) fn command_start(words: &[&str]) -> usize {
     let index = words.iter().take_while(|word| is_assignment(word)).count();
-    if words.get(index).is_some_and(|word| WRAPPERS.contains(word)) {
+    if words
+        .get(index)
+        .is_some_and(|word| WRAPPERS.contains(&base_name(word)))
+    {
         return words[index..]
             .iter()
-            .position(|word| COMMANDS.contains(word) || word.starts_with("mkfs"))
+            .position(|word| {
+                let name = base_name(word);
+                COMMANDS.contains(&name) || name.starts_with("mkfs")
+            })
             .map_or(words.len(), |offset| index + offset);
     }
     index
+}
+
+pub(crate) fn base_name(word: &str) -> &str {
+    word.rsplit('/').next().unwrap_or(word)
 }
 
 fn git_bypasses(args: &[&str]) -> bool {

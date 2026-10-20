@@ -44,6 +44,27 @@ impl BrainMcp {
     fn require_route(&self, tool: &str) -> Result<(), McpError> {
         self.route_gate.require_route(tool)
     }
+
+    async fn describe_upstream_tool(
+        &self,
+        server: &crate::settings::UpstreamServerConfig,
+        tool_name: &str,
+    ) -> Result<CallToolResult, McpError> {
+        let schema = crate::upstream::get_upstream_tool_schema(server, tool_name)
+            .await
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        match schema {
+            Some(s) => json_result(serde_json::json!({
+                "server": server.name,
+                "tool": tool_name,
+                "schema": s,
+            })),
+            None => Err(McpError::invalid_params(
+                format!("tool '{}' not found on server '{}'", tool_name, server.name),
+                None,
+            )),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -139,6 +160,19 @@ struct SkillSearchParams {
 #[derive(Debug, Deserialize, JsonSchema)]
 struct SkillGetParams {
     name: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct McpSearchParams {
+    query: String,
+    #[serde(default = "default_limit")]
+    limit: usize,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct GetMcpParams {
+    server: String,
+    tool: String,
 }
 
 fn default_limit() -> usize {
@@ -1047,6 +1081,64 @@ impl BrainMcp {
         json_result(serde_json::json!({ "name": params.0.name, "content": content }))
     }
 
+    #[tool(
+        description = "Search configured upstream MCP tools by keywords; every word must match the server name, tool name, or description. Returns server and tool names. Use get_mcp to load a tool's schema, then route_to_mcp to call it."
+    )]
+    async fn mcp_search(
+        &self,
+        params: Parameters<McpSearchParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.require_route("mcp_search")?;
+        let _req = self.engine.mcp_activity.begin_request();
+        let terms = search_terms(&params.0.query);
+        if terms.is_empty() {
+            return Err(McpError::invalid_params(
+                "query must contain at least one word",
+                None,
+            ));
+        }
+        let limit = params.0.limit.min(MAX_SKILL_RESULTS);
+        let tools: Vec<serde_json::Value> = self
+            .engine
+            .store
+            .list_upstream_tools()
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?
+            .into_iter()
+            .filter(|tool| {
+                let haystack = format!("{} {} {}", tool.server, tool.name, tool.description)
+                    .to_ascii_lowercase();
+                terms.iter().all(|term| haystack.contains(term))
+            })
+            .take(limit)
+            .map(|tool| {
+                serde_json::json!({
+                    "server": tool.server,
+                    "tool": tool.name,
+                    "description": tool.description,
+                })
+            })
+            .collect();
+        json_result(serde_json::json!({ "tools": tools }))
+    }
+
+    #[tool(
+        description = "Return the input schema for one upstream MCP tool found with mcp_search. Run it with route_to_mcp."
+    )]
+    async fn get_mcp(&self, params: Parameters<GetMcpParams>) -> Result<CallToolResult, McpError> {
+        self.require_route("get_mcp")?;
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let settings = crate::settings::AgentBrainSettings::load(&self.engine.config.home);
+        let server =
+            crate::upstream::find_server(&settings.upstream_mcp, &p.server).ok_or_else(|| {
+                McpError::invalid_params(
+                    format!("unknown or disabled upstream server: {}", p.server),
+                    None,
+                )
+            })?;
+        self.describe_upstream_tool(server, &p.tool).await
+    }
+
     #[tool(description = "Import memory facts from a sync bundle directory.")]
     async fn import_memory(
         &self,
@@ -1093,20 +1185,7 @@ impl BrainMcp {
             let tool_name = p.tool.as_deref().ok_or_else(|| {
                 McpError::invalid_params("tool name required when describe_tool is true", None)
             })?;
-            let schema = crate::upstream::get_upstream_tool_schema(server, tool_name)
-                .await
-                .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-            return match schema {
-                Some(s) => json_result(serde_json::json!({
-                    "server": server.name,
-                    "tool": tool_name,
-                    "schema": s,
-                })),
-                None => Err(McpError::invalid_params(
-                    format!("tool '{}' not found on server '{}'", tool_name, server.name),
-                    None,
-                )),
-            };
+            return self.describe_upstream_tool(server, tool_name).await;
         }
 
         if let Some(batch) = p.batch {
@@ -2051,21 +2130,125 @@ pub async fn run_proxy(socket_path: &Path) -> Result<()> {
     }
 }
 
-async fn serve_one_proxy_connection(mut stream: UnixStream) -> Result<()> {
-    let (mut rx, mut tx) = stream.split();
+const PROXY_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+async fn serve_one_proxy_connection(stream: UnixStream) -> Result<()> {
+    let (rx, mut tx) = stream.into_split();
     let mut stdin = BufReader::new(tokio::io::stdin());
     let mut stdout = tokio::io::stdout();
     let initial_line = match first_stdin_line(&mut stdin, &mut stdout).await? {
         Some(line) => line,
         None => return Ok(()),
     };
-    let mut combined = std::io::Cursor::new(initial_line).chain(stdin);
-    let to_socket = tokio::io::copy(&mut combined, &mut tx);
-    let to_stdout = tokio::io::copy(&mut rx, &mut stdout);
-    // Wait for both directions to drain so the daemon's response is fully flushed
-    // before the socket closes (avoids "broken pipe" on the last response).
-    let _ = tokio::join!(to_socket, to_stdout);
+    let pending = Arc::new(std::sync::Mutex::new(std::collections::HashMap::<
+        String,
+        std::time::Instant,
+    >::new()));
+    let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+
+    let writer = tokio::spawn(async move {
+        while let Some(line) = out_rx.recv().await {
+            if stdout.write_all(line.as_bytes()).await.is_err()
+                || stdout.write_all(b"\n").await.is_err()
+                || stdout.flush().await.is_err()
+            {
+                break;
+            }
+        }
+    });
+    let from_host = {
+        let pending = pending.clone();
+        tokio::spawn(async move {
+            let host = std::io::Cursor::new(initial_line).chain(stdin);
+            let mut lines = BufReader::new(host).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                if let Some(id) = request_id(&line) {
+                    pending
+                        .lock()
+                        .unwrap()
+                        .insert(id, std::time::Instant::now());
+                }
+                if tx.write_all(line.as_bytes()).await.is_err()
+                    || tx.write_all(b"\n").await.is_err()
+                {
+                    break;
+                }
+            }
+        })
+    };
+    let from_daemon = {
+        let pending = pending.clone();
+        let out_tx = out_tx.clone();
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(rx).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                if let Some(id) = response_id(&line) {
+                    pending.lock().unwrap().remove(&id);
+                }
+                if out_tx.send(line).is_err() {
+                    break;
+                }
+            }
+        })
+    };
+    let watchdog = tokio::spawn(async move {
+        let mut tick = tokio::time::interval(Duration::from_secs(1));
+        loop {
+            tick.tick().await;
+            let expired: Vec<String> = {
+                let mut map = pending.lock().unwrap();
+                let expired: Vec<String> = map
+                    .iter()
+                    .filter(|(_, sent)| sent.elapsed() > PROXY_REQUEST_TIMEOUT)
+                    .map(|(id, _)| id.clone())
+                    .collect();
+                for id in &expired {
+                    map.remove(id);
+                }
+                expired
+            };
+            for id in expired {
+                let _ = out_tx.send(timeout_response(&id));
+            }
+        }
+    });
+
+    tokio::select! {
+        _ = from_host => {}
+        _ = from_daemon => {}
+    }
+    watchdog.abort();
+    writer.abort();
     Ok(())
+}
+
+fn request_id(line: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(line).ok()?;
+    value.get("method")?;
+    value.get("id").map(|id| id.to_string())
+}
+
+fn response_id(line: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(line).ok()?;
+    if value.get("result").is_none() && value.get("error").is_none() {
+        return None;
+    }
+    value.get("id").map(|id| id.to_string())
+}
+
+fn timeout_response(id: &str) -> String {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": serde_json::from_str::<serde_json::Value>(id).unwrap_or(serde_json::Value::Null),
+        "error": {
+            "code": -32000,
+            "message": format!(
+                "agent-brain did not answer within {}s; the daemon may be hung. Run `agent-brain doctor`, then restart serve or this session.",
+                PROXY_REQUEST_TIMEOUT.as_secs()
+            )
+        }
+    })
+    .to_string()
 }
 
 /// Supervised brain daemon: a single process owns the exclusive serve lock and `brain.db`,
@@ -2500,6 +2683,119 @@ mod tests {
         };
         assert_eq!(err.message, "skill file is unavailable; rebuild the index");
         assert!(!err.message.contains(&*gone.to_string_lossy()));
+    }
+
+    fn upstream_tool(server: &str, name: &str, description: &str) -> crate::upstream::IndexedUpstreamTool {
+        crate::upstream::IndexedUpstreamTool {
+            server: server.to_string(),
+            name: name.to_string(),
+            description: description.to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn mcp_search_requires_route_first() {
+        let dir = TempDir::new().expect("tempdir");
+        let server = skill_test_server(&dir, &[]);
+
+        let result = server
+            .mcp_search(Parameters(McpSearchParams {
+                query: "issue".into(),
+                limit: 10,
+            }))
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn mcp_search_returns_tools_where_every_word_matches() {
+        let dir = TempDir::new().expect("tempdir");
+        let server = skill_test_server(&dir, &[]);
+        server
+            .engine
+            .store
+            .replace_upstream_tools(&[
+                upstream_tool("linear", "create_issue", "Create an issue"),
+                upstream_tool("linear", "list_teams", "List teams"),
+            ])
+            .expect("seed upstream tools");
+        server.route_gate.record_route("create a linear issue");
+
+        let result = server
+            .mcp_search(Parameters(McpSearchParams {
+                query: "LINEAR issue".into(),
+                limit: 10,
+            }))
+            .await
+            .expect("search succeeds");
+
+        let body = json_body(result);
+        let tools = body["tools"].as_array().expect("tools array");
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0]["server"], "linear");
+        assert_eq!(tools[0]["tool"], "create_issue");
+    }
+
+    #[tokio::test]
+    async fn mcp_search_rejects_query_without_words() {
+        let dir = TempDir::new().expect("tempdir");
+        let server = skill_test_server(&dir, &[]);
+        server.route_gate.record_route("find a tool");
+
+        let result = server
+            .mcp_search(Parameters(McpSearchParams {
+                query: "  ".into(),
+                limit: 10,
+            }))
+            .await;
+
+        let Err(err) = result else {
+            panic!("blank query must be rejected");
+        };
+        assert_eq!(err.message, "query must contain at least one word");
+    }
+
+    #[tokio::test]
+    async fn get_mcp_reports_unknown_server_before_contacting_anything() {
+        let dir = TempDir::new().expect("tempdir");
+        let server = skill_test_server(&dir, &[]);
+        server.route_gate.record_route("load a tool");
+
+        let result = server
+            .get_mcp(Parameters(GetMcpParams {
+                server: "missing".into(),
+                tool: "create_issue".into(),
+            }))
+            .await;
+
+        let Err(err) = result else {
+            panic!("unknown server must be rejected");
+        };
+        assert_eq!(err.message, "unknown or disabled upstream server: missing");
+    }
+
+    #[test]
+    fn proxy_tracks_requests_until_their_response() {
+        let request = r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{}}"#;
+        let response = r#"{"jsonrpc":"2.0","id":7,"result":{}}"#;
+        let notification = r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#;
+        assert_eq!(request_id(request).as_deref(), Some("7"));
+        assert_eq!(request_id(notification), None);
+        assert_eq!(response_id(response).as_deref(), Some("7"));
+        assert_eq!(response_id(request), None);
+        assert_eq!(request_id("not json"), None);
+    }
+
+    #[test]
+    fn proxy_timeout_answers_the_pending_request_with_an_error() {
+        let reply: serde_json::Value = serde_json::from_str(&timeout_response("\"abc\"")).unwrap();
+        assert_eq!(reply["id"], "abc");
+        assert_eq!(reply["error"]["code"], -32000);
+        assert!(reply["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("agent-brain doctor"));
     }
 
     #[test]
