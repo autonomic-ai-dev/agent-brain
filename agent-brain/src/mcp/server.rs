@@ -44,6 +44,27 @@ impl BrainMcp {
     fn require_route(&self, tool: &str) -> Result<(), McpError> {
         self.route_gate.require_route(tool)
     }
+
+    async fn describe_upstream_tool(
+        &self,
+        server: &crate::settings::UpstreamServerConfig,
+        tool_name: &str,
+    ) -> Result<CallToolResult, McpError> {
+        let schema = crate::upstream::get_upstream_tool_schema(server, tool_name)
+            .await
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        match schema {
+            Some(s) => json_result(serde_json::json!({
+                "server": server.name,
+                "tool": tool_name,
+                "schema": s,
+            })),
+            None => Err(McpError::invalid_params(
+                format!("tool '{}' not found on server '{}'", tool_name, server.name),
+                None,
+            )),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -139,6 +160,19 @@ struct SkillSearchParams {
 #[derive(Debug, Deserialize, JsonSchema)]
 struct SkillGetParams {
     name: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct McpSearchParams {
+    query: String,
+    #[serde(default = "default_limit")]
+    limit: usize,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct GetMcpParams {
+    server: String,
+    tool: String,
 }
 
 fn default_limit() -> usize {
@@ -1047,6 +1081,64 @@ impl BrainMcp {
         json_result(serde_json::json!({ "name": params.0.name, "content": content }))
     }
 
+    #[tool(
+        description = "Search configured upstream MCP tools by keywords; every word must match the server name, tool name, or description. Returns server and tool names. Use get_mcp to load a tool's schema, then route_to_mcp to call it."
+    )]
+    async fn mcp_search(
+        &self,
+        params: Parameters<McpSearchParams>,
+    ) -> Result<CallToolResult, McpError> {
+        self.require_route("mcp_search")?;
+        let _req = self.engine.mcp_activity.begin_request();
+        let terms = search_terms(&params.0.query);
+        if terms.is_empty() {
+            return Err(McpError::invalid_params(
+                "query must contain at least one word",
+                None,
+            ));
+        }
+        let limit = params.0.limit.min(MAX_SKILL_RESULTS);
+        let tools: Vec<serde_json::Value> = self
+            .engine
+            .store
+            .list_upstream_tools()
+            .map_err(|e| McpError::internal_error(format!("{e}"), None))?
+            .into_iter()
+            .filter(|tool| {
+                let haystack = format!("{} {} {}", tool.server, tool.name, tool.description)
+                    .to_ascii_lowercase();
+                terms.iter().all(|term| haystack.contains(term))
+            })
+            .take(limit)
+            .map(|tool| {
+                serde_json::json!({
+                    "server": tool.server,
+                    "tool": tool.name,
+                    "description": tool.description,
+                })
+            })
+            .collect();
+        json_result(serde_json::json!({ "tools": tools }))
+    }
+
+    #[tool(
+        description = "Return the input schema for one upstream MCP tool found with mcp_search. Run it with route_to_mcp."
+    )]
+    async fn get_mcp(&self, params: Parameters<GetMcpParams>) -> Result<CallToolResult, McpError> {
+        self.require_route("get_mcp")?;
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let settings = crate::settings::AgentBrainSettings::load(&self.engine.config.home);
+        let server =
+            crate::upstream::find_server(&settings.upstream_mcp, &p.server).ok_or_else(|| {
+                McpError::invalid_params(
+                    format!("unknown or disabled upstream server: {}", p.server),
+                    None,
+                )
+            })?;
+        self.describe_upstream_tool(server, &p.tool).await
+    }
+
     #[tool(description = "Import memory facts from a sync bundle directory.")]
     async fn import_memory(
         &self,
@@ -1093,20 +1185,7 @@ impl BrainMcp {
             let tool_name = p.tool.as_deref().ok_or_else(|| {
                 McpError::invalid_params("tool name required when describe_tool is true", None)
             })?;
-            let schema = crate::upstream::get_upstream_tool_schema(server, tool_name)
-                .await
-                .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-            return match schema {
-                Some(s) => json_result(serde_json::json!({
-                    "server": server.name,
-                    "tool": tool_name,
-                    "schema": s,
-                })),
-                None => Err(McpError::invalid_params(
-                    format!("tool '{}' not found on server '{}'", tool_name, server.name),
-                    None,
-                )),
-            };
+            return self.describe_upstream_tool(server, tool_name).await;
         }
 
         if let Some(batch) = p.batch {
@@ -2604,6 +2683,96 @@ mod tests {
         };
         assert_eq!(err.message, "skill file is unavailable; rebuild the index");
         assert!(!err.message.contains(&*gone.to_string_lossy()));
+    }
+
+    fn upstream_tool(server: &str, name: &str, description: &str) -> crate::upstream::IndexedUpstreamTool {
+        crate::upstream::IndexedUpstreamTool {
+            server: server.to_string(),
+            name: name.to_string(),
+            description: description.to_string(),
+        }
+    }
+
+    #[tokio::test]
+    async fn mcp_search_requires_route_first() {
+        let dir = TempDir::new().expect("tempdir");
+        let server = skill_test_server(&dir, &[]);
+
+        let result = server
+            .mcp_search(Parameters(McpSearchParams {
+                query: "issue".into(),
+                limit: 10,
+            }))
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn mcp_search_returns_tools_where_every_word_matches() {
+        let dir = TempDir::new().expect("tempdir");
+        let server = skill_test_server(&dir, &[]);
+        server
+            .engine
+            .store
+            .replace_upstream_tools(&[
+                upstream_tool("linear", "create_issue", "Create an issue"),
+                upstream_tool("linear", "list_teams", "List teams"),
+            ])
+            .expect("seed upstream tools");
+        server.route_gate.record_route("create a linear issue");
+
+        let result = server
+            .mcp_search(Parameters(McpSearchParams {
+                query: "LINEAR issue".into(),
+                limit: 10,
+            }))
+            .await
+            .expect("search succeeds");
+
+        let body = json_body(result);
+        let tools = body["tools"].as_array().expect("tools array");
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0]["server"], "linear");
+        assert_eq!(tools[0]["tool"], "create_issue");
+    }
+
+    #[tokio::test]
+    async fn mcp_search_rejects_query_without_words() {
+        let dir = TempDir::new().expect("tempdir");
+        let server = skill_test_server(&dir, &[]);
+        server.route_gate.record_route("find a tool");
+
+        let result = server
+            .mcp_search(Parameters(McpSearchParams {
+                query: "  ".into(),
+                limit: 10,
+            }))
+            .await;
+
+        let Err(err) = result else {
+            panic!("blank query must be rejected");
+        };
+        assert_eq!(err.message, "query must contain at least one word");
+    }
+
+    #[tokio::test]
+    async fn get_mcp_reports_unknown_server_before_contacting_anything() {
+        let dir = TempDir::new().expect("tempdir");
+        let server = skill_test_server(&dir, &[]);
+        server.route_gate.record_route("load a tool");
+
+        let result = server
+            .get_mcp(Parameters(GetMcpParams {
+                server: "missing".into(),
+                tool: "create_issue".into(),
+            }))
+            .await;
+
+        let Err(err) = result else {
+            panic!("unknown server must be rejected");
+        };
+        assert_eq!(err.message, "unknown or disabled upstream server: missing");
     }
 
     #[test]
