@@ -319,7 +319,7 @@ fn should_skip(path: &Path) -> bool {
         || s.contains("/venv/")
         || s.contains("/.venv/")
         || s.contains("/opt/")
-        || s.contains("/.autonomic/")
+        || (s.contains("/.autonomic/") && !s.contains("/packages/"))
         || s.contains("/.pytest_cache/")
         || s.contains("/dist/")
         || s.contains("/build/")
@@ -551,4 +551,21 @@ fn yaml_scalar_field(frontmatter: &str, key: &str) -> Option<String> {
 fn extract_agent_text(content: &str, name: &str) -> String {
     let summary = content.lines().take(15).collect::<Vec<_>>().join(" ");
     format!("{name} {summary}").chars().take(800).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn installed_package_skills_are_indexed_under_autonomic_home() {
+        let skill = Path::new("/h/.autonomic/memory/packages/ponytail/skills/ponytail/SKILL.md");
+        assert!(!should_skip(skill));
+    }
+
+    #[test]
+    fn brain_state_under_autonomic_home_is_still_skipped() {
+        let state = Path::new("/h/.autonomic/memory/skills/private/SKILL.md");
+        assert!(should_skip(state));
+    }
 }
