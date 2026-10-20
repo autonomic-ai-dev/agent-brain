@@ -727,6 +727,9 @@ async fn main() -> Result<()> {
         "bash-gate" => {
             agent_brain::command_policy::run_bash_gate()?;
         }
+        "rules" => {
+            agent_brain::command_rules::run_cli(&args[2..])?;
+        }
         "verify" => {
             let sub = args.get(2).map(String::as_str).unwrap_or("");
             if sub == "init" {
