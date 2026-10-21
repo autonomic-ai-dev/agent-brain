@@ -743,6 +743,35 @@ async fn main() -> Result<()> {
             }
             let config = Config::load()?;
             let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
+            if sub == "run" {
+                let source_raw = flag_value(&args, "--source").unwrap_or_else(|| "cli".to_string());
+                let source = agent_brain::verify::VerifySource::parse(&source_raw)?;
+                let root = match flag_value(&args, "--project") {
+                    Some(path) => std::path::PathBuf::from(path),
+                    None => {
+                        let cwd = std::env::current_dir()?;
+                        agent_brain::config::find_repo_root(&cwd).unwrap_or_else(|| cwd.clone())
+                    }
+                };
+                match agent_brain::verify::run_default_step(&store, &root, source)? {
+                    None => eprintln!("no [verify.default] step declared in {}", root.display()),
+                    Some(report) => {
+                        if args.iter().any(|a| a == "--json") {
+                            println!("{}", serde_json::to_string_pretty(&report)?);
+                        } else {
+                            let verdict = if report.success { "passed" } else { "failed" };
+                            println!(
+                                "verify default {verdict} (exit {}): {}",
+                                report.exit_code, report.cmd
+                            );
+                        }
+                        if !report.success {
+                            std::process::exit(report.exit_code);
+                        }
+                    }
+                }
+                return Ok(());
+            }
             if sub == "record" {
                 let route_log_id = flag_value(&args, "--route-log-id");
                 let cause = flag_value(&args, "--cause");
