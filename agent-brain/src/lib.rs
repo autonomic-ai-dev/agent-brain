@@ -83,6 +83,7 @@ pub mod command_policy;
 pub mod command_rules;
 pub mod commit_gate;
 pub mod skill_registry;
+pub mod capabilities;
 pub mod stop_gate;
 pub mod serve_lock;
 pub mod sessions;

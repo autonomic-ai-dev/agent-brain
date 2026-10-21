@@ -293,7 +293,10 @@ fn agent_brain_subcommand(subcommand: &str) -> Result<String> {
 
 fn is_gate_subcommand(cmd: &str) -> bool {
     let cmd = cmd.trim_end();
-    cmd.ends_with(" stop-gate") || cmd.ends_with(" commit-gate") || cmd.ends_with(" bash-gate")
+    cmd.ends_with(" stop-gate")
+        || cmd.ends_with(" commit-gate")
+        || cmd.ends_with(" bash-gate")
+        || cmd.ends_with(" capabilities-hook")
 }
 
 fn python3_available() -> bool {
@@ -310,11 +313,18 @@ pub fn install_claude_code_hooks(user: bool, quiet: bool) -> Result<PathBuf> {
     if !python3_available() {
         eprintln!("warning: python3 not found; the Claude route gate hook cannot run without it");
     }
-    let fragment = claude_code_gate_fragment(
+    let mut fragment = claude_code_gate_fragment(
         &script,
         &agent_brain_subcommand("stop-gate")?,
         &agent_brain_subcommand("bash-gate")?,
     );
+    fragment["hooks"]["SessionStart"] = json!([{
+        "hooks": [{
+            "type": "command",
+            "command": agent_brain_subcommand("capabilities-hook")?,
+            "timeout": 10
+        }]
+    }]);
     write_settings_hooks(&settings, &fragment)?;
     if !quiet {
         println!(
@@ -535,6 +545,33 @@ mod tests {
         )
         .unwrap();
         assert!(!claude_hooks_need_refresh(&path));
+    }
+
+    #[test]
+    fn session_start_capability_hook_replaces_itself_on_reinstall() {
+        let dir = TempDir::new().unwrap();
+        let script = dir.path().join("route_gate.py");
+        fs::write(&script, "#!/usr/bin/env python3\n").unwrap();
+        let path = dir.path().join("settings.json");
+        let mut fragment = claude_code_gate_fragment(
+            &script,
+            "'/bin/agent-brain' stop-gate",
+            "'/bin/agent-brain' bash-gate",
+        );
+        fragment["hooks"]["SessionStart"] = json!([{
+            "hooks": [{
+                "type": "command",
+                "command": "'/bin/agent-brain' capabilities-hook",
+                "timeout": 10
+            }]
+        }]);
+        write_settings_hooks(&path, &fragment).unwrap();
+        write_settings_hooks(&path, &fragment).unwrap();
+        let settings: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            settings["hooks"]["SessionStart"].as_array().unwrap().len(),
+            1
+        );
     }
 
     #[test]
