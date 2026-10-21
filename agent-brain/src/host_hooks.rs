@@ -279,7 +279,7 @@ fn claude_code_gate_fragment(script: &Path, stop_cmd: &str, bash_cmd: &str) -> V
         "hooks": [{
             "type": "command",
             "command": stop_cmd,
-            "timeout": 60
+            "timeout": crate::verify::MAX_STEP_TIMEOUT_SECS + 60
         }]
     }]);
     json!({ "hooks": hooks })

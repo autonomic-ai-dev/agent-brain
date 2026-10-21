@@ -102,7 +102,7 @@ pub struct DefaultStep {
 }
 
 pub const TIMEOUT_EXIT_CODE: i32 = 124;
-const MAX_STEP_TIMEOUT_SECS: u64 = 3600;
+pub const MAX_STEP_TIMEOUT_SECS: u64 = 600;
 const VERIFY_RUN_TIMEOUT: Duration = Duration::from_secs(900);
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 
@@ -397,6 +397,28 @@ pub fn record_from_result(
 }
 
 /// Initialize `.verify/` in `project_root` with `verify.toml`, `run.sh`, and `README.md`.
+fn default_step_for(project_root: &Path) -> Option<&'static [&'static str]> {
+    if project_root.join("Cargo.toml").exists() {
+        return Some(&["cargo", "test"]);
+    }
+    if project_root.join("package.json").exists() {
+        return Some(&["npm", "test"]);
+    }
+    if project_root.join("pyproject.toml").exists()
+        || project_root.join("requirements.txt").exists()
+        || project_root.join("pytest.ini").exists()
+    {
+        return Some(&["pytest"]);
+    }
+    if project_root.join("go.mod").exists() {
+        return Some(&["go", "test", "./..."]);
+    }
+    if project_root.join("Makefile").exists() {
+        return Some(&["make", "test"]);
+    }
+    None
+}
+
 pub fn init_verify(project_root: &Path, force: bool) -> Result<PathBuf> {
     let verify_dir = project_root.join(VERIFY_DIR_NAME);
     fs::create_dir_all(&verify_dir)
@@ -438,6 +460,16 @@ pub fn init_verify(project_root: &Path, force: bool) -> Result<PathBuf> {
             toml_content.push_str(&format!("  \"{cmd}\",\n"));
         }
         toml_content.push_str("]\n");
+        if let Some(argv) = default_step_for(project_root) {
+            let quoted = argv
+                .iter()
+                .map(|arg| format!("\"{arg}\""))
+                .collect::<Vec<_>>()
+                .join(", ");
+            toml_content.push_str(&format!(
+                "\n[verify.default]\ncommand = [{quoted}]\ntimeout_secs = 300\n"
+            ));
+        }
 
         fs::write(&toml_path, toml_content)
             .with_context(|| format!("write {}", toml_path.display()))?;
@@ -1002,5 +1034,35 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
             .report;
         assert!(report.success);
         assert_eq!(store.list_verify_outcomes(10).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn init_writes_a_default_step_for_a_cargo_project() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("Cargo.toml"), "[package]\n").unwrap();
+        init_verify(dir.path(), false).unwrap();
+        let step = load_default_step(dir.path()).unwrap().unwrap();
+        assert_eq!(step.command, vec!["cargo", "test"]);
+        assert_eq!(step.timeout, Duration::from_secs(300));
+    }
+
+    #[test]
+    fn init_writes_no_default_step_when_no_runner_is_detected() {
+        let dir = tempdir().unwrap();
+        init_verify(dir.path(), false).unwrap();
+        assert!(load_default_step(dir.path()).unwrap().is_none());
+    }
+
+    #[test]
+    fn default_step_timeout_may_not_exceed_the_ceiling() {
+        let dir = tempdir().unwrap();
+        write_verify_toml(
+            dir.path(),
+            &format!(
+                "[verify.default]\ncommand = [\"sh\", \"-c\", \"true\"]\ntimeout_secs = {}\n",
+                MAX_STEP_TIMEOUT_SECS + 1
+            ),
+        );
+        assert!(load_default_step(dir.path()).is_err());
     }
 }
