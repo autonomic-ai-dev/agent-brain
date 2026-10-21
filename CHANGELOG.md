@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0-beta.3.10] - 2026-10-21
+
+### Added
+- **Automatic verification:** `[verify.default]` in `verify.toml` declares the project's fast check (command, `timeout_secs`, `hook`). `agent-brain verify run` runs it with its timeout and records the result.
+- **Stop gate runs the default step:** when files changed and no passing `cli` verify run follows the last edit, the gate runs the default step itself. A pass lets the stop through; a failure blocks with the command, exit code, and last output lines, up to the existing retry limit.
+- **`verify_run` MCP tool:** agents that reach agent-brain only through MCP can run the same default step.
+- **Skill and MCP discovery:** `route_task` lists enabled MCP servers with their tool counts and says to check `skill_search` before calling anything unavailable. A Claude Code and Gemini CLI SessionStart hook injects the same text via `agent-brain capabilities-hook`.
+- `verify init` writes a `[verify.default]` step for detected Cargo, npm, pytest, Go, and Make projects.
+
+### Changed
+- Verify runs are time-limited: default steps up to 600 seconds, `verify --` up to 900 seconds. The Stop hook timeout is the step ceiling plus 60 seconds.
+- Host instruction files are at `instructions-version: 13`.
+
+### Fixed
+- The stop gate's default step captures its output instead of writing it to the hook's stdout, so the hook JSON stays valid.
+
 ## [1.0.0-beta.3.9] - 2026-10-21
 
 ### Added
