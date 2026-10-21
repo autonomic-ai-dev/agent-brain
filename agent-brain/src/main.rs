@@ -771,9 +771,10 @@ async fn main() -> Result<()> {
                 };
                 match agent_brain::verify::run_default_step(&store, &root, source)? {
                     None => eprintln!("no [verify.default] step declared in {}", root.display()),
-                    Some(report) => {
+                    Some(run) => {
+                        let report = &run.report;
                         if args.iter().any(|a| a == "--json") {
-                            println!("{}", serde_json::to_string_pretty(&report)?);
+                            println!("{}", serde_json::to_string_pretty(report)?);
                         } else {
                             let verdict = if report.success { "passed" } else { "failed" };
                             println!(
@@ -782,6 +783,7 @@ async fn main() -> Result<()> {
                             );
                         }
                         if !report.success {
+                            eprintln!("{}", run.output.trim_end());
                             std::process::exit(report.exit_code);
                         }
                     }

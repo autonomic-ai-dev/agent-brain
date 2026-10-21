@@ -7,8 +7,9 @@ use std::time::UNIX_EPOCH;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::config::Config;
+use crate::config::{find_repo_root, Config};
 use crate::db::store::BrainStore;
+use crate::verify::{self, VerifySource};
 
 const BLOCK_REASON: &str = "Verification is missing. Files changed in this repo have no passing `agent-brain verify -- <cmd>` run recorded after the last edit. Run the project's checks (for example `cargo test` or the verify suite), let them pass, then finish.";
 const EVIDENCE_LIMIT: usize = 100;
@@ -136,38 +137,72 @@ pub fn run_stop_gate() -> Result<()> {
         .cwd
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-    let Some(edit) = last_edit_ms(&cwd) else {
-        return Ok(());
-    };
     let config = Config::load()?;
     let store = BrainStore::open(&config.db_path)?;
-    let evidence = load_evidence(&store)?;
     let state_file = config.db_path.with_file_name(STATE_FILE);
     let session_id = input.session_id.unwrap_or_default();
-    let blocks = prior_blocks(&load_state(&state_file), &session_id, edit);
+    if let Some(reason) = evaluate_stop(&store, &cwd, &session_id, &state_file)? {
+        println!(
+            "{}",
+            serde_json::json!({ "decision": "block", "reason": reason })
+        );
+    }
+    Ok(())
+}
+
+fn evaluate_stop(
+    store: &BrainStore,
+    cwd: &Path,
+    session_id: &str,
+    state_file: &Path,
+) -> Result<Option<String>> {
+    let Some(edit) = last_edit_ms(cwd) else {
+        return Ok(None);
+    };
+    let evidence = load_evidence(store)?;
+    if has_verification(edit, &evidence) {
+        return Ok(None);
+    }
+    let blocks = prior_blocks(&load_state(state_file), session_id, edit);
+    let root = find_repo_root(cwd).unwrap_or_else(|| cwd.to_path_buf());
+    let step = verify::run_default_step(store, &root, VerifySource::Cli)?;
+    if let Some(run) = &step {
+        if run.report.success {
+            return Ok(None);
+        }
+    }
+    let reason = match &step {
+        Some(run) => failure_reason(run),
+        None => BLOCK_REASON.to_string(),
+    };
     match decide(Some(edit), &evidence, blocks) {
-        Decision::Block(reason) => {
-            println!(
-                "{}",
-                serde_json::json!({ "decision": "block", "reason": reason })
-            );
+        Decision::Block(_) => {
             let next = BlockState {
-                session_id,
+                session_id: session_id.to_string(),
                 edit_ms: edit,
                 blocks: blocks + 1,
             };
-            if let Err(err) = save_state(&state_file, &next) {
+            if let Err(err) = save_state(state_file, &next) {
                 eprintln!("stop-gate: could not persist block count: {err:#}");
             }
+            Ok(Some(reason))
         }
-        Decision::Allow if !has_verification(edit, &evidence) => {
+        Decision::Allow => {
             eprintln!(
                 "stop-gate: stopping without verification after {blocks} blocks; no passing verify run follows the last edit"
             );
+            Ok(None)
         }
-        Decision::Allow => {}
     }
-    Ok(())
+}
+
+fn failure_reason(run: &verify::StepRun) -> String {
+    format!(
+        "Verification failed: `{}` exited with {}. Fix the failures below, then finish again.\n\n{}",
+        run.report.cmd,
+        run.report.exit_code,
+        run.output.trim_end()
+    )
 }
 
 #[cfg(test)]
@@ -271,5 +306,91 @@ mod tests {
             .status()
             .unwrap();
         assert_eq!(last_edit_ms(dir.path()), None);
+    }
+
+    fn edited_repo(dir: &Path, verify_toml: Option<&str>) {
+        Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["init", "-q"])
+            .status()
+            .unwrap();
+        if let Some(body) = verify_toml {
+            fs::create_dir_all(dir.join(".verify")).unwrap();
+            fs::write(dir.join(".verify/verify.toml"), body).unwrap();
+        }
+        fs::write(dir.join("changed.txt"), b"edit").unwrap();
+    }
+
+    fn gate_store(dir: &Path) -> BrainStore {
+        BrainStore::open(&dir.join("t.db")).unwrap()
+    }
+
+    #[test]
+    fn passing_default_step_lets_the_stop_through_and_is_recorded() {
+        let dir = TempDir::new().unwrap();
+        let aux = TempDir::new().unwrap();
+        let store = gate_store(aux.path());
+        edited_repo(
+            dir.path(),
+            Some("[verify]\ncommands = [\"sh -c\"]\n\n[verify.default]\ncommand = [\"sh\", \"-c\", \"true\"]\n"),
+        );
+        let state = aux.path().join("state.json");
+        assert_eq!(
+            evaluate_stop(&store, dir.path(), "s1", &state).unwrap(),
+            None
+        );
+        assert_eq!(store.list_verify_outcomes(10).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn failing_default_step_blocks_with_its_command_and_output() {
+        let dir = TempDir::new().unwrap();
+        let aux = TempDir::new().unwrap();
+        let store = gate_store(aux.path());
+        edited_repo(
+            dir.path(),
+            Some("[verify]\ncommands = [\"sh -c\"]\n\n[verify.default]\ncommand = [\"sh\", \"-c\", \"echo broken; exit 3\"]\n"),
+        );
+        let state = aux.path().join("state.json");
+        let reason = evaluate_stop(&store, dir.path(), "s1", &state)
+            .unwrap()
+            .expect("failing step must block");
+        assert!(reason.contains("exit 3"));
+        assert!(reason.contains("broken"));
+    }
+
+    #[test]
+    fn stop_is_allowed_after_the_retry_limit_while_the_step_still_fails() {
+        let dir = TempDir::new().unwrap();
+        let aux = TempDir::new().unwrap();
+        let store = gate_store(aux.path());
+        edited_repo(
+            dir.path(),
+            Some("[verify]\ncommands = [\"sh -c\"]\n\n[verify.default]\ncommand = [\"sh\", \"-c\", \"exit 1\"]\n"),
+        );
+        let state = aux.path().join("state.json");
+        for _ in 0..STOP_BLOCK_LIMIT {
+            assert!(evaluate_stop(&store, dir.path(), "s1", &state)
+                .unwrap()
+                .is_some());
+        }
+        assert_eq!(
+            evaluate_stop(&store, dir.path(), "s1", &state).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn edits_without_a_default_step_still_block() {
+        let dir = TempDir::new().unwrap();
+        let aux = TempDir::new().unwrap();
+        let store = gate_store(aux.path());
+        edited_repo(dir.path(), None);
+        let state = aux.path().join("state.json");
+        assert_eq!(
+            evaluate_stop(&store, dir.path(), "s1", &state).unwrap(),
+            Some(BLOCK_REASON.to_string())
+        );
     }
 }

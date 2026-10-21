@@ -3,9 +3,10 @@
 //! Project playbooks live at `<project>/.verify/`. Hashes of verify config /
 //! scenario dirs make drift visible in `agent-brain report`.
 
-use std::fs;
+use std::fs::{self, File};
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
@@ -130,7 +131,14 @@ pub fn load_default_step(project_root: &Path) -> Result<Option<DefaultStep>> {
     Ok(None)
 }
 
-fn run_process(cmd: &[String], cwd: Option<&Path>, timeout: Duration) -> Result<i32> {
+const OUTPUT_TAIL_BYTES: u64 = 4000;
+
+fn run_process(
+    cmd: &[String],
+    cwd: Option<&Path>,
+    timeout: Duration,
+    capture: bool,
+) -> Result<(i32, String)> {
     if cmd.is_empty() {
         bail!("cannot run an empty command");
     }
@@ -139,28 +147,57 @@ fn run_process(cmd: &[String], cwd: Option<&Path>, timeout: Duration) -> Result<
     if let Some(dir) = cwd {
         command.current_dir(dir);
     }
+    let output = if capture {
+        let file = tempfile::tempfile()?;
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::from(file.try_clone()?))
+            .stderr(Stdio::from(file.try_clone()?));
+        Some(file)
+    } else {
+        None
+    };
     let mut child = command
         .spawn()
         .with_context(|| format!("failed to spawn {}", cmd[0]))?;
     let started = Instant::now();
-    loop {
+    let exit_code = loop {
         if let Some(status) = child.try_wait()? {
-            return Ok(status.code().unwrap_or(1));
+            break status.code().unwrap_or(1);
         }
         if started.elapsed() >= timeout {
             child.kill().ok();
             child.wait()?;
-            return Ok(TIMEOUT_EXIT_CODE);
+            break TIMEOUT_EXIT_CODE;
         }
         std::thread::sleep(POLL_INTERVAL);
+    };
+    Ok((exit_code, output.map(read_output_tail).unwrap_or_default()))
+}
+
+fn read_output_tail(mut file: File) -> String {
+    let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+    let mut buf = Vec::new();
+    if file
+        .seek(SeekFrom::Start(len.saturating_sub(OUTPUT_TAIL_BYTES)))
+        .is_ok()
+    {
+        file.read_to_end(&mut buf).ok();
     }
+    String::from_utf8_lossy(&buf).into_owned()
+}
+
+#[derive(Debug)]
+pub struct StepRun {
+    pub report: VerifyReport,
+    pub output: String,
 }
 
 pub fn run_default_step(
     store: &BrainStore,
     project_root: &Path,
     source: VerifySource,
-) -> Result<Option<VerifyReport>> {
+) -> Result<Option<StepRun>> {
     let Some(step) = load_default_step(project_root)? else {
         return Ok(None);
     };
@@ -170,8 +207,8 @@ pub fn run_default_step(
             "default verify step `{joined}` is not in the verify allowlist; add it to commands in .verify/verify.toml"
         );
     }
-    let exit_code = run_process(&step.command, Some(project_root), step.timeout)?;
-    record_from_result(
+    let (exit_code, output) = run_process(&step.command, Some(project_root), step.timeout, true)?;
+    let report = record_from_result(
         store,
         exit_code,
         &joined,
@@ -181,8 +218,8 @@ pub fn run_default_step(
         None,
         Some(project_root),
         source,
-    )
-    .map(Some)
+    )?;
+    Ok(Some(StepRun { report, output }))
 }
 
 /// Load project command allowlist from `<root>/.verify/verify.toml` or `<root>/verify.toml`.
@@ -478,7 +515,7 @@ pub fn run_verify(
     if !command_is_allowlisted(&joined, project_root.as_deref()) {
         bail!("`{joined}` is not in the verify allowlist; add it to .verify/verify.toml");
     }
-    let exit_code = run_process(cmd, None, VERIFY_RUN_TIMEOUT)?;
+    let (exit_code, _) = run_process(cmd, None, VERIFY_RUN_TIMEOUT, false)?;
     let cwd = std::env::current_dir().ok();
     record_from_result(
         store,
@@ -935,7 +972,7 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
     #[test]
     fn process_is_killed_when_it_exceeds_its_timeout() {
         let cmd = ["sh", "-c", "exec sleep 30"].map(String::from);
-        let code = run_process(&cmd, None, Duration::from_millis(200)).unwrap();
+        let (code, _) = run_process(&cmd, None, Duration::from_millis(200), false).unwrap();
         assert_eq!(code, TIMEOUT_EXIT_CODE);
     }
 
@@ -961,7 +998,8 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
         );
         let report = run_default_step(&store, dir.path(), VerifySource::Hook)
             .unwrap()
-            .unwrap();
+            .unwrap()
+            .report;
         assert!(report.success);
         assert_eq!(store.list_verify_outcomes(10).unwrap().len(), 1);
     }
