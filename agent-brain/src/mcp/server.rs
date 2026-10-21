@@ -2095,6 +2095,7 @@ pub async fn run_stdio(engine: Arc<Engine>) -> Result<()> {
 /// run a proxy simultaneously without touching the exclusive serve lock.
 pub async fn run_proxy(socket_path: &Path) -> Result<()> {
     let mut spawned = false;
+    let handshake = Arc::new(std::sync::Mutex::new(ProxyHandshake::default()));
     loop {
         let stream = match UnixStream::connect(socket_path).await {
             Ok(stream) => stream,
@@ -2121,7 +2122,7 @@ pub async fn run_proxy(socket_path: &Path) -> Result<()> {
                 continue;
             }
         };
-        if let Err(err) = serve_one_proxy_connection(stream).await {
+        if let Err(err) = serve_one_proxy_connection(stream, handshake.clone()).await {
             tracing::warn!(error = %err, "proxy: connection closed, reconnecting");
         } else {
             tracing::debug!("proxy: daemon connection closed, reconnecting");
@@ -2132,7 +2133,42 @@ pub async fn run_proxy(socket_path: &Path) -> Result<()> {
 
 const PROXY_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
-async fn serve_one_proxy_connection(stream: UnixStream) -> Result<()> {
+#[derive(Default)]
+struct ProxyHandshake {
+    initialize: Option<String>,
+    initialized: Option<String>,
+}
+
+impl ProxyHandshake {
+    fn record(&mut self, line: &str) {
+        let method = serde_json::from_str::<serde_json::Value>(line)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("method")
+                    .and_then(|m| m.as_str())
+                    .map(str::to_owned)
+            });
+        match method.as_deref() {
+            Some("initialize") => self.initialize = Some(line.to_string()),
+            Some("notifications/initialized") => self.initialized = Some(line.to_string()),
+            _ => {}
+        }
+    }
+
+    fn replay(&self) -> Vec<String> {
+        self.initialize
+            .iter()
+            .chain(self.initialized.iter())
+            .cloned()
+            .collect()
+    }
+}
+
+async fn serve_one_proxy_connection(
+    stream: UnixStream,
+    handshake: Arc<std::sync::Mutex<ProxyHandshake>>,
+) -> Result<()> {
     let (rx, mut tx) = stream.into_split();
     let mut stdin = BufReader::new(tokio::io::stdin());
     let mut stdout = tokio::io::stdout();
@@ -2140,6 +2176,12 @@ async fn serve_one_proxy_connection(stream: UnixStream) -> Result<()> {
         Some(line) => line,
         None => return Ok(()),
     };
+    let replayed = handshake.lock().unwrap().replay();
+    let replay_id = replayed.first().and_then(|line| request_id(line));
+    for line in &replayed {
+        tx.write_all(line.as_bytes()).await?;
+        tx.write_all(b"\n").await?;
+    }
     let pending = Arc::new(std::sync::Mutex::new(std::collections::HashMap::<
         String,
         std::time::Instant,
@@ -2158,10 +2200,12 @@ async fn serve_one_proxy_connection(stream: UnixStream) -> Result<()> {
     });
     let from_host = {
         let pending = pending.clone();
+        let handshake = handshake.clone();
         tokio::spawn(async move {
             let host = std::io::Cursor::new(initial_line).chain(stdin);
             let mut lines = BufReader::new(host).lines();
             while let Ok(Some(line)) = lines.next_line().await {
+                handshake.lock().unwrap().record(&line);
                 if let Some(id) = request_id(&line) {
                     pending
                         .lock()
@@ -2179,10 +2223,15 @@ async fn serve_one_proxy_connection(stream: UnixStream) -> Result<()> {
     let from_daemon = {
         let pending = pending.clone();
         let out_tx = out_tx.clone();
+        let replay_id = replay_id.clone();
         tokio::spawn(async move {
             let mut lines = BufReader::new(rx).lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                if let Some(id) = response_id(&line) {
+                let id = response_id(&line);
+                if id.is_some() && id == replay_id {
+                    continue;
+                }
+                if let Some(id) = id {
                     pending.lock().unwrap().remove(&id);
                 }
                 if out_tx.send(line).is_err() {
@@ -2476,6 +2525,25 @@ fn build_autonomic_catalog(organ_filter: Option<&str>, verbose: bool) -> serde_j
 mod tests {
     use super::*;
     use crate::db::store::{BrainStore, IndexBatchItem};
+
+    #[test]
+    fn proxy_handshake_replays_initialize_then_initialized_after_reconnect() {
+        let mut handshake = ProxyHandshake::default();
+        handshake.record(r#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#);
+        handshake.record(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#);
+        handshake.record(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#);
+        let replayed = handshake.replay();
+        assert_eq!(replayed.len(), 2);
+        assert!(replayed[0].contains(r#""method":"initialize""#));
+        assert!(replayed[1].contains("notifications/initialized"));
+    }
+
+    #[test]
+    fn proxy_handshake_replays_nothing_before_the_host_initializes() {
+        let mut handshake = ProxyHandshake::default();
+        handshake.record(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#);
+        assert!(handshake.replay().is_empty());
+    }
     use crate::types::ItemType;
     use tempfile::TempDir;
 

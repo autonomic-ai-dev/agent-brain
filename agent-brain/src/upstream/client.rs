@@ -3,6 +3,7 @@ use rmcp::model::{CallToolRequestParams, CallToolResult};
 use rmcp::transport::{ConfigureCommandExt, TokioChildProcess};
 use rmcp::ServiceExt;
 use serde::{Deserialize, Serialize};
+use std::process::Stdio;
 use tokio::process::Command;
 
 use crate::db::store::BrainStore;
@@ -200,8 +201,10 @@ async fn connect(
     for (key, value) in env {
         command.env(key, value);
     }
-    let transport =
-        TokioChildProcess::new(command.configure(|_| {})).context("spawn upstream MCP process")?;
+    let (transport, _stderr) = TokioChildProcess::builder(command.configure(|_| {}))
+        .stderr(Stdio::null())
+        .spawn()
+        .context("spawn upstream MCP process")?;
     ().serve(transport)
         .await
         .map_err(|e| anyhow::anyhow!("upstream MCP initialize failed: {e}"))
