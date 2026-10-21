@@ -44,7 +44,7 @@ opendal = { version = "0.52", features = ["services-s3", "services-fs", "layers-
 lru = "0.16.3"
 prost = { version = "0.13", optional = true }
 regex = "1"
-rmcp = { version = "1.5.1", features = ["server", "transport-io", "macros", "client", "transport-child-process"] }
+rmcp = { version = "2.1.0", features = ["server", "transport-io", "macros", "client", "transport-child-process"] }
 rusqlite = { version = "0.32", features = ["bundled-sqlcipher-vendored-openssl", "functions"] }
 schemars = "1"
 serde = { version = "1", features = ["derive"] }
@@ -53,7 +53,7 @@ serde_yaml = "0.9"
 secrecy = "0.10"
 sha2 = "0.10"
 tar = "0.4"
-async-nats = "0.39"
+async-nats = "0.50"
 thiserror = "2"
 toml = "0.8"
 tokio = { version = "1", features = ["full"] }
