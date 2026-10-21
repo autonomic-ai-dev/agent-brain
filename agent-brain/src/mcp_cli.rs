@@ -86,7 +86,7 @@ pub async fn handle_mcp_command(args: &[String]) -> Result<()> {
             let command = cmd_part[0].clone();
             let server_args = cmd_part[1..].to_vec();
 
-            if let Some(existing) = settings
+            let verb = if let Some(existing) = settings
                 .upstream_mcp
                 .servers
                 .iter_mut()
@@ -98,7 +98,7 @@ pub async fn handle_mcp_command(args: &[String]) -> Result<()> {
                     existing.env = env.clone();
                 }
                 existing.enabled = true;
-                println!("Updated existing MCP server '{name}'.");
+                "Updated"
             } else {
                 settings.upstream_mcp.servers.push(UpstreamServerConfig {
                     name: name.clone(),
@@ -107,20 +107,24 @@ pub async fn handle_mcp_command(args: &[String]) -> Result<()> {
                     env,
                     enabled: true,
                 });
-                println!("Registered MCP server '{name}'.");
-            }
+                "Registered"
+            };
 
             settings.upstream_mcp.enabled = true;
             persist_brain_settings(&settings)?;
 
             let engine = Engine::new(config)?;
-            match refresh_upstream_index(&settings.upstream_mcp, &engine.store).await {
-                Ok(count) => {
-                    println!("Indexed {count} upstream tools into vector catalog.");
-                }
-                Err(err) => {
-                    eprintln!("Warning: could not index tools from '{name}': {err}");
-                }
+            refresh_upstream_index(&settings.upstream_mcp, &engine.store).await?;
+            let tools = engine
+                .store
+                .list_upstream_tools()?
+                .iter()
+                .filter(|t| t.server.eq_ignore_ascii_case(name))
+                .count();
+            if tools == 0 {
+                println!("{verb} '{name}': 0 tools indexed. Run `agent-brain mcp test {name}` to see why.");
+            } else {
+                println!("{verb} '{name}': {tools} tools indexed.");
             }
         }
         "remove" | "rm" => {
