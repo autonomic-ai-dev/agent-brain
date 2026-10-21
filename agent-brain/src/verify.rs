@@ -6,6 +6,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use sha2::{Digest, Sha256};
@@ -71,6 +72,117 @@ struct VerifyTomlFile {
 struct VerifyTomlSection {
     #[serde(default)]
     commands: Vec<String>,
+    #[serde(default)]
+    default: Option<DefaultStepFile>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct DefaultStepFile {
+    command: Vec<String>,
+    #[serde(default = "default_step_timeout_secs")]
+    timeout_secs: u64,
+    #[serde(default = "default_step_hook")]
+    hook: bool,
+}
+
+fn default_step_timeout_secs() -> u64 {
+    300
+}
+
+fn default_step_hook() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DefaultStep {
+    pub command: Vec<String>,
+    pub timeout: Duration,
+    pub hook: bool,
+}
+
+pub const TIMEOUT_EXIT_CODE: i32 = 124;
+const MAX_STEP_TIMEOUT_SECS: u64 = 3600;
+const VERIFY_RUN_TIMEOUT: Duration = Duration::from_secs(900);
+const POLL_INTERVAL: Duration = Duration::from_millis(50);
+
+pub fn load_default_step(project_root: &Path) -> Result<Option<DefaultStep>> {
+    for rel in [".verify/verify.toml", "verify.toml"] {
+        let Ok(raw) = fs::read_to_string(project_root.join(rel)) else {
+            continue;
+        };
+        let parsed: VerifyTomlFile =
+            toml::from_str(&raw).with_context(|| format!("invalid verify config {rel}"))?;
+        let Some(step) = parsed.verify.default else {
+            continue;
+        };
+        if step.command.is_empty() {
+            bail!("[verify.default] command is empty in {rel}");
+        }
+        if !(1..=MAX_STEP_TIMEOUT_SECS).contains(&step.timeout_secs) {
+            bail!("[verify.default] timeout_secs must be between 1 and {MAX_STEP_TIMEOUT_SECS} in {rel}");
+        }
+        return Ok(Some(DefaultStep {
+            command: step.command,
+            timeout: Duration::from_secs(step.timeout_secs),
+            hook: step.hook,
+        }));
+    }
+    Ok(None)
+}
+
+fn run_process(cmd: &[String], cwd: Option<&Path>, timeout: Duration) -> Result<i32> {
+    if cmd.is_empty() {
+        bail!("cannot run an empty command");
+    }
+    let mut command = Command::new(&cmd[0]);
+    command.args(&cmd[1..]);
+    if let Some(dir) = cwd {
+        command.current_dir(dir);
+    }
+    let mut child = command
+        .spawn()
+        .with_context(|| format!("failed to spawn {}", cmd[0]))?;
+    let started = Instant::now();
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(status.code().unwrap_or(1));
+        }
+        if started.elapsed() >= timeout {
+            child.kill().ok();
+            child.wait()?;
+            return Ok(TIMEOUT_EXIT_CODE);
+        }
+        std::thread::sleep(POLL_INTERVAL);
+    }
+}
+
+pub fn run_default_step(
+    store: &BrainStore,
+    project_root: &Path,
+    source: VerifySource,
+) -> Result<Option<VerifyReport>> {
+    let Some(step) = load_default_step(project_root)? else {
+        return Ok(None);
+    };
+    let joined = step.command.join(" ");
+    if !command_is_allowlisted(&joined, Some(project_root)) {
+        bail!(
+            "default verify step `{joined}` is not in the verify allowlist; add it to commands in .verify/verify.toml"
+        );
+    }
+    let exit_code = run_process(&step.command, Some(project_root), step.timeout)?;
+    record_from_result(
+        store,
+        exit_code,
+        &joined,
+        None,
+        None,
+        None,
+        None,
+        Some(project_root),
+        source,
+    )
+    .map(Some)
 }
 
 /// Load project command allowlist from `<root>/.verify/verify.toml` or `<root>/verify.toml`.
@@ -366,11 +478,7 @@ pub fn run_verify(
     if !command_is_allowlisted(&joined, project_root.as_deref()) {
         bail!("`{joined}` is not in the verify allowlist; add it to .verify/verify.toml");
     }
-    let status = Command::new(&cmd[0])
-        .args(&cmd[1..])
-        .status()
-        .with_context(|| format!("failed to spawn {}", cmd[0]))?;
-    let exit_code = status.code().unwrap_or(1);
+    let exit_code = run_process(cmd, None, VERIFY_RUN_TIMEOUT)?;
     let cwd = std::env::current_dir().ok();
     record_from_result(
         store,
@@ -780,5 +888,81 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
             .load_context_weights(&["fact-item-1".to_string()])
             .unwrap();
         assert!(weights.get("fact-item-1").copied().unwrap_or(1.0) > 1.0);
+    }
+
+    fn write_verify_toml(root: &Path, body: &str) {
+        fs::create_dir_all(root.join(".verify")).unwrap();
+        fs::write(root.join(".verify/verify.toml"), body).unwrap();
+    }
+
+    #[test]
+    fn default_step_is_parsed_with_timeout_and_hook_flag() {
+        let dir = tempdir().unwrap();
+        write_verify_toml(
+            dir.path(),
+            "[verify]\ncommands = [\"sh -c\"]\n\n[verify.default]\ncommand = [\"sh\", \"-c\", \"true\"]\ntimeout_secs = 120\n",
+        );
+        let step = load_default_step(dir.path()).unwrap().unwrap();
+        assert_eq!(step.command, vec!["sh", "-c", "true"]);
+        assert_eq!(step.timeout, Duration::from_secs(120));
+        assert!(step.hook);
+    }
+
+    #[test]
+    fn missing_default_step_is_none() {
+        let dir = tempdir().unwrap();
+        write_verify_toml(dir.path(), "[verify]\ncommands = [\"cargo test\"]\n");
+        assert!(load_default_step(dir.path()).unwrap().is_none());
+    }
+
+    #[test]
+    fn default_step_rejects_out_of_range_timeout() {
+        let dir = tempdir().unwrap();
+        write_verify_toml(
+            dir.path(),
+            "[verify.default]\ncommand = [\"sh\", \"-c\", \"true\"]\ntimeout_secs = 0\n",
+        );
+        assert!(load_default_step(dir.path()).is_err());
+    }
+
+    #[test]
+    fn default_step_rejects_invalid_toml_instead_of_skipping_it() {
+        let dir = tempdir().unwrap();
+        write_verify_toml(dir.path(), "[verify.default\ncommand = ");
+        assert!(load_default_step(dir.path()).is_err());
+    }
+
+    #[test]
+    fn process_is_killed_when_it_exceeds_its_timeout() {
+        let cmd = ["sh", "-c", "exec sleep 30"].map(String::from);
+        let code = run_process(&cmd, None, Duration::from_millis(200)).unwrap();
+        assert_eq!(code, TIMEOUT_EXIT_CODE);
+    }
+
+    #[test]
+    fn default_step_refuses_commands_outside_the_allowlist() {
+        let dir = tempdir().unwrap();
+        let store = BrainStore::open(&dir.path().join("t.db")).unwrap();
+        write_verify_toml(
+            dir.path(),
+            "[verify.default]\ncommand = [\"echo\", \"hi\"]\n",
+        );
+        let err = run_default_step(&store, dir.path(), VerifySource::Hook).unwrap_err();
+        assert!(err.to_string().contains("not in the verify allowlist"));
+    }
+
+    #[test]
+    fn default_step_runs_in_project_root_and_records_the_result() {
+        let dir = tempdir().unwrap();
+        let store = BrainStore::open(&dir.path().join("t.db")).unwrap();
+        write_verify_toml(
+            dir.path(),
+            "[verify]\ncommands = [\"sh -c\"]\n\n[verify.default]\ncommand = [\"sh\", \"-c\", \"true\"]\n",
+        );
+        let report = run_default_step(&store, dir.path(), VerifySource::Hook)
+            .unwrap()
+            .unwrap();
+        assert!(report.success);
+        assert_eq!(store.list_verify_outcomes(10).unwrap().len(), 1);
     }
 }
