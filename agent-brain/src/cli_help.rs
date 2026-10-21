@@ -439,12 +439,14 @@ Options:
 Usage:  agent-brain verify [OPTIONS] -- <cmd> [args...]
         agent-brain verify init [--force] [--dir <DIR>]
         agent-brain verify record --exit N [OPTIONS] -- <cmd summary...>
+        agent-brain verify run [--project <DIR>] [--json]
 
 Run an allowlisted verification command and record trusted outcome.
 
 Subcommands:
   init                  Initialize .verify/ directory with verify.toml and run.sh template
   record                Record already-known exit code without executing
+  run                   Run the [verify.default] step declared in verify.toml, with its timeout
 
 Options:
       --source <SOURCE>    Outcome source: cli (default) or orchestrator (spine/muscle)
