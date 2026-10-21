@@ -7,7 +7,7 @@ use std::time::Duration;
 use anyhow::Result;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CallToolResult, Content, Implementation, ServerCapabilities, ServerInfo};
+use rmcp::model::{CallToolResult, ContentBlock, Implementation, ServerCapabilities, ServerInfo};
 use rmcp::{tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler, ServiceExt};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
@@ -1975,7 +1975,7 @@ impl ServerHandler for BrainMcp {
 fn json_result<T: serde::Serialize>(value: T) -> Result<CallToolResult, McpError> {
     let text = serde_json::to_string(&value)
         .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-    Ok(CallToolResult::success(vec![Content::text(text)]))
+    Ok(CallToolResult::success(vec![ContentBlock::text(text)]))
 }
 
 #[cfg(not(feature = "extras"))]
