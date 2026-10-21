@@ -845,6 +845,11 @@ impl Engine {
             user_message,
             settings.upstream_mcp.suggest_limit,
         );
+        resp.must_apply
+            .push(crate::capabilities::capability_rule_for(
+                &self.store,
+                &settings.upstream_mcp,
+            ));
         resp.suggested_native_tools = crate::token_tools::suggest_native_token_tools(
             user_message,
             open_files,

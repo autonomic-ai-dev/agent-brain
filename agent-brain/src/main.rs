@@ -718,6 +718,22 @@ async fn main() -> Result<()> {
             let skip_install = args.iter().any(|a| a == "--skip-install");
             agent_brain::bootstrap_device::run(remote.as_deref(), skip_install)?;
         }
+        "capabilities-hook" => {
+            let config = Config::load()?;
+            let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
+            let settings = agent_brain::settings::AgentBrainSettings::load(&config.home);
+            let rule =
+                agent_brain::capabilities::capability_rule_for(&store, &settings.upstream_mcp);
+            println!(
+                "{}",
+                serde_json::json!({
+                    "hookSpecificOutput": {
+                        "hookEventName": "SessionStart",
+                        "additionalContext": rule.text
+                    }
+                })
+            );
+        }
         "stop-gate" => {
             agent_brain::stop_gate::run_stop_gate()?;
         }
