@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0-beta.3.9] - 2026-10-21
+
+### Added
+- **Bounded stdio proxy**: requests that get no daemon reply within 30s return a JSON-RPC error, so a hung daemon no longer blocks the session until restart.
+- **MCP discovery tools** and a table-driven bash policy for the bash gate.
+- **Notarization for the macOS CLI binary** when the `APPLE_API_KEY_P8`, `APPLE_API_KEY_ID`, and `APPLE_API_ISSUER_ID` secrets are set. Without them the release is signed with Developer ID only.
+
+### Changed
+- `brain.db` opens in WAL mode with a 5s busy timeout, so readers and writers no longer block each other.
+- `mcp add` prints one line with the server's indexed tool count. Upstream server stderr is no longer printed during `mcp add` and `mcp test`.
+- `rmcp` moves to 2.1.0 and `async-nats` to 0.50. The `Content` type is now `ContentBlock`.
+
+### Fixed
+- The proxy replays the MCP `initialize` handshake to a restarted daemon. Before this, the first request after a daemon restart was rejected and the connection looped until `/mcp` reconnect.
+- Skills installed under `~/.autonomic` are indexed. They were skipped before.
+- The route gate validates script contents referenced by shell commands, and denies when agent-mouth times out or errors.
+- `route_task` no longer repeats skill text in the context bundle.
+
+### Security
+- Dependabot advisories resolved: `rmcp` OAuth discovery, header forwarding on redirects, and session-table exhaustion; `rustls-webpki` CRL and name-constraint handling; `rustls` TLS 1.3 handshake boundaries; `quinn-proto` unbounded stream reassembly.
+
 ## [1.0.0-beta.3.8] - 2026-10-20
 
 ### Added
