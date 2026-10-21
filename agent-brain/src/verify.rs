@@ -222,6 +222,23 @@ pub fn run_default_step(
     Ok(Some(StepRun { report, output }))
 }
 
+pub fn run_project_verify(store: &BrainStore, project: &Path) -> Result<serde_json::Value> {
+    let root = crate::config::find_repo_root(project).unwrap_or_else(|| project.to_path_buf());
+    match run_default_step(store, &root, VerifySource::Cli)? {
+        None => Ok(serde_json::json!({
+            "ran": false,
+            "project": root.display().to_string(),
+            "reason": "no [verify.default] step declared"
+        })),
+        Some(run) => Ok(serde_json::json!({
+            "ran": true,
+            "project": root.display().to_string(),
+            "verify": run.report,
+            "output": run.output
+        })),
+    }
+}
+
 /// Load project command allowlist from `<root>/.verify/verify.toml` or `<root>/verify.toml`.
 pub fn load_command_allowlist(project_root: &Path) -> Vec<String> {
     for rel in [".verify/verify.toml", "verify.toml"] {
@@ -784,6 +801,40 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
         ));
         assert!(!command_is_allowlisted("true", Some(dir.path())));
         assert!(!command_is_allowlisted("echo hi", Some(dir.path())));
+    }
+
+    #[test]
+    fn project_verify_reports_no_step_when_none_is_declared() {
+        let dir = tempdir().unwrap();
+        let store = BrainStore::open(&dir.path().join("t.db")).unwrap();
+        let value = run_project_verify(&store, dir.path()).unwrap();
+        assert_eq!(value["ran"], false);
+        assert!(store.list_verify_outcomes(10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn project_verify_runs_and_records_a_passing_step() {
+        let dir = tempdir().unwrap();
+        let store = BrainStore::open(&dir.path().join("t.db")).unwrap();
+        write_verify_toml(
+            dir.path(),
+            "[verify]\ncommands = [\"sh -c\"]\n\n[verify.default]\ncommand = [\"sh\", \"-c\", \"true\"]\n",
+        );
+        let value = run_project_verify(&store, dir.path()).unwrap();
+        assert_eq!(value["ran"], true);
+        assert_eq!(value["verify"]["success"], true);
+        assert_eq!(store.list_verify_outcomes(10).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn project_verify_refuses_a_step_outside_the_allowlist() {
+        let dir = tempdir().unwrap();
+        let store = BrainStore::open(&dir.path().join("t.db")).unwrap();
+        write_verify_toml(
+            dir.path(),
+            "[verify.default]\ncommand = [\"echo\", \"hi\"]\n",
+        );
+        assert!(run_project_verify(&store, dir.path()).is_err());
     }
 
     #[test]

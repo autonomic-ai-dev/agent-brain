@@ -208,6 +208,12 @@ fn default_telemetry_lookback() -> u32 {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+struct VerifyRunParams {
+    #[serde(default)]
+    project: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 struct RecordVerifyOutcomeParams {
     exit_code: i32,
     cmd: String,
@@ -857,6 +863,29 @@ impl BrainMcp {
         )
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
         json_result(serde_json::json!({ "verify": report }))
+    }
+
+    #[tool(
+        description = "Run the project's [verify.default] step (allowlisted and time-limited) and record it as trusted cli evidence, so the stop gate counts it. Returns the report and, on failure, the output tail. Omit project to use the current repo."
+    )]
+    async fn verify_run(
+        &self,
+        params: Parameters<VerifyRunParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let _req = self.engine.mcp_activity.begin_request();
+        let project = params
+            .0
+            .project
+            .map(PathBuf::from)
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+        let engine = self.engine.clone();
+        let value = tokio::task::spawn_blocking(move || {
+            crate::verify::run_project_verify(&engine.store, &project)
+        })
+        .await
+        .map_err(|e| McpError::internal_error(format!("{e}"), None))?
+        .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        json_result(value)
     }
 
     #[tool(
@@ -2483,6 +2512,7 @@ fn build_autonomic_catalog(organ_filter: Option<&str>, verbose: bool) -> serde_j
                 "store_memory",
                 "store_trajectory",
                 "record_verify_outcome",
+                "verify_run",
                 "list_directory",
                 "find_files",
                 "read_file",
