@@ -338,7 +338,17 @@ pub fn install_claude_code_hooks(user: bool, quiet: bool) -> Result<PathBuf> {
 pub fn install_gemini_hooks(user: bool, settings_path: &Path, quiet: bool) -> Result<()> {
     let hooks_dir = gemini_hooks_dir(user)?;
     let script = deploy_route_gate_script(&hooks_dir)?;
-    write_settings_hooks(settings_path, &gemini_hooks_fragment(&script))?;
+    let mut fragment = gemini_hooks_fragment(&script);
+    fragment["hooks"]["SessionStart"] = json!([{
+        "matcher": "startup",
+        "hooks": [{
+            "type": "command",
+            "name": "agent-brain-capabilities",
+            "command": agent_brain_subcommand("capabilities-hook")?,
+            "timeout": 10000
+        }]
+    }]);
+    write_settings_hooks(settings_path, &fragment)?;
     if !quiet {
         println!(
             "Installed Gemini CLI route gate hooks in {}",
@@ -563,6 +573,29 @@ mod tests {
                 "type": "command",
                 "command": "'/bin/agent-brain' capabilities-hook",
                 "timeout": 10
+            }]
+        }]);
+        write_settings_hooks(&path, &fragment).unwrap();
+        write_settings_hooks(&path, &fragment).unwrap();
+        let settings: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            settings["hooks"]["SessionStart"].as_array().unwrap().len(),
+            1
+        );
+    }
+
+    #[test]
+    fn gemini_session_start_capability_hook_is_installed_once() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("settings.json");
+        let mut fragment = gemini_hooks_fragment(&dir.path().join("route_gate.py"));
+        fragment["hooks"]["SessionStart"] = json!([{
+            "matcher": "startup",
+            "hooks": [{
+                "type": "command",
+                "name": "agent-brain-capabilities",
+                "command": "'/bin/agent-brain' capabilities-hook",
+                "timeout": 10000
             }]
         }]);
         write_settings_hooks(&path, &fragment).unwrap();
