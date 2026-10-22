@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0-beta.3.11] - 2026-10-22
+
+### Added
+- **Dynamic registry git synchronization:** shallow clone/fetch of `autonomic-ai-dev/agent-registry` into `~/.autonomic/memory/registry-cache/repo/`, with dynamic `registry.json` parsing.
+- **Workflow cache discovery & auto-indexing:** `agent-brain registry sync` automatically syncs and immediately indexes central workflows and package skills into SQLite.
+- **`agstack` supervisor enforcement:** non-negotiable `agstack-invariants` (immutability, zero comment slop, boundary discipline, root cause fixes) are automatically injected into `route_task`'s `must_apply` every turn.
+- **Anti-pattern trap warnings:** memories flagged with `trap-*` or negative polarity are automatically promoted as high-priority `TRAP WARNING:` directives in `must_apply`.
+- **Intent-conditioned skill routing & jailbreak defense:** lexical and semantic intent gating with a comprehensive 250-query test suite.
+
+### Changed
+- **Decoupled `agstack` from binary embedding:** removed 100+ duplicated static markdown files and 109 `include_str!` calls (-6,126 lines) from the compiled executable; `agstack` is now downloaded dynamically on install/sync and indexed.
+- **Hardened input validation:** added strict regex validation for `remote_repo` (owner/repo pattern) and `git_ref` to eliminate argument/flag injection.
+
+### Removed
+- Fully purged legacy `coding-policy` across registry definitions, bundle loaders, commit gates, and platform rule installation.
+
 ## [1.0.0-beta.3.10] - 2026-10-21
 
 ### Added
