@@ -61,7 +61,9 @@ pub fn enrich_route_response(
     // Fallback: If vector search did not surface a specific workflow, select default based on task_kind
     if resp.suggested_workflow.is_none() {
         let default_wf = match task_kind {
-            TaskKind::Verification | TaskKind::Implementing | TaskKind::Debugging => "engineering-safety",
+            TaskKind::Verification | TaskKind::Implementing | TaskKind::Debugging => {
+                "engineering-safety"
+            }
             TaskKind::Review => "deep-code-review",
             TaskKind::Architecture => "system-architect",
         };
@@ -221,8 +223,8 @@ pub struct BridgeRouteRequest {
 
 #[cfg(test)]
 mod tests {
-    use crate::types::{AgentRec, RuleRec, SkillRec};
     use super::*;
+    use crate::types::{AgentRec, RuleRec, SkillRec};
     use crate::types::{ItemType, MustApply};
 
     #[test]
@@ -290,7 +292,10 @@ mod tests {
         };
         let bundle = build_context_bundle(&resp, &[]);
         assert_eq!(bundle.agents.len(), 1);
-        assert!(bundle.observations.is_empty(), "obs must not re-enter MCP bundle");
+        assert!(
+            bundle.observations.is_empty(),
+            "obs must not re-enter MCP bundle"
+        );
         assert_eq!(bundle.negative_memory.len(), 1);
         assert_eq!(bundle.team_rules.len(), 1);
     }
@@ -311,7 +316,10 @@ mod tests {
         assert_eq!(bundle.skill_docs.len(), 1);
         assert_eq!(bundle.skill_docs[0].name, "testing");
         assert!(bundle.skill_docs[0].text.is_none());
-        assert_eq!(resp.recommended_skills[0].text.as_deref(), Some("full skill body"));
+        assert_eq!(
+            resp.recommended_skills[0].text.as_deref(),
+            Some("full skill body")
+        );
     }
 
     #[test]
@@ -347,10 +355,16 @@ mod tests {
     fn test_workflow_fallback_by_task_kind() {
         let mut resp = RouteTaskResponse::default();
         enrich_route_response(&mut resp, &[], TaskKind::Verification, "verify clippy");
-        assert_eq!(resp.suggested_workflow.as_deref(), Some("engineering-safety"));
+        assert_eq!(
+            resp.suggested_workflow.as_deref(),
+            Some("engineering-safety")
+        );
 
         let mut resp_rev = RouteTaskResponse::default();
         enrich_route_response(&mut resp_rev, &[], TaskKind::Review, "review PR");
-        assert_eq!(resp_rev.suggested_workflow.as_deref(), Some("deep-code-review"));
+        assert_eq!(
+            resp_rev.suggested_workflow.as_deref(),
+            Some("deep-code-review")
+        );
     }
 }

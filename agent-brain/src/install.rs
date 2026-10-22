@@ -92,7 +92,10 @@ pub fn run(
         println!("agent-brain MCP configured for {}", target.label());
         println!("Binary: {}", exe.display());
         if mcp_exe != exe {
-            println!("MCP spawn path: {} (signed copy for Cursor)", mcp_exe.display());
+            println!(
+                "MCP spawn path: {} (signed copy for Cursor)",
+                mcp_exe.display()
+            );
         }
         for path in &paths {
             println!("  {}", path.display());
@@ -113,7 +116,10 @@ pub fn run(
             pkg_count = installed.len();
             if verbose {
                 for pkg in &installed {
-                    println!("Default package: installed '{}' from {}", pkg.name, pkg.source);
+                    println!(
+                        "Default package: installed '{}' from {}",
+                        pkg.name, pkg.source
+                    );
                 }
             }
         }
@@ -137,7 +143,10 @@ pub fn run(
         }
     };
     if !is_tty && !quiet && !verbose {
-        println!(" ✔ [4/4] Brain warmed ({} items, {} sessions)", total, sessions);
+        println!(
+            " ✔ [4/4] Brain warmed ({} items, {} sessions)",
+            total, sessions
+        );
     }
 
     // Final verdict
@@ -256,12 +265,18 @@ pub fn ensure_mcp_runnable_binary(exe: &Path, quiet: bool) -> Result<PathBuf> {
 
 #[cfg(target_os = "macos")]
 fn needs_mcp_binary_copy(path: &Path) -> bool {
-    if std::env::var("AGENT_BRAIN_SINGLE_BIN").map(|v| v != "0").unwrap_or(false)
-        || std::env::var("AGENT_BRAIN_NO_MCP_COPY").map(|v| v != "0").unwrap_or(false)
+    if std::env::var("AGENT_BRAIN_SINGLE_BIN")
+        .map(|v| v != "0")
+        .unwrap_or(false)
+        || std::env::var("AGENT_BRAIN_NO_MCP_COPY")
+            .map(|v| v != "0")
+            .unwrap_or(false)
     {
         return false;
     }
-    if crate::doctor::is_developer_id_signed(path) && !crate::doctor::macos_has_quarantine_attrs(path) {
+    if crate::doctor::is_developer_id_signed(path)
+        && !crate::doctor::macos_has_quarantine_attrs(path)
+    {
         return false;
     }
     is_homebrew_managed(path) || crate::doctor::macos_has_quarantine_attrs(path)
@@ -274,9 +289,7 @@ fn needs_mcp_binary_copy(_path: &Path) -> bool {
 
 pub fn is_homebrew_managed(path: &Path) -> bool {
     let s = path.to_string_lossy();
-    s.contains("/Cellar/")
-        || s.contains("/opt/homebrew/")
-        || s.contains("/usr/local/Cellar/")
+    s.contains("/Cellar/") || s.contains("/opt/homebrew/") || s.contains("/usr/local/Cellar/")
 }
 
 /// Merge MCP config and optionally refresh Cursor hooks/rule (used by install + auto-update).
@@ -309,13 +322,14 @@ pub fn configure_cursor(global: bool, exe: &Path, quiet: bool) -> Result<()> {
 pub fn install_cursor_user_rules_snippet(quiet: bool) -> Result<()> {
     let home = dirs::home_dir().context("home directory")?;
     let brain_home = home.join(".agent_brain");
-    fs::create_dir_all(&brain_home)
-        .with_context(|| format!("create {}", brain_home.display()))?;
+    fs::create_dir_all(&brain_home).with_context(|| format!("create {}", brain_home.display()))?;
     let path = brain_home.join("cursor-user-rules.mdc");
     fs::write(&path, CURSOR_RULE).with_context(|| format!("write {}", path.display()))?;
     if !quiet {
         println!();
-        println!("Cursor User Rules (paste manually — Cursor does not load ~/.cursor/rules/ globally):");
+        println!(
+            "Cursor User Rules (paste manually — Cursor does not load ~/.cursor/rules/ globally):"
+        );
         println!("  File: {}", path.display());
         println!("  Cursor → Settings → Rules, Memories, and Commands → User Rules → paste file contents");
         println!("  Hooks in ~/.cursor/hooks.json are installed globally (route_task gate).");
@@ -578,7 +592,8 @@ pub fn mcp_server_entry(exe: &Path) -> Value {
         chrono::Utc::now().timestamp()
     );
     let cache_dir = crate::embed::default_cache_dir();
-    let gate_scope = std::env::var("AGENT_BRAIN_ROUTE_GATE_SCOPE").unwrap_or_else(|_| "all".to_string());
+    let gate_scope =
+        std::env::var("AGENT_BRAIN_ROUTE_GATE_SCOPE").unwrap_or_else(|_| "all".to_string());
     let read_gate = std::env::var("AGENT_BRAIN_READ_GATE").unwrap_or_else(|_| "hard".to_string());
     json!({
         "command": exe.display().to_string(),
@@ -688,7 +703,9 @@ mod tests {
         assert!(is_homebrew_managed(Path::new(
             "/opt/homebrew/Cellar/autonomic-stack/0.5.12/bin/agent-brain"
         )));
-        assert!(!is_homebrew_managed(Path::new("/Users/me/.local/bin/agent-brain")));
+        assert!(!is_homebrew_managed(Path::new(
+            "/Users/me/.local/bin/agent-brain"
+        )));
     }
 
     #[test]

@@ -194,7 +194,6 @@ pub fn run(
     Ok(report)
 }
 
-
 fn due_for_packages(cfg: &AutoUpdateSettings, state: &AutoUpdateState) -> bool {
     if state.last_run_unix == 0 {
         return true;
@@ -411,7 +410,6 @@ fn apply_staged_mcp(cfg: &AutoUpdateSettings, state: &mut AutoUpdateState) -> Re
     Ok(version)
 }
 
-
 const RESTART_ENV_KEYS: &[&str] = &[
     "AGENT_BRAIN_HOME",
     "AGENT_BRAIN_BOOTSTRAP_BG",
@@ -485,7 +483,6 @@ fn wait_for_idle_apply(activity: &McpActivity, policy: McpRestartPolicy) -> bool
         std::thread::sleep(Duration::from_secs(1));
     }
 }
-
 
 pub fn can_restart_in_place(bin_path: &Path) -> bool {
     let Ok(current) = std::env::current_exe() else {
@@ -909,15 +906,26 @@ mod tests {
         std::env::remove_var("GH_TOKEN");
         assert!(github_api_token().is_none());
 
-        if let Some(val) = saved_github_token { std::env::set_var("GITHUB_TOKEN", val); }
-        if let Some(val) = saved_gh_token { std::env::set_var("GH_TOKEN", val); }
-        if let Some(val) = saved_pat { std::env::set_var("GITHUB_PERSONAL_ACCESS_TOKEN", val); }
+        if let Some(val) = saved_github_token {
+            std::env::set_var("GITHUB_TOKEN", val);
+        }
+        if let Some(val) = saved_gh_token {
+            std::env::set_var("GH_TOKEN", val);
+        }
+        if let Some(val) = saved_pat {
+            std::env::set_var("GITHUB_PERSONAL_ACCESS_TOKEN", val);
+        }
     }
     #[test]
     fn pending_state_roundtrips() {
         let dir = tempfile::tempdir().unwrap();
         let state = AutoUpdateState {
-            pending_mcp_path: Some(dir.path().join("agent-brain.download").display().to_string()),
+            pending_mcp_path: Some(
+                dir.path()
+                    .join("agent-brain.download")
+                    .display()
+                    .to_string(),
+            ),
             pending_mcp_version: Some("0.39.0".into()),
             ..Default::default()
         };
@@ -926,5 +934,4 @@ mod tests {
         assert_eq!(loaded.pending_mcp_version.as_deref(), Some("0.39.0"));
         assert!(loaded.pending_mcp_path.is_some());
     }
-
 }

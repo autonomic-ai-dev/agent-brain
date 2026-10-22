@@ -129,17 +129,13 @@ fn compute_historical_outcome_adjustments(
                 .entry("spine_submit_workflow".to_string())
                 .or_insert(0.0) += delta;
         }
-        if cmd_lower.contains("budget")
-            || cmd_lower.contains("cost")
-            || cmd_lower.contains("token")
+        if cmd_lower.contains("budget") || cmd_lower.contains("cost") || cmd_lower.contains("token")
         {
             *adjustments
                 .entry("heart_budget_status".to_string())
                 .or_insert(0.0) += delta;
         }
-        if cmd_lower.contains("scan")
-            || cmd_lower.contains("cve")
-            || cmd_lower.contains("sandbox")
+        if cmd_lower.contains("scan") || cmd_lower.contains("cve") || cmd_lower.contains("sandbox")
         {
             *adjustments
                 .entry("immune_sandbox_run".to_string())
@@ -315,7 +311,10 @@ mod tests {
             .filter(|t| t.len() >= 3)
             .collect();
         let score = score_tool(&query_lower, &tokens, &tool, false);
-        assert!(score >= 3.0, "expected body boost for workflow task, got {score}");
+        assert!(
+            score >= 3.0,
+            "expected body boost for workflow task, got {score}"
+        );
     }
 
     #[test]

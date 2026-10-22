@@ -42,7 +42,7 @@ fn test_config(dir: &TempDir) -> Config {
         route_briefing_stderr: false,
         mcp_gate_enabled: false,
         mcp_gate_ttl_secs: 600,
-                session_stickiness_secs: 0,
+        session_stickiness_secs: 0,
         precision_rerank_enabled: false,
         query_decompose_enabled: false,
         ann_enabled: true,
@@ -296,8 +296,6 @@ fn eval_ci_meets_recall_gate() {
     assert!(report.recall_at_3 >= RECALL_AT_3_THRESHOLD, "{report:?}");
     assert_ci_gate(&report).unwrap();
 }
-
-
 
 #[test]
 fn stats_collects_token_savings_from_retrieval_log() {

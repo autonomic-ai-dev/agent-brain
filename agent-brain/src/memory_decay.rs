@@ -4,12 +4,7 @@
 ///
 /// `stability_days` grows with confidence and useful retrieval feedback.
 #[must_use]
-pub fn ebbinghaus_multiplier(
-    age_ms: i64,
-    confidence: f64,
-    useful_count: u32,
-    now_ms: i64,
-) -> f64 {
+pub fn ebbinghaus_multiplier(age_ms: i64, confidence: f64, useful_count: u32, now_ms: i64) -> f64 {
     if age_ms <= 0 {
         return 1.0;
     }

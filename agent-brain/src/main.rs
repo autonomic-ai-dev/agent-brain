@@ -66,8 +66,8 @@ async fn main() -> Result<()> {
         "serve" => {
             let config = Config::load()?;
             let daemon = args.iter().any(|a| a == "--daemon");
-            let health_addr = flag_value(&args, "--health-addr")
-                .and_then(|s| s.parse::<SocketAddr>().ok());
+            let health_addr =
+                flag_value(&args, "--health-addr").and_then(|s| s.parse::<SocketAddr>().ok());
             let socket_path = config.home.join("serve.sock");
             if daemon {
                 let _serve_lock = agent_brain::serve_lock::acquire(&config.home)?;
@@ -79,10 +79,7 @@ async fn main() -> Result<()> {
                 } else {
                     let n = engine.bootstrap(None)?;
                     let total = engine.store.count_indexed_items().unwrap_or(0);
-                    tracing::info!(
-                        "indexed {}",
-                        install::format_new_index_count(n, total)
-                    );
+                    tracing::info!("indexed {}", install::format_new_index_count(n, total));
                 }
                 if brain_settings.auto_update.enabled {
                     engine.spawn_auto_update();
@@ -118,10 +115,7 @@ async fn main() -> Result<()> {
             } else {
                 let n = engine.bootstrap(None)?;
                 let total = engine.store.count_indexed_items().unwrap_or(0);
-                tracing::info!(
-                    "indexed {}",
-                    install::format_new_index_count(n, total)
-                );
+                tracing::info!("indexed {}", install::format_new_index_count(n, total));
             }
             agent_brain::grpc::serve(engine, addr).await?;
         }
@@ -145,10 +139,7 @@ async fn main() -> Result<()> {
                 !no_ast,
             )?;
             let total = engine.store.count_indexed_items()?;
-            println!(
-                "Indexed {}",
-                install::format_new_index_count(n, total)
-            );
+            println!("Indexed {}", install::format_new_index_count(n, total));
         }
         "add" => {
             handle_package_add(&args, 2)?;
@@ -171,7 +162,10 @@ async fn main() -> Result<()> {
                         } else {
                             entry.packages.join(", ")
                         };
-                        println!("  @{:<14}  {}  [{}]", entry.alias, entry.description, source);
+                        println!(
+                            "  @{:<14}  {}  [{}]",
+                            entry.alias, entry.description, source
+                        );
                     }
                 }
                 if show_utils {
@@ -490,7 +484,6 @@ async fn main() -> Result<()> {
             }
         }
 
-
         "stats" => {
             let days = flag_value(&args, "--days")
                 .and_then(|v| v.parse::<u32>().ok())
@@ -752,7 +745,9 @@ async fn main() -> Result<()> {
                 let force = args.iter().any(|a| a == "--force" || a == "-f");
                 let target_dir = flag_value(&args, "--dir")
                     .map(std::path::PathBuf::from)
-                    .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")));
+                    .unwrap_or_else(|| {
+                        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+                    });
                 let path = agent_brain::verify::init_verify(&target_dir, force)?;
                 println!("Initialized verification suite in {}", path.display());
                 return Ok(());
@@ -795,7 +790,8 @@ async fn main() -> Result<()> {
                 let cause = flag_value(&args, "--cause");
                 let config_path = flag_value(&args, "--config").map(std::path::PathBuf::from);
                 let scenarios = flag_value(&args, "--scenarios").map(std::path::PathBuf::from);
-                let source_raw = flag_value(&args, "--source").unwrap_or_else(|| "hook".to_string());
+                let source_raw =
+                    flag_value(&args, "--source").unwrap_or_else(|| "hook".to_string());
                 let source = agent_brain::verify::VerifySource::parse(&source_raw)?;
                 if matches!(
                     source,
@@ -837,8 +833,7 @@ async fn main() -> Result<()> {
                 let cause = flag_value(&args, "--cause");
                 let config_path = flag_value(&args, "--config").map(std::path::PathBuf::from);
                 let scenarios = flag_value(&args, "--scenarios").map(std::path::PathBuf::from);
-                let source_raw =
-                    flag_value(&args, "--source").unwrap_or_else(|| "cli".to_string());
+                let source_raw = flag_value(&args, "--source").unwrap_or_else(|| "cli".to_string());
                 let source = agent_brain::verify::VerifySource::parse(&source_raw)?;
                 let cmd: Vec<String> = if let Some(idx) = args.iter().position(|a| a == "--") {
                     args[idx + 1..].to_vec()
@@ -1111,7 +1106,8 @@ async fn main() -> Result<()> {
                     println!("{}", serde_json::to_string_pretty(&report)?);
                 }
                 "put" => {
-                    let topic = flag_value(&args, "--topic").context("memory put requires --topic")?;
+                    let topic =
+                        flag_value(&args, "--topic").context("memory put requires --topic")?;
                     let fact = flag_value(&args, "--fact").context("memory put requires --fact")?;
                     let scope = flag_value(&args, "--scope").unwrap_or_else(|| "project".into());
                     let scope_key = flag_value(&args, "--scope-key");
@@ -1254,7 +1250,6 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
-
 
 fn flag_value(args: &[String], flag: &str) -> Option<String> {
     args.iter()

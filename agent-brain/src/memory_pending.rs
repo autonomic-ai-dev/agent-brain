@@ -193,7 +193,9 @@ pub fn flush_pending(
                 Err(err) => {
                     last_err = Some(err.to_string());
                     if i + 1 < attempts {
-                        thread::sleep(Duration::from_millis(backoff_ms.saturating_mul(1 + i as u64)));
+                        thread::sleep(Duration::from_millis(
+                            backoff_ms.saturating_mul(1 + i as u64),
+                        ));
                     }
                 }
             }
@@ -258,7 +260,15 @@ mod tests {
     fn enqueue_and_flush_applies_fact() {
         let dir = TempDir::new().unwrap();
         let home = dir.path();
-        enqueue(home, "topic", "a durable convention fact", "global", None, 0.9).unwrap();
+        enqueue(
+            home,
+            "topic",
+            "a durable convention fact",
+            "global",
+            None,
+            0.9,
+        )
+        .unwrap();
         let store = BrainStore::open(&home.join("brain.db")).unwrap();
         let emb = Embedder::deterministic();
         let report = flush_pending(home, &store, &emb, 2, 1).unwrap();

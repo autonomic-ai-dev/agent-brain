@@ -38,8 +38,7 @@ pub fn migrate_legacy_storage(legacy_home: &Path, memory_dir: &Path) -> Result<(
         let src = legacy_home.join(dir);
         let dst = memory_dir.join(dir);
         if src.is_dir() && !dst.exists() {
-            copy_dir_all(&src, &dst)
-                .with_context(|| format!("migrate {dir} from legacy"))?;
+            copy_dir_all(&src, &dst).with_context(|| format!("migrate {dir} from legacy"))?;
             tracing::info!(from = %src.display(), to = %dst.display(), "migrated {dir}");
         }
     }

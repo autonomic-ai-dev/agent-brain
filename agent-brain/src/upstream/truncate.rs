@@ -51,7 +51,9 @@ fn truncate_value(value: &Value, max_tokens: usize) -> (Value, bool) {
 fn compact_entity(val: &Value) -> Option<Value> {
     if let Value::Object(map) = val {
         let mut compact = serde_json::Map::new();
-        for key in ["id", "uuid", "key", "title", "name", "status", "state", "type"] {
+        for key in [
+            "id", "uuid", "key", "title", "name", "status", "state", "type",
+        ] {
             if let Some(v) = map.get(key) {
                 compact.insert(key.to_string(), v.clone());
             }

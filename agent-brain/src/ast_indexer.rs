@@ -199,17 +199,15 @@ fn extract_rust_edges(
 }
 
 /// TypeScript: import statements → "imports", call expressions → "calls", extends/implements → "extends"
-fn extract_ts_edges(
-    node: tree_sitter::Node,
-    source: &str,
-    path: &Path,
-    edges: &mut Vec<AstEdge>,
-) {
+fn extract_ts_edges(node: tree_sitter::Node, source: &str, path: &Path, edges: &mut Vec<AstEdge>) {
     let file = path.to_string_lossy().to_string();
     match node.kind() {
         "import_statement" | "import" => {
             if let Some(src_node) = node.child_by_field_name("source") {
-                let module = source[src_node.byte_range()].trim_matches('"').trim_matches('\'').to_string();
+                let module = source[src_node.byte_range()]
+                    .trim_matches('"')
+                    .trim_matches('\'')
+                    .to_string();
                 edges.push(AstEdge {
                     source_symbol: module.clone(),
                     target_symbol: module,
@@ -333,21 +331,14 @@ fn extract_python_edges(
 }
 
 /// Go: import declarations → "imports", call expressions → "calls"
-fn extract_go_edges(
-    node: tree_sitter::Node,
-    source: &str,
-    path: &Path,
-    edges: &mut Vec<AstEdge>,
-) {
+fn extract_go_edges(node: tree_sitter::Node, source: &str, path: &Path, edges: &mut Vec<AstEdge>) {
     let file = path.to_string_lossy().to_string();
     match node.kind() {
         "import_declaration" => {
             for child in node.children(&mut node.walk()) {
                 if child.kind() == "import_spec" {
                     if let Some(path_node) = child.child_by_field_name("path") {
-                        let pkg = source[path_node.byte_range()]
-                            .trim_matches('"')
-                            .to_string();
+                        let pkg = source[path_node.byte_range()].trim_matches('"').to_string();
                         edges.push(AstEdge {
                             source_symbol: pkg.clone(),
                             target_symbol: pkg,

@@ -16,7 +16,9 @@ struct SnapshotState {
 
 /// Capture ambient git state for the repo at `repo_root`. Returns `None` if not a git repo.
 pub fn capture(repo_root: &Path, brain_home: &Path) -> Option<String> {
-    capture_inner(repo_root, brain_home).ok().filter(|s| !s.is_empty())
+    capture_inner(repo_root, brain_home)
+        .ok()
+        .filter(|s| !s.is_empty())
 }
 
 fn capture_inner(repo_root: &Path, brain_home: &Path) -> Result<String> {
@@ -67,13 +69,11 @@ fn capture_inner(repo_root: &Path, brain_home: &Path) -> Result<String> {
                     repo_root,
                     &["diff", "--name-status", "--diff-filter=AMDR", &range],
                 ) {
-                    let lines: Vec<&str> = changed_files.lines().filter(|l| !l.is_empty()).collect();
+                    let lines: Vec<&str> =
+                        changed_files.lines().filter(|l| !l.is_empty()).collect();
                     if !lines.is_empty() {
-                        let show: Vec<String> = lines
-                            .iter()
-                            .take(5)
-                            .map(|l| l.to_string())
-                            .collect();
+                        let show: Vec<String> =
+                            lines.iter().take(5).map(|l| l.to_string()).collect();
                         let suffix = if lines.len() > 5 {
                             format!(" (+{} more)", lines.len() - 5)
                         } else {
@@ -130,17 +130,28 @@ fn truncate_chars(s: &str, max: usize) -> String {
 }
 
 fn git_output(repo: &Path, args: &[&str]) -> Option<String> {
-    let out = Command::new("git").args(args).current_dir(repo).output().ok()?;
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(repo)
+        .output()
+        .ok()?;
     if !out.status.success() {
         return None;
     }
     let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    if s.is_empty() { None } else { Some(s) }
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
 }
 
 fn state_file(home: &Path, repo: &Path) -> PathBuf {
     let canonical = fs::canonicalize(repo).unwrap_or_else(|_| repo.to_path_buf());
-    let hash = format!("{:x}", Sha256::digest(canonical.display().to_string().as_bytes()));
+    let hash = format!(
+        "{:x}",
+        Sha256::digest(canonical.display().to_string().as_bytes())
+    );
     home.join("repo-snapshots").join(format!("{hash}.json"))
 }
 

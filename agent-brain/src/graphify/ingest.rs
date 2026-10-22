@@ -10,7 +10,9 @@ use uuid::Uuid;
 use crate::db::store::BrainStore;
 
 use super::repos::touch_ingest;
-use super::types::{node_id_str, CodeContextNode, GraphJson, GraphJsonEdge, GraphJsonNode, GraphifyAnalysis};
+use super::types::{
+    node_id_str, CodeContextNode, GraphJson, GraphJsonEdge, GraphJsonNode, GraphifyAnalysis,
+};
 
 pub fn ingest_repo(store: &BrainStore, home: &Path, repo_root: &Path) -> Result<IngestReport> {
     let report = ingest_graph_at_path(store, repo_root)?;
@@ -350,12 +352,10 @@ impl BrainStore {
             let mut sql = String::from(
                 "SELECT label, source_file, file_type, start_line, end_line, ast_symbol
                  FROM code_graph_nodes
-                 WHERE repo_root = ?1 AND (label LIKE ?2 OR ast_symbol LIKE ?2)"
+                 WHERE repo_root = ?1 AND (label LIKE ?2 OR ast_symbol LIKE ?2)",
             );
-            let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
-                Box::new(repo_root.to_string()),
-                Box::new(pattern),
-            ];
+            let mut params: Vec<Box<dyn rusqlite::types::ToSql>> =
+                vec![Box::new(repo_root.to_string()), Box::new(pattern)];
             if let Some(lang) = language {
                 let idx = params.len() + 1;
                 sql.push_str(&format!(" AND file_type = ?{idx}"));
@@ -372,7 +372,8 @@ impl BrainStore {
             sql.push_str(&limit_idx.to_string());
 
             let mut stmt = conn.prepare(&sql)?;
-            let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+            let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+                params.iter().map(|p| p.as_ref()).collect();
             let rows = stmt.query_map(param_refs.as_slice(), |r| {
                 Ok(SymbolMatch {
                     label: r.get(0)?,
@@ -398,7 +399,7 @@ impl BrainStore {
             let mut sql = String::from(
                 "SELECT label, source_file, file_type, start_line, end_line, ast_symbol
                  FROM code_graph_nodes
-                 WHERE repo_root = ?1 AND (label LIKE ?2 OR label = ?2)"
+                 WHERE repo_root = ?1 AND (label LIKE ?2 OR label = ?2)",
             );
             let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
                 Box::new(repo_root.to_string()),
@@ -412,7 +413,8 @@ impl BrainStore {
             sql.push_str(" LIMIT 1");
 
             let mut stmt = conn.prepare(&sql)?;
-            let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+            let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+                params.iter().map(|p| p.as_ref()).collect();
             let row = stmt.query_row(param_refs.as_slice(), |r| {
                 Ok(SymbolMatch {
                     label: r.get(0)?,
@@ -428,17 +430,13 @@ impl BrainStore {
     }
 
     /// Get all symbols in a file, sorted by line.
-    pub fn get_file_outline(
-        &self,
-        repo_root: &str,
-        file_path: &str,
-    ) -> Result<Vec<SymbolMatch>> {
+    pub fn get_file_outline(&self, repo_root: &str, file_path: &str) -> Result<Vec<SymbolMatch>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 "SELECT label, source_file, file_type, start_line, end_line, ast_symbol
                  FROM code_graph_nodes
                  WHERE repo_root = ?1 AND source_file = ?2 AND file_type LIKE 'ast:%'
-                 ORDER BY start_line"
+                 ORDER BY start_line",
             )?;
             let rows = stmt.query_map(rusqlite::params![repo_root, file_path], |r| {
                 Ok(SymbolMatch {
@@ -455,11 +453,7 @@ impl BrainStore {
     }
 
     /// Find callers of a symbol via code_graph_edges with relation = 'calls'.
-    pub fn find_callers(
-        &self,
-        repo_root: &str,
-        symbol_name: &str,
-    ) -> Result<Vec<SymbolMatch>> {
+    pub fn find_callers(&self, repo_root: &str, symbol_name: &str) -> Result<Vec<SymbolMatch>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 r#"
@@ -762,18 +756,14 @@ impl BrainStore {
         })
     }
 
-    pub fn recent_symbols(
-        &self,
-        repo_root: &str,
-        limit: usize,
-    ) -> Result<Vec<SymbolMatch>> {
+    pub fn recent_symbols(&self, repo_root: &str, limit: usize) -> Result<Vec<SymbolMatch>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 "SELECT label, source_file, file_type, start_line, end_line, ast_symbol
                  FROM code_graph_nodes
                  WHERE repo_root = ?1 AND ast_symbol IS NOT NULL
                  ORDER BY ingested_at DESC
-                 LIMIT ?2"
+                 LIMIT ?2",
             )?;
             let rows = stmt.query_map(params![repo_root, limit as i64], |r| {
                 Ok(SymbolMatch {

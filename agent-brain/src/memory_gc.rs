@@ -135,7 +135,6 @@ fn top_topics(counts: HashMap<String, usize>, limit: usize) -> Vec<GcTopicCount>
     topics
 }
 
-
 /// Lower stale fact confidence in-place (weekly heart/distillation hook).
 pub fn apply_temporal_confidence_decay(conn: &Connection, now_ms: i64) -> Result<usize> {
     let mut stmt = conn.prepare(

@@ -802,9 +802,14 @@ impl Engine {
         };
         let mut all_tags = ws.tags.clone();
         all_tags.extend(scratchpad_keywords);
-        all_tags.extend(mcp_route_expansion_tags(user_message));
+        let mcp_tags = mcp_route_expansion_tags(user_message);
+        all_tags.extend(mcp_tags.clone());
 
-        let query = format!("{} {}", user_message, all_tags.join(" "));
+        let query = if mcp_tags.is_empty() {
+            format!("{} ", user_message.trim_end())
+        } else {
+            format!("{} {}", user_message, mcp_tags.join(" "))
+        };
         let message_fp = fingerprint_query(user_message);
         let (scored, candidates, index_total, embed_us, score_us, embed_cache_hit, bm25_fast_path) =
             self.route_query_parallel(
@@ -1136,7 +1141,7 @@ impl Engine {
         include_types: &[ItemType],
     ) -> Result<GetContextResponse> {
         let ws = probe(cwd);
-        let query = format!("{} {}", task_description, ws.tags.join(" "));
+        let query = task_description.to_string();
         let message_fp = fingerprint_query(task_description);
         let (scored, _, _, _, _, _, _) = self.route_query_parallel(
             &query,
@@ -1175,6 +1180,16 @@ impl Engine {
             }
             if is_duplicate_topic(&mut seen_topics, &item) {
                 continue;
+            }
+            if matches!(item.item_type, ItemType::Skill | ItemType::Agent) {
+                let msg_lexical = crate::retrieval::lexical_overlap_score(
+                    task_description,
+                    &item.topic,
+                    &item.text,
+                );
+                if msg_lexical == 0.0 && item.score < 0.65 {
+                    continue;
+                }
             }
             if let Some(top) = items.first() {
                 let min_relative = (top.score * 0.70).max(top.score - 0.20);
@@ -1385,6 +1400,11 @@ fn build_route_response(
         // Margin: additional items must stay close to the top hit of their type.
         match item.item_type {
             ItemType::Skill => {
+                let msg_lexical =
+                    crate::retrieval::lexical_overlap_score(user_message, &item.topic, &item.text);
+                if msg_lexical == 0.0 && item.score < 0.65 {
+                    continue;
+                }
                 if let Some(top) = resp.recommended_skills.first() {
                     let min_relative = (top.score * 0.70).max(top.score - 0.18);
                     if item.score < min_relative {
@@ -1393,6 +1413,11 @@ fn build_route_response(
                 }
             }
             ItemType::Agent => {
+                let msg_lexical =
+                    crate::retrieval::lexical_overlap_score(user_message, &item.topic, &item.text);
+                if msg_lexical == 0.0 && item.score < 0.65 {
+                    continue;
+                }
                 if let Some(top) = resp.recommended_agents.first() {
                     let min_relative = (top.score * 0.70).max(top.score - 0.15);
                     if item.score < min_relative {

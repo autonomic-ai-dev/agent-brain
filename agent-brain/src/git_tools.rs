@@ -42,9 +42,7 @@ fn git_output(repo: &Path, args: &[&str]) -> Result<String, String> {
         .current_dir(repo)
         .env_remove("GIT_EDITOR")
         .env_remove("EDITOR");
-    let out = cmd
-        .output()
-        .map_err(|e| format!("git exec failed: {e}"))?;
+    let out = cmd.output().map_err(|e| format!("git exec failed: {e}"))?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
         let hint = if stderr.contains("not a git repository") {
@@ -59,7 +57,11 @@ fn git_output(repo: &Path, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-pub fn git_log(repo: &Path, range: Option<&str>, max_count: usize) -> Result<Vec<GitLogEntry>, String> {
+pub fn git_log(
+    repo: &Path,
+    range: Option<&str>,
+    max_count: usize,
+) -> Result<Vec<GitLogEntry>, String> {
     let max_flag = format!("--max-count={}", max_count.max(1).min(500));
     let mut args = vec!["log", "--oneline", "--format=%H|%an|%ad|%s", &*max_flag];
     if let Some(r) = range {
@@ -86,11 +88,12 @@ pub fn git_log(repo: &Path, range: Option<&str>, max_count: usize) -> Result<Vec
         .collect())
 }
 
-pub fn git_diff(repo: &Path, range: &str, path_filter: Option<&str>) -> Result<GitDiffResult, String> {
-    let stat = git_output(
-        repo,
-        &["diff", "--shortstat", range],
-    )?;
+pub fn git_diff(
+    repo: &Path,
+    range: &str,
+    path_filter: Option<&str>,
+) -> Result<GitDiffResult, String> {
+    let stat = git_output(repo, &["diff", "--shortstat", range])?;
     let (files, insertions, deletions) = parse_shortstat(&stat);
 
     let mut args = vec!["diff", range];
@@ -108,7 +111,11 @@ pub fn git_diff(repo: &Path, range: &str, path_filter: Option<&str>) -> Result<G
     })
 }
 
-pub fn git_tags(repo: &Path, pattern: Option<&str>, max_count: usize) -> Result<Vec<GitTagEntry>, String> {
+pub fn git_tags(
+    repo: &Path,
+    pattern: Option<&str>,
+    max_count: usize,
+) -> Result<Vec<GitTagEntry>, String> {
     let fmt = "--format=%(refname:short)|%(objectname)|%(creatordate:short)|%(contents:subject)";
     let mut args = vec!["tag", "--sort=-version:refname", fmt];
     if let Some(p) = pattern {
@@ -129,8 +136,14 @@ pub fn git_tags(repo: &Path, pattern: Option<&str>, max_count: usize) -> Result<
             Some(GitTagEntry {
                 tag: parts[0].to_string(),
                 commit: parts[1].to_string(),
-                date: parts.get(2).filter(|s| !s.is_empty()).map(|s| s.to_string()),
-                message: parts.get(3).filter(|s| !s.is_empty()).map(|s| s.to_string()),
+                date: parts
+                    .get(2)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string()),
+                message: parts
+                    .get(3)
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string()),
             })
         })
         .collect())
@@ -144,12 +157,7 @@ pub fn git_compare(repo: &Path, base: &str, head: &str) -> Result<GitCompareResu
     let ahead_raw = git_output(repo, &["rev-list", "--count", &range])?;
     let ahead: usize = ahead_raw.trim().parse().unwrap_or(0);
 
-    let log_args = [
-        "log",
-        "--oneline",
-        "--format=%H|%an|%ad|%s",
-        &range,
-    ];
+    let log_args = ["log", "--oneline", "--format=%H|%an|%ad|%s", &range];
     let log_raw = git_output(repo, &log_args)?;
     let commits: Vec<GitLogEntry> = log_raw
         .lines()
@@ -215,6 +223,9 @@ mod tests {
 
     #[test]
     fn parse_shortstat_handles_only_files() {
-        assert_eq!(parse_shortstat(" 1 file changed, 0 insertions(+), 0 deletions(-)"), (1, 0, 0));
+        assert_eq!(
+            parse_shortstat(" 1 file changed, 0 insertions(+), 0 deletions(-)"),
+            (1, 0, 0)
+        );
     }
 }

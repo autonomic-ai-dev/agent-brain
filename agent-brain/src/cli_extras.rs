@@ -47,11 +47,8 @@ pub fn dispatch(cmd: &str, args: &[String]) -> Result<()> {
                     let out = flag_value(&args, "--out")
                         .map(std::path::PathBuf::from)
                         .unwrap_or_else(|| std::path::PathBuf::from("dataset.jsonl"));
-                    let entries = crate::dataset::export_dataset(
-                        &store,
-                        min_confidence,
-                        only_successful,
-                    )?;
+                    let entries =
+                        crate::dataset::export_dataset(&store, min_confidence, only_successful)?;
                     let file = std::fs::File::create(&out)?;
                     let mut writer = std::io::BufWriter::new(file);
                     for entry in &entries {
@@ -65,8 +62,7 @@ pub fn dispatch(cmd: &str, args: &[String]) -> Result<()> {
                     let min_confidence = flag_value(&args, "--min-confidence")
                         .and_then(|v| v.parse::<f64>().ok())
                         .unwrap_or(0.8);
-                    let entries =
-                        crate::dataset::export_dataset(&store, min_confidence, true)?;
+                    let entries = crate::dataset::export_dataset(&store, min_confidence, true)?;
                     let stats = crate::dataset::compute_stats(&entries);
                     println!("{}", serde_json::to_string_pretty(&stats)?);
                 }
@@ -129,10 +125,7 @@ pub fn dispatch(cmd: &str, args: &[String]) -> Result<()> {
             let config = Config::load()?;
             let store = crate::db::store::BrainStore::open(&config.db_path)?;
             let digest = crate::operator_digest::weekly_digest(&store, 7)?;
-            println!(
-                "{}",
-                crate::operator_digest::format_weekly_digest(&digest)
-            );
+            println!("{}", crate::operator_digest::format_weekly_digest(&digest));
         }
         "eval" => {
             let live = args.iter().any(|a| a == "--live");
@@ -288,9 +281,8 @@ pub fn dispatch(cmd: &str, args: &[String]) -> Result<()> {
                     let delay_ms = flag_value(&args, "--delay-ms")
                         .and_then(|v| v.parse().ok())
                         .unwrap_or(if required_only { 20_000 } else { 400 });
-                    let mut options = crate::skills_sh::SyncOptions::from_manifest(
-                        &manifest, target, delay_ms,
-                    );
+                    let mut options =
+                        crate::skills_sh::SyncOptions::from_manifest(&manifest, target, delay_ms);
                     if merge || write_path.exists() {
                         options.merge_path = Some(write_path.clone());
                     }
@@ -346,8 +338,7 @@ pub fn dispatch(cmd: &str, args: &[String]) -> Result<()> {
                     let target = flag_value(&args, "--target")
                         .and_then(|v| v.parse().ok())
                         .unwrap_or(25);
-                    let golden =
-                        crate::skills_sh::probe_golden_cases(&fixture, &snapshot, target)?;
+                    let golden = crate::skills_sh::probe_golden_cases(&fixture, &snapshot, target)?;
                     crate::skills_sh::write_golden(&write_path, &golden)?;
                     eprintln!(
                         "Probed {} golden cases (target {}) → {}",
@@ -399,9 +390,7 @@ pub fn dispatch(cmd: &str, args: &[String]) -> Result<()> {
                     std::fs::write(&path, format!("{json}\n"))?;
                 }
                 if args.iter().any(|a| a == "--assert") {
-                    if let Err(err) =
-                        crate::graphify_bench::assert_graphify_bench_gate(&report)
-                    {
+                    if let Err(err) = crate::graphify_bench::assert_graphify_bench_gate(&report) {
                         eprintln!("{err}");
                         std::process::exit(1);
                     }
@@ -414,8 +403,7 @@ pub fn dispatch(cmd: &str, args: &[String]) -> Result<()> {
                     std::fs::write(&path, format!("{json}\n"))?;
                 }
                 if args.iter().any(|a| a == "--assert") {
-                    if let Err(err) =
-                        crate::supervisor_bench::assert_supervisor_bench_gate(&report)
+                    if let Err(err) = crate::supervisor_bench::assert_supervisor_bench_gate(&report)
                     {
                         eprintln!("{err}");
                         std::process::exit(1);
@@ -501,8 +489,7 @@ pub fn dispatch(cmd: &str, args: &[String]) -> Result<()> {
                     .unwrap_or(0.95);
                 let dry_run = has_flag(&args, "--dry-run");
                 let store = crate::db::store::BrainStore::open(&config.db_path)?;
-                let stats =
-                    crate::distill::cluster_and_summarize(&store, threshold, dry_run)?;
+                let stats = crate::distill::cluster_and_summarize(&store, threshold, dry_run)?;
                 println!("{}", serde_json::to_string_pretty(&stats)?);
             } else {
                 let config = Config::load()?;

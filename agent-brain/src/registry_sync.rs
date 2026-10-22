@@ -2,30 +2,19 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::settings::RegistrySettings;
 
 const EMBEDDED_FILES: &[(&str, &str)] = &[
-    (
-        "manifest.json",
-        include_str!("../registry/manifest.json"),
-    ),
-    (
-        "packages.json",
-        include_str!("../registry/packages.json"),
-    ),
-    (
-        "utilities.json",
-        include_str!("../registry/utilities.json"),
-    ),
-    (
-        "workflows.json",
-        include_str!("../registry/workflows.json"),
-    ),
+    ("manifest.json", include_str!("../registry/manifest.json")),
+    ("packages.json", include_str!("../registry/packages.json")),
+    ("utilities.json", include_str!("../registry/utilities.json")),
+    ("workflows.json", include_str!("../registry/workflows.json")),
     (
         "workflows/release-notes.yaml",
         include_str!("../registry/workflows/release-notes.yaml"),
@@ -79,38 +68,111 @@ pub fn seed_embedded(home: &Path) -> Result<usize> {
     Ok(n)
 }
 
-/// Fetch registry files from configured GitHub raw URL (interim: agent-brain repo path).
 pub fn sync_remote(home: &Path, settings: &RegistrySettings) -> Result<usize> {
-    let base = settings.raw_url_base();
-    let agent = ureq::Agent::config_builder()
-        .timeout_global(Some(std::time::Duration::from_secs(30)))
-        .build()
-        .new_agent();
-    let mut files: Vec<(&str, String)> = Vec::new();
-    for (rel, _) in EMBEDDED_FILES {
-        let url = format!("{base}/{rel}");
-        let body = agent
-            .get(&url)
-            .call()
-            .with_context(|| format!("fetch registry file {url}"))?
-            .body_mut()
-            .read_to_string()
-            .with_context(|| format!("read registry body {rel}"))?;
-        files.push((rel, body));
+    let repo_dir = cache_dir(home).join("repo");
+    let git_url = format!("https://github.com/{}.git", settings.remote_repo.trim());
+    let git_ref = if settings.remote_ref.trim().is_empty() {
+        "master"
+    } else {
+        settings.remote_ref.trim()
+    };
+
+    if repo_dir.join(".git").exists() {
+        let fetch = Command::new("git")
+            .args(["fetch", "--depth", "1", "origin", git_ref])
+            .current_dir(&repo_dir)
+            .status()
+            .context("git fetch registry")?;
+        if !fetch.success() {
+            let _ = Command::new("git")
+                .args(["fetch", "--depth", "1", "origin"])
+                .current_dir(&repo_dir)
+                .status();
+        }
+        let _ = Command::new("git")
+            .args(["reset", "--hard", &format!("origin/{git_ref}")])
+            .current_dir(&repo_dir)
+            .status();
+    } else {
+        if repo_dir.exists() {
+            let _ = fs::remove_dir_all(&repo_dir);
+        }
+        if let Some(parent) = repo_dir.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let status = Command::new("git")
+            .args([
+                "clone",
+                "--depth",
+                "1",
+                "--branch",
+                git_ref,
+                &git_url,
+                &repo_dir.display().to_string(),
+            ])
+            .status()
+            .context("spawn git clone registry")?;
+        if !status.success() {
+            let fallback = Command::new("git")
+                .args([
+                    "clone",
+                    "--depth",
+                    "1",
+                    &git_url,
+                    &repo_dir.display().to_string(),
+                ])
+                .status()
+                .context("spawn git clone fallback")?;
+            if !fallback.success() {
+                bail!("git clone failed for registry {git_url}");
+            }
+        }
     }
-    let borrowed: Vec<(&str, &str)> = files.iter().map(|(r, b)| (*r, b.as_str())).collect();
-    let n = write_files(home, &borrowed, "remote")?;
+
+    let base = cache_dir(home);
+    let mut files_synced = 0;
+    if repo_dir.join("registry.json").exists() {
+        fs::copy(repo_dir.join("registry.json"), base.join("registry.json"))?;
+        files_synced += 1;
+    }
+    if repo_dir.join("utilities/utilities.json").exists() {
+        let _ = fs::create_dir_all(base.join("utilities"));
+        fs::copy(
+            repo_dir.join("utilities/utilities.json"),
+            base.join("utilities.json"),
+        )?;
+        files_synced += 1;
+    } else if repo_dir.join("utilities.json").exists() {
+        fs::copy(repo_dir.join("utilities.json"), base.join("utilities.json"))?;
+        files_synced += 1;
+    }
+    if repo_dir.join("workflows").exists() {
+        let workflows_dest = base.join("workflows");
+        let _ = fs::create_dir_all(&workflows_dest);
+        if let Ok(entries) = fs::read_dir(repo_dir.join("workflows")) {
+            for entry in entries.flatten() {
+                if entry.path().is_file() {
+                    let dest = workflows_dest.join(entry.file_name());
+                    if fs::copy(entry.path(), dest).is_ok() {
+                        files_synced += 1;
+                    }
+                }
+            }
+        }
+    }
+
     write_meta(
         home,
         SyncMeta {
-            source: "remote".into(),
+            source: "remote-git".into(),
             remote_repo: settings.remote_repo.clone(),
             remote_ref: settings.remote_ref.clone(),
             synced_at_ms: now_ms(),
-            files: n,
+            files: files_synced,
         },
     )?;
-    Ok(n)
+
+    Ok(files_synced)
 }
 
 pub fn sync(home: &Path, settings: &RegistrySettings) -> Result<usize> {
@@ -128,8 +190,10 @@ pub fn sync(home: &Path, settings: &RegistrySettings) -> Result<usize> {
 
 /// Seed cache when empty; optionally refresh when stale per settings.
 pub fn ensure_cached(home: &Path, settings: &RegistrySettings) -> Result<()> {
-    let manifest = cache_dir(home).join("manifest.json");
-    if !manifest.is_file() {
+    let has_cache = cache_dir(home).join("registry.json").is_file()
+        || cache_dir(home).join("manifest.json").is_file()
+        || cache_dir(home).join("repo").is_dir();
+    if !has_cache {
         seed_embedded(home)?;
         return Ok(());
     }
@@ -191,7 +255,9 @@ mod tests {
         let n = seed_embedded(home).unwrap();
         assert!(n >= 7);
         assert!(cache_dir(home).join("manifest.json").is_file());
-        assert!(cache_dir(home).join("workflows/release-notes.yaml").is_file());
+        assert!(cache_dir(home)
+            .join("workflows/release-notes.yaml")
+            .is_file());
     }
 
     #[test]

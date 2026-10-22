@@ -3,11 +3,6 @@ description: Mandatory strict engineering policy with explicit comment prohibiti
 alwaysApply: true
 ---
 
----
-description: Strict engineering policy for implementation, architecture, testing, maintainability, and verification.
-alwaysApply: true
----
-
 # Engineering Policy — Strict Defaults
 
 ## 0. Mandatory rules and conflict handling
@@ -37,7 +32,7 @@ alwaysApply: true
 - Do not use Python merely because it is convenient, familiar, or faster to script. Prefer direct edits and small, reviewable patches over one-off automation.
 - Use Python only when at least one condition applies: (a) the user explicitly requests Python; (b) the task is itself to write, debug, or run Python code; or (c) the task materially requires Python for data analysis or a format/workflow for which no suitable native tool is available. For condition (c), keep the script narrowly scoped and do not use it to make unrelated source edits.
 - If Python seems necessary for another purpose, explain the concrete limitation of native alternatives and ask for approval before using it.
-- **Tool-level enforcement (agent-brain):** Shared host hooks deny `python -c`, Python heredocs, and piped stdin to Python on Shell/Bash (Cursor `preToolUse` + `beforeShellExecution`, Claude Code / Codex `PreToolUse`, Gemini / Antigravity `BeforeTool`, OpenCode `tool.execute.before`). Instructions alone do not stop invocation — the hook does. Project `python -m pytest|…` and running `.py` files remain allowed. Override only with user approval via `AGENT_BRAIN_ALLOW_PYTHON_SHELL=1`.
+- **Tool-level enforcement:** Where the host supports tool hooks, a hook may block `python -c`, Python heredocs, and piped stdin to Python on the shell tool. The hook is what stops the call; this policy text alone does not. Running project tooling (for example `python -m pytest`, or a `.py` file the project provides) remains allowed. An override is set by the environment and is used only with explicit user approval.
 - Avoid temporary helper scripts and generated files unless they are genuinely required; remove temporary artifacts before finishing.
 - Do not edit generated, vendored, or compiled files when their source of truth is available.
 
@@ -77,6 +72,7 @@ alwaysApply: true
 - Obtain approval before consequential, hard-to-reverse changes unless the user explicitly authorized them.
 - Preserve backward compatibility unless a breaking change is requested and accepted. For database or API changes, consider rollout order, old/new clients, migration safety, and rollback.
 - Add or update an ADR/design note only when a consequential decision warrants a durable record; do not create documentation ceremony for routine changes.
+- Every schema, data, or configuration migration ships with a tested rollback. If a migration is one-way, the change states that, why it is one-way, and who approved it before it runs.
 
 ## 9. Testing principles
 - Tests must verify observable behavior and meaningful failure modes, not implementation trivia.
@@ -85,12 +81,17 @@ alwaysApply: true
 - Mock at genuine boundaries; do not mock the very behavior the test is meant to verify.
 - Never weaken, delete, skip, or rewrite a valid test merely to make the suite pass. Change a test only when its expectations are genuinely obsolete or incorrect, and explain why.
 - Do not create meaningless assertions, duplicate tests, artificial branches, or coverage-only code to inflate metrics.
+- A fixed defect gets a regression test that fails on the unfixed code and passes on the fix. Show the failing run when it is feasible to do so.
+- Check that new tests are not flaky: run them repeatedly, or in a randomized order, before reporting them as stable. Where the project has mutation-testing tooling, run it on changed logic and report the measured score.
 
 ## 10. Backend and integration testing
 - For backend behavior, add appropriate unit tests, service/business-logic tests, and integration tests at the persistence, messaging, or external-service boundaries that are affected.
 - For changed HTTP/API behavior, test status codes, response shape, validation, authorization/authentication where relevant, and error mapping. Add API/E2E tests when the user flow or cross-component behavior warrants them.
 - Verify transaction boundaries, retries, idempotency, concurrency, timeouts, and partial failure when relevant to the change.
 - Test migrations and data transformations safely where applicable. Never run destructive operations against production or shared environments without explicit authorization.
+- Every external call has an explicit timeout. Retries use a bounded number of attempts with backoff and jitter, and only for operations that are idempotent or carry an idempotency key.
+- Every error path releases what it acquired (connections, locks, files, temporary state). Callers never see partial state, or any partial state is recorded and recoverable.
+- Name each new failure mode: its trigger, its observable result, and its recovery path.
 
 ## 11. Coverage and quality gates
 - Aim for at least 90% line and branch coverage for the changed, applicable code where the tooling can measure it meaningfully. Apply condition coverage where the project reports and enforces it.
@@ -99,17 +100,35 @@ alwaysApply: true
 - Do not game coverage through exclusions, test-only branches, weakened assertions, generated-code manipulation, or quality-gate changes.
 - Run relevant formatters, linters, type checks, static analysis/SonarQube checks, tests, and builds when available and proportionate. Fix issues caused by the change; distinguish pre-existing failures from regressions.
 - If a gate cannot run, state exactly what was not run and why.
+- Run the gates in this order and record each result: format, lint and static analysis, types, unit tests, integration and API tests, coverage, dependency and secret scans, build. Use the project's own tools; the table lists the requirement, and the examples are only examples.
+
+| Gate | Requirement | Examples (use the project's own tools) |
+|---|---|---|
+| Format | Formatter run on changed files; no unrelated churn | gofmt, prettier, black, rustfmt |
+| Lint and static analysis | No new findings in changed code at the project's configured level | Checkstyle or SpotBugs (Java), ruff (Python), clippy (Rust), golangci-lint (Go), eslint (TypeScript) |
+| Types | Type checker in the strictest mode the project already uses | mypy, tsc --noEmit, go vet |
+| Unit tests | Changed behaviour covered; a regression test for each fixed defect | the project's test runner |
+| Integration and API | Functional suites for every changed boundary | Hurl, contract tests, API test collections |
+| Coverage | Measured with the project's tooling against the section 11 target | JaCoCo, coverage.py, cargo-llvm-cov, go test -cover |
+| Dependency and secret scans | No known-vulnerable new dependency; no secret in the diff | the project's dependency and secret scanners |
+| Build | Clean build passes | the project's build command |
+
+- When a full run is too slow for the task, the minimum is the changed-file check: no new findings in changed files, the affected tests, and the build.
 
 ## 12. Security and reliability
 - Follow least privilege and existing security boundaries. Validate untrusted inputs at entry points and use parameterized queries and safe APIs.
 - Never hardcode credentials, tokens, private keys, or production data. Do not expose secrets in logs, tests, error messages, or completion reports.
 - Consider authorization, injection, sensitive-data handling, race conditions, resource cleanup, timeouts, and failure recovery where relevant.
+- Log structured events with a correlation identifier that follows a request across services. Never log secrets, tokens, or personal data; mask them at the logging boundary.
+- Every new failure mode emits a metric or log entry that an operator can alert on.
+- Dependencies are pinned through the project's lockfile, committed, and scanned for known vulnerabilities in CI. Record the reason for each new dependency.
 - Do not introduce new dependencies unless there is a clear benefit over existing capabilities; assess maintenance, security, size, and license implications.
 
 ## 13. Minimal diff and change control
 - Keep the diff focused, reviewable, and consistent with local conventions.
 - Do not change public APIs, schemas, dependency versions, configuration defaults, or persistence semantics unless required by the task.
 - Do not run destructive commands, reset the working tree, force-push, publish releases, deploy, or modify shared/production systems without explicit authorization.
+- Before finishing, remove debugging output, temporary flags, and disabled code paths that the change introduced.
 - Inspect the final diff for accidental edits, secrets, generated artifacts, unrelated formatting, and missing tests.
 
 ## 14. Required workflow
@@ -120,9 +139,27 @@ alwaysApply: true
 5. Run focused tests first, then relevant broader checks and quality gates.
 6. Review the final diff and verify that only intended files changed.
 7. Report what changed, tests/checks actually run, measured coverage when available, and any remaining risks or blockers.
+8. Stop when a gate fails. Fix the cause before continuing; never mark a gate as skipped to move on. If the cause is outside the task's scope, stop and report it with the evidence.
+9. Changes in high-risk areas need an independent review before completion: authentication and authorization, money or ledger movement, schema or data migration, concurrency and locking, cryptography, and externally facing interfaces. The reviewer is a separate review agent or a person, never the author alone.
 
 ## 15. Completion standard
 - Do not claim success based on code inspection alone when verification is feasible.
 - Do not claim tests, builds, static analysis, or coverage passed unless they actually ran and passed.
 - Be concise but precise in the final report: implementation summary, key decisions, verification results, coverage scope/value, and known limitations.
 - If blocked, state the blocker and the next actionable step. Never conceal incomplete work.
+- End with an evidence record: the commands run, their exit codes, the artifact paths, the measured coverage, the gates not run and why, and the residual risk.
+- Never describe code as bug-free. State what was verified, what was not, and the residual risk.
+
+## 16. Feature mapping and verification harness (.verify/)
+- **Interrogate Code, Not User:** Discover endpoints, CLI flags, database seed requirements, and test frameworks by navigating repository source files directly. Never ask the user for details observable in the codebase.
+- **Inspect Feature Map:** In repositories with `.verify/features/`, check the relevant feature specification (`.verify/features/<feature>.md`) before modifying code to review sub-features, entry points, and known gotchas.
+- **Link Changes to Test Suites:** Every feature contract specifies its targeted unit tests and Hurl functional suites under `## Verification Suites`. Execute these targeted suites for rapid feedback.
+- **Run Trusted Verification:** Run verification through `.verify/run.sh` or another entry point listed in `.verify/verify.toml`. A command that is not on the allowlist is not a trusted result.
+- **Dual-Layer Coverage:** Pair unit tests with declarative API functional tests (`.verify/functional/*.hurl`) for backend and DevOps workflows. Preserve run proof in `.verify/artifacts/`.
+- **Four-Part Steps:** Every verification step states the request (method, path, payload file), why it runs, the expected status and assertions with values, and the impact on the final outcome. Every request entry in the functional file is covered by exactly one step, numbered in entry order. A step may cover a contiguous range of entries that share one purpose; it names the range, and its Expected line states what each entry asserts. Each step heading carries `(entries …)` with its entry numbers. The coverage check in `checks/` fails the run when an entry is covered by no step or by two.
+- **Sourced Expectations:** Values that depend on the environment's calendar or reference data (dates, cycle or period identifiers, derived amounts) come from a recorded live source, with the query and its result written into the feature file. Values derived from code name the class or method; values not yet confirmed live are marked `[UNCONFIRMED]`. When a live value contradicts a local config file, the live value wins; update the config and any fixtures built on it.
+- **Boundary Fixtures:** A payload used for a boundary step must contain the boundary value the step names. Check that in the feature contract's Gotchas or the static checks.
+- **Unique Request IDs:** Within one run, every request identifier is unique across feature files; state the suffix scheme in `features/README.md`.
+- **Name Coverage Gaps:** Gotchas lists what the suite does not test. A green run never implies coverage of a listed gap.
+- **Layout:** `.verify/` holds `verify.toml`, `run.sh`, `doctor.sh`, `features/`, `functional/` (with `payloads/`), `checks/` (generic harness checks, such as the feature coverage check), `suites/` (repository-specific checks and helpers), `env/`, and `artifacts/` (gitignored).
+- **No Placeholders in Commands:** Use shell variables such as `$RUN_ID` and `"$AUTH_TOKEN"`, or literal names; never angle-bracket placeholders like `<RUN_ID>`, `<feature>`, or `<token>`.

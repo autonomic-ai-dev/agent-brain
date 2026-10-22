@@ -7,6 +7,30 @@ pub fn files() -> &'static [(&'static str, &'static str)] {
             include_str!("../../../registry/coding-policy/.cursor/rules/coding-policy.mdc"),
         ),
         (
+            ".cursor/rules/feature-map.mdc",
+            include_str!("../../../registry/coding-policy/.cursor/rules/feature-map.mdc"),
+        ),
+        (
+            ".cursor/rules/verification.mdc",
+            include_str!("../../../registry/coding-policy/.cursor/rules/verification.mdc"),
+        ),
+        (
+            ".cursor/skills/feature-map/SKILL.md",
+            include_str!("../../../registry/coding-policy/.cursor/skills/feature-map/SKILL.md"),
+        ),
+        (
+            ".cursor/skills/verification/SKILL.md",
+            include_str!("../../../registry/coding-policy/.cursor/skills/verification/SKILL.md"),
+        ),
+        (
+            "skills/feature-map/SKILL.md",
+            include_str!("../../../registry/coding-policy/skills/feature-map/SKILL.md"),
+        ),
+        (
+            "skills/verification/SKILL.md",
+            include_str!("../../../registry/coding-policy/skills/verification/SKILL.md"),
+        ),
+        (
             "claude/CLAUDE.md",
             include_str!("../../../registry/coding-policy/claude/CLAUDE.md"),
         ),
@@ -31,6 +55,10 @@ pub fn files() -> &'static [(&'static str, &'static str)] {
             include_str!("../../../registry/coding-policy/README.md"),
         ),
         (
+            "package.json",
+            include_str!("../../../registry/coding-policy/package.json"),
+        ),
+        (
             "scripts/check-added-comments.sh",
             include_str!("../../../registry/coding-policy/scripts/check-added-comments.sh"),
         ),
@@ -40,9 +68,7 @@ pub fn files() -> &'static [(&'static str, &'static str)] {
         ),
         (
             ".github/workflows/no-added-comments.yml",
-            include_str!(
-                "../../../registry/coding-policy/.github/workflows/no-added-comments.yml"
-            ),
+            include_str!("../../../registry/coding-policy/.github/workflows/no-added-comments.yml"),
         ),
     ]
 }

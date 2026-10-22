@@ -154,7 +154,11 @@ pub fn defaults() -> Vec<Rule> {
         rules.push(Rule::new(command, "operands").role("write").targets("last"));
     }
     for command in ["chmod", "chown", "chgrp"] {
-        rules.push(Rule::new(command, "operands").role("write").targets("skip:1"));
+        rules.push(
+            Rule::new(command, "operands")
+                .role("write")
+                .targets("skip:1"),
+        );
         rules.push(
             Rule::new(command, "operands")
                 .role("delete")

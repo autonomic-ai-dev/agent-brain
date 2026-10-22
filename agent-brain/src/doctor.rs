@@ -25,8 +25,7 @@ pub fn run(fix: bool) -> Result<()> {
 
     let mcp_binary = mcp_binary_path(&mcp_path)?;
 
-    let mut progress =
-        ProgressRun::new("agent-brain health check").with_total_hint(10);
+    let mut progress = ProgressRun::new("agent-brain health check").with_total_hint(10);
 
     println!("agent-brain doctor\n");
     println!("  version (this binary): {version}");
@@ -244,7 +243,8 @@ pub fn run(fix: bool) -> Result<()> {
     let antigravity_ok = antigravity_detail.starts_with("OK");
     let codex_hooks_path = home.join(".codex/hooks.json");
     let gemini_settings = home.join(".gemini/settings.json");
-    let codex_hooks_ok = crate::host_hooks::hooks_status(&codex_hooks_path, "route_gate.py") == "OK";
+    let codex_hooks_ok =
+        crate::host_hooks::hooks_status(&codex_hooks_path, "route_gate.py") == "OK";
     let gemini_hooks_ok =
         crate::host_hooks::hooks_status(&gemini_settings, "route_gate.py") == "OK";
     println!("  opencode integration:  {opencode_detail}");
@@ -290,11 +290,7 @@ pub fn run(fix: bool) -> Result<()> {
                 println!("  codex hooks:           reinstalled");
             }
             if !gemini_hooks_ok {
-                let _ = crate::host_hooks::install_gemini_hooks(
-                    true,
-                    &gemini_settings,
-                    false,
-                );
+                let _ = crate::host_hooks::install_gemini_hooks(true, &gemini_settings, false);
                 println!("  gemini hooks:          reinstalled");
             }
             ok = true;
@@ -445,9 +441,7 @@ pub fn run(fix: bool) -> Result<()> {
     println!("Tips:");
     println!("  • agent-brain briefing — readable route + estimated token savings vs full index");
     println!("  • agent-brain stats — index size, latency, local route activity");
-    println!(
-        "  • agent-brain dashboard --open — local HTML metrics (routes, latency, activity)"
-    );
+    println!("  • agent-brain dashboard --open — local HTML metrics (routes, latency, activity)");
     println!("  • agent-brain onboarding — 5-minute getting started checklist");
     println!("  • agent-brain install --all --global — MCP + instructions for Cursor, OpenCode, Claude Code, VS Code, Codex, Gemini, Antigravity");
     println!("  • Claude Code, Codex, Gemini, Antigravity, OpenCode: route gate hooks installed via install --<host> [--global]");
@@ -900,10 +894,8 @@ fn opencode_integration_detail(home: &Path) -> String {
                 .get("instructions")
                 .and_then(|v| v.as_array())
                 .is_some_and(|arr| {
-                    arr.iter().any(|v| {
-                        v.as_str()
-                            .is_some_and(|s| s.contains("agent-brain-route"))
-                    })
+                    arr.iter()
+                        .any(|v| v.as_str().is_some_and(|s| s.contains("agent-brain-route")))
                 });
             if !has_instructions {
                 issues.push("instructions");
@@ -929,16 +921,10 @@ fn opencode_integration_detail(home: &Path) -> String {
     if !base.join("agent-brain.md").is_file() {
         issues.push("instructions-file");
     }
-    if !base
-        .join("plugin/agent-brain-route-gate.ts")
-        .is_file()
-    {
+    if !base.join("plugin/agent-brain-route-gate.ts").is_file() {
         issues.push("plugin-file");
     }
-    if !base
-        .join("hooks/agent-brain/route_gate.py")
-        .is_file()
-    {
+    if !base.join("hooks/agent-brain/route_gate.py").is_file() {
         issues.push("gate-script");
     }
 

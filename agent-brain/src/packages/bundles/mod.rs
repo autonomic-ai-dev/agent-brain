@@ -4,38 +4,63 @@ mod autonomic_core;
 mod coding_policy;
 mod supervisor;
 
-use std::fs;
 use anyhow::{Context, Result};
+use std::fs;
+use std::path::Path;
+use std::process::Command;
 
 use super::{packages_dir, PackageRecord, PackageRegistry};
 use crate::config::Config;
+use crate::registry_sync;
 
 pub fn install_bundled(config: &Config, bundle: &str) -> Result<PackageRecord> {
-    let files = bundled_manifest_dir(bundle)
-        .ok_or_else(|| anyhow::anyhow!("unknown bundled package '{bundle}'"))?;
-
     let install_dir = packages_dir(&config.home).join(bundle);
     if install_dir.exists() {
         fs::remove_dir_all(&install_dir)
             .with_context(|| format!("remove old bundle at {}", install_dir.display()))?;
     }
 
-    for (rel, content) in files {
-        let path = install_dir.join(rel);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
+    let repo_dir = registry_sync::cache_dir(&config.home).join("repo");
+    let candidate_paths = [
+        repo_dir.join("packages").join(bundle),
+        repo_dir.join(bundle),
+    ];
+    let synced_bundle = candidate_paths.iter().find(|p| p.is_dir());
+
+    let (commit_val, source_val) = if let Some(synced_path) = synced_bundle {
+        copy_dir_recursive(synced_path, &install_dir)?;
+        let commit = Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(&repo_dir)
+            .output()
+            .ok()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+        (commit, format!("registry:packages/{bundle}"))
+    } else {
+        let files = bundled_manifest_dir(bundle)
+            .ok_or_else(|| anyhow::anyhow!("unknown bundled package '{bundle}'"))?;
+
+        for (rel, content) in files {
+            let path = install_dir.join(rel);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(&path, content).with_context(|| format!("write {}", path.display()))?;
         }
-        fs::write(&path, content).with_context(|| format!("write {}", path.display()))?;
-    }
+        (
+            Some(env!("CARGO_PKG_VERSION").to_string()),
+            format!("agent-brain/bundle:{bundle}"),
+        )
+    };
 
     let now = chrono::Utc::now().timestamp();
     let record = PackageRecord {
         name: bundle.to_string(),
-        source: format!("agent-brain/bundle:{bundle}"),
+        source: source_val,
         git_url: String::new(),
-        git_ref: env!("CARGO_PKG_VERSION").to_string(),
+        git_ref: "master".to_string(),
         install_path: install_dir.display().to_string(),
-        commit: Some(env!("CARGO_PKG_VERSION").to_string()),
+        commit: commit_val,
         installed_at: now,
     };
 
@@ -53,10 +78,25 @@ pub fn install_bundled(config: &Config, bundle: &str) -> Result<PackageRecord> {
     Ok(record)
 }
 
+fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let dest_path = dst.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_dir_recursive(&entry.path(), &dest_path)?;
+        } else {
+            fs::copy(entry.path(), dest_path)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn bundled_manifest_dir(bundle: &str) -> Option<&'static [(&'static str, &'static str)]> {
     match bundle {
         "autonomic-core" => Some(autonomic_core::files()),
-        "coding-policy" => Some(coding_policy::files()),
+        "coding-policy" | "agstack" => Some(coding_policy::files()),
         "supervisor" => Some(supervisor::files()),
         _ => None,
     }

@@ -18,7 +18,10 @@ struct RebEvalBaseline {
     cases: usize,
 }
 
-const DEFAULT_BASELINE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../docs/benchmarks/latest.json");
+const DEFAULT_BASELINE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../docs/benchmarks/latest.json"
+);
 
 pub fn assert_reb_baseline(report: &ProofReport, baseline_path: Option<&Path>) -> Result<()> {
     let path = baseline_path

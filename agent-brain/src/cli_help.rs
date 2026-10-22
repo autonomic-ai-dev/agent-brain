@@ -5,9 +5,7 @@
 pub fn help_target(args: &[String]) -> Option<Option<&str>> {
     match args.get(1).map(String::as_str) {
         Some("help") | Some("--help") | Some("-h") => Some(args.get(2).map(String::as_str)),
-        Some(cmd) if args.iter().skip(2).any(|a| a == "--help" || a == "-h") => {
-            Some(Some(cmd))
-        }
+        Some(cmd) if args.iter().skip(2).any(|a| a == "--help" || a == "-h") => Some(Some(cmd)),
         _ => None,
     }
 }
@@ -546,14 +544,19 @@ mod tests {
 
     #[test]
     fn command_help_via_flag_or_help_subcommand() {
-        assert_eq!(help_target(&args(&["install", "--help"])), Some(Some("install")));
+        assert_eq!(
+            help_target(&args(&["install", "--help"])),
+            Some(Some("install"))
+        );
         assert_eq!(help_target(&args(&["help", "sync"])), Some(Some("sync")));
         assert_eq!(help_target(&args(&["serve"])), None);
     }
 
     #[test]
     fn known_commands_have_detail() {
-        for cmd in ["serve", "install", "doctor", "add", "sync", "eval", "dataset", "verify"] {
+        for cmd in [
+            "serve", "install", "doctor", "add", "sync", "eval", "dataset", "verify",
+        ] {
             assert!(print_command(cmd), "{cmd}");
         }
         assert!(!print_command("not-a-real-command"));

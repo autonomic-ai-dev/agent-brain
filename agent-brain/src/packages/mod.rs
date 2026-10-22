@@ -495,7 +495,9 @@ mod tests {
             ("/home/pkg/skills".into(), 0.35),
             ("/home/pkg/other".into(), 0.1),
         ];
-        assert!((path_recommend_boost("/home/pkg/skills/tdd/SKILL.md", &boosts) - 0.35).abs() < 1e-9);
+        assert!(
+            (path_recommend_boost("/home/pkg/skills/tdd/SKILL.md", &boosts) - 0.35).abs() < 1e-9
+        );
         assert_eq!(path_recommend_boost("/tmp/unrelated", &boosts), 0.0);
     }
 }

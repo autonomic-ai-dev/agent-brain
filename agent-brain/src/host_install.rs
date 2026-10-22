@@ -439,8 +439,12 @@ pub fn merge_opencode_config(path: &Path, mut server_entry: Value, user: bool) -
     match mcp {
         Some(mcp) => {
             if let Some(existing) = mcp.get("agent-brain") {
-                if let Some(existing_env) = existing.get("environment").and_then(|e| e.as_object()) {
-                    if let Some(new_env) = server_entry.get_mut("environment").and_then(|e| e.as_object_mut()) {
+                if let Some(existing_env) = existing.get("environment").and_then(|e| e.as_object())
+                {
+                    if let Some(new_env) = server_entry
+                        .get_mut("environment")
+                        .and_then(|e| e.as_object_mut())
+                    {
                         for (k, v) in existing_env {
                             if k != "AGENT_BRAIN_BUILD" {
                                 new_env.insert(k.clone(), v.clone());
@@ -459,11 +463,7 @@ pub fn merge_opencode_config(path: &Path, mut server_entry: Value, user: bool) -
 
     let instruction_paths = opencode_instruction_paths(user);
     merge_json_string_array(&mut root, "instructions", &instruction_paths);
-    merge_json_string_array(
-        &mut root,
-        "plugin",
-        &[OPENCODE_PLUGIN_NAME.to_string()],
-    );
+    merge_json_string_array(&mut root, "plugin", &[OPENCODE_PLUGIN_NAME.to_string()]);
 
     Ok(root)
 }
@@ -561,16 +561,16 @@ pub fn agent_brain_mode_locations(user: bool) -> Vec<(&'static str, PathBuf)> {
     };
     let canonical = agent_body_core::agents_md_path();
     vec![
-        ("cursor (User Rules)", home.join(".agent_brain/cursor-agent-brain-mode.mdc")),
+        (
+            "cursor (User Rules)",
+            home.join(".agent_brain/cursor-agent-brain-mode.mdc"),
+        ),
         ("canonical", canonical.clone()),
         ("opencode", home.join(".config/opencode/AGENTS.md")),
         ("claude", home.join(".claude/AGENTS.md")),
         ("codex", home.join(".codex/AGENTS.md")),
         ("gemini", home.join(".gemini/AGENTS.md")),
-        (
-            "antigravity",
-            home.join(".gemini/antigravity/AGENTS.md"),
-        ),
+        ("antigravity", home.join(".gemini/antigravity/AGENTS.md")),
         ("vscode", home.join(".vscode/AGENTS.md")),
     ]
 }
@@ -602,7 +602,9 @@ pub fn install_agent_brain_modes(user: bool, quiet: bool) -> Result<()> {
             println!("  AGENTS.md link: {}", link.display());
         }
         println!();
-        println!("agent-brain mode installed for all hosts. Run `agent-brain mode paths` to list files.");
+        println!(
+            "agent-brain mode installed for all hosts. Run `agent-brain mode paths` to list files."
+        );
         println!("  Cursor: paste ~/.agent_brain/cursor-user-rules.mdc AND cursor-agent-brain-mode.mdc into User Rules.");
     }
     Ok(())
@@ -1189,7 +1191,9 @@ pub fn merge_claude_json_mcp(path: &Path, mut server_entry: Value) -> Result<Val
         Some(servers) => {
             if let Some(existing) = servers.get("agent-brain") {
                 if let Some(existing_env) = existing.get("env").and_then(|e| e.as_object()) {
-                    if let Some(new_env) = server_entry.get_mut("env").and_then(|e| e.as_object_mut()) {
+                    if let Some(new_env) =
+                        server_entry.get_mut("env").and_then(|e| e.as_object_mut())
+                    {
                         for (k, v) in existing_env {
                             if k != "AGENT_BRAIN_BUILD" {
                                 new_env.insert(k.clone(), v.clone());
@@ -1307,9 +1311,9 @@ mod tests {
             v.as_str()
                 .is_some_and(|s| s.contains("agent-brain-route.md"))
         }));
-        assert!(instructions.iter().any(|v| {
-            v.as_str().is_some_and(|s| s.contains("agent-brain.md"))
-        }));
+        assert!(instructions
+            .iter()
+            .any(|v| { v.as_str().is_some_and(|s| s.contains("agent-brain.md")) }));
         let plugins = merged["plugin"].as_array().unwrap();
         assert!(plugins
             .iter()

@@ -131,4 +131,3 @@ fn semantic_truncation_compacts_entities_before_omission() {
         assert!(obj.get("massive_body").is_none());
     }
 }
-

@@ -36,7 +36,7 @@ while IFS= read -r line; do
   added="${line:1}"
   ext="${current_file##*.}"
   case "$ext" in
-    md|mdx|rst|txt|adoc|lock|sum|svg|jsonl) continue ;;
+    md|mdx|mdc|rst|txt|adoc|lock|sum|svg|jsonl) continue ;;
   esac
   [[ "$added" =~ ^[[:space:]]*\#! ]] && continue
   is_comment=0

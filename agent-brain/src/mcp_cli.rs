@@ -18,7 +18,10 @@ pub async fn handle_mcp_command(args: &[String]) -> Result<()> {
 
     match sub {
         "list" | "ls" => {
-            println!("{:<18} {:<10} {:<8} {}", "SERVER", "STATUS", "TOOLS", "COMMAND");
+            println!(
+                "{:<18} {:<10} {:<8} {}",
+                "SERVER", "STATUS", "TOOLS", "COMMAND"
+            );
             println!("{:-<18} {:-<10} {:-<8} {:-<30}", "", "", "", "");
 
             let engine = Engine::new(config)?;
@@ -30,7 +33,11 @@ pub async fn handle_mcp_command(args: &[String]) -> Result<()> {
             }
 
             for server in &settings.upstream_mcp.servers {
-                let status = if server.enabled { "enabled" } else { "disabled" };
+                let status = if server.enabled {
+                    "enabled"
+                } else {
+                    "disabled"
+                };
                 let tool_count = indexed_tools
                     .iter()
                     .filter(|t| t.server.eq_ignore_ascii_case(&server.name))
@@ -47,9 +54,9 @@ pub async fn handle_mcp_command(args: &[String]) -> Result<()> {
             }
         }
         "add" => {
-            let name = args
-                .get(3)
-                .context("usage: agent-brain mcp add <name> [--env KEY=VAL] -- <command> [args...]")?;
+            let name = args.get(3).context(
+                "usage: agent-brain mcp add <name> [--env KEY=VAL] -- <command> [args...]",
+            )?;
             if name.starts_with('-') {
                 bail!("server name cannot start with a dash; usage: agent-brain mcp add <name> -- <command>");
             }
@@ -188,8 +195,12 @@ pub async fn handle_mcp_command(args: &[String]) -> Result<()> {
             eprintln!("  list                          List registered MCP servers and indexed tool counts");
             eprintln!("  add <name> -- <cmd> [args...] Register a new upstream MCP server");
             eprintln!("  remove <name>                 Remove a registered MCP server");
-            eprintln!("  sync                          Re-query all servers and refresh tool index");
-            eprintln!("  test <name>                   Probe connection and list available tool schemas");
+            eprintln!(
+                "  sync                          Re-query all servers and refresh tool index"
+            );
+            eprintln!(
+                "  test <name>                   Probe connection and list available tool schemas"
+            );
             std::process::exit(1);
         }
     }

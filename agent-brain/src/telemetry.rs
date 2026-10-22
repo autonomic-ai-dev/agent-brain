@@ -1,11 +1,11 @@
 //! Turn Telemetry Ingestion, Token Tracking & Cache Savings Attribution (ABH-7).
 
-use std::collections::HashMap;
-use std::path::Path;
 use chrono::Utc;
 use rusqlite::{params, Connection};
-use serde_json::json;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
+use std::collections::HashMap;
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TurnTelemetryRequest {
@@ -121,9 +121,7 @@ pub fn calculate_pricing(
                 (1.25, 5.00, 0.3125, 1.25)
             }
         }
-        "deepseek" => {
-            (0.14, 0.28, 0.014, 0.14)
-        }
+        "deepseek" => (0.14, 0.28, 0.014, 0.14),
         _ => (0.0, 0.0, 0.0, 0.0),
     };
 
@@ -156,10 +154,7 @@ pub fn process_turn_telemetry(req: TurnTelemetryRequest) -> TurnTelemetryOutcome
     process_turn_telemetry_in(req, &agent_body_core::organ_state_dir("heart"))
 }
 
-fn process_turn_telemetry_in(
-    req: TurnTelemetryRequest,
-    heart_dir: &Path,
-) -> TurnTelemetryOutcome {
+fn process_turn_telemetry_in(req: TurnTelemetryRequest, heart_dir: &Path) -> TurnTelemetryOutcome {
     let (cost, saved, hit_pct) = calculate_pricing(
         &req.provider,
         &req.model,
@@ -169,10 +164,8 @@ fn process_turn_telemetry_in(
         req.cache_write_tokens,
     );
 
-    let total_tokens = req.prompt_tokens
-        + req.completion_tokens
-        + req.cache_read_tokens
-        + req.cache_write_tokens;
+    let total_tokens =
+        req.prompt_tokens + req.completion_tokens + req.cache_read_tokens + req.cache_write_tokens;
 
     let event_id = uuid::Uuid::new_v4().to_string();
     let timestamp = Utc::now().timestamp_millis();
@@ -372,14 +365,8 @@ mod tests {
 
     #[test]
     fn test_calculate_pricing_openai_mini() {
-        let (cost, saved, hit_pct) = calculate_pricing(
-            "openai",
-            "gpt-4o-mini",
-            1_000_000,
-            100_000,
-            500_000,
-            0,
-        );
+        let (cost, saved, hit_pct) =
+            calculate_pricing("openai", "gpt-4o-mini", 1_000_000, 100_000, 500_000, 0);
 
         // Prompt: 1.0 * 0.15 = 0.15
         // Completion: 0.1 * 0.60 = 0.06
@@ -419,14 +406,8 @@ mod tests {
     #[test]
     fn test_calculate_pricing_gemini_flash_and_pro() {
         // Gemini Flash: $0.075 / 1M prompt, $0.30 / 1M completion, $0.01875 / 1M cache read
-        let (cost, saved, hit_pct) = calculate_pricing(
-            "google",
-            "gemini-2.0-flash",
-            1_000_000,
-            100_000,
-            500_000,
-            0,
-        );
+        let (cost, saved, hit_pct) =
+            calculate_pricing("google", "gemini-2.0-flash", 1_000_000, 100_000, 500_000, 0);
         // Prompt: 1.0 * 0.075 = 0.075
         // Completion: 0.1 * 0.30 = 0.03
         // Cache read: 0.5 * 0.01875 = 0.009375
@@ -437,14 +418,8 @@ mod tests {
         assert!((hit_pct - 33.3333).abs() < 0.1);
 
         // Gemini Pro: $1.25 / 1M prompt, $5.00 / 1M completion, $0.3125 / 1M cache read
-        let (pro_cost, pro_saved, _) = calculate_pricing(
-            "gemini",
-            "gemini-1.5-pro",
-            100_000,
-            10_000,
-            50_000,
-            0,
-        );
+        let (pro_cost, pro_saved, _) =
+            calculate_pricing("gemini", "gemini-1.5-pro", 100_000, 10_000, 50_000, 0);
         assert!(pro_cost > 0.0);
         assert!(pro_saved > 0.0);
     }

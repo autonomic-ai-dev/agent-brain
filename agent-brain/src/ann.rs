@@ -226,7 +226,11 @@ impl AnnIndex {
 
     fn similarity(&self, query: &[f32], node: usize) -> f64 {
         let start = node * self.dims;
-        sq8_dot_query(query, &self.codes[start..start + self.dims], self.scales[node])
+        sq8_dot_query(
+            query,
+            &self.codes[start..start + self.dims],
+            self.scales[node],
+        )
     }
 
     /// Bytes used by SQ8 codes (excludes scales/graph metadata).
@@ -486,11 +490,14 @@ mod tests {
         assert_eq!(ann.codes_bytes(), 10 * dims);
         // f32 would be 4x; SQ8 must stay at 1 byte/dim.
         assert!(ann.codes_bytes() < 10 * dims * 4);
-        let top = ann.top_k(&{
-            let mut q = vec![0.0f32; dims];
-            q[0] = 1.0;
-            q
-        }, 1);
+        let top = ann.top_k(
+            &{
+                let mut q = vec![0.0f32; dims];
+                q[0] = 1.0;
+                q
+            },
+            1,
+        );
         assert_eq!(top[0].0, "v0");
     }
 }
