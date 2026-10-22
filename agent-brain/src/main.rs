@@ -200,6 +200,7 @@ async fn main() -> Result<()> {
             }
             "sync" => {
                 let local_only = args.iter().any(|a| a == "--local");
+                let no_index = args.iter().any(|a| a == "--no-index");
                 let config = Config::load()?;
                 let brain_settings = settings::AgentBrainSettings::load(&config.home);
                 let n = if local_only {
@@ -211,6 +212,14 @@ async fn main() -> Result<()> {
                     "Synced {n} registry files to {}",
                     registry_sync::cache_dir(&config.home).display()
                 );
+                if !no_index {
+                    let mut config = config;
+                    config.bootstrap_background = false;
+                    config.session_ingest_background = false;
+                    let engine = Arc::new(Engine::new(config)?);
+                    let indexed = engine.bootstrap(None)?;
+                    println!("Indexed {indexed} items");
+                }
             }
             other => {
                 eprintln!(
