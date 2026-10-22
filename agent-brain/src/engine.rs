@@ -1417,7 +1417,7 @@ fn build_route_response(
                     .as_deref()
                     .map_or(false, |p| p.contains("agstack"));
 
-                if crate::retrieval::is_conversational_or_meta(user_message) && !is_agstack {
+                if crate::retrieval::is_conversational_or_meta(user_message) {
                     continue;
                 }
                 if crate::retrieval::query_forbids_topic(user_message, &item.topic) {

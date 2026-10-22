@@ -221,11 +221,15 @@ pub fn is_conversational_or_meta(query: &str) -> bool {
     {
         return true;
     }
-    let conversational_exact = [
-        "thanks", "thank you", "thx", "ok", "okay", "cool", "great", "done", "got it",
-        "sounds good", "perfect", "yes", "no", "yep", "nope",
+    let conversational_words = [
+        "thanks", "thank", "you", "thx", "ok", "okay", "cool", "great", "done", "got", "it",
+        "sounds", "good", "perfect", "yes", "no", "yep", "nope", "please", "bye", "hello", "hi", "hey",
     ];
-    if conversational_exact.contains(&q.as_str()) {
+    let words: Vec<&str> = q
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+    if !words.is_empty() && words.iter().all(|w| conversational_words.contains(w)) {
         return true;
     }
     if q.starts_with("what is the status")
