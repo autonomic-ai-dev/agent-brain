@@ -877,6 +877,10 @@ impl Engine {
                 ),
             });
         }
+        resp.must_apply.push(crate::types::MustApply {
+            topic: "agstack-invariants".into(),
+            text: "Mandatory agstack invariants: 1. Immutability first (never mutate in-place; return fresh copies). 2. Zero AI comment slop (self-documenting code; pre-commit rejects comment lines). 3. Boundary discipline (validate schemas at boundaries). 4. Fix root causes (never mask with defensive null-checks; verify with regression test).".into(),
+        });
         #[cfg(feature = "extras")]
         if let Some(repo) = ws.repo_root.as_deref() {
             if settings.graphify.enabled {
@@ -1684,11 +1688,13 @@ fn must_apply_for_memory(
         return None;
     }
     let labeled_negative = item.polarity.as_deref() == Some("negative");
+    let is_trap = item.topic.starts_with("trap-") || item.topic.starts_with("anti-pattern");
     let heuristic_negative =
         item.text.to_lowercase().contains("do not") || item.text.to_lowercase().contains("never ");
     let scoped = project_scope_matches(item, project_key, repo_root);
 
     let promote = (item.apply_when_matched && item.score >= 0.55 && item.lexical >= 0.15)
+        || (is_trap && (item.score >= 0.35 || item.lexical >= 0.15))
         || (labeled_negative
             && item.score >= 0.55
             && item.lexical >= 0.20
@@ -1700,9 +1706,14 @@ fn must_apply_for_memory(
             && item.apply_when_matched);
 
     if promote {
+        let display_text = if is_trap {
+            format!("TRAP WARNING: {}", item.text.chars().take(180).collect::<String>())
+        } else {
+            item.text.chars().take(200).collect()
+        };
         Some(MustApply {
             topic: item.topic.clone(),
-            text: item.text.chars().take(200).collect(),
+            text: display_text,
         })
     } else {
         None
@@ -1922,6 +1933,28 @@ mod tests {
             scope_key: None,
         };
         assert!(must_apply_for_memory(&cinema, None, Some("/tmp/agent-brain")).is_none());
+    }
+
+    #[test]
+    fn trap_memory_promoted_with_warning_prefix() {
+        let trap = ScoredItem {
+            id: "trap-1".into(),
+            item_type: ItemType::Memory,
+            topic: "trap-inline-comments".into(),
+            text: "do not add explanatory comment lines in rust files".into(),
+            source_path: None,
+            scope: "global".into(),
+            score: 0.45,
+            polarity: Some("negative".into()),
+            apply_when_matched: false,
+            lexical: 0.20,
+            scope_key: None,
+        };
+        let res = must_apply_for_memory(&trap, None, None);
+        assert!(res.is_some());
+        let constraint = res.unwrap();
+        assert!(constraint.text.starts_with("TRAP WARNING:"));
+        assert_eq!(constraint.topic, "trap-inline-comments");
     }
 
     #[test]
