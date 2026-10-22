@@ -43,14 +43,15 @@ impl McpActivity {
 
     /// Record that route_task completed. Called after the route response is built.
     pub fn record_route(&self) {
-        self.last_route_ms
-            .store(self.last_complete_ms.load(Ordering::Relaxed), Ordering::Relaxed);
+        self.last_route_ms.store(
+            self.last_complete_ms.load(Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
     }
 
     /// Returns true if any non-route MCP tool completed since the last route_task.
     pub fn tools_used_since_last_route(&self) -> bool {
-        self.last_complete_ms.load(Ordering::Relaxed)
-            > self.last_route_ms.load(Ordering::Relaxed)
+        self.last_complete_ms.load(Ordering::Relaxed) > self.last_route_ms.load(Ordering::Relaxed)
     }
 }
 

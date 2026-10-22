@@ -1,41 +1,73 @@
 //! Curated bundles shipped inside the binary (no git clone).
 
 mod autonomic_core;
-mod coding_policy;
 mod supervisor;
 
-use std::fs;
 use anyhow::{Context, Result};
+use std::fs;
+use std::path::Path;
+use std::process::Command;
 
 use super::{packages_dir, PackageRecord, PackageRegistry};
 use crate::config::Config;
+use crate::registry_sync;
 
 pub fn install_bundled(config: &Config, bundle: &str) -> Result<PackageRecord> {
-    let files = bundled_manifest_dir(bundle)
-        .ok_or_else(|| anyhow::anyhow!("unknown bundled package '{bundle}'"))?;
-
     let install_dir = packages_dir(&config.home).join(bundle);
     if install_dir.exists() {
         fs::remove_dir_all(&install_dir)
             .with_context(|| format!("remove old bundle at {}", install_dir.display()))?;
     }
 
-    for (rel, content) in files {
-        let path = install_dir.join(rel);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
+    let repo_dir = registry_sync::cache_dir(&config.home).join("repo");
+    let candidate_paths = [
+        repo_dir.join("packages").join(bundle),
+        repo_dir.join(bundle),
+    ];
+    let mut synced_bundle = candidate_paths.iter().find(|p| p.is_dir()).cloned();
+
+    if synced_bundle.is_none() {
+        let reg_settings = crate::settings::AgentBrainSettings::load(&config.home).registry;
+        if reg_settings.enabled {
+            let _ = registry_sync::sync_remote(&config.home, &reg_settings);
+            synced_bundle = candidate_paths.iter().find(|p| p.is_dir()).cloned();
         }
-        fs::write(&path, content).with_context(|| format!("write {}", path.display()))?;
     }
+
+    let (commit_val, source_val) = if let Some(ref synced_path) = synced_bundle {
+        copy_dir_recursive(synced_path, &install_dir)?;
+        let commit = Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(&repo_dir)
+            .output()
+            .ok()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+        (commit, format!("registry:packages/{bundle}"))
+    } else {
+        let files = bundled_manifest_dir(bundle)
+            .ok_or_else(|| anyhow::anyhow!("package '{bundle}' not found in registry cache or bundles"))?;
+
+        for (rel, content) in files {
+            let path = install_dir.join(rel);
+            if let Some(parent) = path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(&path, content).with_context(|| format!("write {}", path.display()))?;
+        }
+        (
+            Some(env!("CARGO_PKG_VERSION").to_string()),
+            format!("agent-brain/bundle:{bundle}"),
+        )
+    };
 
     let now = chrono::Utc::now().timestamp();
     let record = PackageRecord {
         name: bundle.to_string(),
-        source: format!("agent-brain/bundle:{bundle}"),
+        source: source_val,
         git_url: String::new(),
-        git_ref: env!("CARGO_PKG_VERSION").to_string(),
+        git_ref: "master".to_string(),
         install_path: install_dir.display().to_string(),
-        commit: Some(env!("CARGO_PKG_VERSION").to_string()),
+        commit: commit_val,
         installed_at: now,
     };
 
@@ -53,10 +85,24 @@ pub fn install_bundled(config: &Config, bundle: &str) -> Result<PackageRecord> {
     Ok(record)
 }
 
+fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let dest_path = dst.join(entry.file_name());
+        if file_type.is_dir() {
+            copy_dir_recursive(&entry.path(), &dest_path)?;
+        } else {
+            fs::copy(entry.path(), dest_path)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn bundled_manifest_dir(bundle: &str) -> Option<&'static [(&'static str, &'static str)]> {
     match bundle {
         "autonomic-core" => Some(autonomic_core::files()),
-        "coding-policy" => Some(coding_policy::files()),
         "supervisor" => Some(supervisor::files()),
         _ => None,
     }
@@ -101,7 +147,7 @@ mod tests {
     }
 
     #[test]
-    fn installs_coding_policy_bundle_files() {
+    fn installs_agstack_bundle_files() {
         let dir = TempDir::new().unwrap();
         let home = dir.path().to_path_buf();
         let mut config = Config::isolated(home.clone());
@@ -109,11 +155,21 @@ mod tests {
         config.data_dir = home.join("data");
         config.vectors_path = home.join("data").join("vectors.bin");
         config.ensure_dirs().unwrap();
-        let record = install_bundled(&config, "coding-policy").unwrap();
-        assert_eq!(record.name, "coding-policy");
-        let rule = home.join("packages/coding-policy/.cursor/rules/coding-policy.mdc");
+
+        let repo_agstack = registry_sync::cache_dir(&home)
+            .join("repo/packages/agstack/.cursor/rules");
+        fs::create_dir_all(&repo_agstack).unwrap();
+        fs::write(
+            repo_agstack.join("agstack.mdc"),
+            "---\ndescription: agstack\n---\n# agstack\n",
+        )
+        .unwrap();
+
+        let record = install_bundled(&config, "agstack").unwrap();
+        assert_eq!(record.name, "agstack");
+        let rule = home.join("packages/agstack/.cursor/rules/agstack.mdc");
         assert!(rule.is_file(), "missing {}", rule.display());
         let body = std::fs::read_to_string(&rule).unwrap();
-        assert!(body.contains("Engineering Policy"));
+        assert!(body.contains("agstack"));
     }
 }

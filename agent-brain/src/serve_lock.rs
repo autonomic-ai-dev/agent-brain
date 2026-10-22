@@ -78,7 +78,12 @@ pub fn acquire(home: &Path) -> Result<Option<ServeLock>> {
     }
 
     file.set_len(0)?;
-    writeln!(file, "pid={} version={}", std::process::id(), env!("CARGO_PKG_VERSION"))?;
+    writeln!(
+        file,
+        "pid={} version={}",
+        std::process::id(),
+        env!("CARGO_PKG_VERSION")
+    )?;
     file.flush()?;
 
     Ok(Some(ServeLock { _file: file, path }))

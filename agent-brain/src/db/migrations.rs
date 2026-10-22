@@ -309,7 +309,10 @@ pub fn run(conn: &Connection) -> rusqlite::Result<()> {
 
 fn migrate_v15(conn: &Connection) -> rusqlite::Result<()> {
     if !column_exists(conn, "code_graph_nodes", "ast_symbol")? {
-        conn.execute("ALTER TABLE code_graph_nodes ADD COLUMN ast_symbol TEXT", [])?;
+        conn.execute(
+            "ALTER TABLE code_graph_nodes ADD COLUMN ast_symbol TEXT",
+            [],
+        )?;
     }
     if !column_exists(conn, "code_graph_nodes", "embedding_id")? {
         conn.execute(
@@ -334,7 +337,10 @@ fn migrate_v15(conn: &Connection) -> rusqlite::Result<()> {
 
 fn migrate_v14(conn: &Connection) -> rusqlite::Result<()> {
     if !column_exists(conn, "indexed_items", "file_mtime")? {
-        conn.execute("ALTER TABLE indexed_items ADD COLUMN file_mtime INTEGER", [])?;
+        conn.execute(
+            "ALTER TABLE indexed_items ADD COLUMN file_mtime INTEGER",
+            [],
+        )?;
     }
     Ok(())
 }
@@ -746,4 +752,3 @@ fn migrate_v20(conn: &Connection) -> rusqlite::Result<()> {
     )?;
     Ok(())
 }
-

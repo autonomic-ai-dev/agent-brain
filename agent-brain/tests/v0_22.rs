@@ -40,7 +40,7 @@ fn test_config(dir: &TempDir) -> Config {
         route_briefing_stderr: false,
         mcp_gate_enabled: false,
         mcp_gate_ttl_secs: 600,
-                session_stickiness_secs: 0,
+        session_stickiness_secs: 0,
         precision_rerank_enabled: false,
         query_decompose_enabled: false,
         ann_enabled: true,

@@ -297,7 +297,10 @@ pub fn recommend_path_boosts(home: &Path) -> Vec<(String, f64)> {
     let registry = PackageRegistry::load(home).unwrap_or_default();
     let mut out = Vec::new();
     for pkg in registry.packages {
-        if let Some(&boost) = by_source.get(&pkg.source) {
+        if let Some(&boost) = by_source
+            .get(&pkg.source)
+            .or_else(|| by_source.get(&pkg.name))
+        {
             if boost > 0.0 {
                 out.push((pkg.install_path, boost));
             }
@@ -495,7 +498,9 @@ mod tests {
             ("/home/pkg/skills".into(), 0.35),
             ("/home/pkg/other".into(), 0.1),
         ];
-        assert!((path_recommend_boost("/home/pkg/skills/tdd/SKILL.md", &boosts) - 0.35).abs() < 1e-9);
+        assert!(
+            (path_recommend_boost("/home/pkg/skills/tdd/SKILL.md", &boosts) - 0.35).abs() < 1e-9
+        );
         assert_eq!(path_recommend_boost("/tmp/unrelated", &boosts), 0.0);
     }
 }

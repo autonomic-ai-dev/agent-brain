@@ -242,7 +242,8 @@ fn is_agent_brain_hook_entry(entry: &Value, marker: &str) -> bool {
         }
     }
     if let Some(cmd) = entry.get("command").and_then(|v| v.as_str()) {
-        if cmd.contains(marker) || cmd.contains("agent-brain-route-gate") || is_gate_subcommand(cmd) {
+        if cmd.contains(marker) || cmd.contains("agent-brain-route-gate") || is_gate_subcommand(cmd)
+        {
             return true;
         }
     }
@@ -415,7 +416,10 @@ pub fn install_vscode_copilot_instructions(quiet: bool) -> Result<()> {
             path.display()
         );
         if mode_path.is_file() {
-            println!("Installed VS Code agent-brain mode at {}", mode_path.display());
+            println!(
+                "Installed VS Code agent-brain mode at {}",
+                mode_path.display()
+            );
         }
     }
     Ok(())
@@ -628,7 +632,6 @@ mod tests {
             .collect();
         assert!(commands.contains(&"/usr/local/bin/audit-tool"));
     }
-
 
     #[test]
     fn claude_settings_path_project_scope() {

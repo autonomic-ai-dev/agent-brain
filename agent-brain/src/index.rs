@@ -36,8 +36,7 @@ pub fn sync_index_opts(
     embedder: &Embedder,
     cwd: Option<&Path>,
     changed_only: bool,
-    #[cfg_attr(not(feature = "extras"), allow(unused_variables))]
-    enable_ast_index: bool,
+    #[cfg_attr(not(feature = "extras"), allow(unused_variables))] enable_ast_index: bool,
 ) -> Result<usize> {
     let roots = config.default_index_roots(cwd);
     // Drop stale Rules that would no longer be indexed (references/, skill-tree docs).
@@ -55,7 +54,11 @@ pub fn sync_index_opts(
     let mut file_tasks = Vec::new();
     for root in &roots {
         if root.is_file() {
-            file_tasks.push((root.to_path_buf(), None, package_context(root, &config.home)));
+            file_tasks.push((
+                root.to_path_buf(),
+                None,
+                package_context(root, &config.home),
+            ));
             continue;
         }
         if !root.exists() {
@@ -278,7 +281,8 @@ pub fn sync_index_opts(
         let ast_node_list = ast_nodes.into_inner().unwrap_or_default();
         let ast_edge_list = ast_edges.into_inner().unwrap_or_default();
         if !ast_node_list.is_empty() || !ast_edge_list.is_empty() {
-            let mut by_repo: HashMap<String, (Vec<AstCodeNodeRow>, Vec<AstEdgeRow>)> = HashMap::new();
+            let mut by_repo: HashMap<String, (Vec<AstCodeNodeRow>, Vec<AstEdgeRow>)> =
+                HashMap::new();
             for node in ast_node_list {
                 by_repo
                     .entry(node.repo_root.clone())
@@ -369,7 +373,6 @@ fn is_non_entry_skill_tree_doc(path: &Path) -> bool {
 pub fn is_noise_rule_source(path: &str) -> bool {
     path.contains("/references/") || is_non_entry_skill_tree_doc(Path::new(path))
 }
-
 
 struct ParsedItem {
     item_type: ItemType,

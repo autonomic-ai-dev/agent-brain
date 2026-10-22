@@ -166,10 +166,7 @@ pub fn git_pull(
 
     run_git(&root, &["fetch", "origin", settings.branch.as_str()])?;
     // Per-device dirs are disjoint; rebase avoids --ff-only dead-ends across devices.
-    let rebase = run_git(
-        &root,
-        &["rebase", &format!("origin/{}", settings.branch)],
-    );
+    let rebase = run_git(&root, &["rebase", &format!("origin/{}", settings.branch)]);
     if let Err(err) = rebase {
         // Empty repo / first pull: fall back to ff-only pull.
         let msg = err.to_string();

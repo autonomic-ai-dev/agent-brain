@@ -93,7 +93,6 @@ SCOUT_TOOL_MARKERS = (
     "find_files",
     "grep_search",
 )
-# Tool-level enforcement for coding-policy §3 (instructions alone do not stop Shell+python).
 ALLOW_PYTHON_SHELL = os.environ.get("AGENT_BRAIN_ALLOW_PYTHON_SHELL", "").strip().lower() in {
     "1",
     "true",
@@ -113,7 +112,7 @@ PYTHON_DASH_C_RE = re.compile(rf"(?i){_PY_CMD}(?:\s+-\w+)*\s+-c\b")
 PYTHON_STDIN_PIPE_RE = re.compile(rf"(?i)\|\s*(?:sudo\s+)?{_PY}")
 PYTHON_STDIN_MODE_RE = re.compile(rf"(?i){_PY_CMD}(?:\s+-\w+)*\s+-(?:\s|$|[;&|])")
 PYTHON_DENY_AGENT = (
-    "agent-brain: Python via Shell denied (coding-policy §3 tool policy). "
+    "agent-brain: Python via Shell denied (agstack tool policy). "
     "Do not use python -c / heredoc / piped stdin to read or edit files. "
     "Use MCP file_summary/read_file_head/grep_search then Read/StrReplace, or rg/sed/awk. "
     "Allowed: python -m pytest|unittest|… and running project .py files. "

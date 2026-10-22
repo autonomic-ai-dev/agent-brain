@@ -24,17 +24,11 @@ pub fn rrf_fuse(rankings: &[&[(String, f64)]], k: f64) -> Vec<(String, f64)> {
 
 /// Normalize RRF scores to `[0, 1]` by dividing by the max score (or 0 if empty).
 pub fn rrf_normalize(fused: &[(String, f64)]) -> HashMap<String, f64> {
-    let max = fused
-        .iter()
-        .map(|(_, s)| *s)
-        .fold(0.0f64, f64::max);
+    let max = fused.iter().map(|(_, s)| *s).fold(0.0f64, f64::max);
     if max <= 0.0 {
         return HashMap::new();
     }
-    fused
-        .iter()
-        .map(|(id, s)| (id.clone(), s / max))
-        .collect()
+    fused.iter().map(|(id, s)| (id.clone(), s / max)).collect()
 }
 
 /// True when `topic` is an exact symbol-like token present in `query` (AST boost gate).
@@ -67,16 +61,8 @@ mod tests {
     fn rrf_beats_single_source() {
         // Doc A ranks #1 in BM25 but #3 in ANN; B is #1 ANN only.
         // RRF should prefer A (present in both lists) over B.
-        let bm25 = vec![
-            ("a".into(), 10.0),
-            ("c".into(), 5.0),
-            ("d".into(), 1.0),
-        ];
-        let ann = vec![
-            ("b".into(), 0.99),
-            ("c".into(), 0.8),
-            ("a".into(), 0.7),
-        ];
+        let bm25 = vec![("a".into(), 10.0), ("c".into(), 5.0), ("d".into(), 1.0)];
+        let ann = vec![("b".into(), 0.99), ("c".into(), 0.8), ("a".into(), 0.7)];
         let fused = rrf_fuse(&[&bm25, &ann], RRF_K);
         assert_eq!(fused[0].0, "a", "dual-listed doc should win RRF: {fused:?}");
         let single = rrf_fuse(&[&ann], RRF_K);

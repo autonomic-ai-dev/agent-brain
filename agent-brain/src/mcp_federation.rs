@@ -214,7 +214,10 @@ pub fn audit_agent_body_schemas() -> Result<SchemaAudit> {
         if value.get("id") == Some(&json!(2)) {
             if let Some(tools) = value.pointer("/result/tools").and_then(|v| v.as_array()) {
                 tool_count = tools.len();
-                if let Some(bash) = tools.iter().find(|t| t.get("name") == Some(&json!("muscle_execute_bash"))) {
+                if let Some(bash) = tools
+                    .iter()
+                    .find(|t| t.get("name") == Some(&json!("muscle_execute_bash")))
+                {
                     let props = bash
                         .pointer("/inputSchema/properties")
                         .and_then(|v| v.as_object());
@@ -250,7 +253,6 @@ pub fn audit_with_timeout() -> Result<SchemaAudit> {
     audit_agent_body_schemas()
 }
 
-
 /// Enable `route_to_mcp` → agent-body when the binary is installed.
 /// Writes/merges `[brain.upstream_mcp]` in the unified autonomic config (or AGENT_BRAIN_HOME config).
 /// Returns true when agent-body is configured as an upstream server.
@@ -276,13 +278,16 @@ pub fn ensure_upstream_agent_body() -> Result<bool> {
         .iter()
         .any(|s| s.name.eq_ignore_ascii_case("agent-body"));
     if !already {
-        settings.upstream_mcp.servers.push(crate::settings::UpstreamServerConfig {
-            name: "agent-body".into(),
-            command: exe.display().to_string(),
-            args: vec!["serve-mcp".into()],
-            env: std::collections::HashMap::new(),
-            enabled: true,
-        });
+        settings
+            .upstream_mcp
+            .servers
+            .push(crate::settings::UpstreamServerConfig {
+                name: "agent-body".into(),
+                command: exe.display().to_string(),
+                args: vec!["serve-mcp".into()],
+                env: std::collections::HashMap::new(),
+                enabled: true,
+            });
     } else {
         for s in &mut settings.upstream_mcp.servers {
             if s.name.eq_ignore_ascii_case("agent-body") {

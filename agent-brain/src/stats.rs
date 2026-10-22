@@ -6,9 +6,9 @@ use std::fs;
 #[cfg(feature = "extras")]
 use std::path::Path;
 
-use anyhow::Result;
 #[cfg(feature = "extras")]
 use anyhow::Context;
+use anyhow::Result;
 use serde::Serialize;
 
 use crate::adoption::{self, AdoptionMilestones};
@@ -109,9 +109,7 @@ pub fn format_text(stats: &OperatorStats) -> String {
             stats.period.avg_routed_tokens
         ));
     } else {
-        out.push_str(
-            "- No routes logged yet (send an agent turn with route_task)\n",
-        );
+        out.push_str("- No routes logged yet (send an agent turn with route_task)\n");
     }
     if stats.period.routes_with_constraints > 0 {
         out.push_str(&format!(
@@ -135,11 +133,12 @@ pub fn format_text(stats: &OperatorStats) -> String {
     out.push_str("\n## Activity (period)\n\n");
     out.push_str(&format!(
         "- Memories committed: {}\n- Full-read steers: {}\n",
-        stats.value.memories_committed,
-        stats.value.blocked_full_reads,
+        stats.value.memories_committed, stats.value.blocked_full_reads,
     ));
     if stats.period.route_calls == 0 {
-        out.push_str("- Tip: run Agent mode once so route_task logs activity, then: `agent-brain stats`\n");
+        out.push_str(
+            "- Tip: run Agent mode once so route_task logs activity, then: `agent-brain stats`\n",
+        );
     }
 
     out.push_str("\n## Install timeline (local)\n\n");
@@ -150,7 +149,6 @@ pub fn format_text(stats: &OperatorStats) -> String {
         stats.adoption.starter_pack_at.as_deref().unwrap_or("—"),
         stats.adoption.supervisor_pack_at.as_deref().unwrap_or("—"),
     ));
-
 
     out
 }

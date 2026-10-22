@@ -67,7 +67,11 @@ pub fn normalize_remote_url(raw: &str) -> String {
     if let Some(rest) = s.strip_prefix("git@") {
         if let Some((host, path)) = rest.split_once(':') {
             let path = path.trim_end_matches(".git").trim_matches('/');
-            return format!("{}/{}", host.to_ascii_lowercase(), path.to_ascii_lowercase());
+            return format!(
+                "{}/{}",
+                host.to_ascii_lowercase(),
+                path.to_ascii_lowercase()
+            );
         }
     }
     // https://user:pass@host/owner/repo.git

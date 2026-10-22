@@ -66,8 +66,15 @@ pub fn infer_phase(message: &str) -> String {
     ]
     .iter()
     .any(|k| lower.contains(k))
-    || (is_mcp_host_task(message)
-        && ["not working", "missing", "empty", "broken", "fix", "register"]
+        || (is_mcp_host_task(message)
+            && [
+                "not working",
+                "missing",
+                "empty",
+                "broken",
+                "fix",
+                "register",
+            ]
             .iter()
             .any(|k| lower.contains(k)))
     {
@@ -164,19 +171,30 @@ pub fn infer_task_kind(message: &str) -> crate::types::TaskKind {
         return crate::types::TaskKind::Architecture;
     }
     if [
-        "fix", "debug", "error", "bug", "fail", "broken", "crash", "issue",
-        "panic",
+        "fix", "debug", "error", "bug", "fail", "broken", "crash", "issue", "panic",
     ]
     .iter()
     .any(|k| lower.contains(k))
     {
         return crate::types::TaskKind::Debugging;
     }
-    if ["docker", "compose", "local-dev", "k8s", "kubernetes", "deploy", "infra",
-        "setup", "install", "configure", "migration", "sync",
-        "docker-compose"]
-        .iter()
-        .any(|k| lower.contains(k))
+    if [
+        "docker",
+        "compose",
+        "local-dev",
+        "k8s",
+        "kubernetes",
+        "deploy",
+        "infra",
+        "setup",
+        "install",
+        "configure",
+        "migration",
+        "sync",
+        "docker-compose",
+    ]
+    .iter()
+    .any(|k| lower.contains(k))
     {
         return crate::types::TaskKind::Implementing;
     }
@@ -196,18 +214,17 @@ pub fn is_low_signal_memory(topic: &str, source: Option<&str>) -> bool {
         || topic_lower.starts_with("auto-route/")
         || matches!(
             source,
-            Some("session_digest")
-                | Some("legacy")
-                | Some("legacy_cursor")
-                | Some("observation")
+            Some("session_digest") | Some("legacy") | Some("legacy_cursor") | Some("observation")
         )
 }
 
 pub fn agent_boost_keywords(message: &str) -> bool {
     let lower = message.to_lowercase();
-    ["review", "debug", "build", "plan", "test", "security", "mcp"]
-        .iter()
-        .any(|k| lower.contains(k))
+    [
+        "review", "debug", "build", "plan", "test", "security", "mcp",
+    ]
+    .iter()
+    .any(|k| lower.contains(k))
 }
 
 /// True when the user message is about MCP host integration (Cursor, OpenCode, gateways).

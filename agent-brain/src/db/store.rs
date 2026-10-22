@@ -338,7 +338,7 @@ impl BrainStore {
     pub fn get_all_indexed_mtimes(&self) -> Result<std::collections::HashMap<String, i64>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT source_path, file_mtime FROM indexed_items WHERE file_mtime IS NOT NULL"
+                "SELECT source_path, file_mtime FROM indexed_items WHERE file_mtime IS NOT NULL",
             )?;
             let rows = stmt.query_map([], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
@@ -468,9 +468,8 @@ impl BrainStore {
     /// Remove Rule rows whose source_path matches skill-reference / skip noise paths.
     pub fn prune_noise_rule_rows(&self) -> Result<u64> {
         self.with_conn(|conn| {
-            let mut stmt = conn.prepare(
-                "SELECT id, source_path FROM indexed_items WHERE item_type = 'rule'",
-            )?;
+            let mut stmt =
+                conn.prepare("SELECT id, source_path FROM indexed_items WHERE item_type = 'rule'")?;
             let rows: Vec<(String, String)> = stmt
                 .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
                 .filter_map(|r| r.ok())
@@ -486,7 +485,6 @@ impl BrainStore {
             Ok(deleted)
         })
     }
-
 
     pub fn find_skill_items(&self, terms: &[String], limit: usize) -> Result<Vec<SkillItemRow>> {
         let clauses: Vec<String> = (1..=terms.len())
@@ -1296,7 +1294,11 @@ impl BrainStore {
         })
     }
 
-    pub fn set_sync_cursor(&self, remote_device_id: &str, hlc: crate::sync::hlc::Hlc) -> Result<()> {
+    pub fn set_sync_cursor(
+        &self,
+        remote_device_id: &str,
+        hlc: crate::sync::hlc::Hlc,
+    ) -> Result<()> {
         let now = chrono::Utc::now().timestamp_millis();
         self.with_conn(|conn| {
             conn.execute(
@@ -1352,8 +1354,8 @@ impl BrainStore {
         if domain == "unclassified" {
             // Local-only until classified — still record outbox for later classify+push filtering.
         }
-        let apply_when_v: Option<Vec<String>> = apply_when
-            .and_then(|s| serde_json::from_str(s).ok());
+        let apply_when_v: Option<Vec<String>> =
+            apply_when.and_then(|s| serde_json::from_str(s).ok());
         let payload = serde_json::json!({
             "topic": topic,
             "fact": fact,
@@ -1385,9 +1387,9 @@ impl BrainStore {
         scope_key: Option<&str>,
     ) -> Result<()> {
         let domain = match scope_key {
-            Some(k) if !crate::project_key::looks_like_path_scope_key(k) => {
-                self.domain_for_project_key(k).unwrap_or_else(|_| "unclassified".to_string())
-            }
+            Some(k) if !crate::project_key::looks_like_path_scope_key(k) => self
+                .domain_for_project_key(k)
+                .unwrap_or_else(|_| "unclassified".to_string()),
             _ => "unclassified".to_string(),
         };
         let payload = serde_json::json!({
@@ -1461,7 +1463,6 @@ impl BrainStore {
             Ok(rows)
         })
     }
-
 
     pub fn list_secret_refs(&self) -> Result<Vec<crate::secrets::SecretRef>> {
         self.with_conn(|conn| {
@@ -2548,7 +2549,6 @@ impl BrainStore {
         })
     }
 
-
     pub fn load_retrieval_stats(&self, ids: &[String]) -> Result<HashMap<String, (u32, u32)>> {
         if ids.is_empty() {
             return Ok(HashMap::new());
@@ -2707,10 +2707,8 @@ impl BrainStore {
             .iter()
             .filter(|row| {
                 if crate::workspace::is_low_signal_memory(&row.topic, row.source.as_deref()) {
-                    let lex =
-                        crate::retrieval::lexical_overlap_score(query, &row.topic, &row.text);
-                    let ent =
-                        crate::retrieval::entity_overlap_score(query, &row.topic, &row.text);
+                    let lex = crate::retrieval::lexical_overlap_score(query, &row.topic, &row.text);
+                    let ent = crate::retrieval::entity_overlap_score(query, &row.topic, &row.text);
                     lex >= 0.15 || ent >= 0.15
                 } else {
                     true
@@ -2787,7 +2785,10 @@ impl BrainStore {
                 }
             }
 
-            if matches!(item_type, ItemType::Skill | ItemType::Rule | ItemType::Agent) {
+            if matches!(
+                item_type,
+                ItemType::Skill | ItemType::Rule | ItemType::Agent
+            ) {
                 let pkg_boost =
                     crate::packages::path_recommend_boost(&row.source_path, package_boosts);
                 if pkg_boost > 0.0 {
@@ -2822,9 +2823,18 @@ impl BrainStore {
                 }
             }
 
+            let is_procedural = matches!(item_type, ItemType::Skill | ItemType::Agent);
+            let has_query_affinity = lexical >= 0.12 || bm25_norm > 0.0 || cosine_sim >= 0.35;
+
+            if is_procedural && !has_query_affinity {
+                score *= 0.3;
+            }
+
             for tag in tags {
                 if row.topic.to_lowercase().contains(tag) || row.text.to_lowercase().contains(tag) {
-                    score += 0.15;
+                    if !is_procedural || has_query_affinity {
+                        score += 0.15;
+                    }
                     break;
                 }
             }
@@ -2834,7 +2844,9 @@ impl BrainStore {
             }
 
             if let Some(phase) = phase {
-                score += phase_match_boost(phase, &row.topic, &row.text);
+                if !is_procedural || has_query_affinity {
+                    score += phase_match_boost(phase, &row.topic, &row.text);
+                }
             }
 
             if let Some(weight) = context_weights.get(&row.id) {
@@ -2873,10 +2885,7 @@ impl BrainStore {
                     }
                 }
 
-                let (useful, useless) = retrieval_stats
-                    .get(&row.id)
-                    .copied()
-                    .unwrap_or((0, 0));
+                let (useful, useless) = retrieval_stats.get(&row.id).copied().unwrap_or((0, 0));
                 score *= feedback_multiplier(useful, useless);
                 score *= crate::memory_decay::ebbinghaus_multiplier(
                     row.updated_at,
@@ -2998,8 +3007,7 @@ impl BrainStore {
         &self,
         lookback_days: u32,
     ) -> Result<crate::telemetry::CacheSavingsSummary> {
-        let since_ms = chrono::Utc::now().timestamp_millis()
-            - (lookback_days as i64 * 86_400_000);
+        let since_ms = chrono::Utc::now().timestamp_millis() - (lookback_days as i64 * 86_400_000);
 
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
@@ -3192,15 +3200,27 @@ mod tests {
             heart_synced: false,
         };
 
-        store.insert_turn_telemetry(&outcome, Some("planning")).unwrap();
+        store
+            .insert_turn_telemetry(&outcome, Some("planning"))
+            .unwrap();
 
         let summary = store.query_turn_telemetry_summary(30).unwrap();
         assert_eq!(summary.total_turns, 1);
         assert_eq!(summary.total_prompt_tokens, 10_000);
         assert_eq!(summary.total_cache_read_tokens, 40_000);
         assert_eq!(summary.overall_cache_hit_pct, 80.0);
-        assert_eq!(summary.by_provider.get("anthropic").unwrap().prompt_tokens, 10_000);
-        assert_eq!(summary.by_model.get("claude-3-5-sonnet").unwrap().cache_read_tokens, 40_000);
+        assert_eq!(
+            summary.by_provider.get("anthropic").unwrap().prompt_tokens,
+            10_000
+        );
+        assert_eq!(
+            summary
+                .by_model
+                .get("claude-3-5-sonnet")
+                .unwrap()
+                .cache_read_tokens,
+            40_000
+        );
     }
 }
 
@@ -3435,7 +3455,6 @@ pub(crate) fn bytes_to_f32(blob: &[u8]) -> Vec<f32> {
         .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
         .collect()
 }
-
 
 pub fn normalize_fact(text: &str) -> String {
     text.to_lowercase()

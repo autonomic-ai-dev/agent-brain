@@ -125,7 +125,11 @@ fn parse_suggestion(raw: &Value, source: &'static str) -> Result<ParsedSuggestio
     let polarity = raw
         .get("polarity")
         .and_then(|v| v.as_str())
-        .unwrap_or(if source == "edit" { "positive" } else { "negative" })
+        .unwrap_or(if source == "edit" {
+            "positive"
+        } else {
+            "negative"
+        })
         .to_string();
     let path = raw.get("path").and_then(|v| v.as_str()).map(str::to_string);
     Ok(ParsedSuggestion {

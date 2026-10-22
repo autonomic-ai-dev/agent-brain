@@ -2,8 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use agent_brain::cache::{
-    fingerprint_open_files, fingerprint_query, route_cache_key, CacheKey,
-    TurnCache,
+    fingerprint_open_files, fingerprint_query, route_cache_key, CacheKey, TurnCache,
 };
 use agent_brain::config::Config;
 use agent_brain::db::store::{content_hash, looks_like_secret, BrainStore};
@@ -43,7 +42,7 @@ fn test_config(dir: &TempDir) -> Config {
         route_briefing_stderr: false,
         mcp_gate_enabled: false,
         mcp_gate_ttl_secs: 600,
-                session_stickiness_secs: 0,
+        session_stickiness_secs: 0,
         precision_rerank_enabled: false,
         query_decompose_enabled: false,
         ann_enabled: true,
@@ -588,4 +587,95 @@ fn route_limits_schema_defaults_are_nonzero() {
             .unwrap_or(0);
         assert!(default > 0, "{field} schema default should be > 0");
     }
+}
+
+#[test]
+fn unrelated_query_in_tagged_workspace_yields_zero_skills() {
+    let dir = TempDir::new().unwrap();
+    let config = test_config(&dir);
+    let store = BrainStore::open(&config.db_path).unwrap();
+    let ws_dir = TempDir::new().unwrap();
+    std::fs::write(
+        ws_dir.path().join("Cargo.toml"),
+        "[package]\nname = \"demo\"\n",
+    )
+    .unwrap();
+
+    let skills = [
+        (
+            "rust-patterns",
+            "Idiomatic Rust patterns, ownership, error handling, traits, and best practices",
+        ),
+        (
+            "rust-testing",
+            "Rust unit and integration testing with cargo test, proptest, and mockall",
+        ),
+    ];
+
+    for (topic, text) in skills {
+        let emb = deterministic_embedding(&format!("{topic} {text}"));
+        store
+            .upsert_indexed_item(
+                ItemType::Skill,
+                topic,
+                text,
+                &format!("/skills/{topic}/SKILL.md"),
+                "global",
+                None,
+                &content_hash(text),
+                Some(&emb),
+            )
+            .unwrap();
+    }
+
+    let engine = Engine::new_with_store(config, Arc::new(store)).unwrap();
+
+    let unrelated = engine
+        .route_task(
+            "currently getting many false positive skill suggestions, need to rethink how the suggestion is working.",
+            Some(ws_dir.path()),
+            &[],
+            500,
+            RouteLimits {
+                agents: 0,
+                skills: 3,
+                rules: 0,
+                memory: 0,
+            },
+            None,
+            None,
+        )
+        .unwrap();
+
+    assert!(
+        unrelated.recommended_skills.is_empty(),
+        "expected 0 skills for unrelated query in Rust workspace, got: {:?}",
+        unrelated.recommended_skills
+    );
+
+    let related = engine
+        .route_task(
+            "write unit tests with cargo test",
+            Some(ws_dir.path()),
+            &[],
+            500,
+            RouteLimits {
+                agents: 0,
+                skills: 3,
+                rules: 0,
+                memory: 0,
+            },
+            None,
+            None,
+        )
+        .unwrap();
+
+    assert!(
+        related
+            .recommended_skills
+            .iter()
+            .any(|s| s.name == "rust-testing"),
+        "expected rust-testing for matching query, got: {:?}",
+        related.recommended_skills
+    );
 }

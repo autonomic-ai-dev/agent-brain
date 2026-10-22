@@ -17,6 +17,31 @@ pub struct CuratedRegistryFile {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+struct RegistryJsonFile {
+    #[allow(dead_code)]
+    #[serde(default)]
+    pub version: u32,
+    #[serde(default)]
+    pub packages: std::collections::BTreeMap<String, RegistryPackageEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct RegistryPackageEntry {
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub git_url: Option<String>,
+    #[serde(default)]
+    pub packages: Vec<String>,
+    #[serde(default)]
+    pub default: bool,
+    #[serde(default)]
+    pub recommend_boost: f64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct CuratedAlias {
     pub description: String,
     #[serde(default)]
@@ -140,6 +165,69 @@ pub fn list_workflows() -> Result<Vec<WorkflowInfo>> {
 
 pub fn load_curated_registry() -> Result<CuratedRegistryFile> {
     let home = registry_home();
+    let reg_json_path = registry_sync::cache_dir(&home).join("registry.json");
+    if reg_json_path.is_file() {
+        if let Ok(raw) = std::fs::read_to_string(&reg_json_path) {
+            if let Ok(parsed) = serde_json::from_str::<RegistryJsonFile>(&raw) {
+                let mut aliases = std::collections::BTreeMap::new();
+                for (name, entry) in &parsed.packages {
+                    let (bundle, packages) = if let Some(p) = &entry.path {
+                        let bundle_name = p.strip_prefix("packages/").unwrap_or(p).to_string();
+                        (Some(bundle_name), Vec::new())
+                    } else if let Some(git) = &entry.git_url {
+                        let clean_git = git
+                            .strip_prefix("https://github.com/")
+                            .unwrap_or(git)
+                            .strip_suffix(".git")
+                            .unwrap_or(git)
+                            .to_string();
+                        (None, vec![clean_git])
+                    } else {
+                        let mut resolved_pkgs = Vec::new();
+                        for pkg in &entry.packages {
+                            if let Some(sub) = parsed.packages.get(pkg) {
+                                if let Some(git) = &sub.git_url {
+                                    let clean_git = git
+                                        .strip_prefix("https://github.com/")
+                                        .unwrap_or(git)
+                                        .strip_suffix(".git")
+                                        .unwrap_or(git)
+                                        .to_string();
+                                    resolved_pkgs.push(clean_git);
+                                } else {
+                                    resolved_pkgs.push(pkg.clone());
+                                }
+                            } else {
+                                resolved_pkgs.push(pkg.clone());
+                            }
+                        }
+                        (None, resolved_pkgs)
+                    };
+                    aliases.insert(
+                        name.clone(),
+                        CuratedAlias {
+                            description: entry.description.clone(),
+                            bundle,
+                            packages,
+                            default: entry.default,
+                            recommend_boost: entry.recommend_boost,
+                        },
+                    );
+                }
+                if let Ok(embedded) = serde_json::from_str::<CuratedRegistryFile>(EMBEDDED_REGISTRY)
+                {
+                    for (alias, entry) in embedded.aliases {
+                        aliases.entry(alias).or_insert(entry);
+                    }
+                }
+                return Ok(CuratedRegistryFile {
+                    version: parsed.version,
+                    aliases,
+                });
+            }
+        }
+    }
+
     let raw = registry_sync::read_registry_file(&home, "packages.json", EMBEDDED_REGISTRY);
     let mut reg: CuratedRegistryFile =
         serde_json::from_str(&raw).context("parse package registry")?;
@@ -203,6 +291,22 @@ pub fn recommend_boost_by_source() -> Result<std::collections::HashMap<String, f
     for entry in list_aliases()? {
         if entry.recommend_boost <= 0.0 {
             continue;
+        }
+        if let Some(bundle) = &entry.bundle {
+            let e = map.entry(bundle.clone()).or_insert(0.0);
+            if entry.recommend_boost > *e {
+                *e = entry.recommend_boost;
+            }
+            let reg_key = format!("registry:packages/{bundle}");
+            let e = map.entry(reg_key).or_insert(0.0);
+            if entry.recommend_boost > *e {
+                *e = entry.recommend_boost;
+            }
+            let bndl_key = format!("agent-brain/bundle:{bundle}");
+            let e = map.entry(bndl_key).or_insert(0.0);
+            if entry.recommend_boost > *e {
+                *e = entry.recommend_boost;
+            }
         }
         for src in entry.packages {
             let e = map.entry(src).or_insert(0.0);
@@ -270,7 +374,9 @@ mod tests {
         let sources = resolve_package_inputs("@starter").unwrap();
         assert_eq!(sources.len(), 2);
         assert!(sources.iter().any(|s| s.contains("mattpocock/skills")));
-        assert!(sources.iter().any(|s| s.contains("vercel-labs/agent-skills")));
+        assert!(sources
+            .iter()
+            .any(|s| s.contains("vercel-labs/agent-skills")));
     }
 
     #[test]
@@ -294,10 +400,7 @@ mod tests {
     #[test]
     fn resolves_autonomic_core_bundle_alias() {
         let resolved = lookup_alias("@autonomic-core").unwrap().unwrap();
-        assert_eq!(
-            resolved,
-            ResolvedAlias::Bundle("autonomic-core".into())
-        );
+        assert_eq!(resolved, ResolvedAlias::Bundle("autonomic-core".into()));
     }
 
     #[test]
@@ -325,17 +428,17 @@ mod tests {
         assert!(utils.iter().any(|u| u.name == "agent-heart"));
         assert!(utils.iter().any(|u| u.name == "agent-muscle"));
         let body = utils.iter().find(|u| u.name == "agent-body").unwrap();
-        assert!(body.description.to_ascii_lowercase().contains("control plane")
-            || body.description.to_ascii_lowercase().contains("prefer"));
-    }
-
-    #[test]
-    fn resolves_coding_policy_bundle_alias() {
-        let resolved = lookup_alias("@coding-policy").unwrap().unwrap();
-        assert_eq!(
-            resolved,
-            ResolvedAlias::Bundle("coding-policy".into())
+        assert!(
+            body.description
+                .to_ascii_lowercase()
+                .contains("control plane")
+                || body.description.to_ascii_lowercase().contains("prefer")
         );
     }
 
+    #[test]
+    fn resolves_agstack_bundle_alias() {
+        let resolved = lookup_alias("@agstack").unwrap().unwrap();
+        assert_eq!(resolved, ResolvedAlias::Bundle("agstack".into()));
+    }
 }

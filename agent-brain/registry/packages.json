@@ -71,10 +71,12 @@
       "bundle": "product-layer",
       "packages": []
     },
-    "coding-policy": {
-      "description": "Strict engineering policy \u2014 inspect, implement natively, test, verify (Cursor/Claude/OpenCode/Augment)",
-      "bundle": "coding-policy",
-      "packages": []
+    "agstack": {
+      "description": "agstack (Abhiuday Gupta Stack) — Universal engineering process, playbooks, strict verification (.verify/), immutability, and zero comment slop",
+      "bundle": "agstack",
+      "packages": [],
+      "default": true,
+      "recommend_boost": 0.40
     }
   }
 }

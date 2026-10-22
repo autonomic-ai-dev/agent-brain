@@ -4,7 +4,7 @@ use anyhow::Result;
 use serde::Deserialize;
 use serde_json::json;
 
-const DENY_REASON: &str = "Commits must not skip git hooks. The coding-policy comment guard runs in the pre-commit hook. Remove --no-verify, -n, and any core.hooksPath override, then commit again.";
+const DENY_REASON: &str = "Commits must not skip git hooks. The comment guard runs in the pre-commit hook. Remove --no-verify, -n, and any core.hooksPath override, then commit again.";
 
 const WRAPPERS: &[&str] = &[
     "command",

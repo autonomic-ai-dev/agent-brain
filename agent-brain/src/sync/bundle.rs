@@ -153,7 +153,13 @@ pub fn import_bundle(
                 "bundle min_reader_version {min_reader} is newer than this agent-brain (supports 2)"
             );
         }
-        return crate::sync::v2::import_v2_bundle(store, embedder, bundle_path, policy, sync_source);
+        return crate::sync::v2::import_v2_bundle(
+            store,
+            embedder,
+            bundle_path,
+            policy,
+            sync_source,
+        );
     }
     let manifest: BundleManifest =
         serde_json::from_str(&manifest_raw).context("parse manifest.json")?;
@@ -162,8 +168,7 @@ pub fn import_bundle(
         // v1 manifest without facts — nothing to do
         return Ok(ImportReport::default());
     }
-    let facts_body =
-        fs::read_to_string(&facts_path).context("read facts.jsonl")?;
+    let facts_body = fs::read_to_string(&facts_path).context("read facts.jsonl")?;
     let checksum = sha256_hex(facts_body.as_bytes());
     if checksum != manifest.checksums.facts_jsonl {
         anyhow::bail!("facts.jsonl checksum mismatch");

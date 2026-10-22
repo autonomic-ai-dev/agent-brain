@@ -802,9 +802,14 @@ impl Engine {
         };
         let mut all_tags = ws.tags.clone();
         all_tags.extend(scratchpad_keywords);
-        all_tags.extend(mcp_route_expansion_tags(user_message));
+        let mcp_tags = mcp_route_expansion_tags(user_message);
+        all_tags.extend(mcp_tags.clone());
 
-        let query = format!("{} {}", user_message, all_tags.join(" "));
+        let query = if mcp_tags.is_empty() {
+            format!("{} ", user_message.trim_end())
+        } else {
+            format!("{} {}", user_message, mcp_tags.join(" "))
+        };
         let message_fp = fingerprint_query(user_message);
         let (scored, candidates, index_total, embed_us, score_us, embed_cache_hit, bm25_fast_path) =
             self.route_query_parallel(
@@ -872,6 +877,10 @@ impl Engine {
                 ),
             });
         }
+        resp.must_apply.push(crate::types::MustApply {
+            topic: "agstack-invariants".into(),
+            text: "Mandatory agstack invariants: 1. Immutability first (never mutate in-place; return fresh copies). 2. Zero AI comment slop (self-documenting code; pre-commit rejects comment lines). 3. Boundary discipline (validate schemas at boundaries). 4. Fix root causes (never mask with defensive null-checks; verify with regression test).".into(),
+        });
         #[cfg(feature = "extras")]
         if let Some(repo) = ws.repo_root.as_deref() {
             if settings.graphify.enabled {
@@ -1136,7 +1145,7 @@ impl Engine {
         include_types: &[ItemType],
     ) -> Result<GetContextResponse> {
         let ws = probe(cwd);
-        let query = format!("{} {}", task_description, ws.tags.join(" "));
+        let query = task_description.to_string();
         let message_fp = fingerprint_query(task_description);
         let (scored, _, _, _, _, _, _) = self.route_query_parallel(
             &query,
@@ -1175,6 +1184,16 @@ impl Engine {
             }
             if is_duplicate_topic(&mut seen_topics, &item) {
                 continue;
+            }
+            if matches!(item.item_type, ItemType::Skill | ItemType::Agent) {
+                let msg_lexical = crate::retrieval::lexical_overlap_score(
+                    task_description,
+                    &item.topic,
+                    &item.text,
+                );
+                if msg_lexical == 0.0 && item.score < 0.65 {
+                    continue;
+                }
             }
             if let Some(top) = items.first() {
                 let min_relative = (top.score * 0.70).max(top.score - 0.20);
@@ -1385,14 +1404,28 @@ fn build_route_response(
         // Margin: additional items must stay close to the top hit of their type.
         match item.item_type {
             ItemType::Skill => {
+                let msg_lexical =
+                    crate::retrieval::lexical_overlap_score(user_message, &item.topic, &item.text);
+                let is_agstack = item
+                    .source_path
+                    .as_deref()
+                    .map_or(false, |p| p.contains("agstack"));
+                if msg_lexical == 0.0 && item.score < 0.65 && !is_agstack {
+                    continue;
+                }
                 if let Some(top) = resp.recommended_skills.first() {
                     let min_relative = (top.score * 0.70).max(top.score - 0.18);
-                    if item.score < min_relative {
+                    if item.score < min_relative && !is_agstack {
                         continue;
                     }
                 }
             }
             ItemType::Agent => {
+                let msg_lexical =
+                    crate::retrieval::lexical_overlap_score(user_message, &item.topic, &item.text);
+                if msg_lexical == 0.0 && item.score < 0.65 {
+                    continue;
+                }
                 if let Some(top) = resp.recommended_agents.first() {
                     let min_relative = (top.score * 0.70).max(top.score - 0.15);
                     if item.score < min_relative {
@@ -1426,6 +1459,26 @@ fn build_route_response(
             project_key,
             repo_root,
         );
+    }
+
+    if resp.recommended_skills.is_empty() && limits.skills > 0 {
+        if let Some(agstack_item) = scored.iter().find(|i| {
+            matches!(i.item_type, ItemType::Skill)
+                && i.source_path
+                    .as_deref()
+                    .map_or(false, |p| p.contains("agstack"))
+        }) {
+            try_add_route_item(
+                &mut resp,
+                &mut state,
+                agstack_item,
+                limits,
+                phase,
+                max_tokens,
+                project_key,
+                repo_root,
+            );
+        }
     }
 
     // Pass 2: memory with whatever budget remains (same score floor; domain filter; no digest/obs noise).
@@ -1635,11 +1688,13 @@ fn must_apply_for_memory(
         return None;
     }
     let labeled_negative = item.polarity.as_deref() == Some("negative");
+    let is_trap = item.topic.starts_with("trap-") || item.topic.starts_with("anti-pattern");
     let heuristic_negative =
         item.text.to_lowercase().contains("do not") || item.text.to_lowercase().contains("never ");
     let scoped = project_scope_matches(item, project_key, repo_root);
 
     let promote = (item.apply_when_matched && item.score >= 0.55 && item.lexical >= 0.15)
+        || (is_trap && (item.score >= 0.35 || item.lexical >= 0.15))
         || (labeled_negative
             && item.score >= 0.55
             && item.lexical >= 0.20
@@ -1651,9 +1706,14 @@ fn must_apply_for_memory(
             && item.apply_when_matched);
 
     if promote {
+        let display_text = if is_trap {
+            format!("TRAP WARNING: {}", item.text.chars().take(180).collect::<String>())
+        } else {
+            item.text.chars().take(200).collect()
+        };
         Some(MustApply {
             topic: item.topic.clone(),
-            text: item.text.chars().take(200).collect(),
+            text: display_text,
         })
     } else {
         None
@@ -1873,6 +1933,28 @@ mod tests {
             scope_key: None,
         };
         assert!(must_apply_for_memory(&cinema, None, Some("/tmp/agent-brain")).is_none());
+    }
+
+    #[test]
+    fn trap_memory_promoted_with_warning_prefix() {
+        let trap = ScoredItem {
+            id: "trap-1".into(),
+            item_type: ItemType::Memory,
+            topic: "trap-inline-comments".into(),
+            text: "do not add explanatory comment lines in rust files".into(),
+            source_path: None,
+            scope: "global".into(),
+            score: 0.45,
+            polarity: Some("negative".into()),
+            apply_when_matched: false,
+            lexical: 0.20,
+            scope_key: None,
+        };
+        let res = must_apply_for_memory(&trap, None, None);
+        assert!(res.is_some());
+        let constraint = res.unwrap();
+        assert!(constraint.text.starts_with("TRAP WARNING:"));
+        assert_eq!(constraint.topic, "trap-inline-comments");
     }
 
     #[test]

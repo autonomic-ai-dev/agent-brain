@@ -223,7 +223,11 @@ fn apply_event(
                 &p.scope,
                 scope_key.as_deref(),
                 p.confidence,
-                if p.source.is_empty() { "sync" } else { &p.source },
+                if p.source.is_empty() {
+                    "sync"
+                } else {
+                    &p.source
+                },
                 &hash,
                 &emb,
                 &p.polarity,
@@ -243,7 +247,8 @@ fn apply_event(
             if let Some(id) = p.fact_id.as_deref() {
                 let _ = store.delete_fact(Some(id), None, None, None)?;
                 report.imported += 1;
-            } else if let (Some(hash), Some(scope)) = (p.content_hash.as_deref(), p.scope.as_deref())
+            } else if let (Some(hash), Some(scope)) =
+                (p.content_hash.as_deref(), p.scope.as_deref())
             {
                 // Soft-delete by invalidating matching active fact.
                 if let Ok(Some(id)) = store.find_active_fact_id(hash, scope, p.scope_key.as_deref())

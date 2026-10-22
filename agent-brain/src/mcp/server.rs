@@ -2783,7 +2783,11 @@ mod tests {
         assert!(!err.message.contains(&*gone.to_string_lossy()));
     }
 
-    fn upstream_tool(server: &str, name: &str, description: &str) -> crate::upstream::IndexedUpstreamTool {
+    fn upstream_tool(
+        server: &str,
+        name: &str,
+        description: &str,
+    ) -> crate::upstream::IndexedUpstreamTool {
         crate::upstream::IndexedUpstreamTool {
             server: server.to_string(),
             name: name.to_string(),

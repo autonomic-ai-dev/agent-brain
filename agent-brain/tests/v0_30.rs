@@ -58,7 +58,9 @@ fn count_code_graph_nodes(store: &BrainStore, repo_root: &str) -> usize {
             let mut stmt = conn
                 .prepare("SELECT COUNT(*) FROM code_graph_nodes WHERE repo_root = ?1")
                 .unwrap();
-            let n: i64 = stmt.query_row(rusqlite::params![repo_root], |r| r.get(0)).unwrap();
+            let n: i64 = stmt
+                .query_row(rusqlite::params![repo_root], |r| r.get(0))
+                .unwrap();
             Ok(n as usize)
         })
         .unwrap()
@@ -70,7 +72,9 @@ fn count_code_graph_edges(store: &BrainStore, repo_root: &str) -> usize {
             let mut stmt = conn
                 .prepare("SELECT COUNT(*) FROM code_graph_edges WHERE repo_root = ?1")
                 .unwrap();
-            let n: i64 = stmt.query_row(rusqlite::params![repo_root], |r| r.get(0)).unwrap();
+            let n: i64 = stmt
+                .query_row(rusqlite::params![repo_root], |r| r.get(0))
+                .unwrap();
             Ok(n as usize)
         })
         .unwrap()
@@ -89,9 +93,18 @@ fn migration_v15_adds_columns() {
                 .unwrap()
                 .filter_map(|r| r.ok())
                 .collect();
-            assert!(cols.contains(&"ast_symbol".into()), "ast_symbol column missing");
-            assert!(cols.contains(&"embedding_id".into()), "embedding_id column missing");
-            assert!(cols.contains(&"start_line".into()), "start_line column missing");
+            assert!(
+                cols.contains(&"ast_symbol".into()),
+                "ast_symbol column missing"
+            );
+            assert!(
+                cols.contains(&"embedding_id".into()),
+                "embedding_id column missing"
+            );
+            assert!(
+                cols.contains(&"start_line".into()),
+                "start_line column missing"
+            );
             assert!(cols.contains(&"end_line".into()), "end_line column missing");
             Ok(())
         })
@@ -129,8 +142,8 @@ fn upsert_ast_code_nodes_updates_existing_by_graphify_id() {
         start_line: 10,
         end_line: 14,
         language: "Rust".into(),
-            doc_comment: Some("Updated doc.".into()),
-        }];
+        doc_comment: Some("Updated doc.".into()),
+    }];
     store.upsert_ast_code_nodes(repo, &updated, 2000).unwrap();
 
     // handle_request updated in place, AppConfig unchanged
@@ -189,9 +202,7 @@ fn replace_code_graph_clears_ast_nodes() {
     store.upsert_ast_code_nodes(repo, &ast_nodes, 100).unwrap();
     assert_eq!(count_code_graph_nodes(&store, repo), 2);
 
-    store
-        .replace_code_graph(repo, &[], &[], 200)
-        .unwrap();
+    store.replace_code_graph(repo, &[], &[], 200).unwrap();
     assert_eq!(count_code_graph_nodes(&store, repo), 0);
 }
 
@@ -240,16 +251,14 @@ fn build_code_graph_from_ast_creates_queryable_nodes_and_edges() {
         },
     ];
 
-    let edges = vec![
-        AstEdgeRow {
-            repo_root: repo.to_string(),
-            source_id: "main".into(),
-            target_id: "helper".into(),
-            relation: "calls".into(),
-            source_file: "src/main.rs".into(),
-            start_line: 2,
-        },
-    ];
+    let edges = vec![AstEdgeRow {
+        repo_root: repo.to_string(),
+        source_id: "main".into(),
+        target_id: "helper".into(),
+        relation: "calls".into(),
+        source_file: "src/main.rs".into(),
+        start_line: 2,
+    }];
 
     store
         .build_code_graph_from_ast(repo, &nodes, &edges, 1000)

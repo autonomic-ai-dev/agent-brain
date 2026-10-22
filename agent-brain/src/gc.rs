@@ -273,9 +273,6 @@ mod tests {
             minhash_signature("alpha beta gamma"),
         ];
         let pairs = lsh_candidate_pairs(&sigs);
-        assert!(
-            pairs.contains(&(0, 2)),
-            "expected (0,2) in {pairs:?}"
-        );
+        assert!(pairs.contains(&(0, 2)), "expected (0,2) in {pairs:?}");
     }
 }
