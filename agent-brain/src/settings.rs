@@ -510,9 +510,15 @@ impl Default for McpAutoUpdateSettings {
     }
 }
 
+static MIGRATIONS_ONCE: std::sync::Once = std::sync::Once::new();
+static SETTINGS_CACHE: std::sync::Mutex<Option<(PathBuf, std::time::SystemTime, AgentBrainSettings)>> =
+    std::sync::Mutex::new(None);
+
 impl AgentBrainSettings {
     pub fn load(home: &Path) -> Self {
-        let _ = agent_body_core::run_legacy_migrations();
+        MIGRATIONS_ONCE.call_once(|| {
+            let _ = agent_body_core::run_legacy_migrations();
+        });
         let mut settings = Self::from_unified_config()
             .or_else(|| Self::from_file(home).ok())
             .unwrap_or_default();
@@ -531,12 +537,30 @@ impl AgentBrainSettings {
 
     pub fn from_file(home: &Path) -> Result<Self> {
         let path = config_path(home)?;
-        let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
-        if path.extension().and_then(|e| e.to_str()) == Some("json") {
-            serde_json::from_str(&raw).context("parse config.json")
-        } else {
-            serde_yaml::from_str(&raw).context("parse config.yaml")
+        let mtime = fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+
+        if let Ok(guard) = SETTINGS_CACHE.lock() {
+            if let Some((cached_path, cached_mtime, cached_settings)) = guard.as_ref() {
+                if *cached_path == path && *cached_mtime == mtime {
+                    return Ok(cached_settings.clone());
+                }
+            }
         }
+
+        let raw = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+        let parsed: Self = if path.extension().and_then(|e| e.to_str()) == Some("json") {
+            serde_json::from_str(&raw).context("parse config.json")?
+        } else {
+            serde_yaml::from_str(&raw).context("parse config.yaml")?
+        };
+
+        if let Ok(mut guard) = SETTINGS_CACHE.lock() {
+            *guard = Some((path, mtime, parsed.clone()));
+        }
+
+        Ok(parsed)
     }
 
     pub fn save_default(home: &Path) -> Result<PathBuf> {

@@ -492,10 +492,11 @@ fn extract_skill_text(content: &str, name: &str) -> String {
     };
     if let Some(activation) = extract_activation_section(&body) {
         parts.push(activation);
-    }
-    let body_snippet: String = body.lines().take(8).collect::<Vec<_>>().join(" ");
-    if !body_snippet.is_empty() {
-        parts.push(body_snippet);
+    } else {
+        let body_snippet: String = body.lines().take(6).collect::<Vec<_>>().join(" ");
+        if !body_snippet.is_empty() {
+            parts.push(body_snippet);
+        }
     }
     parts.join(" ").chars().take(800).collect()
 }

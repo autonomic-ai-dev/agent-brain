@@ -12,6 +12,8 @@ use sha2::{Digest, Sha256};
 struct SnapshotState {
     head: String,
     updated_at_ms: i64,
+    #[serde(default)]
+    snapshot: Option<String>,
 }
 
 /// Capture ambient git state for the repo at `repo_root`. Returns `None` if not a git repo.
@@ -22,6 +24,17 @@ pub fn capture(repo_root: &Path, brain_home: &Path) -> Option<String> {
 }
 
 fn capture_inner(repo_root: &Path, brain_home: &Path) -> Result<String> {
+    let state_path = state_file(brain_home, repo_root);
+    let prior = read_state(&state_path);
+    let now = chrono::Utc::now().timestamp_millis();
+    if let Some(prev) = &prior {
+        if now.saturating_sub(prev.updated_at_ms) < 2000 {
+            if let Some(cached) = &prev.snapshot {
+                return Ok(cached.clone());
+            }
+        }
+    }
+
     if git_output(repo_root, &["rev-parse", "--is-inside-work-tree"]) != Some("true".into()) {
         return Ok(String::new());
     }
@@ -97,15 +110,17 @@ fn capture_inner(repo_root: &Path, brain_home: &Path) -> Result<String> {
         }
     }
 
+    let result = parts.join(" | ");
     write_state(
         &state_path,
         &SnapshotState {
             head,
-            updated_at_ms: chrono::Utc::now().timestamp_millis(),
+            updated_at_ms: now,
+            snapshot: Some(result.clone()),
         },
     )?;
 
-    Ok(parts.join(" | "))
+    Ok(result)
 }
 
 fn parse_shortstat_files(stat: &str) -> Option<u32> {
