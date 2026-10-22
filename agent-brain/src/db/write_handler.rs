@@ -98,54 +98,57 @@ impl WriteHandlerCtx {
             apply_when.as_deref(),
             temporal.as_ref(),
         )?;
-        self.cache.clear();
-        // Telemetry / digest writes must not thrash turn + session caches.
         let low_signal = crate::workspace::is_low_signal_memory(&payload.topic, Some("agent"));
         if !low_signal {
+            self.cache.clear();
             self.store.bump_index_version().ok();
         }
 
-        if res.stored {
-            let settings = crate::settings::AgentBrainSettings::load(&self.home);
-            if settings.observation.enabled {
-                let cfg = crate::observation::ObservationConfig {
-                    min_facts_per_topic: settings.observation.min_facts_per_topic,
-                    window_days: settings.observation.window_days,
-                };
-                if let Err(err) =
-                    crate::observation::run_observations(&self.store, &self.embedder, &cfg, false)
-                {
-                    tracing::warn!(target: "agent_brain::observation", "run failed: {err}");
+        if res.stored && !low_signal {
+            let store = self.store.clone();
+            let embedder = self.embedder.clone();
+            let home = self.home.clone();
+            std::thread::spawn(move || {
+                let settings = crate::settings::AgentBrainSettings::load(&home);
+                if settings.observation.enabled {
+                    let cfg = crate::observation::ObservationConfig {
+                        min_facts_per_topic: settings.observation.min_facts_per_topic,
+                        window_days: settings.observation.window_days,
+                    };
+                    if let Err(err) =
+                        crate::observation::run_observations(&store, &embedder, &cfg, false)
+                    {
+                        tracing::warn!(target: "agent_brain::observation", "run failed: {err}");
+                    }
                 }
-            }
-            if settings.trace_extract.enabled {
-                let cfg = crate::trace_extract::TraceExtractConfig {
-                    confidence: settings.trace_extract.confidence,
-                    explain: false,
-                };
-                if let Err(err) = crate::trace_extract::run_trace_extract(
-                    &self.store,
-                    &self.embedder,
-                    &self.home,
-                    &cfg,
-                    false,
-                ) {
-                    tracing::warn!(target: "agent_brain::trace_extract", "run failed: {err}");
+                if settings.trace_extract.enabled {
+                    let cfg = crate::trace_extract::TraceExtractConfig {
+                        confidence: settings.trace_extract.confidence,
+                        explain: false,
+                    };
+                    if let Err(err) = crate::trace_extract::run_trace_extract(
+                        &store,
+                        &embedder,
+                        &home,
+                        &cfg,
+                        false,
+                    ) {
+                        tracing::warn!(target: "agent_brain::trace_extract", "run failed: {err}");
+                    }
                 }
-            }
-            if settings.sync.git.auto_push {
-                if let Err(err) = crate::sync::git_push(&self.store, &self.home, &settings.sync.git)
-                {
-                    tracing::warn!(target: "agent_brain::sync", "git auto_push failed: {err}");
+                if settings.sync.git.auto_push {
+                    if let Err(err) = crate::sync::git_push(&store, &home, &settings.sync.git) {
+                        tracing::warn!(target: "agent_brain::sync", "git auto_push failed: {err}");
+                    }
                 }
-            }
-            if settings.sync.cloud.enabled && settings.sync.cloud.auto_push {
-                if let Err(err) =
-                    crate::sync::cloud_push(&self.store, &self.home, &settings.sync.cloud)
-                {
-                    tracing::warn!(target: "agent_brain::sync", "cloud auto_push failed: {err}");
+                if settings.sync.cloud.enabled && settings.sync.cloud.auto_push {
+                    if let Err(err) =
+                        crate::sync::cloud_push(&store, &home, &settings.sync.cloud)
+                    {
+                        tracing::warn!(target: "agent_brain::sync", "cloud auto_push failed: {err}");
+                    }
                 }
-            }
+            });
         }
 
         Ok(serde_json::json!({
