@@ -191,6 +191,14 @@ pub fn sync_index_opts(
 
     // Index workflow definitions
     let mut workflow_dirs = config.workflow_dirs.clone();
+    let cache_wf = crate::registry_sync::cache_dir(&config.home).join("workflows");
+    if cache_wf.is_dir() {
+        workflow_dirs.push(cache_wf);
+    }
+    let repo_wf = crate::registry_sync::cache_dir(&config.home).join("repo/workflows");
+    if repo_wf.is_dir() {
+        workflow_dirs.push(repo_wf);
+    }
     if let Some(ref r) = cwd.and_then(crate::config::find_repo_root) {
         let spine_dir = r.join(".spine");
         if spine_dir.is_dir() {
