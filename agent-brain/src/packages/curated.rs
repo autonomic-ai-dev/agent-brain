@@ -292,6 +292,22 @@ pub fn recommend_boost_by_source() -> Result<std::collections::HashMap<String, f
         if entry.recommend_boost <= 0.0 {
             continue;
         }
+        if let Some(bundle) = &entry.bundle {
+            let e = map.entry(bundle.clone()).or_insert(0.0);
+            if entry.recommend_boost > *e {
+                *e = entry.recommend_boost;
+            }
+            let reg_key = format!("registry:packages/{bundle}");
+            let e = map.entry(reg_key).or_insert(0.0);
+            if entry.recommend_boost > *e {
+                *e = entry.recommend_boost;
+            }
+            let bndl_key = format!("agent-brain/bundle:{bundle}");
+            let e = map.entry(bndl_key).or_insert(0.0);
+            if entry.recommend_boost > *e {
+                *e = entry.recommend_boost;
+            }
+        }
         for src in entry.packages {
             let e = map.entry(src).or_insert(0.0);
             if entry.recommend_boost > *e {
@@ -421,11 +437,8 @@ mod tests {
     }
 
     #[test]
-    fn resolves_coding_policy_bundle_alias() {
-        let resolved = lookup_alias("@coding-policy").unwrap().unwrap();
-        assert!(
-            resolved == ResolvedAlias::Bundle("coding-policy".into())
-                || resolved == ResolvedAlias::Bundle("agstack".into())
-        );
+    fn resolves_agstack_bundle_alias() {
+        let resolved = lookup_alias("@agstack").unwrap().unwrap();
+        assert_eq!(resolved, ResolvedAlias::Bundle("agstack".into()));
     }
 }

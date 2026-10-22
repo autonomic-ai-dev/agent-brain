@@ -297,7 +297,10 @@ pub fn recommend_path_boosts(home: &Path) -> Vec<(String, f64)> {
     let registry = PackageRegistry::load(home).unwrap_or_default();
     let mut out = Vec::new();
     for pkg in registry.packages {
-        if let Some(&boost) = by_source.get(&pkg.source) {
+        if let Some(&boost) = by_source
+            .get(&pkg.source)
+            .or_else(|| by_source.get(&pkg.name))
+        {
             if boost > 0.0 {
                 out.push((pkg.install_path, boost));
             }

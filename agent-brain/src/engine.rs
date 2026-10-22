@@ -1402,12 +1402,16 @@ fn build_route_response(
             ItemType::Skill => {
                 let msg_lexical =
                     crate::retrieval::lexical_overlap_score(user_message, &item.topic, &item.text);
-                if msg_lexical == 0.0 && item.score < 0.65 {
+                let is_agstack = item
+                    .source_path
+                    .as_deref()
+                    .map_or(false, |p| p.contains("agstack"));
+                if msg_lexical == 0.0 && item.score < 0.65 && !is_agstack {
                     continue;
                 }
                 if let Some(top) = resp.recommended_skills.first() {
                     let min_relative = (top.score * 0.70).max(top.score - 0.18);
-                    if item.score < min_relative {
+                    if item.score < min_relative && !is_agstack {
                         continue;
                     }
                 }
@@ -1451,6 +1455,26 @@ fn build_route_response(
             project_key,
             repo_root,
         );
+    }
+
+    if resp.recommended_skills.is_empty() && limits.skills > 0 {
+        if let Some(agstack_item) = scored.iter().find(|i| {
+            matches!(i.item_type, ItemType::Skill)
+                && i.source_path
+                    .as_deref()
+                    .map_or(false, |p| p.contains("agstack"))
+        }) {
+            try_add_route_item(
+                &mut resp,
+                &mut state,
+                agstack_item,
+                limits,
+                phase,
+                max_tokens,
+                project_key,
+                repo_root,
+            );
+        }
     }
 
     // Pass 2: memory with whatever budget remains (same score floor; domain filter; no digest/obs noise).

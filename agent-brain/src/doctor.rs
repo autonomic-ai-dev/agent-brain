@@ -848,7 +848,7 @@ fn bootstrap_registry_bundles(config: &crate::config::Config) -> Result<()> {
     let registry = crate::packages::PackageRegistry::load(&config.home)?;
     let has_core = registry.packages.iter().any(|p| p.name == "autonomic-core");
     let has_supervisor = registry.packages.iter().any(|p| p.name == "supervisor");
-    let has_coding_policy = registry.packages.iter().any(|p| p.name == "coding-policy");
+    let has_agstack = registry.packages.iter().any(|p| p.name == "agstack");
     if !has_core {
         crate::packages::install_bundled(config, "autonomic-core")?;
         println!("  bootstrap:           installed @autonomic-core");
@@ -857,9 +857,9 @@ fn bootstrap_registry_bundles(config: &crate::config::Config) -> Result<()> {
         crate::packages::install_bundled(config, "supervisor")?;
         println!("  bootstrap:           installed @supervisor");
     }
-    if !has_coding_policy {
-        crate::packages::install_bundled(config, "coding-policy")?;
-        println!("  bootstrap:           installed @coding-policy");
+    if !has_agstack {
+        crate::packages::install_bundled(config, "agstack")?;
+        println!("  bootstrap:           installed @agstack");
     }
     match crate::packages::bootstrap_default_packages(config) {
         Ok(installed) => {

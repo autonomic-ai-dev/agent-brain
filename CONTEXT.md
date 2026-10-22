@@ -130,7 +130,7 @@ Scaffold a new project verify suite via: `agent-brain verify init`.
 - `agent-brain package add <PACKAGE>`: Install a skill package (supports `@alias`, `owner/repo` GitHub shorthand, or full Git URL).
 - `agent-brain package remove <PACKAGE>`: Remove an installed skill package.
 - `agent-brain package list`: List all installed skill packages and their status.
-- `agent-brain registry list`: Display curated skill packages from the official catalog (e.g. `@matt-skills`, `@coding-policy`, `@official`).
+- `agent-brain registry list`: Display curated skill packages from the official catalog (e.g. `@agstack`, `@matt-skills`, `@official`).
 - `agent-brain registry sync`: Update local catalog cache from upstream registry.
 
 ### 4.5 Memory & GC Operations

@@ -1050,17 +1050,17 @@ fn write_hard_route_rule(rules_dir: &Path, quiet: bool, label: &str) -> Result<(
     Ok(())
 }
 
-const CODING_POLICY_RULE: &str = include_str!("../registry/coding-policy/claude/CLAUDE.md");
+const AGSTACK_RULE: &str = include_str!("../registry/agstack/platforms/claude/CLAUDE.md");
 
-fn write_coding_policy_rule(rules_dir: &Path, quiet: bool) -> Result<()> {
+fn write_agstack_rule(rules_dir: &Path, quiet: bool) -> Result<()> {
     fs::create_dir_all(rules_dir).with_context(|| format!("create {}", rules_dir.display()))?;
-    let path = rules_dir.join("agent-brain-coding-policy.md");
-    if fs::read_to_string(&path).is_ok_and(|existing| existing == CODING_POLICY_RULE) {
+    let path = rules_dir.join("agent-brain-agstack.md");
+    if fs::read_to_string(&path).is_ok_and(|existing| existing == AGSTACK_RULE) {
         return Ok(());
     }
-    fs::write(&path, CODING_POLICY_RULE).with_context(|| format!("write {}", path.display()))?;
+    fs::write(&path, AGSTACK_RULE).with_context(|| format!("write {}", path.display()))?;
     if !quiet {
-        println!("Installed Claude Code coding policy at {}", path.display());
+        println!("Installed Claude Code agstack policy at {}", path.display());
     }
     Ok(())
 }
@@ -1153,7 +1153,7 @@ fn install_claude_code_rule(user: bool, quiet: bool) -> Result<()> {
         "Claude Code",
     )?;
     write_hard_route_rule(&base.join("rules"), quiet, "Claude Code")?;
-    write_coding_policy_rule(&base.join("rules"), quiet)?;
+    write_agstack_rule(&base.join("rules"), quiet)?;
     write_agent_brain_mode(&base, quiet, "Claude Code")?;
     Ok(())
 }
@@ -1347,12 +1347,12 @@ mod tests {
     }
 
     #[test]
-    fn coding_policy_rule_is_written_to_rules_dir() {
+    fn agstack_rule_is_written_to_rules_dir() {
         let dir = TempDir::new().unwrap();
-        write_coding_policy_rule(dir.path(), true).unwrap();
-        let written = fs::read_to_string(dir.path().join("agent-brain-coding-policy.md")).unwrap();
-        assert_eq!(written, CODING_POLICY_RULE);
-        assert!(written.contains("Engineering Policy"));
+        write_agstack_rule(dir.path(), true).unwrap();
+        let written = fs::read_to_string(dir.path().join("agent-brain-agstack.md")).unwrap();
+        assert_eq!(written, AGSTACK_RULE);
+        assert!(written.contains("agstack"));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 {
   "version": 1,
   "kinds": ["skill_package", "workflow", "utility"],
-  "default_bootstrap": ["@autonomic-core", "@supervisor"],
+  "default_bootstrap": ["@agstack", "@autonomic-core", "@supervisor"],
   "workflow_aliases": ["@engineering-safety", "@release-notes", "@stacked-pr", "@bugfix", "@mcp-health-check"]
 }

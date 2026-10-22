@@ -1,0 +1,18 @@
+---
+description: Test verification policy — run allowlisted unit and Hurl functional tests under .verify/
+alwaysApply: true
+---
+
+# Test Verification Policy
+
+When working in a repository with `.verify/` or implementing backend features:
+
+1. **Verify via Allowlist:** Always run test commands through the allowlisted entry point, `.verify/run.sh`, or through a host wrapper that enforces the same allowlist. Only commands registered in `.verify/verify.toml` are treated as trusted verification.
+2. **Dual-Layer Testing:**
+   - Every code change must have corresponding **unit tests** (Cargo, pytest, Jest, Go).
+   - Every user-facing or API change must have corresponding **functional tests** in `.verify/functional/*.hurl`.
+3. **Cross-Check Feature Map:** Read `.verify/features/<feature>.md` before editing to ensure edge cases and gotchas are covered. Run the exact targeted commands under `## Verification Suites`.
+4. **Strict Teardown & Preservation:**
+   - Never kill arbitrary processes by name (`pkill`/`killall`). Terminate only specific PIDs started by the run.
+   - Proof artifacts, logs, and Hurl HTML reports stored under `.verify/artifacts/` MUST survive teardown.
+5. **Doctor Gate:** If `.verify/doctor.sh` reports unapplied migrations, socket collisions, or missing dependencies, resolve the environment before driving tests.

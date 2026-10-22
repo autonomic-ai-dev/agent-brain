@@ -1,7 +1,7 @@
 //! Curated bundles shipped inside the binary (no git clone).
 
+mod agstack;
 mod autonomic_core;
-mod coding_policy;
 mod supervisor;
 
 use anyhow::{Context, Result};
@@ -96,7 +96,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
 pub fn bundled_manifest_dir(bundle: &str) -> Option<&'static [(&'static str, &'static str)]> {
     match bundle {
         "autonomic-core" => Some(autonomic_core::files()),
-        "coding-policy" | "agstack" => Some(coding_policy::files()),
+        "agstack" => Some(agstack::files()),
         "supervisor" => Some(supervisor::files()),
         _ => None,
     }
@@ -141,7 +141,7 @@ mod tests {
     }
 
     #[test]
-    fn installs_coding_policy_bundle_files() {
+    fn installs_agstack_bundle_files() {
         let dir = TempDir::new().unwrap();
         let home = dir.path().to_path_buf();
         let mut config = Config::isolated(home.clone());
@@ -149,11 +149,11 @@ mod tests {
         config.data_dir = home.join("data");
         config.vectors_path = home.join("data").join("vectors.bin");
         config.ensure_dirs().unwrap();
-        let record = install_bundled(&config, "coding-policy").unwrap();
-        assert_eq!(record.name, "coding-policy");
-        let rule = home.join("packages/coding-policy/.cursor/rules/coding-policy.mdc");
+        let record = install_bundled(&config, "agstack").unwrap();
+        assert_eq!(record.name, "agstack");
+        let rule = home.join("packages/agstack/.cursor/rules/agstack.mdc");
         assert!(rule.is_file(), "missing {}", rule.display());
         let body = std::fs::read_to_string(&rule).unwrap();
-        assert!(body.contains("Engineering Policy"));
+        assert!(body.contains("agstack"));
     }
 }

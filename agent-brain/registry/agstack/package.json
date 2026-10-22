@@ -1,0 +1,34 @@
+{
+  "name": "agstack",
+  "version": "1.0.0",
+  "description": "agstack (Abhiuday Gupta Stack) — Universal engineering process, playbooks, strict verification (.verify/), immutability, and zero comment slop",
+  "kind": "bundle",
+  "entrypoints": {
+    "universal": [
+      "AGENTS.md",
+      "FEATURE-MAP-FORMAT.md",
+      "skills/**"
+    ],
+    "cursor": {
+      "rules": "platforms/cursor/rules/*.mdc",
+      "skills": "skills/"
+    },
+    "claude": {
+      "instructions": "platforms/claude/CLAUDE.md",
+      "skills": "skills/"
+    },
+    "copilot": {
+      "instructions": "platforms/github/copilot-instructions.md"
+    },
+    "opencode": {
+      "instructions": "opencode/AGENTS.md",
+      "skills": "skills/"
+    },
+    "antigravity": {
+      "instructions": "antigravity/AGENTS.md",
+      "skills": "skills/"
+    }
+  },
+  "default": true,
+  "recommend_boost": 0.40
+}

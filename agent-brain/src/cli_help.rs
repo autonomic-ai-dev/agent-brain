@@ -134,7 +134,7 @@ Usage:  agent-brain add <@alias|owner/repo|url>...
 Install package(s) and index them.
 
 Examples:
-  agent-brain add @coding-policy
+  agent-brain add @agstack
   agent-brain add @supervisor
   agent-brain add @starter
   agent-brain add @nextjs
