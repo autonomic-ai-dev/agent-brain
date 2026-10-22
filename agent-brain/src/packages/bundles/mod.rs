@@ -1,6 +1,5 @@
 //! Curated bundles shipped inside the binary (no git clone).
 
-mod agstack;
 mod autonomic_core;
 mod supervisor;
 
@@ -25,9 +24,17 @@ pub fn install_bundled(config: &Config, bundle: &str) -> Result<PackageRecord> {
         repo_dir.join("packages").join(bundle),
         repo_dir.join(bundle),
     ];
-    let synced_bundle = candidate_paths.iter().find(|p| p.is_dir());
+    let mut synced_bundle = candidate_paths.iter().find(|p| p.is_dir()).cloned();
 
-    let (commit_val, source_val) = if let Some(synced_path) = synced_bundle {
+    if synced_bundle.is_none() {
+        let reg_settings = crate::settings::AgentBrainSettings::load(&config.home).registry;
+        if reg_settings.enabled {
+            let _ = registry_sync::sync_remote(&config.home, &reg_settings);
+            synced_bundle = candidate_paths.iter().find(|p| p.is_dir()).cloned();
+        }
+    }
+
+    let (commit_val, source_val) = if let Some(ref synced_path) = synced_bundle {
         copy_dir_recursive(synced_path, &install_dir)?;
         let commit = Command::new("git")
             .args(["rev-parse", "HEAD"])
@@ -38,7 +45,7 @@ pub fn install_bundled(config: &Config, bundle: &str) -> Result<PackageRecord> {
         (commit, format!("registry:packages/{bundle}"))
     } else {
         let files = bundled_manifest_dir(bundle)
-            .ok_or_else(|| anyhow::anyhow!("unknown bundled package '{bundle}'"))?;
+            .ok_or_else(|| anyhow::anyhow!("package '{bundle}' not found in registry cache or bundles"))?;
 
         for (rel, content) in files {
             let path = install_dir.join(rel);
@@ -96,7 +103,6 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
 pub fn bundled_manifest_dir(bundle: &str) -> Option<&'static [(&'static str, &'static str)]> {
     match bundle {
         "autonomic-core" => Some(autonomic_core::files()),
-        "agstack" => Some(agstack::files()),
         "supervisor" => Some(supervisor::files()),
         _ => None,
     }
@@ -149,6 +155,16 @@ mod tests {
         config.data_dir = home.join("data");
         config.vectors_path = home.join("data").join("vectors.bin");
         config.ensure_dirs().unwrap();
+
+        let repo_agstack = registry_sync::cache_dir(&home)
+            .join("repo/packages/agstack/.cursor/rules");
+        fs::create_dir_all(&repo_agstack).unwrap();
+        fs::write(
+            repo_agstack.join("agstack.mdc"),
+            "---\ndescription: agstack\n---\n# agstack\n",
+        )
+        .unwrap();
+
         let record = install_bundled(&config, "agstack").unwrap();
         assert_eq!(record.name, "agstack");
         let rule = home.join("packages/agstack/.cursor/rules/agstack.mdc");

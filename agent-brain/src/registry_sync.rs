@@ -68,14 +68,57 @@ pub fn seed_embedded(home: &Path) -> Result<usize> {
     Ok(n)
 }
 
+pub fn validate_repo_slug(slug: &str) -> Result<()> {
+    if slug.is_empty() || slug.starts_with('-') || slug.ends_with('-') {
+        bail!("invalid repo slug: '{slug}'");
+    }
+    let parts: Vec<&str> = slug.split('/').collect();
+    if parts.len() != 2 {
+        bail!("invalid repo slug format (must be owner/repo): '{slug}'");
+    }
+    for part in parts {
+        if part.is_empty() || part.starts_with('-') || part.starts_with('.') {
+            bail!("invalid component in repo slug: '{part}'");
+        }
+        if !part
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
+        {
+            bail!("forbidden characters in repo slug: '{part}'");
+        }
+    }
+    Ok(())
+}
+
+pub fn validate_git_ref(git_ref: &str) -> Result<()> {
+    if git_ref.is_empty()
+        || git_ref.starts_with('-')
+        || git_ref.contains("..")
+        || git_ref.ends_with('/')
+        || git_ref.ends_with(".lock")
+    {
+        bail!("invalid git ref: '{git_ref}'");
+    }
+    if !git_ref
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.' || c == '/')
+    {
+        bail!("forbidden characters in git ref: '{git_ref}'");
+    }
+    Ok(())
+}
+
 pub fn sync_remote(home: &Path, settings: &RegistrySettings) -> Result<usize> {
-    let repo_dir = cache_dir(home).join("repo");
-    let git_url = format!("https://github.com/{}.git", settings.remote_repo.trim());
+    let repo_slug = settings.remote_repo.trim();
+    validate_repo_slug(repo_slug)?;
     let git_ref = if settings.remote_ref.trim().is_empty() {
         "master"
     } else {
         settings.remote_ref.trim()
     };
+    validate_git_ref(git_ref)?;
+    let repo_dir = cache_dir(home).join("repo");
+    let git_url = format!("https://github.com/{repo_slug}.git");
 
     if repo_dir.join(".git").exists() {
         let fetch = Command::new("git")
@@ -269,5 +312,32 @@ mod tests {
         fs::write(&path, r#"{"version":99,"aliases":{}}"#).unwrap();
         let raw = read_registry_file(home, "packages.json", "{}");
         assert!(raw.contains("\"version\":99"));
+    }
+
+    #[test]
+    fn validates_repo_slug_formats() {
+        assert!(validate_repo_slug("autonomic-ai-dev/agent-registry").is_ok());
+        assert!(validate_repo_slug("owner_name/repo-1.0").is_ok());
+        assert!(validate_repo_slug("").is_err());
+        assert!(validate_repo_slug("-bad/repo").is_err());
+        assert!(validate_repo_slug("owner/-bad").is_err());
+        assert!(validate_repo_slug("owner/..").is_err());
+        assert!(validate_repo_slug("owner").is_err());
+        assert!(validate_repo_slug("owner/repo/extra").is_err());
+        assert!(validate_repo_slug("owner/repo;rm -rf").is_err());
+    }
+
+    #[test]
+    fn validates_git_ref_formats() {
+        assert!(validate_git_ref("master").is_ok());
+        assert!(validate_git_ref("main").is_ok());
+        assert!(validate_git_ref("feat/registry-sync").is_ok());
+        assert!(validate_git_ref("v1.2.3").is_ok());
+        assert!(validate_git_ref("").is_err());
+        assert!(validate_git_ref("--upload-pack=evil").is_err());
+        assert!(validate_git_ref("-b").is_err());
+        assert!(validate_git_ref("refs/heads/..").is_err());
+        assert!(validate_git_ref("master;touch foo").is_err());
+        assert!(validate_git_ref("master/").is_err());
     }
 }
