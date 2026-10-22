@@ -2824,15 +2824,27 @@ impl BrainStore {
             }
 
             let is_procedural = matches!(item_type, ItemType::Skill | ItemType::Agent);
-            let has_query_affinity = lexical >= 0.12 || bm25_norm > 0.0 || cosine_sim >= 0.35;
+            let query_is_meta = crate::retrieval::is_conversational_or_meta(query);
+            let has_software_ctx = crate::retrieval::query_has_software_context(query);
+            let topic_affinity = if is_procedural {
+                crate::retrieval::skill_topic_affinity(query, &row.topic)
+            } else {
+                0.0
+            };
+            let has_query_affinity = !query_is_meta
+                && (topic_affinity > 0.0
+                    || (has_software_ctx
+                        && (lexical >= 0.15
+                            || bm25_norm > 0.05
+                            || (cosine_sim >= 0.65 && lexical >= 0.08))));
 
             if is_procedural && !has_query_affinity {
-                score *= 0.3;
+                score *= 0.2;
             }
 
             for tag in tags {
                 if row.topic.to_lowercase().contains(tag) || row.text.to_lowercase().contains(tag) {
-                    if !is_procedural || has_query_affinity {
+                    if !is_procedural || (has_query_affinity && topic_affinity > 0.0) {
                         score += 0.15;
                     }
                     break;
@@ -2844,7 +2856,7 @@ impl BrainStore {
             }
 
             if let Some(phase) = phase {
-                if !is_procedural || has_query_affinity {
+                if !is_procedural || (has_query_affinity && topic_affinity > 0.0) {
                     score += phase_match_boost(phase, &row.topic, &row.text);
                 }
             }

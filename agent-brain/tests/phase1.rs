@@ -679,3 +679,202 @@ fn unrelated_query_in_tagged_workspace_yields_zero_skills() {
         related.recommended_skills
     );
 }
+
+#[test]
+fn large_scale_isolated_routing_benchmark_intent_vs_context() {
+    let dir = TempDir::new().unwrap();
+    let config = test_config(&dir);
+    let store = BrainStore::open(&config.db_path).unwrap();
+    let ws_dir = TempDir::new().unwrap();
+    std::fs::write(
+        ws_dir.path().join("Cargo.toml"),
+        "[package]\nname = \"demo-service\"\n",
+    )
+    .unwrap();
+
+    let skills: &[(&str, &str)] = &[
+        ("rust-patterns", "Idiomatic Rust patterns, ownership, borrow checker, traits, concurrency, and error handling with Result"),
+        ("rust-testing", "Rust unit and integration testing with cargo test, proptest, and mockall assertions"),
+        ("rust-async", "Asynchronous Rust programming with tokio runtime, futures, channels, and select"),
+        ("rust-wasm", "WebAssembly generation using wasm-bindgen, wasm-pack, and web-sys in Rust"),
+        ("rust-embedded", "Embedded bare-metal Rust programming with no_std, cortex-m, and volatile registers"),
+        ("rust-serde", "Data serialization and deserialization with serde_json, bincode, and custom visitors"),
+        ("rust-ffi", "Foreign function interface C ABI bindings, libc, and cbindgen in Rust"),
+        ("rust-performance", "Profiling, flamegraphs, criterion benchmarks, and memory allocation in Rust"),
+        ("python-asyncio", "Python asyncio coroutines, event loop, tasks, and concurrent execution"),
+        ("python-fastapi", "FastAPI web framework, Pydantic request models, dependencies, and OpenAPI endpoints"),
+        ("python-django", "Django ORM models, migrations, views, and admin site management"),
+        ("python-pytest", "Pytest unit testing fixtures, parametrize, and mock monkeypatching"),
+        ("python-numpy", "NumPy array vectorization, broadcasting, linear algebra, and numerical computing"),
+        ("python-pandas", "Pandas DataFrame manipulation, CSV parsing, aggregations, and data analysis"),
+        ("python-typing", "Type hinting with mypy, typing Protocol, Generics, and runtime inspection"),
+        ("python-packaging", "Building Python wheels with pyproject.toml, hatchling, poetry, and setuptools"),
+        ("typescript-types", "TypeScript strict null checks, generics, conditional types, and type guards"),
+        ("typescript-eslint", "ESLint rules, parser configuration, and stylistic code conventions in TypeScript"),
+        ("react-streaming", "React server components streaming suspense boundaries and data fetching"),
+        ("react-hooks", "Custom React hooks, useEffect lifecycle, useMemo, and useCallback optimization"),
+        ("nextjs-routing", "Next.js app router server actions layouts middleware and static generation"),
+        ("vue-composition", "Vue 3 composition API reactive state ref computed watch and component props"),
+        ("angular-services", "Angular dependency injection services observables RxJS pipes and modules"),
+        ("svelte-stores", "Svelte stores reactive declarations component bindings and animations"),
+        ("jest-testing", "Jest snapshot testing mock functions expect assertions and coverage report"),
+        ("vitest-testing", "Vitest unit testing in Vite projects mock timers and coverage v8"),
+        ("cypress-e2e", "Cypress end-to-end browser automation page objects and network mocking"),
+        ("playwright-automation", "Playwright cross-browser testing headless chrome traces and locators"),
+        ("go-concurrency", "Golang goroutines channel synchronization mutex and select patterns"),
+        ("go-testing", "Go test package table-driven tests subtests and benchmark profiling"),
+        ("go-http", "Building Go net/http REST API services middleware routers and JSON handling"),
+        ("go-gorm", "GORM object-relational mapping database queries associations and transactions"),
+        ("go-grpc", "gRPC protobuf service definitions client stubs and streaming RPCs in Go"),
+        ("java-spring", "Spring Boot microservices dependency injection autowired and application properties"),
+        ("java-concurrency", "Java virtual threads executors CompletableFuture and memory model"),
+        ("java-maven", "Maven pom.xml dependency management plugins phases and lifecycle goals"),
+        ("java-gradle", "Gradle build.gradle Kotlin DSL tasks dependencies and multi-project builds"),
+        ("kotlin-coroutines", "Kotlin coroutines dispatchers flow suspend functions and structured concurrency"),
+        ("csharp-dotnet", "C# .NET async await LINQ nullable reference types and entity framework"),
+        ("cpp-raii", "Modern C++ RAII unique_ptr shared_ptr move semantics and smart pointers"),
+        ("cpp-templates", "C++ template metaprogramming concepts constraints SFINAE and type traits"),
+        ("cpp-cmake", "CMakeLists.txt targets find_package target_link_libraries and compiler flags"),
+        ("docker-optimization", "Docker multi-stage build layer caching slim images and dockerignore"),
+        ("docker-compose", "Docker compose services networking volumes and environment configuration"),
+        ("kubernetes-deploy", "Kubernetes helm chart deployment ingress configuration services and pods"),
+        ("kubernetes-operator", "Kubernetes custom resource definitions CRD and controller reconciliation"),
+        ("terraform-aws", "AWS terraform infrastructure as code setup VPC EC2 and security groups"),
+        ("terraform-modules", "Reusable Terraform modules variables outputs state backend and locks"),
+        ("ansible-playbooks", "Ansible playbooks roles inventory tasks handlers and YAML templates"),
+        ("nginx-reverse-proxy", "Nginx reverse proxy load balancing SSL TLS termination and cache rules"),
+        ("linux-systemd", "Linux systemd service unit configuration journalctl logging and daemon reload"),
+        ("linux-bash", "Bash shell scripting piping exit codes signal traps and text processing"),
+        ("postgres-pooling", "Postgres connection pooling with pgbouncer transaction mode and connections"),
+        ("postgres-indexing", "PostgreSQL B-Tree GIN indexes EXPLAIN ANALYZE query planning and vacuum"),
+        ("mysql-replication", "MySQL primary replica replication binlog innodb transactions and locks"),
+        ("sqlite-wal", "SQLite WAL mode PRAGMA synchronous foreign keys and busy timeout settings"),
+        ("mongodb-aggregations", "MongoDB aggregation pipelines match group lookup unwind and indexes"),
+        ("redis-caching", "Redis pubsub caching eviction policy string keys and hash sets"),
+        ("kafka-event-streaming", "Apache Kafka topics partitions consumer groups offsets and event streaming"),
+        ("rabbitmq-queues", "RabbitMQ message queues exchanges routing keys and dead-letter queues"),
+        ("nats-jetstream", "NATS JetStream pubsub key-value stores streams consumers and acknowledgments"),
+        ("graphql-federation", "GraphQL schema federation subgraphs gateway schema stitching and resolvers"),
+        ("rest-api-design", "RESTful API design HTTP status codes idempotency pagination and versioning"),
+        ("grpc-protobuf", "Protocol Buffers proto3 message schemas service stubs and RPC error codes"),
+        ("oauth2-oidc", "OAuth2 authorization code flow OpenID Connect JWT tokens and refresh tokens"),
+        ("security-owasp", "OWASP security vulnerabilities SQL injection XSS CSRF and input validation"),
+        ("git-branching", "Git rebase interactive merge conflicts cherry-pick and commit history"),
+        ("github-actions", "GitHub Actions CI/CD workflows matrix build steps secrets and artifacts"),
+        ("gitlab-ci", "GitLab CI yaml pipelines stages runners environments and cache keys"),
+        ("db-migrations", "SQL database migration scripts schema versioning rollback and integrity checks"),
+    ];
+
+    for (topic, text) in skills {
+        let emb = deterministic_embedding(&format!("{topic} {text}"));
+        store
+            .upsert_indexed_item(
+                ItemType::Skill,
+                topic,
+                text,
+                &format!("/skills/{topic}/SKILL.md"),
+                "global",
+                None,
+                &content_hash(text),
+                Some(&emb),
+            )
+            .unwrap();
+    }
+
+    let engine = Engine::new_with_store(config, Arc::new(store)).unwrap();
+
+    let negative_queries = [
+        "currently getting many false positive skill suggestions, need to rethink how the suggestion is working.",
+        "why is git diff showing untracked files?",
+        "how does the event loop work conceptually in browser engines?",
+        "can we discuss the trade-offs of microservices vs monolith architectures?",
+        "what is the best approach to refactor this module without breaking callers?",
+        "please review the PR changes and give feedback",
+        "could you explain the algorithm time complexity here?",
+        "what is the status of the current task?",
+        "why did the previous build fail on CI?",
+        "rebase from master and check if everything passes",
+        "thanks for the help, that resolved it",
+        "tell me about the history of programming languages",
+        "how do I configure my terminal prompt colors?",
+        "let's pause here and summarize our decisions",
+        "what does this error message mean in general terms?",
+    ];
+
+    for query in &negative_queries {
+        let res = engine
+            .route_task(
+                query,
+                Some(ws_dir.path()),
+                &[],
+                500,
+                RouteLimits {
+                    agents: 0,
+                    skills: 3,
+                    rules: 0,
+                    memory: 0,
+                },
+                None,
+                None,
+            )
+            .unwrap();
+
+        assert!(
+            res.recommended_skills.is_empty(),
+            "expected 0 skills for negative query {:?}, got: {:?}",
+            query,
+            res.recommended_skills
+        );
+    }
+
+    let positive_cases: &[(&str, &str)] = &[
+        ("write unit tests with cargo test", "rust-testing"),
+        ("idiomatic rust error handling and Result patterns", "rust-patterns"),
+        ("asynchronous tokio futures and select channels in rust", "rust-async"),
+        ("kubernetes helm chart deployment and ingress configuration", "kubernetes-deploy"),
+        ("docker multi-stage build layer caching", "docker-optimization"),
+        ("postgres connection pooling with pgbouncer", "postgres-pooling"),
+        ("python asyncio coroutines and event loop", "python-asyncio"),
+        ("react server components streaming suspense", "react-streaming"),
+        ("graphql schema federation and resolvers", "graphql-federation"),
+        ("golang goroutines channel synchronization", "go-concurrency"),
+        ("typescript strict null checks and type guards", "typescript-types"),
+        ("aws terraform infrastructure as code setup", "terraform-aws"),
+        ("redis pubsub caching and eviction policy", "redis-caching"),
+        ("linux systemd service unit configuration", "linux-systemd"),
+        ("jest snapshot testing and mock functions", "jest-testing"),
+        ("sql database migration scripts and schema rollback", "db-migrations"),
+    ];
+
+    let mut positive_hits = 0;
+    for (query, expected_skill) in positive_cases {
+        let res = engine
+            .route_task(
+                query,
+                Some(ws_dir.path()),
+                &[],
+                500,
+                RouteLimits {
+                    agents: 0,
+                    skills: 3,
+                    rules: 0,
+                    memory: 0,
+                },
+                None,
+                None,
+            )
+            .unwrap();
+
+        let hit = res.recommended_skills.iter().any(|s| s.name == *expected_skill);
+        assert!(
+            hit,
+            "expected skill {} for query {:?}, got: {:?}",
+            expected_skill,
+            query,
+            res.recommended_skills
+        );
+        positive_hits += 1;
+    }
+
+    assert_eq!(positive_hits, positive_cases.len());
+}

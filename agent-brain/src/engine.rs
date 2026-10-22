@@ -1347,7 +1347,15 @@ fn build_route_response(
             .filter(|i| i.item_type == item_type)
             .map(|i| i.score)
             .fold(0.0_f64, f64::max);
-        if top >= 0.60 {
+        if item_type == ItemType::Skill {
+            if top >= 0.70 {
+                min_score.max(0.48)
+            } else if top >= 0.55 {
+                min_score.max(0.42)
+            } else {
+                min_score.max(0.38)
+            }
+        } else if top >= 0.60 {
             min_score.max(0.42)
         } else if top >= 0.45 {
             min_score.max(0.38)
@@ -1404,12 +1412,39 @@ fn build_route_response(
         // Margin: additional items must stay close to the top hit of their type.
         match item.item_type {
             ItemType::Skill => {
-                let msg_lexical =
-                    crate::retrieval::lexical_overlap_score(user_message, &item.topic, &item.text);
                 let is_agstack = item
                     .source_path
                     .as_deref()
                     .map_or(false, |p| p.contains("agstack"));
+
+                if crate::retrieval::is_conversational_or_meta(user_message) && !is_agstack {
+                    continue;
+                }
+                if crate::retrieval::query_forbids_topic(user_message, &item.topic) {
+                    continue;
+                }
+
+                let msg_lexical =
+                    crate::retrieval::lexical_overlap_score(user_message, &item.topic, &item.text);
+                let topic_aff = crate::retrieval::skill_topic_affinity(user_message, &item.topic);
+                let is_info = crate::retrieval::is_informational_query(user_message);
+
+                if !is_agstack && !user_message.is_empty() {
+                    let has_ws_affinity = ws_tags
+                        .iter()
+                        .any(|t| item.topic.to_lowercase().contains(t.to_lowercase().as_str()));
+                    if is_info {
+                        let action_match = topic_aff >= 0.5 && (topic_aff == 1.0 || item.score >= 0.68);
+                        if !action_match && item.score < 0.85 {
+                            continue;
+                        }
+                    } else if (topic_aff == 0.0 && msg_lexical < 0.40 && !has_ws_affinity && item.score < 0.80)
+                        || (topic_aff < 0.5 && msg_lexical < 0.30 && !has_ws_affinity && item.score < 0.72)
+                    {
+                        continue;
+                    }
+                }
+
                 if msg_lexical == 0.0 && item.score < 0.65 && !is_agstack {
                     continue;
                 }
@@ -1461,7 +1496,10 @@ fn build_route_response(
         );
     }
 
-    if resp.recommended_skills.is_empty() && limits.skills > 0 {
+    if resp.recommended_skills.is_empty()
+        && limits.skills > 0
+        && !crate::retrieval::is_conversational_or_meta(user_message)
+    {
         if let Some(agstack_item) = scored.iter().find(|i| {
             matches!(i.item_type, ItemType::Skill)
                 && i.source_path
