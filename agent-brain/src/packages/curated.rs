@@ -406,8 +406,7 @@ mod tests {
     #[test]
     fn embedded_registry_lists_workflows() {
         let workflows = list_workflows().unwrap();
-        assert!(workflows.iter().any(|w| w.alias == "release-notes"));
-        assert!(workflows.iter().any(|w| w.alias == "stacked-pr"));
+        assert!(workflows.iter().any(|w| w.alias == "engineering-safety"));
     }
 
     #[test]
