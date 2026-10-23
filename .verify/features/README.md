@@ -5,3 +5,4 @@ Each feature map is a `<feature>.md` file with four H2 sections: Sub-features, H
 | Feature | Map | Unit check | Static check |
 |---------|-----|------------|--------------|
 | Core routing crate | [core-crate.md](core-crate.md) | `cargo test -p agent-brain-core` | `.verify/checks/core_boundary.sh` |
+| CLI, verify recorder, memory, install | [cli-verify-and-memory.md](cli-verify-and-memory.md) | `cargo test --all-features` (whole crate; `cargo test -p agent-brain-core` for the core only) | `sh .verify/checks/core_boundary.sh` |
