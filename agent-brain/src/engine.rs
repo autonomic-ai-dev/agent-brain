@@ -879,7 +879,7 @@ impl Engine {
         }
         resp.must_apply.push(crate::types::MustApply {
             topic: "agstack-invariants".into(),
-            text: "Mandatory agstack invariants: 1. Immutability first (never mutate in-place; return fresh copies). 2. Zero AI comment slop (self-documenting code; pre-commit rejects comment lines). 3. Boundary discipline (validate schemas at boundaries). 4. Fix root causes (never mask with defensive null-checks; verify with regression test).".into(),
+            text: "Mandatory agstack invariants: 1. Immutability first (never mutate in-place; return fresh copies). 2. Zero AI comment slop (self-documenting code; pre-commit rejects comment lines). 3. Boundary discipline (validate schemas at boundaries). 4. Fix root causes (never mask with defensive null-checks; verify with regression test). 5. Verification root separation: All generated test harnesses, snapshots, logs, and artifacts MUST output strictly to `.verify/` (keeping input reference fixtures under `verify/` read-only). 6. Mandatory Skill Hydration: When matched_skills or playbooks are returned, you MUST call read_file on the matched path and copy its numbered checklist steps verbatim into your active plan before taking action. 7. Default Post-Dev Verification via agstack: Any code modification is strictly INCOMPLETE until verified through the agstack verification skill (.verify/run.sh / allowlist). Never ask permission to run tests; automatically invoke the verification skill, write outputs to .verify/artifacts/, and record the evidence record before completing the turn.".into(),
         });
         #[cfg(feature = "extras")]
         if let Some(repo) = ws.repo_root.as_deref() {

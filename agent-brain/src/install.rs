@@ -325,12 +325,16 @@ pub fn install_cursor_user_rules_snippet(quiet: bool) -> Result<()> {
     fs::create_dir_all(&brain_home).with_context(|| format!("create {}", brain_home.display()))?;
     let path = brain_home.join("cursor-user-rules.mdc");
     fs::write(&path, CURSOR_RULE).with_context(|| format!("write {}", path.display()))?;
+    let agstack_path = brain_home.join("cursor-agstack-rules.mdc");
+    fs::write(&agstack_path, host_install::AGSTACK_RULE)
+        .with_context(|| format!("write {}", agstack_path.display()))?;
     if !quiet {
         println!();
         println!(
             "Cursor User Rules (paste manually — Cursor does not load ~/.cursor/rules/ globally):"
         );
         println!("  File: {}", path.display());
+        println!("  agstack Rule File: {}", agstack_path.display());
         println!("  Cursor → Settings → Rules, Memories, and Commands → User Rules → paste file contents");
         println!("  Hooks in ~/.cursor/hooks.json are installed globally (route_task gate).");
     }
@@ -346,6 +350,9 @@ pub fn install_project_cursor_rules(quiet: bool) -> Result<()> {
 
     let rule_path = rules_dir.join("agent-brain.mdc");
     fs::write(&rule_path, CURSOR_RULE).with_context(|| format!("write {}", rule_path.display()))?;
+    let agstack_path = rules_dir.join("agstack.mdc");
+    fs::write(&agstack_path, host_install::AGSTACK_RULE)
+        .with_context(|| format!("write {}", agstack_path.display()))?;
     let mode_path = rules_dir.join("agent-brain-mode.mdc");
     let mode_body = format!(
         "---\ndescription: agent-brain mode — short on-ramp for routed memory and skills\nalwaysApply: false\n---\n\n{}",
@@ -354,6 +361,7 @@ pub fn install_project_cursor_rules(quiet: bool) -> Result<()> {
     fs::write(&mode_path, &mode_body).with_context(|| format!("write {}", mode_path.display()))?;
     if !quiet {
         println!("Installed project Cursor rule at {}", rule_path.display());
+        println!("Installed project Cursor agstack rule at {}", agstack_path.display());
         println!("Installed project Cursor mode at {}", mode_path.display());
     }
     Ok(())
