@@ -172,19 +172,29 @@ fn run_process(
         }
         std::thread::sleep(POLL_INTERVAL);
     };
-    Ok((exit_code, output.map(read_output_tail).unwrap_or_default()))
+    Ok((exit_code, output.map(read_output).unwrap_or_default()))
 }
 
-fn read_output_tail(mut file: File) -> String {
-    let len = file.metadata().map(|m| m.len()).unwrap_or(0);
+fn read_output(mut file: File) -> String {
     let mut buf = Vec::new();
-    if file
-        .seek(SeekFrom::Start(len.saturating_sub(OUTPUT_TAIL_BYTES)))
-        .is_ok()
-    {
+    if file.seek(SeekFrom::Start(0)).is_ok() {
         file.read_to_end(&mut buf).ok();
     }
     String::from_utf8_lossy(&buf).into_owned()
+}
+
+fn output_tail(output: &str) -> String {
+    let bytes = output.as_bytes();
+    let start = bytes.len().saturating_sub(OUTPUT_TAIL_BYTES as usize);
+    String::from_utf8_lossy(&bytes[start..]).into_owned()
+}
+
+pub fn count_tests(output: &str) -> Option<u64> {
+    output
+        .lines()
+        .filter_map(|line| line.trim_start().strip_prefix("test result:"))
+        .filter_map(|rest| rest.split_whitespace().nth(1)?.parse::<u64>().ok())
+        .reduce(|total, n| total + n)
 }
 
 #[derive(Debug)]
@@ -219,7 +229,10 @@ pub fn run_default_step(
         Some(project_root),
         source,
     )?;
-    Ok(Some(StepRun { report, output }))
+    Ok(Some(StepRun {
+        report,
+        output: output_tail(&output),
+    }))
 }
 
 pub fn run_project_verify(store: &BrainStore, project: &Path) -> Result<serde_json::Value> {
@@ -599,9 +612,10 @@ pub fn run_verify(
         bail!("`{joined}` is not in the verify allowlist; add it to .verify/verify.toml");
     }
     script_preflight(cmd, project_root.as_deref())?;
-    let (exit_code, _) = run_process(cmd, None, VERIFY_RUN_TIMEOUT, false)?;
+    let (exit_code, output) = run_process(cmd, None, VERIFY_RUN_TIMEOUT, true)?;
+    print!("{output}");
     let cwd = std::env::current_dir().ok();
-    record_from_result(
+    let report = record_from_result(
         store,
         exit_code,
         &cmd.join(" "),
@@ -611,7 +625,11 @@ pub fn run_verify(
         scenarios_dir,
         cwd.as_deref(),
         source,
-    )
+    )?;
+    if let Some(tests_run) = count_tests(&output) {
+        store.set_verify_outcome_tests_run(&report.id, tests_run)?;
+    }
+    Ok(report)
 }
 
 pub fn print_report(store: &BrainStore) -> Result<()> {
@@ -815,6 +833,37 @@ mod tests {
         assert!(find_verify_root(&nested).is_none());
         fs::create_dir_all(dir.path().join(".verify")).unwrap();
         assert_eq!(find_verify_root(&nested).as_deref(), Some(dir.path()));
+    }
+
+    #[test]
+    fn count_tests_sums_every_cargo_result_line() {
+        let output = "running 3 tests\ntest result: ok. 3 passed; 0 failed; 0 ignored\n\n\
+                      running 4 tests\ntest result: ok. 4 passed; 0 failed; 0 ignored\n";
+        assert_eq!(count_tests(output), Some(7));
+        assert_eq!(count_tests("no cargo summary here"), None);
+    }
+
+    #[test]
+    fn recorded_outcome_keeps_the_tests_run_count() {
+        let dir = tempdir().unwrap();
+        let store = BrainStore::open(&dir.path().join("t.db")).unwrap();
+        let report = record_from_result(
+            &store,
+            0,
+            "cargo test --all-features",
+            None,
+            None,
+            None,
+            None,
+            Some(dir.path()),
+            VerifySource::Cli,
+        )
+        .unwrap();
+        assert_eq!(store.verify_outcome_tests_run(&report.id).unwrap(), None);
+
+        store.set_verify_outcome_tests_run(&report.id, 303).unwrap();
+
+        assert_eq!(store.verify_outcome_tests_run(&report.id).unwrap(), Some(303));
     }
 
     #[test]

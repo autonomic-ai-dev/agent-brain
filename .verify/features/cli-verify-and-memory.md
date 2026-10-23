@@ -6,8 +6,8 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
 
 - `verify-record-exit`: Runs a command and records its real exit code as evidence.
   - Intent: Make "tests passed" a recorded fact instead of a claim.
-  - Behaviour: `agent-brain verify [--source cli|orchestrator] -- <cmd>` runs the command and stores its exit.
-  - Outcome: The exit code and source are recorded and can be reported.
+  - Behaviour: `agent-brain verify [--source cli|orchestrator] -- <cmd>` runs the command, captures its output, prints it when the command finishes, and stores the exit code and source.
+  - Outcome: The exit code, source, and the summed `test result:` count (`tests_run`, schema v22, `src/verify.rs` `count_tests`) are recorded. A run without a cargo summary stores no count.
 - `verify-init-scaffold`: Creates the harness files for a repository.
   - Behaviour: `agent-brain verify init` writes `.verify/verify.toml`, an executable `run.sh`, and `README.md`.
   - Outcome: The three files exist and `run.sh` is executable.
@@ -57,6 +57,7 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
 ## Gotchas
 
 - Resolved (2026-10-24): the adapter test targets `tests/v0_23.rs` and `tests/v0_30.rs` did not compile under plain `cargo test`. The cause was a feature gate, not missing code. The `graphify`, `grpc`, and `BrainStore` code-graph methods are behind `#[cfg(feature = "extras")]`, and `Cargo.toml` says CI and local proofs use `--features extras`. The allowlist ran plain `cargo test`, so the tests never compiled there. The allowlist now runs `cargo test --all-features`, which matches `.verify/playbooks/verify_full_suite.sh`. The recorded run passes 303 unit tests and every integration target, with 0 failed.
+- Behaviour change (2026-10-24): `verify --` no longer streams the command's output live. Output is printed in full after the command ends, so long runs show nothing until they finish.
 - Plain `cargo test` in this crate does not build the `extras` tests. Any command that bypasses the allowlist must pass `--features extras` or `--all-features`.
 - `doctor --fix` clears quarantine. Run it only on this repository's build output, not on a user's installed binary.
 - Memory tests must use a temporary database path. Writing to the real `brain.db` changes shared memory.
