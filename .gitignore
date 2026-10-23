@@ -2,7 +2,8 @@ docs/superpowers/
 
 .fastembed_cache/
 **/.fastembed_cache/
-/target/
+target/
+.verify/artifacts/
 **/*.rs.bk
 .DS_Store
 .idea/

@@ -872,6 +872,11 @@ async fn main() -> Result<()> {
             let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
             agent_brain::verify::print_report(&store)?;
         }
+        "status" => {
+            let config = Config::load()?;
+            let cwd = std::env::current_dir()?;
+            print!("{}", agent_brain::status::gather(&config, &cwd)?.render());
+        }
         "doctor" => {
             let fix = args.iter().any(|a| a == "--fix");
             let mcp_only = args.iter().any(|a| a == "--mcp");

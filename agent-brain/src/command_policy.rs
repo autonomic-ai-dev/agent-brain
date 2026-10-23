@@ -229,6 +229,13 @@ fn rule_verdict(
     })
 }
 
+fn named_by_rule(rule: &Rule, reason: String) -> String {
+    format!(
+        "{reason} (rule {id}; remove it with `agent-brain rules remove {id}`)",
+        id = rule.id
+    )
+}
+
 fn apply_rule(rule: &Rule, args: &[&str], root: Option<&Path>, dir: Option<&Path>) -> Verdict {
     if !command_rules::is_triggered(&rule.trigger, args) {
         return Verdict::Allow;
@@ -240,8 +247,8 @@ fn apply_rule(rule: &Rule, args: &[&str], root: Option<&Path>, dir: Option<&Path
     };
     match rule.mode.as_str() {
         "allow" => Verdict::Allow,
-        "block" => Verdict::Block(reason),
-        "warn" => Verdict::Warn(reason),
+        "block" => Verdict::Block(named_by_rule(rule, reason)),
+        "warn" => Verdict::Warn(named_by_rule(rule, reason)),
         "operands" => {
             let value_flags = command_rules::value_flag_list(rule);
             let recursive = !rule.recursive_on.is_empty()
@@ -654,24 +661,41 @@ pub fn run_bash_gate() -> Result<()> {
         .unwrap_or_else(|_| command_rules::defaults());
     match classify(&input.tool_input.command, root.as_deref(), &rules) {
         Verdict::Allow => {}
-        Verdict::Warn(reason) => println!(
-            "{}",
-            json!({ "systemMessage": format!("agent-brain warning: {reason}") })
-        ),
-        Verdict::Block(reason) => println!(
-            "{}",
-            json!({
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": "deny",
-                    "permissionDecisionReason": format!(
-                        "agent-brain blocked this command: {reason}. Run it inside the project, or ask the user to run it."
-                    )
-                }
-            })
-        ),
+        Verdict::Warn(reason) => {
+            record_gate_event("bash-warn", &reason);
+            println!(
+                "{}",
+                json!({ "systemMessage": format!("agent-brain warning: {reason}") })
+            )
+        }
+        Verdict::Block(reason) => {
+            record_gate_event("bash-block", &reason);
+            println!(
+                "{}",
+                json!({
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": format!(
+                            "agent-brain blocked this command: {reason}. Run it inside the project, or ask the user to run it."
+                        )
+                    }
+                })
+            )
+        }
     }
     Ok(())
+}
+
+fn record_gate_event(kind: &str, reason: &str) {
+    let Ok(config) = crate::config::Config::load() else {
+        return;
+    };
+    if let Err(err) =
+        crate::gate_events::record(&config.logs_dir.join("gate-events.jsonl"), kind, reason)
+    {
+        tracing::warn!(error = %err, "gate event write failed");
+    }
 }
 
 #[cfg(test)]
@@ -705,5 +729,20 @@ mod tests {
             classify("rm -rf build", None, &command_rules::defaults()),
             Verdict::Block(_)
         ));
+    }
+
+    #[test]
+    fn rule_block_names_the_matching_rule_and_how_to_change_it() {
+        let mut rule = Rule::new("docker", "block");
+        rule.id = 7;
+        rule.reason = "no containers".into();
+        match classify("docker run alpine", Some(Path::new(ROOT)), &[rule]) {
+            Verdict::Block(reason) => {
+                assert!(reason.contains("no containers"), "{reason}");
+                assert!(reason.contains("rule 7"), "{reason}");
+                assert!(reason.contains("agent-brain rules remove 7"), "{reason}");
+            }
+            _ => panic!("expected the rule to block"),
+        }
     }
 }

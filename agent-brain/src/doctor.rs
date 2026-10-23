@@ -433,6 +433,10 @@ pub fn run(fix: bool) -> Result<()> {
 
     let _hosts = progress.step("other host integrations");
     print_other_hosts(&home);
+    println!("  gate events (top 5):");
+    for line in crate::gate_events::summarize(&config.logs_dir.join("gate-events.jsonl"), 5) {
+        println!("    {line}");
+    }
     _hosts.done();
 
     let _ = progress.finish();
@@ -562,6 +566,16 @@ pub fn run_mcp_federation(fix: bool) -> Result<()> {
 }
 
 fn print_other_hosts(home: &Path) {
+    for rules_dir in [
+        ".claude/rules",
+        ".gemini/rules",
+        ".gemini/antigravity/rules",
+        ".config/opencode/rules",
+    ] {
+        for warning in crate::host_install::rule_drift(&home.join(rules_dir)) {
+            println!("  rules drift:           {warning}");
+        }
+    }
     let codex = home.join(".codex/config.toml");
     let codex_hooks = home.join(".codex/hooks.json");
     let claude = home.join(".claude.json");

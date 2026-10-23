@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
 use crate::db::store::BrainStore;
-use crate::types::VerifiedRecipe;
+use crate::types::{VerificationStatus, VerifiedRecipe};
 
 const MIN_SAMPLE_FOR_RATES: usize = 30;
 pub const VERIFY_DIR_NAME: &str = ".verify";
@@ -390,6 +390,7 @@ pub fn record_from_result(
     }
 
     let device_id = store.ensure_device_id()?;
+    let project_key = crate::project_key::project_key_if_known(cwd.unwrap_or(Path::new(".")));
     let id = store.insert_verify_outcome(
         resolved_log_id.as_deref(),
         exit_code,
@@ -399,6 +400,7 @@ pub fn record_from_result(
         cmd,
         &device_id,
         source.as_str(),
+        project_key.as_deref(),
     )?;
     Ok(VerifyReport {
         id,
@@ -541,6 +543,38 @@ Discovered by `agent-brain verify` and `agent-brain report`.
     Ok(verify_dir)
 }
 
+fn script_preflight(cmd: &[String], project_root: Option<&Path>) -> Result<()> {
+    for arg in cmd.iter().filter(|arg| arg.ends_with(".sh")) {
+        let path = project_root.map_or_else(|| PathBuf::from(arg), |root| root.join(arg));
+        if !path.is_file() {
+            continue;
+        }
+        let Ok(output) = Command::new("agent-mouth")
+            .args(["validate", "--script"])
+            .arg(&path)
+            .output()
+        else {
+            continue;
+        };
+        if let Err(reason) = script_verdict(&String::from_utf8_lossy(&output.stdout)) {
+            bail!("verify preflight rejected {arg}: {reason}");
+        }
+    }
+    Ok(())
+}
+
+fn script_verdict(report: &str) -> std::result::Result<(), String> {
+    let report: serde_json::Value = serde_json::from_str(report)
+        .map_err(|_| "agent-mouth returned an unreadable report".to_string())?;
+    if report["approved"].as_bool() == Some(true) {
+        return Ok(());
+    }
+    Err(report["issues"][0]["message"]
+        .as_str()
+        .unwrap_or("rejected without details")
+        .to_string())
+}
+
 pub fn run_verify(
     store: &BrainStore,
     cmd: &[String],
@@ -564,6 +598,7 @@ pub fn run_verify(
     if !command_is_allowlisted(&joined, project_root.as_deref()) {
         bail!("`{joined}` is not in the verify allowlist; add it to .verify/verify.toml");
     }
+    script_preflight(cmd, project_root.as_deref())?;
     let (exit_code, _) = run_process(cmd, None, VERIFY_RUN_TIMEOUT, false)?;
     let cwd = std::env::current_dir().ok();
     record_from_result(
@@ -653,10 +688,25 @@ fn hash_tree(dir: &Path) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+pub fn last_verification(store: &BrainStore, project_key: &str) -> Option<VerificationStatus> {
+    let row = store
+        .list_verify_outcomes_for_project(project_key, 1)
+        .ok()?
+        .into_iter()
+        .next()?;
+    Some(VerificationStatus {
+        cmd: row.cmd,
+        exit_code: row.exit_code,
+        recorded_at: row.recorded_at,
+        passing: row.exit_code == 0,
+    })
+}
+
 /// Suggest high-confidence verified command recipes (exit 0) matching user intent or query keywords.
 pub fn suggest_verified_recipes(
     store: &BrainStore,
     user_message: &str,
+    project_key: Option<&str>,
     limit: usize,
 ) -> Vec<VerifiedRecipe> {
     let lower = user_message.to_lowercase();
@@ -681,7 +731,10 @@ pub fn suggest_verified_recipes(
     .iter()
     .any(|k| lower.contains(k));
 
-    let Ok(outcomes) = store.list_verify_outcomes(100) else {
+    let Some(project_key) = project_key else {
+        return Vec::new();
+    };
+    let Ok(outcomes) = store.list_verify_outcomes_for_project(project_key, 100) else {
         return Vec::new();
     };
 
@@ -907,6 +960,7 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
             "cargo test --failed",
             "dev1",
             "cli",
+            Some("project-a"),
         );
         let _ = store.insert_verify_outcome(
             None,
@@ -917,10 +971,22 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
             "cargo test -p agent-muscle",
             "dev1",
             "orchestrator",
+            Some("project-a"),
         );
-        let _ = store.insert_verify_outcome(None, 0, None, None, None, "npm test", "dev1", "cli");
+        let _ = store.insert_verify_outcome(
+            None,
+            0,
+            None,
+            None,
+            None,
+            "npm test",
+            "dev1",
+            "cli",
+            Some("project-a"),
+        );
 
-        let recipes = suggest_verified_recipes(&store, "run tests for muscle", 2);
+        let recipes =
+            suggest_verified_recipes(&store, "run tests for muscle", Some("project-a"), 2);
         assert!(!recipes.is_empty());
         assert_eq!(recipes[0].cmd, "cargo test -p agent-muscle");
         assert_eq!(recipes[0].exit_code, 0);
@@ -943,6 +1009,7 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
             "cargo test -p agent-muscle",
             "dev1",
             "orchestrator",
+            Some("project-a"),
         );
         // Latest run failed!
         let _ = store.insert_verify_outcome(
@@ -954,13 +1021,91 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
             "cargo test -p agent-muscle",
             "dev1",
             "cli",
+            Some("project-a"),
         );
 
-        let recipes = suggest_verified_recipes(&store, "run tests for muscle", 2);
+        let recipes =
+            suggest_verified_recipes(&store, "run tests for muscle", Some("project-a"), 2);
         assert!(
             recipes.is_empty(),
             "recently failed command must be squelched"
         );
+    }
+
+    #[test]
+    fn last_verification_reports_the_latest_run_for_the_project() {
+        let dir = tempdir().unwrap();
+        let store = BrainStore::open(&dir.path().join("t.db")).unwrap();
+        let _ = store.insert_verify_outcome(
+            None,
+            1,
+            Some("build error"),
+            None,
+            None,
+            "cargo test --lib",
+            "dev1",
+            "cli",
+            Some("project-a"),
+        );
+
+        let status = last_verification(&store, "project-a").unwrap();
+        assert_eq!(status.cmd, "cargo test --lib");
+        assert!(!status.passing);
+        assert!(last_verification(&store, "project-b").is_none());
+    }
+
+    #[test]
+    fn script_verdict_passes_approved_reports() {
+        assert!(script_verdict(r#"{"approved": true, "issues": []}"#).is_ok());
+    }
+
+    #[test]
+    fn script_verdict_names_the_first_rejection() {
+        let report = r#"{"approved": false, "issues": [{"severity": "error", "message": "dynamic command name blocked: `$command_line`"}]}"#;
+        assert_eq!(
+            script_verdict(report).unwrap_err(),
+            "dynamic command name blocked: `$command_line`"
+        );
+    }
+
+    #[test]
+    fn script_verdict_fails_closed_on_unreadable_reports() {
+        assert!(script_verdict("agent-mouth: unexpected output").is_err());
+    }
+
+    #[test]
+    fn suggest_verified_recipes_only_offers_recipes_recorded_for_the_same_project() {
+        let dir = tempdir().unwrap();
+        let store = BrainStore::open(&dir.path().join("t.db")).unwrap();
+
+        let _ = store.insert_verify_outcome(
+            None,
+            0,
+            None,
+            None,
+            None,
+            "cargo test -p harbor",
+            "dev1",
+            "cli",
+            Some("project-a"),
+        );
+        let _ = store.insert_verify_outcome(
+            None,
+            0,
+            None,
+            None,
+            None,
+            "cargo test -p legacy",
+            "dev1",
+            "cli",
+            None,
+        );
+
+        assert!(suggest_verified_recipes(&store, "run tests", Some("project-b"), 3).is_empty());
+        assert!(suggest_verified_recipes(&store, "run tests", None, 3).is_empty());
+        let recipes = suggest_verified_recipes(&store, "run tests", Some("project-a"), 3);
+        assert_eq!(recipes.len(), 1);
+        assert_eq!(recipes[0].cmd, "cargo test -p harbor");
     }
 
     #[test]
