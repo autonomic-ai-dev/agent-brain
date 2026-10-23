@@ -237,6 +237,14 @@ pub struct VerifiedRecipe {
     pub rationale: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerificationStatus {
+    pub cmd: String,
+    pub exit_code: i32,
+    pub recorded_at: i64,
+    pub passing: bool,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RouteTaskResponse {
     pub recommended_agents: Vec<AgentRec>,
@@ -284,6 +292,8 @@ pub struct RouteTaskResponse {
     /// Per-fact retrieval statistics (useful_count, useless_count from context_weights).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub retrieval_stats: Vec<MemoryRetrievalStat>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_verification: Option<VerificationStatus>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

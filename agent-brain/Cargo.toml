@@ -31,6 +31,7 @@ extras = [
 ]
 
 [dependencies]
+agent-brain-core = { path = "crates/agent-brain-core" }
 libc = "0.2"
 agent-body-core = { git = "https://github.com/autonomic-ai-dev/agent-body", tag = "v1.0.0-beta.3" }
 age = "0.11"

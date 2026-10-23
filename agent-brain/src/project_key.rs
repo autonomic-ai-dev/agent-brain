@@ -54,6 +54,18 @@ pub fn resolve_project_key(cwd: &Path) -> Result<ProjectIdentity> {
     })
 }
 
+pub fn project_key_if_known(cwd: &Path) -> Option<String> {
+    let repo_root = find_repo_root(cwd).unwrap_or_else(|| cwd.to_path_buf());
+    if let Ok(Some(remote)) = git_remote_url(&repo_root) {
+        return Some(hash_hex(&normalize_remote_url(&remote)));
+    }
+    if let Ok(Some(oid)) = git_first_commit(&repo_root) {
+        return Some(hash_hex(&oid));
+    }
+    let id = fs::read_to_string(repo_root.join(".agent-brain-id")).ok()?;
+    Some(hash_hex(id.trim()))
+}
+
 /// True when `scope_key` looks like an absolute filesystem path (legacy v1).
 pub fn looks_like_path_scope_key(scope_key: &str) -> bool {
     let p = Path::new(scope_key);
@@ -153,6 +165,42 @@ fn git_first_commit(repo: &Path) -> Result<Option<String>> {
     }
 }
 
+pub struct ProjectIdentityCache {
+    entries: std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, (Option<ProjectIdentity>, std::time::Instant)>>,
+    ttl: std::time::Duration,
+}
+
+impl ProjectIdentityCache {
+    pub fn new(ttl: std::time::Duration) -> Self {
+        Self {
+            entries: std::sync::Mutex::new(std::collections::HashMap::new()),
+            ttl,
+        }
+    }
+
+    pub fn resolve(&self, cwd: &Path) -> Option<ProjectIdentity> {
+        if let Ok(entries) = self.entries.lock() {
+            if let Some((identity, at)) = entries.get(cwd) {
+                if at.elapsed() < self.ttl {
+                    return identity.clone();
+                }
+            }
+        }
+        let identity = resolve_project_key(cwd).ok();
+        if let Ok(mut entries) = self.entries.lock() {
+            entries.insert(cwd.to_path_buf(), (identity.clone(), std::time::Instant::now()));
+        }
+        identity
+    }
+}
+
+static IDENTITIES: std::sync::LazyLock<ProjectIdentityCache> =
+    std::sync::LazyLock::new(|| ProjectIdentityCache::new(std::time::Duration::from_secs(60)));
+
+pub fn resolve_project_key_cached(cwd: &Path) -> Option<ProjectIdentity> {
+    IDENTITIES.resolve(cwd)
+}
+
 /// Ensure `.agent-brain-id` path helper for tests.
 #[cfg(test)]
 pub fn agent_brain_id_path(repo: &Path) -> std::path::PathBuf {
@@ -161,6 +209,23 @@ pub fn agent_brain_id_path(repo: &Path) -> std::path::PathBuf {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn cached_identity_is_reused_within_its_ttl() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = ProjectIdentityCache::new(std::time::Duration::from_secs(60));
+        let first = cache.resolve(dir.path()).unwrap();
+        std::fs::write(dir.path().join(".agent-brain-id"), "a-different-id\n").unwrap();
+        let second = cache.resolve(dir.path()).unwrap();
+        assert_eq!(first.project_key, second.project_key);
+    }
+
+    #[test]
+    fn project_key_if_known_never_writes_an_id_file() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(project_key_if_known(dir.path()), None);
+        assert!(!dir.path().join(".agent-brain-id").exists());
+    }
+
     use super::*;
 
     #[test]

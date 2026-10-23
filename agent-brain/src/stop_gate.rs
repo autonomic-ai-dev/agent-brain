@@ -142,6 +142,20 @@ pub fn run_stop_gate() -> Result<()> {
     let state_file = config.db_path.with_file_name(STATE_FILE);
     let session_id = input.session_id.unwrap_or_default();
     if let Some(reason) = evaluate_stop(&store, &cwd, &session_id, &state_file)? {
+        let headline: String = reason
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .chars()
+            .take(120)
+            .collect();
+        if let Err(err) = crate::gate_events::record(
+            &config.logs_dir.join("gate-events.jsonl"),
+            "stop-block",
+            &headline,
+        ) {
+            tracing::warn!(error = %err, "gate event write failed");
+        }
         println!(
             "{}",
             serde_json::json!({ "decision": "block", "reason": reason })

@@ -292,6 +292,31 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
+    fn registry_workflows_are_runnable_spine_files() {
+        let spine = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../agent-spine");
+        if !spine.join("workflows").is_dir() {
+            eprintln!("skipped: sibling agent-spine checkout not found");
+            return;
+        }
+        let registry: serde_json::Value =
+            serde_json::from_str(include_str!("../registry/workflows.json")).unwrap();
+        let entries = registry["workflows"].as_object().unwrap();
+        assert!(!entries.is_empty());
+        for (name, entry) in entries {
+            let path = entry["path"].as_str().unwrap();
+            assert!(
+                spine.join(path).is_file(),
+                "registry entry '{name}' points at missing {path}"
+            );
+            assert_eq!(
+                entry["invoke"].as_str().unwrap(),
+                format!("agent-spine run {path}"),
+                "registry entry '{name}' must be runnable as written"
+            );
+        }
+    }
+
+    #[test]
     fn seed_embedded_writes_manifest() {
         let dir = TempDir::new().unwrap();
         let home = dir.path();

@@ -1,8 +1,12 @@
 [verify]
 commands = [
-  "cargo test",
+  "cargo test --all-features",
   "cargo clippy",
   "cargo check",
+  "sh .verify/checks/require_tests.sh --all-features",
+  "cargo test -p agent-brain-core",
+  ".verify/checks/core_boundary.sh",
+  ".verify/run.sh",
   ".verify/playbooks/verify_usage_telemetry.sh",
   ".verify/playbooks/verify_token_tools.sh",
   ".verify/playbooks/verify_routing.sh",

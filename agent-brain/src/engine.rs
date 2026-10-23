@@ -700,7 +700,7 @@ impl Engine {
             .unwrap_or_else(|| infer_phase(user_message));
         let project_identity = cwd.and_then(|path| {
             let resolved = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-            crate::project_key::resolve_project_key(&resolved).ok()
+            crate::project_key::resolve_project_key_cached(&resolved)
         });
         if let Some(ref id) = project_identity {
             let domain = self
@@ -862,7 +862,9 @@ impl Engine {
             &resp.must_apply,
         );
         resp.verified_recipes =
-            crate::verify::suggest_verified_recipes(&self.store, user_message, 3);
+            crate::verify::suggest_verified_recipes(&self.store, user_message, project_key_opt, 3);
+        resp.last_verification = project_key_opt
+            .and_then(|key| crate::verify::last_verification(&self.store, key));
         if let Some(top) = resp.verified_recipes.first() {
             let cmd_display = if top.cmd.len() > 200 {
                 format!("{}...", &top.cmd[..197])
@@ -1007,6 +1009,7 @@ impl Engine {
     }
 
     fn finish_route_response(&self, mut resp: RouteTaskResponse) -> RouteTaskResponse {
+        resp.must_apply.extend(crate::behavior_contract::rules());
         if resp.index_total == 0 {
             if let Ok(n) = self.store.count_indexed_items() {
                 resp.index_total = n;
@@ -1619,7 +1622,9 @@ fn try_add_route_item(
             (PendingRec::Rule(rec), t)
         }
         ItemType::Memory if resp.relevant_memory.len() < limits.memory => {
-            if is_low_signal_memory(&item.topic, None) {
+            if is_low_signal_memory(&item.topic, None)
+                || scoped_to_other_project(item, project_key, repo_root)
+            {
                 return;
             }
             let rec = MemoryRec {
@@ -1688,6 +1693,17 @@ fn rationale_for(item: &ScoredItem, phase: &str) -> String {
         "Matched {} for {} phase (score {:.2}).",
         item.topic, phase, item.score
     )
+}
+
+fn scoped_to_other_project(
+    item: &ScoredItem,
+    project_key: Option<&str>,
+    repo_root: Option<&str>,
+) -> bool {
+    match item.scope_key.as_deref() {
+        None => false,
+        Some(key) => project_key != Some(key) && repo_root != Some(key),
+    }
 }
 
 fn project_scope_matches(
@@ -1931,6 +1947,42 @@ mod tests {
                 .any(|m| m.topic == "project-convention"),
             "real memory should remain"
         );
+    }
+
+    #[test]
+    fn route_memory_excludes_items_scoped_to_another_project() {
+        let mut other = mem("harbor-convention", 0.9, "Use the harbor build script");
+        other.scope_key = Some("project-b".into());
+        let mut own = mem("agent-brain-convention", 0.8, "Use cargo test --lib");
+        own.scope_key = Some("project-a".into());
+        let scored = vec![other, own];
+        let limits = RouteLimits {
+            agents: 0,
+            skills: 0,
+            rules: 0,
+            memory: 5,
+        };
+        let resp = build_route_response(
+            &scored,
+            &limits,
+            "implementing",
+            800,
+            Some("project-a"),
+            None,
+            &[],
+            "",
+        );
+        assert!(
+            resp.relevant_memory
+                .iter()
+                .all(|m| m.topic != "harbor-convention"),
+            "memory from another project leaked: {:?}",
+            resp.relevant_memory
+        );
+        assert!(resp
+            .relevant_memory
+            .iter()
+            .any(|m| m.topic == "agent-brain-convention"));
     }
 
     #[test]

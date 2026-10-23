@@ -304,6 +304,22 @@ pub fn run(conn: &Connection) -> rusqlite::Result<()> {
         conn.execute("UPDATE schema_version SET version = 20", [])?;
     }
 
+    let version: i64 = conn
+        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
+            r.get(0)
+        })
+        .unwrap_or(0);
+
+    if version < 21 {
+        migrate_v21(conn)?;
+        conn.execute("UPDATE schema_version SET version = 21", [])?;
+    }
+
+    if version < 22 {
+        migrate_v22(conn)?;
+        conn.execute("UPDATE schema_version SET version = 22", [])?;
+    }
+
     Ok(())
 }
 
@@ -750,5 +766,25 @@ fn migrate_v20(conn: &Connection) -> rusqlite::Result<()> {
         CREATE INDEX IF NOT EXISTS idx_turn_telemetry_model ON turn_telemetry(model);
         "#,
     )?;
+    Ok(())
+}
+
+fn migrate_v21(conn: &Connection) -> rusqlite::Result<()> {
+    if !column_exists(conn, "verify_outcomes", "project_key")? {
+        conn.execute(
+            "ALTER TABLE verify_outcomes ADD COLUMN project_key TEXT",
+            [],
+        )?;
+    }
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_verify_outcomes_project ON verify_outcomes(project_key, recorded_at);",
+    )?;
+    Ok(())
+}
+
+fn migrate_v22(conn: &Connection) -> rusqlite::Result<()> {
+    if !column_exists(conn, "verify_outcomes", "tests_run")? {
+        conn.execute("ALTER TABLE verify_outcomes ADD COLUMN tests_run INTEGER", [])?;
+    }
     Ok(())
 }

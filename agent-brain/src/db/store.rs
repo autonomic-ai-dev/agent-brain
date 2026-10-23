@@ -1412,14 +1412,15 @@ impl BrainStore {
         cmd: &str,
         device_id: &str,
         source: &str,
+        project_key: Option<&str>,
     ) -> Result<String> {
         let id = Uuid::new_v4().to_string();
         let now = chrono::Utc::now().timestamp_millis();
         self.with_conn(|conn| {
             conn.execute(
                 r#"INSERT INTO verify_outcomes
-                   (id, route_log_id, exit_code, cause_tag, verify_config_hash, scenario_dir_hash, cmd, device_id, recorded_at, source)
-                   VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)"#,
+                   (id, route_log_id, exit_code, cause_tag, verify_config_hash, scenario_dir_hash, cmd, device_id, recorded_at, source, project_key)
+                   VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)"#,
                 params![
                     id,
                     route_log_id,
@@ -1430,12 +1431,33 @@ impl BrainStore {
                     cmd,
                     device_id,
                     now,
-                    source
+                    source,
+                    project_key
                 ],
             )?;
             Ok(())
         })?;
         Ok(id)
+    }
+
+    pub fn set_verify_outcome_tests_run(&self, id: &str, tests_run: u64) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE verify_outcomes SET tests_run = ?1 WHERE id = ?2",
+                params![tests_run as i64, id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn verify_outcome_tests_run(&self, id: &str) -> Result<Option<i64>> {
+        self.with_conn(|conn| {
+            Ok(conn.query_row(
+                "SELECT tests_run FROM verify_outcomes WHERE id = ?1",
+                params![id],
+                |r| r.get::<_, Option<i64>>(0),
+            )?)
+        })
     }
 
     pub fn list_verify_outcomes(&self, limit: usize) -> Result<Vec<VerifyOutcomeRow>> {
@@ -1445,20 +1467,24 @@ impl BrainStore {
                    FROM verify_outcomes ORDER BY recorded_at DESC LIMIT ?1"#,
             )?;
             let rows = stmt
-                .query_map(params![limit as i64], |row| {
-                    Ok(VerifyOutcomeRow {
-                        id: row.get(0)?,
-                        route_log_id: row.get(1)?,
-                        exit_code: row.get(2)?,
-                        cause_tag: row.get(3)?,
-                        verify_config_hash: row.get(4)?,
-                        scenario_dir_hash: row.get(5)?,
-                        cmd: row.get(6)?,
-                        device_id: row.get(7)?,
-                        recorded_at: row.get(8)?,
-                        source: row.get(9)?,
-                    })
-                })?
+                .query_map(params![limit as i64], map_verify_outcome_row)?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
+    pub fn list_verify_outcomes_for_project(
+        &self,
+        project_key: &str,
+        limit: usize,
+    ) -> Result<Vec<VerifyOutcomeRow>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT id, route_log_id, exit_code, cause_tag, verify_config_hash, scenario_dir_hash, cmd, device_id, recorded_at, source
+                   FROM verify_outcomes WHERE project_key = ?1 ORDER BY recorded_at DESC LIMIT ?2"#,
+            )?;
+            let rows = stmt
+                .query_map(params![project_key, limit as i64], map_verify_outcome_row)?
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(rows)
         })
@@ -3099,6 +3125,21 @@ fn memory_source_score_adjustment(source: Option<&str>, topic: &str) -> f64 {
         return -0.35;
     }
     0.0
+}
+
+fn map_verify_outcome_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<VerifyOutcomeRow> {
+    Ok(VerifyOutcomeRow {
+        id: row.get(0)?,
+        route_log_id: row.get(1)?,
+        exit_code: row.get(2)?,
+        cause_tag: row.get(3)?,
+        verify_config_hash: row.get(4)?,
+        scenario_dir_hash: row.get(5)?,
+        cmd: row.get(6)?,
+        device_id: row.get(7)?,
+        recorded_at: row.get(8)?,
+        source: row.get(9)?,
+    })
 }
 
 fn scoped_fallback_rows<'a>(

@@ -13,19 +13,25 @@ cd "$REPO_ROOT"
 echo "==> Verifying cargo check with zero warnings..."
 cargo check -p agent-brain
 
+echo "==> Verifying the agent-brain-core boundary..."
+.verify/checks/core_boundary.sh
+
+echo "==> Running agent-brain-core unit tests..."
+cargo test -p agent-brain-core
+
 echo "==> Running Playbook: Turn Telemetry & Cache Savings..."
-"$DIR/playbooks/verify_usage_telemetry.sh"
+.verify/playbooks/verify_usage_telemetry.sh
 
 echo "==> Running Playbook: Token Tools..."
-"$DIR/playbooks/verify_token_tools.sh"
+.verify/playbooks/verify_token_tools.sh
 
 echo "==> Running Playbook: Routing..."
-"$DIR/playbooks/verify_routing.sh"
+.verify/playbooks/verify_routing.sh
 
 echo "==> Running Playbook: Multi-Agent Enforcement & Interception..."
-"$DIR/playbooks/verify_multi_agent_enforcement.sh"
+.verify/playbooks/verify_multi_agent_enforcement.sh
 
 echo "==> Running Playbook: Full Suite..."
-"$DIR/playbooks/verify_full_suite.sh"
+.verify/playbooks/verify_full_suite.sh
 
 echo "==> [agent-brain] Verification completed successfully (exit 0)."

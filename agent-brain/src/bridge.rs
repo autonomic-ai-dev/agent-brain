@@ -93,9 +93,20 @@ fn hydrate_high_confidence_skills(resp: &mut RouteTaskResponse) {
             continue;
         }
         if let Ok(raw) = std::fs::read_to_string(path) {
-            skill.text = Some(raw.chars().take(SKILL_AUTOLOAD_MAX_CHARS).collect());
+            skill.text = Some(bounded_skill_text(&raw, &skill.name));
         }
     }
+}
+
+fn bounded_skill_text(raw: &str, name: &str) -> String {
+    let total = raw.chars().count();
+    if total <= SKILL_AUTOLOAD_MAX_CHARS {
+        return raw.to_string();
+    }
+    let head: String = raw.chars().take(SKILL_AUTOLOAD_MAX_CHARS).collect();
+    format!(
+        "{head}\n\n[truncated after {SKILL_AUTOLOAD_MAX_CHARS} of {total} characters; call skill_get with name `{name}` for the full body]"
+    )
 }
 
 fn compute_route_confidence(resp: &RouteTaskResponse, scored: &[ScoredItem]) -> f64 {
@@ -226,6 +237,26 @@ mod tests {
     use super::*;
     use crate::types::{AgentRec, RuleRec, SkillRec};
     use crate::types::{ItemType, MustApply};
+
+    #[test]
+    fn hydrated_skill_text_says_when_it_was_cut_short() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("SKILL.md");
+        let body = "x".repeat(SKILL_AUTOLOAD_MAX_CHARS + 10);
+        std::fs::write(&path, &body).unwrap();
+        let mut resp = RouteTaskResponse::default();
+        resp.recommended_skills.push(SkillRec {
+            name: "big-skill".into(),
+            path: path.display().to_string(),
+            rationale: String::new(),
+            score: 0.9,
+            text: None,
+        });
+        hydrate_high_confidence_skills(&mut resp);
+        let text = resp.recommended_skills[0].text.clone().unwrap();
+        assert!(text.contains("truncated"), "{text}");
+        assert!(text.contains("skill_get"), "{text}");
+    }
 
     #[test]
     fn verification_tightens_limits() {
