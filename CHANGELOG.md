@@ -5,9 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.0-beta.3.11] - 2026-10-22
+## [1.0.0-beta.3.11] - 2026-10-23
 
 ### Added
+- **Verification root separation enforcement (`.verify/` vs `verify/`):** Strict mechanical isolation between ephemeral runtime test output targets (`.verify/artifacts/`) and static read-only golden reference fixtures (`verify/`).
+- **Mandatory Skill Hydration (TodoList Contract):** Permanent turn invariant mandating that agents open matched playbooks and copy checklist steps verbatim into their active plan before code modification.
+- **Default Post-Dev Verification via `agstack`:** Mandatory non-negotiable verification requirement through `.verify/run.sh` or allowlist before marking tasks complete.
+- **Universal Multi-Host Hard Rule Provisioning:** Automatic installation of `agent-brain-agstack.md` across Antigravity, Gemini CLI, Claude Code, and Cursor.
 - **Dynamic registry git synchronization:** shallow clone/fetch of `autonomic-ai-dev/agent-registry` into `~/.autonomic/memory/registry-cache/repo/`, with dynamic `registry.json` parsing.
 - **Workflow cache discovery & auto-indexing:** `agent-brain registry sync` automatically syncs and immediately indexes central workflows and package skills into SQLite.
 - **`agstack` supervisor enforcement:** non-negotiable `agstack-invariants` (immutability, zero comment slop, boundary discipline, root cause fixes) are automatically injected into `route_task`'s `must_apply` every turn.
