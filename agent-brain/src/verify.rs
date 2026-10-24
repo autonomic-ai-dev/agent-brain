@@ -863,10 +863,7 @@ mod tests {
 
         store.set_verify_outcome_tests_run(&report.id, 303).unwrap();
 
-        assert_eq!(
-            store.verify_outcome_tests_run(&report.id).unwrap(),
-            Some(303)
-        );
+        assert_eq!(store.verify_outcome_tests_run(&report.id).unwrap(), Some(303));
     }
 
     #[test]

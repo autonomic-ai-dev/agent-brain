@@ -166,12 +166,7 @@ fn git_first_commit(repo: &Path) -> Result<Option<String>> {
 }
 
 pub struct ProjectIdentityCache {
-    entries: std::sync::Mutex<
-        std::collections::HashMap<
-            std::path::PathBuf,
-            (Option<ProjectIdentity>, std::time::Instant),
-        >,
-    >,
+    entries: std::sync::Mutex<std::collections::HashMap<std::path::PathBuf, (Option<ProjectIdentity>, std::time::Instant)>>,
     ttl: std::time::Duration,
 }
 
@@ -193,10 +188,7 @@ impl ProjectIdentityCache {
         }
         let identity = resolve_project_key(cwd).ok();
         if let Ok(mut entries) = self.entries.lock() {
-            entries.insert(
-                cwd.to_path_buf(),
-                (identity.clone(), std::time::Instant::now()),
-            );
+            entries.insert(cwd.to_path_buf(), (identity.clone(), std::time::Instant::now()));
         }
         identity
     }

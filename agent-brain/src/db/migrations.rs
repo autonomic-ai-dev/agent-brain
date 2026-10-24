@@ -784,10 +784,7 @@ fn migrate_v21(conn: &Connection) -> rusqlite::Result<()> {
 
 fn migrate_v22(conn: &Connection) -> rusqlite::Result<()> {
     if !column_exists(conn, "verify_outcomes", "tests_run")? {
-        conn.execute(
-            "ALTER TABLE verify_outcomes ADD COLUMN tests_run INTEGER",
-            [],
-        )?;
+        conn.execute("ALTER TABLE verify_outcomes ADD COLUMN tests_run INTEGER", [])?;
     }
     Ok(())
 }
