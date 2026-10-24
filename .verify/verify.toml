@@ -2,6 +2,8 @@
 commands = [
   "cargo test --all-features -- --skip graphify_1k_ci_gate --test-threads=1",
   "cargo test --all-features graphify_1k_ci_gate",
+  "cargo test --all-features --test proxy_lifecycle",
+  "cargo test --all-features embed::tests::",
   "cargo clippy",
   "cargo check",
   "sh .verify/checks/require_tests.sh --all-features -- --test-threads=1",
