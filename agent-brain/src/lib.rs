@@ -95,6 +95,7 @@ pub mod skills_sh;
 #[cfg(feature = "extras")]
 pub mod spine_ingest;
 pub mod stats;
+pub mod feature_map;
 pub mod stop_gate;
 pub mod suggest_memory;
 #[cfg(feature = "extras")]

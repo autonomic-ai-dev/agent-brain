@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::{find_repo_root, Config};
 use crate::db::store::BrainStore;
+use crate::feature_map;
 use crate::verify::{self, VerifySource};
 
 const BLOCK_REASON: &str = "Verification is missing. Files changed in this repo have no passing `agent-brain verify -- <cmd>` run recorded after the last edit. Run the project's checks (for example `cargo test` or the verify suite), let them pass, then finish.";
@@ -96,25 +97,57 @@ fn git_root(cwd: &Path) -> Option<PathBuf> {
     Some(PathBuf::from(root.trim_end()))
 }
 
-fn last_edit_ms(cwd: &Path) -> Option<i64> {
-    let root = git_root(cwd)?;
-    let out = Command::new("git")
+fn changed_paths(root: &Path) -> Vec<String> {
+    let Ok(out) = Command::new("git")
         .arg("-C")
-        .arg(&root)
-        .args(["status", "--porcelain"])
+        .arg(root)
+        .args(["status", "--porcelain", "--untracked-files=all"])
         .output()
-        .ok()?;
+    else {
+        return Vec::new();
+    };
     if !out.status.success() {
-        return None;
+        return Vec::new();
     }
     String::from_utf8_lossy(&out.stdout)
         .lines()
         .filter_map(|line| line.get(3..))
         .filter_map(|path| path.rsplit(" -> ").next())
+        .map(str::to_string)
+        .collect()
+}
+
+fn last_edit_ms(cwd: &Path) -> Option<i64> {
+    let root = git_root(cwd)?;
+    changed_paths(&root)
+        .iter()
         .filter_map(|path| root.join(path).metadata().ok()?.modified().ok())
         .filter_map(|modified| modified.duration_since(UNIX_EPOCH).ok())
         .map(|elapsed| elapsed.as_millis() as i64)
         .max()
+}
+
+fn markdown_names(dir: &Path) -> Vec<String> {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    entries
+        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+        .filter(|name| name.ends_with(".md") && name != "README.md")
+        .collect()
+}
+
+fn feature_gap(cwd: &Path) -> Option<String> {
+    let root = git_root(cwd)?;
+    let features_dir = root.join(".verify/features");
+    if !features_dir.is_dir() {
+        return None;
+    }
+    feature_map::gap(
+        &changed_paths(&root),
+        &feature_map::load(&features_dir),
+        &markdown_names(&root.join(".verify/knowledge-base")),
+    )
 }
 
 fn load_evidence(store: &BrainStore) -> Result<Vec<Evidence>> {
@@ -174,22 +207,25 @@ fn evaluate_stop(
         return Ok(None);
     };
     let evidence = load_evidence(store)?;
-    if has_verification(edit, &evidence) {
+    let gap = feature_gap(cwd);
+    if has_verification(edit, &evidence) && gap.is_none() {
         return Ok(None);
     }
     let blocks = prior_blocks(&load_state(state_file), session_id, edit);
     let root = find_repo_root(cwd).unwrap_or_else(|| cwd.to_path_buf());
     let step = verify::run_default_step(store, &root, VerifySource::Cli)?;
-    if let Some(run) = &step {
-        if run.report.success {
-            return Ok(None);
-        }
-    }
-    let reason = match &step {
-        Some(run) => failure_reason(run),
-        None => BLOCK_REASON.to_string(),
+    let reason = match (&step, &gap) {
+        (Some(run), _) if !run.report.success => failure_reason(run),
+        (_, Some(gap)) => gap.clone(),
+        (Some(_), None) => return Ok(None),
+        (None, None) => BLOCK_REASON.to_string(),
     };
-    match decide(Some(edit), &evidence, blocks) {
+    let verdict = match &gap {
+        Some(_) if blocks < STOP_BLOCK_LIMIT => Decision::Block(BLOCK_REASON),
+        Some(_) => Decision::Allow,
+        None => decide(Some(edit), &evidence, blocks),
+    };
+    match verdict {
         Decision::Block(_) => {
             let next = BlockState {
                 session_id: session_id.to_string(),
@@ -203,7 +239,7 @@ fn evaluate_stop(
         }
         Decision::Allow => {
             eprintln!(
-                "stop-gate: stopping without verification after {blocks} blocks; no passing verify run follows the last edit"
+                "stop-gate: stopping after {blocks} blocks; verification or feature maps are still incomplete for the last edit"
             );
             Ok(None)
         }
@@ -405,6 +441,47 @@ mod tests {
         assert_eq!(
             evaluate_stop(&store, dir.path(), "s1", &state).unwrap(),
             Some(BLOCK_REASON.to_string())
+        );
+    }
+
+    #[test]
+    fn unclaimed_code_blocks_even_after_verification_passes() {
+        let dir = TempDir::new().unwrap();
+        let aux = TempDir::new().unwrap();
+        let store = gate_store(aux.path());
+        edited_repo(
+            dir.path(),
+            Some("[verify]\ncommands = [\"sh -c\"]\n\n[verify.default]\ncommand = [\"sh\", \"-c\", \"true\"]\n"),
+        );
+        fs::create_dir_all(dir.path().join(".verify/features")).unwrap();
+        let state = aux.path().join("state.json");
+        let reason = evaluate_stop(&store, dir.path(), "s1", &state)
+            .unwrap()
+            .expect("unclaimed code must block");
+        assert!(reason.contains("`changed.txt`"));
+    }
+
+    #[test]
+    fn verified_stop_passes_once_the_owning_feature_is_updated() {
+        let dir = TempDir::new().unwrap();
+        let aux = TempDir::new().unwrap();
+        let store = gate_store(aux.path());
+        edited_repo(
+            dir.path(),
+            Some("[verify]\ncommands = [\"sh -c\"]\n\n[verify.default]\ncommand = [\"sh\", \"-c\", \"true\"]\n"),
+        );
+        fs::create_dir_all(dir.path().join(".verify/features")).unwrap();
+        fs::write(
+            dir.path().join(".verify/features/gate.md"),
+            b"# gate\n\n## Code\n\n- `changed.txt`\n",
+        )
+        .unwrap();
+        fs::create_dir_all(dir.path().join(".verify/knowledge-base")).unwrap();
+        fs::write(dir.path().join(".verify/knowledge-base/gate.md"), b"# gate").unwrap();
+        let state = aux.path().join("state.json");
+        assert_eq!(
+            evaluate_stop(&store, dir.path(), "s1", &state).unwrap(),
+            None
         );
     }
 }
