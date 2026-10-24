@@ -9,10 +9,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::{find_repo_root, Config};
 use crate::db::store::BrainStore;
+use crate::feature_map;
 use crate::verify::{self, VerifySource};
 
 const BLOCK_REASON: &str = "Verification is missing. Files changed in this repo have no passing `agent-brain verify -- <cmd>` run recorded after the last edit. Run the project's checks (for example `cargo test` or the verify suite), let them pass, then finish.";
-const FEATURE_MAP_REASON: &str = "Feature maps or the knowledge base are not updated. Code changed in this repo, but no file under `.verify/features/` and no file under `.verify/knowledge-base/` changed. Update the feature map for each touched feature (Sub-features, How to get to it, Verification Suites, Gotchas) and its knowledge-base entry (what it does, how it works, where the code is, how to use it, how it is verified, known limits). If the change adds a feature, create both files. Then finish again.";
 const EVIDENCE_LIMIT: usize = 100;
 const STOP_BLOCK_LIMIT: u32 = 3;
 const STATE_FILE: &str = "stop-gate-state.json";
@@ -127,24 +127,6 @@ fn last_edit_ms(cwd: &Path) -> Option<i64> {
         .max()
 }
 
-fn feature_map_missing(changed: &[String], features: &[String], knowledge: &[String]) -> bool {
-    let code_changed = changed
-        .iter()
-        .any(|path| !path.starts_with(".verify/") && !path.ends_with(".md"));
-    if !code_changed {
-        return false;
-    }
-    let changed_features: Vec<&String> = features
-        .iter()
-        .filter(|name| changed.contains(&format!(".verify/features/{name}")))
-        .collect();
-    changed_features.is_empty()
-        || features.iter().any(|name| !knowledge.contains(name))
-        || changed_features
-            .iter()
-            .any(|name| !changed.contains(&format!(".verify/knowledge-base/{name}")))
-}
-
 fn markdown_names(dir: &Path) -> Vec<String> {
     let Ok(entries) = fs::read_dir(dir) else {
         return Vec::new();
@@ -155,17 +137,17 @@ fn markdown_names(dir: &Path) -> Vec<String> {
         .collect()
 }
 
-fn feature_map_gap(cwd: &Path) -> bool {
-    let Some(root) = git_root(cwd) else {
-        return false;
-    };
-    let features = root.join(".verify/features");
-    features.is_dir()
-        && feature_map_missing(
-            &changed_paths(&root),
-            &markdown_names(&features),
-            &markdown_names(&root.join(".verify/knowledge-base")),
-        )
+fn feature_gap(cwd: &Path) -> Option<String> {
+    let root = git_root(cwd)?;
+    let features_dir = root.join(".verify/features");
+    if !features_dir.is_dir() {
+        return None;
+    }
+    feature_map::gap(
+        &changed_paths(&root),
+        &feature_map::load(&features_dir),
+        &markdown_names(&root.join(".verify/knowledge-base")),
+    )
 }
 
 fn load_evidence(store: &BrainStore) -> Result<Vec<Evidence>> {
@@ -225,23 +207,23 @@ fn evaluate_stop(
         return Ok(None);
     };
     let evidence = load_evidence(store)?;
-    let feature_gap = feature_map_gap(cwd);
-    if has_verification(edit, &evidence) && !feature_gap {
+    let gap = feature_gap(cwd);
+    if has_verification(edit, &evidence) && gap.is_none() {
         return Ok(None);
     }
     let blocks = prior_blocks(&load_state(state_file), session_id, edit);
     let root = find_repo_root(cwd).unwrap_or_else(|| cwd.to_path_buf());
     let step = verify::run_default_step(store, &root, VerifySource::Cli)?;
-    let reason = match &step {
-        Some(run) if !run.report.success => failure_reason(run),
-        _ if feature_gap => FEATURE_MAP_REASON.to_string(),
-        Some(_) => return Ok(None),
-        None => BLOCK_REASON.to_string(),
+    let reason = match (&step, &gap) {
+        (Some(run), _) if !run.report.success => failure_reason(run),
+        (_, Some(gap)) => gap.clone(),
+        (Some(_), None) => return Ok(None),
+        (None, None) => BLOCK_REASON.to_string(),
     };
-    let verdict = if feature_gap && blocks < STOP_BLOCK_LIMIT {
-        Decision::Block(FEATURE_MAP_REASON)
-    } else {
-        decide(Some(edit), &evidence, blocks)
+    let verdict = match &gap {
+        Some(_) if blocks < STOP_BLOCK_LIMIT => Decision::Block(BLOCK_REASON),
+        Some(_) => Decision::Allow,
+        None => decide(Some(edit), &evidence, blocks),
     };
     match verdict {
         Decision::Block(_) => {
@@ -462,60 +444,8 @@ mod tests {
         );
     }
 
-    fn names(items: &[&str]) -> Vec<String> {
-        items.iter().map(|item| item.to_string()).collect()
-    }
-
     #[test]
-    fn code_change_without_a_feature_map_edit_is_missing_its_map() {
-        let changed = names(&["src/lib.rs"]);
-        assert!(feature_map_missing(&changed, &names(&["gate.md"]), &names(&["gate.md"])));
-    }
-
-    #[test]
-    fn code_change_with_a_feature_map_and_its_knowledge_entry_is_complete() {
-        let changed = names(&[
-            "src/lib.rs",
-            ".verify/features/gate.md",
-            ".verify/knowledge-base/gate.md",
-        ]);
-        assert!(!feature_map_missing(&changed, &names(&["gate.md"]), &names(&["gate.md"])));
-    }
-
-    #[test]
-    fn changed_feature_map_needs_its_own_knowledge_entry_changed() {
-        let changed = names(&["src/lib.rs", ".verify/features/gate.md"]);
-        assert!(feature_map_missing(&changed, &names(&["gate.md"]), &names(&["gate.md"])));
-    }
-
-    #[test]
-    fn new_feature_map_with_a_changed_entry_under_another_name_is_missing() {
-        let changed = names(&[
-            "src/lib.rs",
-            ".verify/features/new.md",
-            ".verify/knowledge-base/gate.md",
-        ]);
-        assert!(feature_map_missing(
-            &changed,
-            &names(&["gate.md", "new.md"]),
-            &names(&["gate.md", "new.md"])
-        ));
-    }
-
-    #[test]
-    fn feature_without_a_knowledge_entry_on_disk_is_missing() {
-        let changed = names(&["src/lib.rs", ".verify/features/gate.md", ".verify/knowledge-base/gate.md"]);
-        assert!(feature_map_missing(&changed, &names(&["gate.md"]), &names(&[])));
-    }
-
-    #[test]
-    fn docs_and_verify_config_changes_need_no_feature_map() {
-        let changed = names(&["README.md", ".verify/verify.toml"]);
-        assert!(!feature_map_missing(&changed, &names(&["gate.md"]), &names(&[])));
-    }
-
-    #[test]
-    fn verified_stop_is_blocked_until_the_feature_map_changes() {
+    fn unclaimed_code_blocks_even_after_verification_passes() {
         let dir = TempDir::new().unwrap();
         let aux = TempDir::new().unwrap();
         let store = gate_store(aux.path());
@@ -525,14 +455,14 @@ mod tests {
         );
         fs::create_dir_all(dir.path().join(".verify/features")).unwrap();
         let state = aux.path().join("state.json");
-        assert_eq!(
-            evaluate_stop(&store, dir.path(), "s1", &state).unwrap(),
-            Some(FEATURE_MAP_REASON.to_string())
-        );
+        let reason = evaluate_stop(&store, dir.path(), "s1", &state)
+            .unwrap()
+            .expect("unclaimed code must block");
+        assert!(reason.contains("`changed.txt`"));
     }
 
     #[test]
-    fn verified_stop_passes_once_the_feature_map_is_updated() {
+    fn verified_stop_passes_once_the_owning_feature_is_updated() {
         let dir = TempDir::new().unwrap();
         let aux = TempDir::new().unwrap();
         let store = gate_store(aux.path());
@@ -541,7 +471,11 @@ mod tests {
             Some("[verify]\ncommands = [\"sh -c\"]\n\n[verify.default]\ncommand = [\"sh\", \"-c\", \"true\"]\n"),
         );
         fs::create_dir_all(dir.path().join(".verify/features")).unwrap();
-        fs::write(dir.path().join(".verify/features/gate.md"), b"# gate").unwrap();
+        fs::write(
+            dir.path().join(".verify/features/gate.md"),
+            b"# gate\n\n## Code\n\n- `changed.txt`\n",
+        )
+        .unwrap();
         fs::create_dir_all(dir.path().join(".verify/knowledge-base")).unwrap();
         fs::write(dir.path().join(".verify/knowledge-base/gate.md"), b"# gate").unwrap();
         let state = aux.path().join("state.json");

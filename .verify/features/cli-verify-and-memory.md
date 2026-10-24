@@ -29,6 +29,13 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
   - Behaviour: `agent-brain sync git|cloud …` and `agent-brain bootstrap`.
   - Outcome: Memory is pushed or pulled from the sync repository.
 
+## Code
+
+- `agent-brain/src`
+- `agent-brain/tests`
+- `agent-brain/hooks`
+- `agent-brain/Cargo.toml`
+
 ## How to get to it (user POV)
 
 - CLI: `agent-brain verify`, `verify init`, `verify report`, `memory put`, `install --global`, `doctor`, `briefing`, `sync`
