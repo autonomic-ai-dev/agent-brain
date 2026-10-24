@@ -518,7 +518,7 @@ const HARD_ROUTE_RULE: &str = r"## HARD RULES (never skip)
 
 const AGSTACK_MODE: &str = r"## agstack mode (default for engineering work)
 
-For any coding, design, review, debugging, UI, or documentation task, start agstack mode. Read the agstack-mode skill (`skill_get` with `agstack-mode`, or `skills/agstack-mode/SKILL.md` in the agstack package) and follow its non-negotiables, routing table, and principles. Name the principles that shaped each decision. A code change is complete only with verification evidence from `agent-brain verify -- <cmd>` and, for UI changes, the UI skills. Say `agstack` in any session to start this mode explicitly.
+For any coding, design, review, debugging, UI, or documentation task, start agstack mode. Read the agstack-mode skill (`skill_get` with `agstack-mode`, or `skills/agstack-mode/SKILL.md` in the agstack package) and run its core path on every call: route, load token-efficiency and no-comments, bounded reads, the matched playbook, the triggered principles, then verification. Name the principles that shaped each decision. A code change is complete only with verification evidence from `agent-brain verify -- <cmd>` and, for UI changes, the UI skills. Say `agstack` in any session to start this mode explicitly.
 ";
 
 pub fn mode_snippet() -> String {
