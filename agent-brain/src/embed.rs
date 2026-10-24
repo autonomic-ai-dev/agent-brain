@@ -1,11 +1,15 @@
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 
+pub const IDLE_UNLOAD_AFTER: Duration = Duration::from_secs(600);
+
 pub struct Embedder {
     model: Mutex<Option<TextEmbedding>>,
+    last_used: Mutex<Instant>,
     model_kind: EmbeddingModel,
     deterministic: bool,
     cache_dir: PathBuf,
@@ -21,6 +25,7 @@ impl Embedder {
     pub fn deterministic() -> Self {
         Self {
             model: Mutex::new(None),
+            last_used: Mutex::new(Instant::now()),
             model_kind: EmbeddingModel::AllMiniLML6V2,
             deterministic: true,
             cache_dir: default_cache_dir(),
@@ -37,6 +42,7 @@ impl Embedder {
         std::fs::create_dir_all(&cache_dir).ok();
         Ok(Self {
             model: Mutex::new(None),
+            last_used: Mutex::new(Instant::now()),
             model_kind: model,
             deterministic: false,
             cache_dir,
@@ -48,6 +54,10 @@ impl Embedder {
         if self.deterministic {
             anyhow::bail!("deterministic embedder has no ONNX model");
         }
+        *self
+            .last_used
+            .lock()
+            .map_err(|_| anyhow::anyhow!("embedder lock poisoned"))? = Instant::now();
         let mut guard = self
             .model
             .lock()
@@ -63,6 +73,22 @@ impl Embedder {
             );
         }
         Ok(())
+    }
+
+    pub fn is_loaded(&self) -> bool {
+        self.model.lock().is_ok_and(|model| model.is_some())
+    }
+
+    pub fn unload_if_idle(&self, idle: Duration) {
+        let Ok(last_used) = self.last_used.lock().map(|t| *t) else {
+            return;
+        };
+        if last_used.elapsed() < idle {
+            return;
+        }
+        if let Ok(mut model) = self.model.lock() {
+            *model = None;
+        }
     }
 
     fn model(&self) -> Result<std::sync::MutexGuard<'_, Option<TextEmbedding>>> {
@@ -302,5 +328,24 @@ mod tests {
         assert_eq!(emb.len(), 384);
         let norm: f64 = emb.iter().map(|x| (*x as f64).powi(2)).sum::<f64>().sqrt();
         assert!((norm - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn idle_unload_drops_model_and_next_use_reloads_it() {
+        let embedder = Embedder::new().unwrap();
+        embedder.embed_one("idle unload").unwrap();
+        assert!(embedder.is_loaded());
+        embedder.unload_if_idle(Duration::ZERO);
+        assert!(!embedder.is_loaded());
+        assert_eq!(embedder.embed_one("idle unload").unwrap().len(), 384);
+        assert!(embedder.is_loaded());
+    }
+
+    #[test]
+    fn recently_used_model_stays_loaded() {
+        let embedder = Embedder::new().unwrap();
+        embedder.embed_one("recent use").unwrap();
+        embedder.unload_if_idle(Duration::from_secs(3600));
+        assert!(embedder.is_loaded());
     }
 }
