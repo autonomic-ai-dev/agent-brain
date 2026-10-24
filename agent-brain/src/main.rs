@@ -81,6 +81,7 @@ async fn main() -> Result<()> {
                     let total = engine.store.count_indexed_items().unwrap_or(0);
                     tracing::info!("indexed {}", install::format_new_index_count(n, total));
                 }
+                engine.spawn_embedder_idle_unload();
                 if brain_settings.auto_update.enabled {
                     engine.spawn_auto_update();
                 }
