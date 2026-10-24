@@ -50,7 +50,8 @@ agent-brain is the routing layer every agent calls at the start of a turn. Its C
 - `verify --` prints its output only after the command finishes, so long runs show nothing until then.
 - `doctor --fix` clears quarantine. Run it only on this repository's build output, not on a user's installed binary.
 - Memory tests need a temporary `brain.db`. The real database is shared state.
-- The stop gate only sees a repo that git reports. A change outside git is not checked.
+- When the stop hook runs in a directory that is not a git repository, such as a workspace root, the gate checks each child repository with uncommitted changes. Each repository keeps its own block count. Before this fix the gate checked nothing in that case, so a turn could end with unverified changes in the organ repos.
+- A change outside any git repository is still not checked.
 
 ## Related
 
