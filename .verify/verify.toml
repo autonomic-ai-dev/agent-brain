@@ -13,3 +13,7 @@ commands = [
   ".verify/playbooks/verify_routing.sh",
   ".verify/playbooks/verify_full_suite.sh",
 ]
+
+[verify.default]
+command = ["cargo", "test", "--all-features", "--", "--skip", "graphify_1k_ci_gate"]
+timeout_secs = 600
