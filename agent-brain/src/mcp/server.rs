@@ -2123,9 +2123,14 @@ pub async fn run_stdio(engine: Arc<Engine>) -> Result<()> {
 /// bridges stdin/stdout to it, and reconnects if the daemon restarts. Multiple hosts can
 /// run a proxy simultaneously without touching the exclusive serve lock.
 pub async fn run_proxy(socket_path: &Path) -> Result<()> {
+    let host_pid = unsafe { libc::getppid() };
     let mut spawned = false;
     let handshake = Arc::new(std::sync::Mutex::new(ProxyHandshake::default()));
     loop {
+        if unsafe { libc::getppid() } != host_pid {
+            tracing::info!("proxy: host process exited, stopping");
+            return Ok(());
+        }
         let stream = match UnixStream::connect(socket_path).await {
             Ok(stream) => stream,
             Err(err) => {
@@ -2151,10 +2156,10 @@ pub async fn run_proxy(socket_path: &Path) -> Result<()> {
                 continue;
             }
         };
-        if let Err(err) = serve_one_proxy_connection(stream, handshake.clone()).await {
-            tracing::warn!(error = %err, "proxy: connection closed, reconnecting");
-        } else {
-            tracing::debug!("proxy: daemon connection closed, reconnecting");
+        match serve_one_proxy_connection(stream, handshake.clone()).await {
+            Ok(true) => return Ok(()),
+            Ok(false) => tracing::debug!("proxy: daemon connection closed, reconnecting"),
+            Err(err) => tracing::warn!(error = %err, "proxy: connection closed, reconnecting"),
         }
         sleep(Duration::from_millis(500)).await;
     }
@@ -2197,13 +2202,13 @@ impl ProxyHandshake {
 async fn serve_one_proxy_connection(
     stream: UnixStream,
     handshake: Arc<std::sync::Mutex<ProxyHandshake>>,
-) -> Result<()> {
+) -> Result<bool> {
     let (rx, mut tx) = stream.into_split();
     let mut stdin = BufReader::new(tokio::io::stdin());
     let mut stdout = tokio::io::stdout();
     let initial_line = match first_stdin_line(&mut stdin, &mut stdout).await? {
         Some(line) => line,
-        None => return Ok(()),
+        None => return Ok(true),
     };
     let replayed = handshake.lock().unwrap().replay();
     let replay_id = replayed.first().and_then(|line| request_id(line));
@@ -2244,9 +2249,10 @@ async fn serve_one_proxy_connection(
                 if tx.write_all(line.as_bytes()).await.is_err()
                     || tx.write_all(b"\n").await.is_err()
                 {
-                    break;
+                    return false;
                 }
             }
+            true
         })
     };
     let from_daemon = {
@@ -2291,13 +2297,13 @@ async fn serve_one_proxy_connection(
         }
     });
 
-    tokio::select! {
-        _ = from_host => {}
-        _ = from_daemon => {}
-    }
+    let host_closed = tokio::select! {
+        closed = from_host => closed.unwrap_or(false),
+        _ = from_daemon => false,
+    };
     watchdog.abort();
     writer.abort();
-    Ok(())
+    Ok(host_closed)
 }
 
 fn request_id(line: &str) -> Option<String> {
