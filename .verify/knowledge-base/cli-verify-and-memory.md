@@ -40,6 +40,10 @@ agent-brain is the routing layer every agent calls at the start of a turn. Its C
 - The stop gate tests in `stop_gate.rs`: the verification rules, the feature-map and knowledge-base rule, and the end-to-end cases with a real git repository
 - `sh .verify/checks/core_boundary.sh` for the core crate's dependency boundary
 
+## Stop gate matrix
+
+- The stop gate's feature-ownership rule has 16 end-to-end cases in `stop_gate.rs` (`matrix_` prefix). Each runs in a fresh temporary git repo with its own `.verify/` tree, a temporary store, and a no-op default step. They cover unclaimed code, owned code missing its map or entry, shared files, new features, untracked directories, prefix boundaries, claims outside the `## Code` section, failing verification, and the block limit.
+
 ## Known limits
 
 - Plain `cargo test` does not build the `extras` tests. Use `--all-features`, as the allowlist does.

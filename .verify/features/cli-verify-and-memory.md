@@ -44,6 +44,7 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
 ## Verification Suites (Targeted Test Commands)
 
 - **Unit Tests:** `cargo test -p agent-brain-core` (passes 11 of 11, see `.verify/artifacts/feature-map-baseline/core-unit.log`). The whole crate runs with `cargo test --all-features` (303 unit tests, 0 failed, recorded by `agent-brain verify`).
+- **Stop gate matrix:** `cargo test --all-features stop_gate::tests::matrix_` runs 16 end-to-end cases. Each uses a fresh temporary git repo and a temporary store, so it never touches the real memory database.
 - **Functional API Tests (Hurl):** not yet written for the CLI or MCP surface.
 - **Allowlisted Verification:** `.verify/run.sh`, listed in `.verify/verify.toml`
 - **Preconditions:** Rust toolchain. Memory tests need a temporary `brain.db` path, not the user's `~/.autonomic/memory`.
