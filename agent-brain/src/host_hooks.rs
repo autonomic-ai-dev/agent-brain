@@ -407,7 +407,7 @@ pub fn install_vscode_copilot_instructions(quiet: bool) -> Result<()> {
         .with_context(|| format!("write {}", path.display()))?;
     let mode_path = root.join(".github").join("agent-brain-mode.md");
     if !mode_path.is_file() {
-        fs::write(&mode_path, crate::host_install::AGENT_BRAIN_MODE_SNIPPET)
+        fs::write(&mode_path, crate::host_install::mode_snippet())
             .with_context(|| format!("write {}", mode_path.display()))?;
     }
     if !quiet {
