@@ -23,6 +23,10 @@
   - Behaviour: The normal dependency tree of `agent-brain-core` is checked against a denylist of IO and runtime crate names.
   - Outcome: `.verify/checks/core_boundary.sh` exits 0 and prints the holding message.
 
+## Code
+
+- `agent-brain/crates/agent-brain-core`
+
 ## How to get to it (user POV)
 
 - Run `agent-brain route_task` from any repository. The must-apply rules it returns come from `behavior_contract` in the core crate.

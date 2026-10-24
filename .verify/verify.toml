@@ -1,6 +1,7 @@
 [verify]
 commands = [
-  "cargo test --all-features",
+  "cargo test --all-features -- --skip graphify_1k_ci_gate",
+  "cargo test --all-features graphify_1k_ci_gate",
   "cargo clippy",
   "cargo check",
   "sh .verify/checks/require_tests.sh --all-features",
