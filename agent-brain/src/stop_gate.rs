@@ -117,6 +117,30 @@ fn changed_paths(root: &Path) -> Vec<String> {
         .collect()
 }
 
+fn repo_name(repo: &Path) -> String {
+    repo.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+fn repos_under(cwd: &Path) -> Vec<PathBuf> {
+    if let Some(root) = git_root(cwd) {
+        return vec![root];
+    }
+    let Ok(entries) = fs::read_dir(cwd) else {
+        return Vec::new();
+    };
+    let mut repos: Vec<PathBuf> = entries
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.is_dir())
+        .filter_map(|path| git_root(&path))
+        .filter(|root| !changed_paths(root).is_empty())
+        .collect();
+    repos.sort();
+    repos.dedup();
+    repos
+}
+
 fn last_edit_ms(cwd: &Path) -> Option<i64> {
     let root = git_root(cwd)?;
     changed_paths(&root)
@@ -174,7 +198,16 @@ pub fn run_stop_gate() -> Result<()> {
     let store = BrainStore::open(&config.db_path)?;
     let state_file = config.db_path.with_file_name(STATE_FILE);
     let session_id = input.session_id.unwrap_or_default();
-    if let Some(reason) = evaluate_stop(&store, &cwd, &session_id, &state_file)? {
+    let mut reasons = Vec::new();
+    for repo in repos_under(&cwd) {
+        let repo_state =
+            state_file.with_file_name(format!("stop-gate-state-{}.json", repo_name(&repo)));
+        if let Some(reason) = evaluate_stop(&store, &repo, &session_id, &repo_state)? {
+            reasons.push(reason);
+        }
+    }
+    if !reasons.is_empty() {
+        let reason = reasons.join("\n\n");
         let headline: String = reason
             .lines()
             .next()
@@ -782,5 +815,27 @@ mod tests {
             assert!(evaluate(&repo).is_some());
         }
         assert_eq!(evaluate(&repo), None);
+    }
+
+    #[test]
+    fn workspace_root_checks_only_the_child_repos_with_changes() {
+        let root = TempDir::new().unwrap();
+        let changed = root.path().join("changed");
+        let clean = root.path().join("clean");
+        for repo in [&changed, &clean] {
+            fs::create_dir_all(repo).unwrap();
+            Command::new("git")
+                .arg("-C")
+                .arg(repo)
+                .args(["init", "-q"])
+                .status()
+                .unwrap();
+        }
+        fs::write(changed.join("a.rs"), "fn a() {}").unwrap();
+        let names: Vec<String> = repos_under(root.path())
+            .iter()
+            .map(|repo| repo_name(repo))
+            .collect();
+        assert_eq!(names, vec!["changed".to_string()]);
     }
 }
