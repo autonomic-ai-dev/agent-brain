@@ -132,7 +132,7 @@ pub fn format_briefing(resp: &RouteTaskResponse) -> String {
         resp.recommended_agents
             .iter()
             .map(|a| format!("**{}** — {} _(score {:.2})_", a.name, a.rationale, a.score)),
-        Some("No specialized subagent matched (score < 0.70). Add subagents in `~/.autonomic/agents/<name>.json` or `.claude/agents/` to enable delegation."),
+        Some("No specialized subagent matched (score < 0.70). Add subagents in `~/.autonomic/agents/<name>.json` or `agents/` to enable delegation."),
     );
     section_list_with_hint(
         &mut out,

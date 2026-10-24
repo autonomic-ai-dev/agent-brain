@@ -445,11 +445,7 @@ fn parse_file(path: &Path, repo: Option<&Path>, package: Option<String>) -> Opti
             name.clone(),
             extract_agent_text(&content, &name),
         )
-    } else if file_name.ends_with(".mdc")
-        || file_name == "CLAUDE.md"
-        || file_name == "AGENTS.md"
-        || file_name == ".cursorrules"
-        || file_name.ends_with(".md")
+    } else if file_name.ends_with(".mdc") || file_name == "AGENTS.md" || file_name.ends_with(".md")
     {
         (
             ItemType::Rule,
