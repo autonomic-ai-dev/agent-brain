@@ -863,8 +863,8 @@ impl Engine {
         );
         resp.verified_recipes =
             crate::verify::suggest_verified_recipes(&self.store, user_message, project_key_opt, 3);
-        resp.last_verification = project_key_opt
-            .and_then(|key| crate::verify::last_verification(&self.store, key));
+        resp.last_verification =
+            project_key_opt.and_then(|key| crate::verify::last_verification(&self.store, key));
         if let Some(top) = resp.verified_recipes.first() {
             let cmd_display = if top.cmd.len() > 200 {
                 format!("{}...", &top.cmd[..197])
@@ -1433,16 +1433,25 @@ fn build_route_response(
                 let is_info = crate::retrieval::is_informational_query(user_message);
 
                 if !is_agstack && !user_message.is_empty() {
-                    let has_ws_affinity = ws_tags
-                        .iter()
-                        .any(|t| item.topic.to_lowercase().contains(t.to_lowercase().as_str()));
+                    let has_ws_affinity = ws_tags.iter().any(|t| {
+                        item.topic
+                            .to_lowercase()
+                            .contains(t.to_lowercase().as_str())
+                    });
                     if is_info {
-                        let action_match = topic_aff >= 0.5 && (topic_aff == 1.0 || item.score >= 0.68);
+                        let action_match =
+                            topic_aff >= 0.5 && (topic_aff == 1.0 || item.score >= 0.68);
                         if !action_match && item.score < 0.85 {
                             continue;
                         }
-                    } else if (topic_aff == 0.0 && msg_lexical < 0.40 && !has_ws_affinity && item.score < 0.80)
-                        || (topic_aff < 0.5 && msg_lexical < 0.30 && !has_ws_affinity && item.score < 0.72)
+                    } else if (topic_aff == 0.0
+                        && msg_lexical < 0.40
+                        && !has_ws_affinity
+                        && item.score < 0.80)
+                        || (topic_aff < 0.5
+                            && msg_lexical < 0.30
+                            && !has_ws_affinity
+                            && item.score < 0.72)
                     {
                         continue;
                     }
@@ -1761,7 +1770,10 @@ fn must_apply_for_memory(
 
     if promote {
         let display_text = if is_trap {
-            format!("TRAP WARNING: {}", item.text.chars().take(180).collect::<String>())
+            format!(
+                "TRAP WARNING: {}",
+                item.text.chars().take(180).collect::<String>()
+            )
         } else {
             item.text.chars().take(200).collect()
         };

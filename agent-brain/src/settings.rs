@@ -511,8 +511,9 @@ impl Default for McpAutoUpdateSettings {
 }
 
 static MIGRATIONS_ONCE: std::sync::Once = std::sync::Once::new();
-static SETTINGS_CACHE: std::sync::Mutex<Option<(PathBuf, std::time::SystemTime, AgentBrainSettings)>> =
-    std::sync::Mutex::new(None);
+static SETTINGS_CACHE: std::sync::Mutex<
+    Option<(PathBuf, std::time::SystemTime, AgentBrainSettings)>,
+> = std::sync::Mutex::new(None);
 
 impl AgentBrainSettings {
     pub fn load(home: &Path) -> Self {

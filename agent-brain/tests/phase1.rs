@@ -829,21 +829,54 @@ fn large_scale_isolated_routing_benchmark_intent_vs_context() {
 
     let positive_cases: &[(&str, &str)] = &[
         ("write unit tests with cargo test", "rust-testing"),
-        ("idiomatic rust error handling and Result patterns", "rust-patterns"),
-        ("asynchronous tokio futures and select channels in rust", "rust-async"),
-        ("kubernetes helm chart deployment and ingress configuration", "kubernetes-deploy"),
-        ("docker multi-stage build layer caching", "docker-optimization"),
-        ("postgres connection pooling with pgbouncer", "postgres-pooling"),
+        (
+            "idiomatic rust error handling and Result patterns",
+            "rust-patterns",
+        ),
+        (
+            "asynchronous tokio futures and select channels in rust",
+            "rust-async",
+        ),
+        (
+            "kubernetes helm chart deployment and ingress configuration",
+            "kubernetes-deploy",
+        ),
+        (
+            "docker multi-stage build layer caching",
+            "docker-optimization",
+        ),
+        (
+            "postgres connection pooling with pgbouncer",
+            "postgres-pooling",
+        ),
         ("python asyncio coroutines and event loop", "python-asyncio"),
-        ("react server components streaming suspense", "react-streaming"),
-        ("graphql schema federation and resolvers", "graphql-federation"),
-        ("golang goroutines channel synchronization", "go-concurrency"),
-        ("typescript strict null checks and type guards", "typescript-types"),
-        ("aws terraform infrastructure as code setup", "terraform-aws"),
+        (
+            "react server components streaming suspense",
+            "react-streaming",
+        ),
+        (
+            "graphql schema federation and resolvers",
+            "graphql-federation",
+        ),
+        (
+            "golang goroutines channel synchronization",
+            "go-concurrency",
+        ),
+        (
+            "typescript strict null checks and type guards",
+            "typescript-types",
+        ),
+        (
+            "aws terraform infrastructure as code setup",
+            "terraform-aws",
+        ),
         ("redis pubsub caching and eviction policy", "redis-caching"),
         ("linux systemd service unit configuration", "linux-systemd"),
         ("jest snapshot testing and mock functions", "jest-testing"),
-        ("sql database migration scripts and schema rollback", "db-migrations"),
+        (
+            "sql database migration scripts and schema rollback",
+            "db-migrations",
+        ),
     ];
 
     let mut positive_hits = 0;
@@ -865,13 +898,14 @@ fn large_scale_isolated_routing_benchmark_intent_vs_context() {
             )
             .unwrap();
 
-        let hit = res.recommended_skills.iter().any(|s| s.name == *expected_skill);
+        let hit = res
+            .recommended_skills
+            .iter()
+            .any(|s| s.name == *expected_skill);
         assert!(
             hit,
             "expected skill {} for query {:?}, got: {:?}",
-            expected_skill,
-            query,
-            res.recommended_skills
+            expected_skill, query, res.recommended_skills
         );
         positive_hits += 1;
     }

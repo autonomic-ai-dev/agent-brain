@@ -44,8 +44,9 @@ pub fn install_bundled(config: &Config, bundle: &str) -> Result<PackageRecord> {
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
         (commit, format!("registry:packages/{bundle}"))
     } else {
-        let files = bundled_manifest_dir(bundle)
-            .ok_or_else(|| anyhow::anyhow!("package '{bundle}' not found in registry cache or bundles"))?;
+        let files = bundled_manifest_dir(bundle).ok_or_else(|| {
+            anyhow::anyhow!("package '{bundle}' not found in registry cache or bundles")
+        })?;
 
         for (rel, content) in files {
             let path = install_dir.join(rel);
@@ -156,8 +157,8 @@ mod tests {
         config.vectors_path = home.join("data").join("vectors.bin");
         config.ensure_dirs().unwrap();
 
-        let repo_agstack = registry_sync::cache_dir(&home)
-            .join("repo/packages/agstack/.cursor/rules");
+        let repo_agstack =
+            registry_sync::cache_dir(&home).join("repo/packages/agstack/.cursor/rules");
         fs::create_dir_all(&repo_agstack).unwrap();
         fs::write(
             repo_agstack.join("agstack.mdc"),

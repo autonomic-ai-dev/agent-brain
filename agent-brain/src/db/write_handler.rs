@@ -127,11 +127,7 @@ impl WriteHandlerCtx {
                         explain: false,
                     };
                     if let Err(err) = crate::trace_extract::run_trace_extract(
-                        &store,
-                        &embedder,
-                        &home,
-                        &cfg,
-                        false,
+                        &store, &embedder, &home, &cfg, false,
                     ) {
                         tracing::warn!(target: "agent_brain::trace_extract", "run failed: {err}");
                     }
@@ -142,9 +138,7 @@ impl WriteHandlerCtx {
                     }
                 }
                 if settings.sync.cloud.enabled && settings.sync.cloud.auto_push {
-                    if let Err(err) =
-                        crate::sync::cloud_push(&store, &home, &settings.sync.cloud)
-                    {
+                    if let Err(err) = crate::sync::cloud_push(&store, &home, &settings.sync.cloud) {
                         tracing::warn!(target: "agent_brain::sync", "cloud auto_push failed: {err}");
                     }
                 }

@@ -356,12 +356,15 @@ pub fn install_project_cursor_rules(quiet: bool) -> Result<()> {
     let mode_path = rules_dir.join("agent-brain-mode.mdc");
     let mode_body = format!(
         "---\ndescription: agent-brain mode — short on-ramp for routed memory and skills\nalwaysApply: false\n---\n\n{}",
-        host_install::AGENT_BRAIN_MODE_SNIPPET
+        host_install::mode_snippet()
     );
     fs::write(&mode_path, &mode_body).with_context(|| format!("write {}", mode_path.display()))?;
     if !quiet {
         println!("Installed project Cursor rule at {}", rule_path.display());
-        println!("Installed project Cursor agstack rule at {}", agstack_path.display());
+        println!(
+            "Installed project Cursor agstack rule at {}",
+            agstack_path.display()
+        );
         println!("Installed project Cursor mode at {}", mode_path.display());
     }
     Ok(())

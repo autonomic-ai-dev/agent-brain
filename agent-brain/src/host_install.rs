@@ -516,7 +516,14 @@ const HARD_ROUTE_RULE: &str = r"## HARD RULES (never skip)
 - Choose shell and organ tools from the `route_task` result: read `suggested_tools` and `must_apply` before the first shell or organ call. Prefer routed agent-body tools (e.g. `muscle_execute_bash`, `spine_check_status`, `heart_record_usage`) over native Bash when they are listed. Test agent-body reachability once per session and reuse the result. If a routed tool is skipped, say so and why. If an agent-body call fails, report the failure and fall back to native tools.
 ";
 
-pub const AGENT_BRAIN_MODE_SNIPPET: &str = agent_body_core::BASE_AGENT_MODE;
+const AGSTACK_MODE: &str = r"## agstack mode (default for engineering work)
+
+For any coding, design, review, debugging, UI, or documentation task, start agstack mode. Read the agstack-mode skill (`skill_get` with `agstack-mode`, or `skills/agstack-mode/SKILL.md` in the agstack package) and follow its non-negotiables, routing table, and principles. Name the principles that shaped each decision. A code change is complete only with verification evidence from `agent-brain verify -- <cmd>` and, for UI changes, the UI skills. Say `agstack` in any session to start this mode explicitly.
+";
+
+pub fn mode_snippet() -> String {
+    format!("{}\n{AGSTACK_MODE}", agent_body_core::BASE_AGENT_MODE)
+}
 
 fn write_agent_brain_mode(dir: &Path, quiet: bool, label: &str) -> Result<PathBuf> {
     fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
@@ -528,8 +535,7 @@ pub fn write_agent_brain_mode_file(path: &Path, quiet: bool, label: &str) -> Res
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
     }
-    fs::write(path, AGENT_BRAIN_MODE_SNIPPET)
-        .with_context(|| format!("write {}", path.display()))?;
+    fs::write(path, mode_snippet()).with_context(|| format!("write {}", path.display()))?;
     if !quiet {
         println!("Installed {label} agent-brain mode at {}", path.display());
     }
@@ -540,7 +546,8 @@ pub fn write_cursor_agent_brain_mode_mdc(brain_home: &Path, quiet: bool) -> Resu
     fs::create_dir_all(brain_home).with_context(|| format!("create {}", brain_home.display()))?;
     let path = brain_home.join("cursor-agent-brain-mode.mdc");
     let body = format!(
-        "---\ndescription: agent-brain mode — delegate to Autonomic utilities\nalwaysApply: false\n---\n\n{AGENT_BRAIN_MODE_SNIPPET}",
+        "---\ndescription: agent-brain mode — delegate to Autonomic utilities\nalwaysApply: false\n---\n\n{}",
+        mode_snippet(),
     );
     fs::write(&path, body).with_context(|| format!("write {}", path.display()))?;
     if !quiet {
@@ -659,7 +666,7 @@ fn install_opencode_instructions(user: bool, quiet: bool) -> Result<()> {
 
     let modes_dir = base.join("modes");
     fs::create_dir_all(&modes_dir)?;
-    fs::write(modes_dir.join("agent-brain.md"), AGENT_BRAIN_MODE_SNIPPET)
+    fs::write(modes_dir.join("agent-brain.md"), mode_snippet())
         .with_context(|| format!("write {}", modes_dir.display()))?;
 
     if !quiet {

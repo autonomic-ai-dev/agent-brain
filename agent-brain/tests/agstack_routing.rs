@@ -79,8 +79,15 @@ fn agstack_mandatory_invariants_always_present_in_must_apply() {
             )
             .unwrap();
 
-        let invariant = resp.must_apply.iter().find(|m| m.topic == "agstack-invariants");
-        assert!(invariant.is_some(), "agstack-invariants must be present in must_apply for query: {}", q);
+        let invariant = resp
+            .must_apply
+            .iter()
+            .find(|m| m.topic == "agstack-invariants");
+        assert!(
+            invariant.is_some(),
+            "agstack-invariants must be present in must_apply for query: {}",
+            q
+        );
         let text = &invariant.unwrap().text;
         assert!(text.contains("Immutability first"));
         assert!(text.contains("Zero AI comment slop"));
@@ -260,7 +267,9 @@ fn conversational_turns_suppress_agstack_skill_while_preserving_invariants() {
         resp.recommended_skills
     );
     assert!(
-        resp.must_apply.iter().any(|m| m.topic == "agstack-invariants"),
+        resp.must_apply
+            .iter()
+            .any(|m| m.topic == "agstack-invariants"),
         "agstack-invariants must still be present in must_apply during conversational turns"
     );
 }
@@ -307,7 +316,9 @@ fn agstack_project_rule_is_applied_to_applicable_rules() {
         .unwrap();
 
     assert!(
-        resp.applicable_rules.iter().any(|r| r.topic == "agstack-policy"),
+        resp.applicable_rules
+            .iter()
+            .any(|r| r.topic == "agstack-policy"),
         "agstack project rule must be present in applicable_rules, got: {:?}",
         resp.applicable_rules
     );
