@@ -484,4 +484,303 @@ mod tests {
             None
         );
     }
+
+    const MATRIX_VERIFY: &str = "[verify]\ncommands = [\"sh -c\"]\n\n[verify.default]\ncommand = [\"sh\", \"-c\", \"true\"]\n";
+    const MATRIX_FAILING_VERIFY: &str = "[verify]\ncommands = [\"sh -c\"]\n\n[verify.default]\ncommand = [\"sh\", \"-c\", \"exit 1\"]\n";
+    const GATE_MAP: &str = ".verify/features/gate.md";
+    const GATE_KB: &str = ".verify/knowledge-base/gate.md";
+
+    struct MatrixRepo {
+        dir: TempDir,
+        aux: TempDir,
+        store: BrainStore,
+    }
+
+    fn write_file(root: &Path, path: &str, text: &str) {
+        let file = root.join(path);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        fs::write(file, text).unwrap();
+    }
+
+    fn git_in(dir: &Path, args: &[&str]) {
+        let status = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .status()
+            .unwrap();
+        assert!(status.success(), "git {args:?} failed");
+    }
+
+    fn committed_repo(verify_toml: &str, baseline: Vec<(&str, String)>) -> MatrixRepo {
+        let dir = TempDir::new().unwrap();
+        let aux = TempDir::new().unwrap();
+        let store = gate_store(aux.path());
+        git_in(dir.path(), &["init", "-q"]);
+        write_file(dir.path(), ".verify/verify.toml", verify_toml);
+        for (path, text) in &baseline {
+            write_file(dir.path(), path, text);
+        }
+        git_in(dir.path(), &["add", "-A"]);
+        git_in(
+            dir.path(),
+            &[
+                "-c",
+                "user.name=gate",
+                "-c",
+                "user.email=gate@test",
+                "commit",
+                "-qm",
+                "baseline",
+            ],
+        );
+        MatrixRepo { dir, aux, store }
+    }
+
+    fn evaluate(repo: &MatrixRepo) -> Option<String> {
+        let state = repo.aux.path().join("state.json");
+        evaluate_stop(&repo.store, repo.dir.path(), "s1", &state).unwrap()
+    }
+
+    fn stop_after(repo: &MatrixRepo, changes: Vec<(&str, String)>) -> Option<String> {
+        for (path, text) in &changes {
+            write_file(repo.dir.path(), path, text);
+        }
+        evaluate(repo)
+    }
+
+    fn feature_map(claims: &[&str]) -> String {
+        let mut text = String::from("# feature\n\n## Code\n\n");
+        for claim in claims {
+            text.push_str(&format!("- `{claim}`\n"));
+        }
+        text.push_str("\n## How to get to it\n");
+        text
+    }
+
+    fn gate_baseline() -> Vec<(&'static str, String)> {
+        vec![
+            (GATE_MAP, feature_map(&["src/a.rs"])),
+            (GATE_KB, "# gate".to_string()),
+        ]
+    }
+
+    #[test]
+    fn matrix_no_change_allows_the_stop() {
+        let repo = committed_repo(MATRIX_VERIFY, gate_baseline());
+        assert_eq!(stop_after(&repo, vec![]), None);
+    }
+
+    #[test]
+    fn matrix_docs_only_change_allows_the_stop() {
+        let repo = committed_repo(MATRIX_VERIFY, gate_baseline());
+        assert_eq!(
+            stop_after(&repo, vec![("README.md", "docs".to_string())]),
+            None
+        );
+    }
+
+    #[test]
+    fn matrix_unclaimed_code_is_named_in_the_block() {
+        let repo = committed_repo(MATRIX_VERIFY, gate_baseline());
+        let reason = stop_after(&repo, vec![("src/b.rs", "fn b() {}".to_string())]).unwrap();
+        assert!(reason.contains("`src/b.rs`"));
+    }
+
+    #[test]
+    fn matrix_owned_code_without_its_map_update_is_blocked() {
+        let repo = committed_repo(MATRIX_VERIFY, gate_baseline());
+        let reason = stop_after(&repo, vec![("src/a.rs", "fn a() {}".to_string())]).unwrap();
+        assert!(reason.contains("`gate.md`"));
+    }
+
+    #[test]
+    fn matrix_owned_code_with_map_but_no_entry_is_blocked() {
+        let repo = committed_repo(MATRIX_VERIFY, gate_baseline());
+        let reason = stop_after(
+            &repo,
+            vec![
+                ("src/a.rs", "fn a() {}".to_string()),
+                (GATE_MAP, feature_map(&["src/a.rs", "src/c.rs"])),
+            ],
+        )
+        .unwrap();
+        assert!(reason.contains("`gate.md`"));
+    }
+
+    #[test]
+    fn matrix_owned_code_with_map_and_entry_passes() {
+        let repo = committed_repo(MATRIX_VERIFY, gate_baseline());
+        let changes = vec![
+            ("src/a.rs", "fn a() {}".to_string()),
+            (GATE_MAP, feature_map(&["src/a.rs", "src/c.rs"])),
+            (GATE_KB, "# gate, updated".to_string()),
+        ];
+        assert_eq!(stop_after(&repo, changes), None);
+    }
+
+    #[test]
+    fn matrix_shared_file_needs_every_owner_updated() {
+        let repo = committed_repo(
+            MATRIX_VERIFY,
+            vec![
+                (".verify/features/one.md", feature_map(&["src/shared.rs"])),
+                (".verify/features/two.md", feature_map(&["src"])),
+                (".verify/knowledge-base/one.md", "# one".to_string()),
+                (".verify/knowledge-base/two.md", "# two".to_string()),
+            ],
+        );
+        let reason = stop_after(
+            &repo,
+            vec![
+                ("src/shared.rs", "fn s() {}".to_string()),
+                (
+                    ".verify/features/one.md",
+                    feature_map(&["src/shared.rs"]) + "\n",
+                ),
+                (
+                    ".verify/knowledge-base/one.md",
+                    "# one, updated".to_string(),
+                ),
+            ],
+        )
+        .unwrap();
+        assert!(reason.contains("`two.md`"));
+        assert!(!reason.contains("`one.md`"));
+    }
+
+    #[test]
+    fn matrix_shared_file_with_every_owner_updated_passes() {
+        let repo = committed_repo(
+            MATRIX_VERIFY,
+            vec![
+                (".verify/features/one.md", feature_map(&["src/shared.rs"])),
+                (".verify/features/two.md", feature_map(&["src"])),
+                (".verify/knowledge-base/one.md", "# one".to_string()),
+                (".verify/knowledge-base/two.md", "# two".to_string()),
+            ],
+        );
+        let changes = vec![
+            ("src/shared.rs", "fn s() {}".to_string()),
+            (
+                ".verify/features/one.md",
+                feature_map(&["src/shared.rs"]) + "\n",
+            ),
+            (
+                ".verify/knowledge-base/one.md",
+                "# one, updated".to_string(),
+            ),
+            (".verify/features/two.md", feature_map(&["src"]) + "\n"),
+            (
+                ".verify/knowledge-base/two.md",
+                "# two, updated".to_string(),
+            ),
+        ];
+        assert_eq!(stop_after(&repo, changes), None);
+    }
+
+    #[test]
+    fn matrix_new_feature_for_new_code_passes_when_complete() {
+        let repo = committed_repo(MATRIX_VERIFY, gate_baseline());
+        let changes = vec![
+            ("src/new.rs", "fn n() {}".to_string()),
+            (".verify/features/new.md", feature_map(&["src/new.rs"])),
+            (".verify/knowledge-base/new.md", "# new".to_string()),
+        ];
+        assert_eq!(stop_after(&repo, changes), None);
+    }
+
+    #[test]
+    fn matrix_new_feature_without_its_entry_is_blocked() {
+        let repo = committed_repo(MATRIX_VERIFY, gate_baseline());
+        let reason = stop_after(
+            &repo,
+            vec![
+                ("src/new.rs", "fn n() {}".to_string()),
+                (".verify/features/new.md", feature_map(&["src/new.rs"])),
+            ],
+        )
+        .unwrap();
+        assert!(reason.contains("`new.md`"));
+    }
+
+    #[test]
+    fn matrix_feature_without_an_entry_on_disk_is_named() {
+        let repo = committed_repo(
+            MATRIX_VERIFY,
+            vec![
+                (GATE_MAP, feature_map(&["src/a.rs"])),
+                (GATE_KB, "# gate".to_string()),
+                (".verify/features/other.md", feature_map(&["src/other.rs"])),
+            ],
+        );
+        let changes = vec![
+            ("src/a.rs", "fn a() {}".to_string()),
+            (GATE_MAP, feature_map(&["src/a.rs"]) + "\n"),
+            (GATE_KB, "# gate, updated".to_string()),
+        ];
+        let reason = stop_after(&repo, changes).unwrap();
+        assert!(reason.contains("`other.md`"));
+        assert!(reason.contains("no knowledge-base entry"));
+    }
+
+    #[test]
+    fn matrix_new_untracked_directory_names_each_file() {
+        let repo = committed_repo(MATRIX_VERIFY, gate_baseline());
+        let reason = stop_after(&repo, vec![("src/newmod/x.rs", "fn x() {}".to_string())]).unwrap();
+        assert!(reason.contains("`src/newmod/x.rs`"));
+    }
+
+    #[test]
+    fn matrix_a_claim_is_a_path_prefix_not_a_string_prefix() {
+        let repo = committed_repo(
+            MATRIX_VERIFY,
+            vec![
+                (GATE_MAP, feature_map(&["src"])),
+                (GATE_KB, "# gate".to_string()),
+            ],
+        );
+        let reason = stop_after(&repo, vec![("srcx/file.rs", "fn f() {}".to_string())]).unwrap();
+        assert!(reason.contains("`srcx/file.rs`"));
+    }
+
+    #[test]
+    fn matrix_paths_outside_the_code_section_claim_nothing() {
+        let repo = committed_repo(
+            MATRIX_VERIFY,
+            vec![
+                (
+                    GATE_MAP,
+                    "# gate\n\n## Gotchas\n\n- `src/a.rs`\n".to_string(),
+                ),
+                (GATE_KB, "# gate".to_string()),
+            ],
+        );
+        let reason = stop_after(&repo, vec![("src/a.rs", "fn a() {}".to_string())]).unwrap();
+        assert!(reason.contains("`src/a.rs`"));
+        assert!(reason.contains("outside every feature's"));
+    }
+
+    #[test]
+    fn matrix_failing_verification_blocks_even_when_owned_work_is_complete() {
+        let repo = committed_repo(MATRIX_FAILING_VERIFY, gate_baseline());
+        let changes = vec![
+            ("src/a.rs", "fn a() {}".to_string()),
+            (GATE_MAP, feature_map(&["src/a.rs"]) + "\n"),
+            (GATE_KB, "# gate, updated".to_string()),
+        ];
+        let reason = stop_after(&repo, changes).unwrap();
+        assert!(reason.contains("exited with 1"));
+    }
+
+    #[test]
+    fn matrix_stop_is_allowed_after_the_block_limit_while_code_stays_unclaimed() {
+        let repo = committed_repo(MATRIX_VERIFY, gate_baseline());
+        let first = stop_after(&repo, vec![("src/b.rs", "fn b() {}".to_string())]);
+        assert!(first.is_some());
+        for _ in 1..STOP_BLOCK_LIMIT {
+            assert!(evaluate(&repo).is_some());
+        }
+        assert_eq!(evaluate(&repo), None);
+    }
 }
