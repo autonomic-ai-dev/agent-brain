@@ -53,7 +53,10 @@ fn is_code(path: &str) -> bool {
 }
 
 fn owns(entry: &str, path: &str) -> bool {
-    path == entry || path.strip_prefix(entry).is_some_and(|rest| rest.starts_with('/'))
+    path == entry
+        || path
+            .strip_prefix(entry)
+            .is_some_and(|rest| rest.starts_with('/'))
 }
 
 fn owners<'a>(features: &'a [FeatureMap], path: &str) -> Vec<&'a FeatureMap> {
