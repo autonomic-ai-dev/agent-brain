@@ -197,36 +197,11 @@ impl Config {
         roots.push(self.home.join("agents"));
         roots.extend(crate::packages::package_index_roots(&self.home));
 
-        if let Some(home) = dirs::home_dir() {
-            roots.push(home.join(".cursor/skills-cursor"));
-            roots.push(home.join(".cursor/skills"));
-            roots.push(home.join(".claude/skills"));
-            roots.push(home.join(".claude/agents"));
-            roots.push(home.join(".codex/skills"));
-            roots.push(home.join(".codex/agents"));
-
-            if let Ok(entries) = glob::glob(&format!(
-                "{}/.cursor/plugins/**/agents/*.md",
-                home.display()
-            )) {
-                for entry in entries.flatten() {
-                    if let Some(parent) = entry.parent() {
-                        roots.push(parent.to_path_buf());
-                    }
-                }
-            }
-        }
-
         if let Some(cwd) = cwd {
             if let Some(repo) = find_repo_root(cwd) {
-                roots.push(repo.join(".cursor/rules"));
-                roots.push(repo.join(".cursor/agents"));
-                roots.push(repo.join(".claude/agents"));
-                for name in ["CLAUDE.md", "AGENTS.md", ".cursorrules"] {
-                    let p = repo.join(name);
-                    if p.is_file() {
-                        roots.push(p);
-                    }
+                let agents_md = repo.join("AGENTS.md");
+                if agents_md.is_file() {
+                    roots.push(agents_md);
                 }
             }
         }

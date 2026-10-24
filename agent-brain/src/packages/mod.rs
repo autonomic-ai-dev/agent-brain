@@ -335,13 +335,6 @@ pub fn discover_package_roots(package_root: &Path) -> Vec<PathBuf> {
         "agents",
         "rules",
         "commands",
-        ".cursor/rules",
-        ".cursor/skills",
-        ".cursor/skills-cursor",
-        ".claude/skills",
-        ".claude/agents",
-        ".codex/skills",
-        ".codex/agents",
     ] {
         let path = package_root.join(rel);
         if path.exists() {
@@ -349,7 +342,7 @@ pub fn discover_package_roots(package_root: &Path) -> Vec<PathBuf> {
         }
     }
 
-    for file in ["AGENTS.md", "CLAUDE.md", "RULES.md", ".cursorrules"] {
+    for file in ["AGENTS.md", "RULES.md"] {
         let path = package_root.join(file);
         if path.is_file() {
             roots.push(path);
