@@ -100,22 +100,22 @@ fn seed_test_skills_agents_and_tools(store: &BrainStore) {
 
     let upstream_tools = vec![
         IndexedUpstreamTool {
-            server: "agent-body".into(),
-            name: "muscle_execute_bash".into(),
-            description: "Execute sandboxed bash shell commands and capture terminal output".into(),
+            server: "devtools".into(),
+            name: "run_shell_command".into(),
+            description: "Run unit tests and cargo test commands in a sandboxed shell".into(),
         },
         IndexedUpstreamTool {
-            server: "agent-body".into(),
-            name: "spine_submit_workflow".into(),
+            server: "devtools".into(),
+            name: "submit_workflow".into(),
             description: "Submit DAG workflow yaml to spine for multi-step autonomous execution".into(),
         },
         IndexedUpstreamTool {
-            server: "agent-body".into(),
-            name: "eyes_describe_dom".into(),
+            server: "devtools".into(),
+            name: "inspect_dom".into(),
             description: "Capture and inspect web DOM tree screenshot accessibility elements".into(),
         },
         IndexedUpstreamTool {
-            server: "agent-body".into(),
+            server: "devtools".into(),
             name: "heart_budget_status".into(),
             description: "Check token budget quota status and remaining execution allocation".into(),
         },
@@ -131,8 +131,8 @@ fn configure_upstream_settings(home: &std::path::Path) {
             suggest_limit: 4,
             servers: vec![
                 UpstreamServerConfig {
-                    name: "agent-body".into(),
-                    command: "agent-body".into(),
+                    name: "devtools".into(),
+                    command: "devtools".into(),
                     args: vec!["serve".into()],
                     env: std::collections::HashMap::new(),
                     enabled: true,
@@ -162,17 +162,17 @@ fn agents_pick_expected_skills_and_mcp_tools() {
         (
             "run unit tests with cargo test",
             "rust-testing",
-            "muscle_execute_bash",
+            "run_shell_command",
         ),
         (
             "execute multi-step workflow in spine",
             "docker-optimization",
-            "spine_submit_workflow",
+            "submit_workflow",
         ),
         (
             "inspect webpage dom tree screenshot",
             "kubernetes-deploy",
-            "eyes_describe_dom",
+            "inspect_dom",
         ),
     ];
 
@@ -264,7 +264,7 @@ fn concurrent_stress_test_routing_and_memory_storage() {
 
                 if query.contains("unit tests") {
                     assert!(resp.recommended_skills.iter().any(|s| s.name == "rust-testing"));
-                    assert!(resp.suggested_tools.iter().any(|t| t.tool == "muscle_execute_bash"));
+                    assert!(resp.suggested_tools.iter().any(|t| t.tool == "run_shell_command"));
                 } else if query.contains("thanks") {
                     assert!(resp.recommended_skills.is_empty());
                 }

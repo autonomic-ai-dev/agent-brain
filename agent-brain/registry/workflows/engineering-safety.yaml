@@ -38,7 +38,7 @@ nodes:
 
   - name: ReviewGate
     kind: approval_gate
-    description: "Gate 5: External verification gate (agent-mouth / human approval) certifying machine evidence before release."
+    description: "Gate 5: External verification gate (human approval) certifying machine evidence before release."
 
   - name: VerifiedRelease
     kind: agent

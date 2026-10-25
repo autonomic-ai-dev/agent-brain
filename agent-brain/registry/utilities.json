@@ -1,106 +1,22 @@
 {
   "version": 1,
   "utilities": {
-    "agent-body": {
-      "alias": "body",
-      "description": "Control plane — prefer this for multi-step work: supervisor, aggregated MCP gateway (muscle/spine/heart/eyes/immune/mouth), autonomic CLI",
-      "invoke": [
-        "autonomic start",
-        "autonomic status",
-        "autonomic doctor",
-        "autonomic serve-mcp",
-        "route_to_mcp server=agent-body"
-      ],
-      "when": "Any task that needs execute, workflows, budget, sandbox, UI QA, approvals, or cluster health — use body gateway tools instead of improvising",
-      "mcp_tools": [
-        "muscle_execute_bash",
-        "spine_submit_workflow",
-        "spine_list_workflows",
-        "heart_budget_status",
-        "heart_status",
-        "immune_scan_manifest",
-        "immune_sandbox_run",
-        "eyes_describe_dom",
-        "mouth_validate_ast",
-        "mouth_request_approval"
-      ]
-    },
     "agent-brain": {
       "alias": "brain",
-      "description": "Turn routing, memory, skills, and upstream federation to agent-body",
+      "description": "Turn routing, memory, and skills for AI coding agents",
       "invoke": [
         "agent-brain route_task",
         "agent-brain registry list",
         "agent-brain add @alias",
-        "route_to_mcp"
+        "agent-brain doctor"
       ],
-      "mcp_tools": ["route_task", "store_memory", "route_to_mcp", "grep_search"]
+      "mcp_tools": ["route_task", "store_memory", "skill_search", "skill_get"]
     },
     "agent-spine": {
       "alias": "spine",
       "description": "Deterministic YAML workflow DAG execution",
-      "invoke": [
-        "autonomic spine run --meta \"task\"",
-        "route_to_mcp server=agent-body tool=spine_submit_workflow"
-      ],
-      "when": "Multi-step repeatable tasks (release notes, stacked PRs, bugfix loops)"
-    },
-    "agent-heart": {
-      "alias": "heart",
-      "description": "Token/WASM budget and GC",
-      "invoke": [
-        "autonomic heart status",
-        "route_to_mcp server=agent-body tool=heart_budget_status"
-      ],
-      "when": "Long runs or budget-sensitive work"
-    },
-    "agent-muscle": {
-      "alias": "muscle",
-      "description": "Sandboxed command execution and training jobs",
-      "invoke": [
-        "route_to_mcp server=agent-body tool=muscle_execute_bash",
-        "autonomic muscle serve"
-      ],
-      "when": "Run shell/tests/builds without ad-hoc host scripting"
-    },
-    "agent-mouth": {
-      "alias": "mouth",
-      "description": "AST command validation and human approval gates",
-      "invoke": [
-        "route_to_mcp server=agent-body tool=mouth_validate_ast",
-        "route_to_mcp server=agent-body tool=mouth_request_approval"
-      ],
-      "when": "Risky commands or HITL approval before continue"
-    },
-    "agent-immune": {
-      "alias": "immune",
-      "description": "OSV scan, sandbox, AST lint",
-      "invoke": [
-        "route_to_mcp server=agent-body tool=immune_scan_manifest",
-        "route_to_mcp server=agent-body tool=immune_sandbox_run"
-      ],
-      "when": "Untrusted code or dependency CVE checks"
-    },
-    "agent-eyes": {
-      "alias": "eyes",
-      "description": "DOM describe, screenshot diff, local VLM",
-      "invoke": [
-        "route_to_mcp server=agent-body tool=eyes_describe_dom",
-        "route_to_mcp server=agent-body tool=eyes_diff_screenshots"
-      ],
-      "when": "UI verification without dumping raw HTML into context"
-    },
-    "agent-nerves": {
-      "alias": "nerves",
-      "description": "NATS JetStream mesh bridge",
-      "invoke": ["autonomic nerves serve", "autonomic start"],
-      "when": "Cluster event bus / multi-organ async messaging"
-    },
-    "agent-tui": {
-      "alias": "tui",
-      "description": "Terminal dashboard for organ health and live workflows",
-      "invoke": ["autonomic tui"],
-      "when": "Operator visibility into the running cluster"
+      "invoke": ["agent-spine run --workflow <name>", "agent-spine init"],
+      "when": "Multi-step repeatable tasks with approval gates (release notes, stacked PRs, bugfix loops)"
     }
   }
 }

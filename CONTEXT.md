@@ -9,13 +9,13 @@
 
 ## 1. Executive Summary & Biological Role
 
-In the Autonomic 11-organ architecture, **`agent-brain`** serves as the **Cognitive Core and Persistent Volume (PV)**. It acts as a local-first, sub-millisecond turn router and long-term memory engine designed to solve the two fundamental failure modes of modern agentic coding:
+**`agent-brain`** is a local-first turn router and long-term memory engine designed to solve the two fundamental failure modes of modern agentic coding:
 1. **Context Bloat & Token Degradation:** When entire documentation libraries, rules, and large repositories are dumped into LLM prompts (100K+ tokens), models suffer from severe "Lost-in-the-Middle" drift, degraded instruction following, and massive token costs. `agent-brain` dynamically selects and injects a ranked, relevance-scored subset of skills, conventions, and memory facts within a strict **~500-token budget** per turn.
 2. **Loss of Inter-Session Knowledge:** Standard agent chats lose all architectural context, conventions, and test outcomes the moment a session closes. `agent-brain` maintains an embedded vector database (`sqlite-vec` + HNSW) with hybrid BM25 full-text indexing, learning durable facts and attributing tool outcomes across sessions.
 
 `agent-brain` operates in two complementary modes:
 - **Direct Mode (stdio MCP):** Spawned directly by developer IDEs (Cursor, Claude Code, OpenCode, VS Code, Antigravity) to intercept every turn via `route_task` and enforce policy gates with `< 30ms` latency.
-- **Federated Mode (via `agent-body`):** Exposes upstream routing and tool suggestions to the `agent-body` unified gateway, coordinating with `agent-spine`, `agent-heart`, `agent-muscle`, and peripheral organs.
+- **Upstream MCP (optional):** Tools from MCP servers the user configures are listed in `suggested_tools`. Routing works without any upstream server.
 
 ---
 
@@ -64,12 +64,12 @@ flowchart TD
    - Historical outcomes stored in `brain.db` (`verify_outcomes`) are queried.
    - Successful recipes (exit `0`) are elevated into `must_apply` constraints, forcing adherence.
    - Failing recipes (exit `!= 0`) are squelched to prevent repeating failed paths.
-   - Upstream tools from peripheral organs (`agent-body`, `agent-muscle`, `agent-spine`) are recommended via `suggested_tools`.
+   - Tools from configured upstream MCP servers are recommended via `suggested_tools`.
 4. **Scoped Read Gating (Anti-Bloat Protocol):**
    - Direct calls to native full-file reads are restricted.
    - Agents must first scout paths using token-bounded utilities: `file_summary`, `read_file_head`, `read_file_tail`, or `grep_search`.
    - Scouting a file automatically unlocks native `read_file` and editing for that file path for 3,600 seconds (`scout_unlock_secs`).
-5. **Execution & Workflow Delegation:** The agent performs edits and executes commands. For multi-step tasks, the agent delegates to `agent-spine` workflows or `agent-muscle` sandboxed execution via `route_to_mcp`.
+5. **Execution & Workflow Delegation:** The agent performs edits and executes commands. For multi-step tasks, the agent runs an `agent-spine` workflow with `agent-spine run --workflow <name>`.
 6. **Closed-Loop Verification:** Command execution is run or recorded via `agent-brain verify -- <cmd>` (or `--source orchestrator`). This links the execution outcome to the current `route_log_id` for reinforcement learning.
 7. **Memory Persistence:** At milestone completion, the agent calls `store_memory` with a concise fact (max 50 words). If the host MCP socket disconnects unexpectedly, the resilient fallback queue stores the fact to `~/.autonomic/memory/pending/`.
 
@@ -178,7 +178,7 @@ When running in stdio MCP mode (`agent-brain serve`), the following tools are ex
   - `relevant_skills`: List of skill names and summaries relevant to the task.
   - `must_apply`: Mandatory rule constraints and verified recipe commands.
   - `system_instructions`: Budgeted, synthesized context text.
-  - `suggested_tools`: Recommended organ tools (`agent-body`, `agent-muscle`, etc.).
+  - `suggested_tools`: Recommended tools from configured upstream MCP servers.
   - `memory_facts`: Retained long-term memory points.
   - `route_log_id`: Unique trace identifier for outcome attribution.
 
@@ -206,14 +206,14 @@ When running in stdio MCP mode (`agent-brain serve`), the following tools are ex
 *Note: Calling any of these scouting tools on a file path automatically unlocks native `read_file` and `replace_file_content` for that path for 1 hour.*
 
 ### 5.5 `route_to_mcp` (Gateway Federation)
-- **Description:** Delegates tool invocations to upstream `agent-body` or connected organ daemons.
+- **Description:** Delegates tool invocations to a configured upstream MCP server.
 - **Parameters:**
-  - `server` (string, required): Upstream server identifier (e.g. `agent-body`).
-  - `tool` (string, required): Upstream tool name (e.g. `muscle_execute_bash`, `spine_submit_workflow`).
+  - `server` (string, required): Upstream server identifier from the user's MCP configuration.
+  - `tool` (string, required): Upstream tool name, as listed in `suggested_tools`.
   - `arguments` (object, required): Tool arguments map.
 
 ### 5.6 `get_autonomic_catalog`
-- **Description:** Returns complete specifications, ports, and tool definitions across all 8 cluster organs. Bypasses turn route gates to allow instant discovery.
+- **Description:** Returns the agent-brain and agent-spine capability catalog and delegation rules. Bypasses turn route gates to allow instant discovery.
 
 ---
 

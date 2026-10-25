@@ -421,18 +421,11 @@ mod tests {
         assert_eq!(resolved, ResolvedAlias::Bundle("supervisor".into()));
     }
     #[test]
-    fn utilities_catalog_includes_agent_body() {
-        let utils = list_utilities().unwrap();
-        assert!(utils.iter().any(|u| u.name == "agent-body"));
-        assert!(utils.iter().any(|u| u.name == "agent-heart"));
-        assert!(utils.iter().any(|u| u.name == "agent-muscle"));
-        let body = utils.iter().find(|u| u.name == "agent-body").unwrap();
-        assert!(
-            body.description
-                .to_ascii_lowercase()
-                .contains("control plane")
-                || body.description.to_ascii_lowercase().contains("prefer")
-        );
+    fn shipped_utilities_are_in_scope_only() {
+        let shipped: UtilitiesRegistryFile = serde_json::from_str(EMBEDDED_UTILITIES).unwrap();
+        let mut names: Vec<&str> = shipped.utilities.keys().map(String::as_str).collect();
+        names.sort_unstable();
+        assert_eq!(names, ["agent-brain", "agent-spine"]);
     }
 
     #[test]

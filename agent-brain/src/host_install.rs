@@ -456,7 +456,6 @@ pub fn merge_opencode_config(path: &Path, mut server_entry: Value, user: bool) -
                 }
             }
             mcp.insert("agent-brain".to_string(), server_entry);
-            crate::mcp_federation::ensure_agent_body_opencode_server(mcp);
         }
         None => {
             root["mcp"] = json!({ "agent-brain": server_entry });
@@ -513,43 +512,28 @@ const HARD_ROUTE_RULE: &str = r"## HARD RULES (never skip)
 - At task end call `store_memory` for durable outcomes (max 50 words, no secrets).
 - Skills and MCP tools: `route_task` returns only the skills it matched. If a task needs another skill, call `skill_search` with keywords, then `skill_get` with the exact name. If it needs an upstream MCP tool, call `mcp_search` with keywords, then `get_mcp` with the server and tool to read its schema, then `route_to_mcp` to call it. Never guess skill or tool names. Before saying a skill, tool, or MCP server is unavailable, check the `capability-discovery` entry in `must_apply` and run `skill_search` or `mcp_search`; report it unavailable only after those checks fail, quoting their output.
 - If a route gate denies a tool, call `route_task` first — do not work around the gate.
-- Choose shell and organ tools from the `route_task` result: read `suggested_tools` and `must_apply` before the first shell or organ call. Prefer routed agent-body tools (e.g. `muscle_execute_bash`, `spine_check_status`, `heart_record_usage`) over native Bash when they are listed. Test agent-body reachability once per session and reuse the result. If a routed tool is skipped, say so and why. If an agent-body call fails, report the failure and fall back to native tools.
 ";
 
-pub const AGENT_BRAIN_MODE_SNIPPET: &str = r#"# Autonomic Agent Mode & Orchestration Policy
+pub const AGENT_BRAIN_MODE_SNIPPET: &str = r#"# agent-brain mode
 
-This environment is governed by the Autonomic 11-Organ Ecosystem. All AI agents (Claude Code, Cursor, Codex, OpenCode, Gemini, Antigravity) must route through agent-brain and adhere to these operational protocols.
+Route every turn through agent-brain before acting. agent-brain supplies the skills, rules, and memory for the task.
 
-## 1. Mandatory Pre-Flight Turn Routine
-- Route Before Action: Always call `agent-brain_route_task` (or `route_task` MCP tool) with `user_message`, `current_working_directory`, and `open_files` at the start of every turn before running commands, file reads, or edits.
-- Discover Capabilities: When starting complex tasks or unknown workflows, call `get_autonomic_catalog` to discover available organ tools and delegation rules.
-- Durable Memory: Always call `store_memory` at task end to persist key learnings, bug fixes, decisions, and system patterns into vector memory (`brain.db`).
+## 1. Pre-flight routine
+- Call `route_task` with `user_message`, `current_working_directory`, and `open_files` before the first command, file read, or edit. Obey its `must_apply` constraints.
+- To find a skill or memory, call `skill_search` with keywords, then `skill_get` with the exact name. Never guess skill or tool names.
+- Prefer `grep_search`, `file_summary`, `read_file_head`, and `read_file_tail` over raw cat, grep, ls, or find when the agent-brain MCP server is connected.
+- At task end, call `store_memory` for durable outcomes (max 50 words, no secrets).
 
-## 2. Tool Delegation & Bounded Exploration (Never Raw Grep/Cat/Ls/Find)
-- Bounded Exploration & Traversal: Use `agent-brain`'s organ tools (`list_directory` for `ls`, `find_files` for `find`/`glob`, `read_file` for `cat`/`view_file`, `read_file_head`, `read_file_tail`, `file_summary`, `grep_search`) instead of host commands.
-- Sandboxed Execution & In-Gateway AST Validation: Delegate all command execution to `agent-muscle` (`muscle_execute_bash`). `agent-body` automatically passes every command through `agent-mouth` AST safety validation in-gateway before execution, eliminating manual 2-step roundtrips.
-- Self-Correction (No Bypass): If a command is rejected by AST validation or fails execution, the agent must diagnose and correct the command; NEVER attempt to bypass the gate or fall back to native host improvisation.
-- Workflows & DAGs: Orchestrate multi-step pipelines via `agent-spine` (`spine_submit_workflow`, `agent-spine run --workflow engineering-safety`, or `agent-spine run --meta "..."`).
+## 2. Verification
+- Run checks through `agent-brain verify -- <cmd>`. A command run any other way is not recorded as evidence.
+- Do not claim tests or checks pass without a recorded run that exited 0.
 
-## 3. Resilient Tool Calls, 3-Retry Policy & Auto-Recovery (No Fallback Stickiness)
-- Automatic 3-Retry & Timeout Protection: `agent-body` enforces per-call deadlines and automatically retries failed or timed-out tool invocations up to 3 times with session auto-recovery before engaging fallback.
-- Auto-Recovery in Same Session: Failed or crashed organ sessions are automatically evicted and re-established cleanly. Even if a tool call encounters a degraded fallback response, the organ is immediately eligible for primary execution on the next invocation.
-- NO Fallback Stickiness: Never latch onto raw host commands after a fallback. Always re-attempt the designated organ MCP tools (`muscle_execute_bash`, `mouth_validate_ast`, `heart_budget_status`, etc.) on subsequent actions in the same session.
+## 3. Workflows
+- For multi-step workflows with approval gates, run `agent-spine run --workflow <name>` instead of improvising the steps.
 
-## 4. Engineering Safety & Mandatory 5-Gate Verification Workflow
-Never equate confidence, plausible reasoning, successful compilation, or passing a single test with correctness. Changes must be proven safe through machine-verifiable evidence, not narrative persuasion.
-- Gate 1 — Understand: Inspect code, callers, interfaces, contracts, dependencies, and baseline behavior before touching files.
-- Gate 2 — Predict Failure: Enumerate invariants, boundary conditions (null/empty/overflow), failure paths (timeouts/restarts), API/data compatibility, concurrency/races, and rollback requirements.
-- Gate 3 — Implement: Implement the smallest change satisfying requirements while preserving existing contracts.
-- Gate 4 — Attempt to Break It: Run regression tests, edge-case tests, static analysis (`clippy`), and fault-injection where relevant. Never modify tests merely to obtain a green result.
-- Gate 5 — Verify and Report: Execute independent verification with observable outputs. Explicitly state tested failure modes, observed results, and any unresolved risks.
-
-## Autonomic utilities (delegate, don't improvise)
-- Execution: `muscle_execute_bash` for sandboxed builds, tests, git operations, and commands
-- Workflows: `agent-spine run --workflow engineering-safety`, `spine_submit_workflow`, or `agent-spine init --with @workflow`
-- Ecosystem catalog: `get_autonomic_catalog` (comprehensive organ capabilities)
-- Discovery: `agent-brain registry list` (skills + utilities)
-- Upstream MCP: `route_to_mcp` when `suggested_tools` appears in route_task
+## 4. Route gate and upstream tools
+- If a route gate denies a tool, call `route_task` first. Do not work around the gate.
+- When `suggested_tools` lists an upstream MCP tool, read its schema with `get_mcp` and call it with `route_to_mcp`.
 "#;
 
 fn write_agent_brain_mode(dir: &Path, quiet: bool, label: &str) -> Result<PathBuf> {
@@ -884,7 +868,7 @@ fn write_host_instructions(path: &Path, content: &str, quiet: bool, label: &str)
     Ok(())
 }
 
-const HOST_INSTRUCTIONS_VERSION: &str = "14";
+const HOST_INSTRUCTIONS_VERSION: &str = "15";
 
 const HOST_AGENT_BRAIN_INSTRUCTIONS: &str = r#"# agent-brain MCP (required)
 instructions-version: 13
@@ -912,23 +896,11 @@ If the agent skips route_task, cross-agent ingest and shared memory provide **ze
 
 Prefer **`agent-brain verify -- <cmd>`** (orchestrators: `--source orchestrator`) over MCP `record_verify_outcome`. Agent-asserted MCP exits are not trusted for learning. Allowlisted commands live in `.verify/verify.toml`.
 
-## Autonomic utility ecosystem (prefer agent-body)
+## Workflows (agent-spine)
 
-For multi-step or organ work, **prefer agent-body** — do not reinvent execute/workflow/budget/sandbox/UI/approval with ad-hoc Shell.
+For multi-step workflows with approval gates, run `agent-spine run --workflow <name>` instead of improvising the steps.
 
-1. Call `route_task` and check `suggested_tools` for `server=agent-body`.
-2. Call **`route_to_mcp`** with that server/tool (gateway exposes `muscle_*`, `spine_*`, `heart_*`, `eyes_*`, `immune_*`, `mouth_*`).
-3. Or use the CLI: `autonomic status` / `autonomic spine run` / `autonomic doctor`.
-
-| Utility | When | Prefer |
-|---------|------|--------|
-| **agent-body** | Execute, workflows, budget, scan, UI QA, approvals, cluster | `route_to_mcp` → agent-body **or** `autonomic …` |
-| **agent-spine** | DAG workflows | body `spine_*` tools / `autonomic spine run` |
-| **agent-heart** | Budget / long runs | body `heart_*` / `autonomic heart status` |
-| **agent-muscle** | Shell/tests/builds | body `muscle_execute_bash` |
-
-- `agent-brain registry list` — full utility + skill catalog
-- Bootstrap: `agent-brain doctor --fix` enables upstream agent-body for `route_to_mcp`
+- `agent-brain registry list` shows the skill and workflow catalog.
 
 ## Native host tools
 
@@ -1442,7 +1414,7 @@ mod tests {
         assert!(written.contains(&format!(
             "instructions-version: {HOST_INSTRUCTIONS_VERSION}"
         )));
-        assert!(written.contains("muscle_execute_bash"));
+        assert!(!written.contains("muscle_execute_bash"));
         assert!(written.contains("route_task"));
         assert!(written.contains("capability-discovery"));
     }
