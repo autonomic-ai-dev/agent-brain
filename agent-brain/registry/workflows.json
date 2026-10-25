@@ -1,24 +1,6 @@
 {
   "version": 1,
   "workflows": {
-    "brutal-refactor": {
-      "description": "Brutal Refactor",
-      "path": "workflows/brutal-refactor.yaml",
-      "organ": "agent-spine",
-      "invoke": "agent-spine run workflows/brutal-refactor.yaml"
-    },
-    "database-migration": {
-      "description": "Database Migration",
-      "path": "workflows/database-migration.yaml",
-      "organ": "agent-spine",
-      "invoke": "agent-spine run workflows/database-migration.yaml"
-    },
-    "deep-code-review": {
-      "description": "Deep Code Review",
-      "path": "workflows/deep-code-review.yaml",
-      "organ": "agent-spine",
-      "invoke": "agent-spine run workflows/deep-code-review.yaml"
-    },
     "engineering-safety": {
       "description": "Engineering Safety",
       "path": "workflows/engineering-safety.yaml",
@@ -30,30 +12,6 @@
       "path": "workflows/feature-from-spec.yaml",
       "organ": "agent-spine",
       "invoke": "agent-spine run workflows/feature-from-spec.yaml"
-    },
-    "root-cause-analysis": {
-      "description": "Root Cause Analysis",
-      "path": "workflows/root-cause-analysis.yaml",
-      "organ": "agent-spine",
-      "invoke": "agent-spine run workflows/root-cause-analysis.yaml"
-    },
-    "security-patcher": {
-      "description": "Security Patcher",
-      "path": "workflows/security-patcher.yaml",
-      "organ": "agent-spine",
-      "invoke": "agent-spine run workflows/security-patcher.yaml"
-    },
-    "system-architect": {
-      "description": "System Architect",
-      "path": "workflows/system-architect.yaml",
-      "organ": "agent-spine",
-      "invoke": "agent-spine run workflows/system-architect.yaml"
-    },
-    "universal-developer": {
-      "description": "Universal Developer",
-      "path": "workflows/universal-developer.yaml",
-      "organ": "agent-spine",
-      "invoke": "agent-spine run workflows/universal-developer.yaml"
     }
   }
 }

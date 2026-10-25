@@ -2835,9 +2835,7 @@ impl BrainStore {
             if item_type == ItemType::Rule {
                 let path = row.source_path.as_str();
                 let is_project_rule = row.scope == "project"
-                    && (repo_root.is_some_and(|r| row.scope_key.as_deref() == Some(r))
-                        || path.contains("/.cursor/rules/")
-                        || path.contains("/.claude/rules/"));
+                    && repo_root.is_some_and(|r| row.scope_key.as_deref() == Some(r));
                 if is_project_rule {
                     score += 0.20;
                 }

@@ -94,6 +94,11 @@ const MEMORY_GOLDEN: &[MemoryGoldenCase] = &[
 
 const SKILL_GOLDEN: &[SkillGoldenCase] = &[
     SkillGoldenCase {
+        query: "figure out how to make the capture command work at mobile size and keep going until it is done, I do not want to answer questions",
+        topic: "figure-it-out",
+        text: "Figure it out and finish the task without a stream of questions. Use when the user says figure it out, figure out how to, keep going until it is done, complete it, do not ask me, or I do not want to answer questions; when a goal is stated with no steps; or when the agent is about to ask a series of questions about how to do a task.",
+    },
+    SkillGoldenCase {
         query: "review the changes on the PR before merge",
         topic: "code-review",
         text: "When to activate: reviewing pull request diffs, merge readiness, and review checklists",

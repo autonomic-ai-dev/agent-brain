@@ -274,14 +274,18 @@ fn agstack_project_rule_is_applied_to_applicable_rules() {
 
     let rule_text = "Engineering Policy: immutability, zero comment slop, boundary validation";
     let rule_emb = deterministic_embedding(&format!("agstack-policy {}", rule_text));
+    let project = agent_brain::project_key::resolve_project_key_cached(
+        &ws_dir.path().canonicalize().unwrap(),
+    )
+    .unwrap();
     store
         .upsert_indexed_item(
             ItemType::Rule,
             "agstack-policy",
             rule_text,
-            &format!("{}/.cursor/rules/agstack.mdc", ws_dir.path().display()),
+            &format!("{}/rules/agstack.mdc", ws_dir.path().display()),
             "project",
-            Some(&ws_dir.path().display().to_string()),
+            Some(&project.project_key),
             &content_hash(rule_text),
             Some(&rule_emb),
         )

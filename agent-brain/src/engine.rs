@@ -183,6 +183,16 @@ impl Engine {
         Ok(n)
     }
 
+    pub fn spawn_embedder_idle_unload(self: &Arc<Self>) {
+        let engine = Arc::clone(self);
+        std::thread::spawn(move || loop {
+            std::thread::sleep(Duration::from_secs(60));
+            engine
+                .embedder
+                .unload_if_idle(crate::embed::IDLE_UNLOAD_AFTER);
+        });
+    }
+
     pub fn spawn_auto_update(self: &Arc<Self>) {
         let settings = crate::settings::AgentBrainSettings::load(&self.config.home);
         if !settings.auto_update.enabled {

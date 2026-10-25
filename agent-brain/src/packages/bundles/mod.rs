@@ -123,7 +123,7 @@ mod tests {
         config.ensure_dirs().unwrap();
         let record = install_bundled(&config, "supervisor").unwrap();
         assert_eq!(record.name, "supervisor");
-        let skill = home.join("packages/supervisor/.cursor/skills/token-efficient-ops/SKILL.md");
+        let skill = home.join("packages/supervisor/skills/token-efficient-ops/SKILL.md");
         assert!(skill.is_file(), "missing {}", skill.display());
     }
 
@@ -137,20 +137,20 @@ mod tests {
         config.vectors_path = home.join("data").join("vectors.bin");
         config.ensure_dirs().unwrap();
 
-        let repo_agstack = registry_sync::cache_dir(&home)
-            .join("repo/packages/agstack/.cursor/rules");
+        let repo_agstack =
+            registry_sync::cache_dir(&home).join("repo/packages/agstack/skills/agstack-mode");
         fs::create_dir_all(&repo_agstack).unwrap();
         fs::write(
-            repo_agstack.join("agstack.mdc"),
-            "---\ndescription: agstack\n---\n# agstack\n",
+            repo_agstack.join("SKILL.md"),
+            "---\nname: agstack-mode\n---\n# agstack\n",
         )
         .unwrap();
 
         let record = install_bundled(&config, "agstack").unwrap();
         assert_eq!(record.name, "agstack");
-        let rule = home.join("packages/agstack/.cursor/rules/agstack.mdc");
-        assert!(rule.is_file(), "missing {}", rule.display());
-        let body = std::fs::read_to_string(&rule).unwrap();
+        let skill = home.join("packages/agstack/skills/agstack-mode/SKILL.md");
+        assert!(skill.is_file(), "missing {}", skill.display());
+        let body = std::fs::read_to_string(&skill).unwrap();
         assert!(body.contains("agstack"));
     }
 }

@@ -31,10 +31,10 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
 
 ## Code
 
-- `agent-brain/src/mcp/server.rs`
-  - Owns: `route-task-context` and the MCP tool surface, including the `grep_search` parameters (`query` alias, `path` default `"."`).
-- `agent-brain/src/git_tools.rs`
-  - Owns: the `brain_git_*` MCP tools. No other feature map covers them, so this feature owns them by assignment.
+- `agent-brain/src`
+- `agent-brain/tests`
+- `agent-brain/hooks`
+- `agent-brain/Cargo.toml`
 
 ## How to get to it (user POV)
 

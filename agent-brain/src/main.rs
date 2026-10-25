@@ -81,6 +81,7 @@ async fn main() -> Result<()> {
                     let total = engine.store.count_indexed_items().unwrap_or(0);
                     tracing::info!("indexed {}", install::format_new_index_count(n, total));
                 }
+                engine.spawn_embedder_idle_unload();
                 if brain_settings.auto_update.enabled {
                     engine.spawn_auto_update();
                 }
@@ -283,7 +284,7 @@ async fn main() -> Result<()> {
         "mode" => {
             let sub = args.get(2).map(String::as_str).unwrap_or("paths");
             match sub {
-                "show" => println!("{}", host_install::AGENT_BRAIN_MODE_SNIPPET),
+                "show" => println!("{}", host_install::mode_snippet()),
                 "install" => {
                     let global = args.iter().any(|a| a == "--global");
                     host_install::install_agent_brain_modes(global, false)?;
