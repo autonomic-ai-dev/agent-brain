@@ -30,10 +30,6 @@ pub fn executions_dir() -> PathBuf {
     spine_logs_dir().join("executions")
 }
 
-pub fn organ_state_dir(organ: &str) -> PathBuf {
-    autonomic_root().join("state").join(organ)
-}
-
 pub fn agents_md_path() -> PathBuf {
     autonomic_root().join("AGENTS.md")
 }

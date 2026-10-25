@@ -124,7 +124,6 @@ Check MCP install, binary, hooks, and codesign.
 
 Options:
       --fix       Re-sign binary (macOS), align mcp.json, refresh hooks
-      --mcp        Audit agent-body gateway schemas (tools/list)
 "
         }
         "add" => {

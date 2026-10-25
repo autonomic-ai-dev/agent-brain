@@ -3250,7 +3250,6 @@ mod tests {
             estimated_cost_usd: 0.15,
             estimated_dollars_saved: 0.108,
             cache_hit_pct: 80.0,
-            heart_synced: false,
         };
 
         store

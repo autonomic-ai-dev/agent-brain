@@ -109,7 +109,7 @@ Scaffold a new project verify suite via: `agent-brain verify init`.
 
 ### 4.1 Server & Lifecycle
 - `agent-brain serve`: Run the MCP server over stdio (used by Cursor, Claude Code, etc.).
-  - `--config <PATH>`: Custom path to configuration file (default: `~/.agent_brain/config.yaml` or `~/.autonomic/config.toml`).
+  - `--config <PATH>`: Custom path to configuration file (default: `config.yaml` in the brain home, `~/.autonomic/memory`).
 - `agent-brain version`: Print semantic version, commit hash, and target architecture.
 - `agent-brain onboarding`: Run interactive 5-minute getting-started checklist.
 
@@ -232,20 +232,18 @@ When running in stdio MCP mode (`agent-brain serve`), the following tools are ex
     └── pending_*.json       # Uncommitted memory facts awaiting flush
 ```
 
-### 6.2 Configuration File (`~/.autonomic/config.toml` or `~/.agent_brain/config.yaml`)
-```toml
-[brain]
-home = "~/.autonomic/memory"
-db_path = "~/.autonomic/memory/brain.db"
-embedding_model = "AllMiniLML6V2"
-route_gate_scope = "brain_mcp"   # "brain_mcp" (safe) | "all" (strict IDE lock)
-read_gate = "hard"               # "hard" | "steer" | "off"
-scout_unlock_secs = 3600         # duration native read is unlocked after scouting (1 hour)
-allow_multi_serve = false        # advisory serve.lock enforcement
-allow_python_shell = false       # block python -c / heredocs in agent terminal
-max_budget_tokens = 500          # strict token limit for injected turn context
-hybrid_dense_weight = 0.6        # weight for HNSW vector similarities
-hybrid_lexical_weight = 0.4      # weight for FTS5 BM25 match
+### 6.2 Configuration File (`config.yaml` in the brain home)
+
+The brain home is `~/.autonomic/memory` by default; set `AGENT_BRAIN_HOME` to change it. Settings are read from `config.yaml` there, and missing keys use their defaults.
+
+```yaml
+auto_update:
+  enabled: false
+upstream_mcp:
+  enabled: false        # route_to_mcp to MCP servers you configure
+  servers: []
+memory_gc:
+  stale_days: 90
 ```
 
 ---

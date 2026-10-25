@@ -23,8 +23,6 @@ pub use agent_brain_core::cross_encoder_rerank;
 pub mod dashboard;
 #[cfg(feature = "extras")]
 pub mod dataset;
-#[cfg(feature = "extras")]
-pub mod dataset_pipeline;
 pub mod db;
 #[cfg(feature = "extras")]
 pub mod distill;
@@ -56,7 +54,6 @@ pub mod mcp_activity;
 #[cfg(feature = "extras")]
 pub mod mcp_bench;
 pub mod mcp_cli;
-pub mod mcp_federation;
 pub use agent_brain_core::memory_decay;
 pub mod memory_gc;
 pub mod memory_pending;

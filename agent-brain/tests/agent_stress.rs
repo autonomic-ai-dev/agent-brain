@@ -116,7 +116,7 @@ fn seed_test_skills_agents_and_tools(store: &BrainStore) {
         },
         IndexedUpstreamTool {
             server: "devtools".into(),
-            name: "heart_budget_status".into(),
+            name: "budget_status".into(),
             description: "Check token budget quota status and remaining execution allocation".into(),
         },
     ];

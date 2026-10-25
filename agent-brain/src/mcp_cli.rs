@@ -7,9 +7,19 @@ use anyhow::{bail, Context, Result};
 
 use crate::config::Config;
 use crate::engine::Engine;
-use crate::mcp_federation::persist_brain_settings;
 use crate::settings::{AgentBrainSettings, UpstreamServerConfig};
 use crate::upstream::{list_server_tools, refresh_upstream_index};
+
+fn persist_brain_settings(settings: &AgentBrainSettings) -> Result<()> {
+    let home = Config::load()?.home;
+    let path = home.join("config.yaml");
+    let yaml = serde_yaml::to_string(settings).context("serialize brain settings")?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&path, yaml).with_context(|| format!("write {}", path.display()))?;
+    Ok(())
+}
 
 pub async fn handle_mcp_command(args: &[String]) -> Result<()> {
     let sub = args.get(2).map(String::as_str).unwrap_or("list");

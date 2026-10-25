@@ -1,6 +1,6 @@
 {
   "version": 1,
   "kinds": ["skill_package", "workflow", "utility"],
-  "default_bootstrap": ["@agstack", "@autonomic-core", "@supervisor"],
+  "default_bootstrap": ["@agstack", "@supervisor"],
   "workflow_aliases": ["@engineering-safety", "@feature-from-spec", "@deep-code-review", "@system-architect"]
 }

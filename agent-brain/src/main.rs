@@ -321,7 +321,7 @@ async fn main() -> Result<()> {
             let config = Config::load()?;
             let brain_settings = settings::AgentBrainSettings::load(&config.home);
             if !brain_settings.auto_update.enabled {
-                eprintln!("Auto-update is disabled. Enable it in ~/.autonomic/config.toml [brain] or [update.brain], or set AGENT_BRAIN_AUTO_UPDATE=1");
+                eprintln!("Auto-update is disabled. Set `auto_update.enabled: true` in config.yaml in the brain home to enable it.");
                 std::process::exit(1);
             }
             let mut run_config = config.clone();
@@ -879,12 +879,7 @@ async fn main() -> Result<()> {
         }
         "doctor" => {
             let fix = args.iter().any(|a| a == "--fix");
-            let mcp_only = args.iter().any(|a| a == "--mcp");
-            if mcp_only {
-                doctor::run_mcp_federation(fix)?;
-            } else {
-                doctor::run(fix)?;
-            }
+            doctor::run(fix)?;
         }
         "secrets" => {
             let config = Config::load()?;

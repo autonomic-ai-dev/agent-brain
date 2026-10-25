@@ -398,12 +398,6 @@ mod tests {
     }
 
     #[test]
-    fn resolves_autonomic_core_bundle_alias() {
-        let resolved = lookup_alias("@autonomic-core").unwrap().unwrap();
-        assert_eq!(resolved, ResolvedAlias::Bundle("autonomic-core".into()));
-    }
-
-    #[test]
     fn embedded_registry_lists_workflows() {
         let workflows = list_workflows().unwrap();
         assert!(workflows.iter().any(|w| w.alias == "engineering-safety"));

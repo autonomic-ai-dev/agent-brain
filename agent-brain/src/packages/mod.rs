@@ -124,7 +124,7 @@ fn parse_owner_repo(value: &str, git_ref: String) -> Result<PackageSource> {
 }
 
 pub fn package_name(source: &PackageSource) -> String {
-    source.repo.to_ascii_lowercase()
+    format!("{}-{}", source.owner, source.repo).to_ascii_lowercase()
 }
 
 pub fn git_url(source: &PackageSource) -> String {
@@ -477,6 +477,14 @@ mod tests {
         let src = parse_source("https://github.com/affaan-m/ecc").unwrap();
         assert_eq!(src.owner, "affaan-m");
         assert_eq!(src.repo, "ecc");
+    }
+
+    #[test]
+    fn package_name_includes_owner_so_same_repo_names_differ() {
+        let slavingia = parse_source("slavingia/skills").unwrap();
+        let matt = parse_source("mattpocock/skills").unwrap();
+        assert_eq!(package_name(&slavingia), "slavingia-skills");
+        assert_eq!(package_name(&matt), "mattpocock-skills");
     }
 
     #[test]

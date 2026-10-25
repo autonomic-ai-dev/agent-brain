@@ -29,6 +29,13 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
   - Behaviour: `agent-brain sync git|cloud …` and `agent-brain bootstrap`.
   - Outcome: Memory is pushed or pulled from the sync repository.
 
+## Code
+
+- `agent-brain/src/mcp/server.rs`
+  - Owns: `route-task-context` and the MCP tool surface, including the `grep_search` parameters (`query` alias, `path` default `"."`).
+- `agent-brain/src/git_tools.rs`
+  - Owns: the `brain_git_*` MCP tools. No other feature map covers them, so this feature owns them by assignment.
+
 ## How to get to it (user POV)
 
 - CLI: `agent-brain verify`, `verify init`, `verify report`, `memory put`, `install --global`, `doctor`, `briefing`, `sync`

@@ -127,70 +127,6 @@ pub fn run(fix: bool) -> Result<()> {
         mcp_step.warn("mcp.json not found");
     }
 
-    let fed_step = progress.step("MCP federation (agent-body)");
-    let federation = crate::mcp_federation::assess_federation(&mcp_path);
-    let mut fed_ok = true;
-    if let Some(ref bin) = federation.body_binary {
-        println!("  agent-body binary:     {}", bin.display());
-    } else {
-        println!("  agent-body binary:     not found — run: autonomic update --organ body");
-        ok = false;
-        fed_ok = false;
-    }
-    if federation.body_in_mcp_json {
-        println!("  agent-body in mcp.json:  OK");
-    } else {
-        println!("  agent-body in mcp.json:  missing");
-        ok = false;
-        fed_ok = false;
-        if fix {
-            crate::install::configure_cursor(true, &exe, false)?;
-            let _ = crate::host_install::install_host(
-                crate::host_install::HostTarget::OpenCode { user: true },
-                &exe,
-                true,
-            );
-            println!("  agent-body in mcp.json:  reinstalled via agent-brain install");
-            fed_ok = true;
-            ok = true;
-        }
-    }
-    if federation.upstream_configured && federation.upstream_enabled {
-        println!("  upstream agent-body:   OK ([brain.upstream_mcp] in ~/.autonomic/config.toml)");
-    } else if fix {
-        match crate::mcp_federation::ensure_upstream_agent_body() {
-            Ok(true) => {
-                println!("  upstream agent-body:   enabled (route_to_mcp → serve-mcp)");
-                fed_ok = federation.body_binary.is_some();
-            }
-            Ok(false) => {
-                println!("  upstream agent-body:   skipped (agent-body binary not found)");
-                ok = false;
-                fed_ok = false;
-            }
-            Err(err) => {
-                println!("  upstream agent-body:   FAILED — {err:#}");
-                ok = false;
-                fed_ok = false;
-            }
-        }
-    } else if federation.upstream_enabled {
-        println!("  upstream agent-body:   missing — run: agent-brain doctor --fix");
-        ok = false;
-        fed_ok = false;
-    } else {
-        println!("  upstream_mcp:          disabled — run: agent-brain doctor --fix");
-        ok = false;
-        fed_ok = false;
-    }
-    if fed_ok {
-        fed_step.done();
-    } else if !fix {
-        fed_step.warn("MCP federation incomplete — agent-brain install --global or doctor --mcp");
-    } else {
-        fed_step.warn("MCP federation partially fixed");
-    }
-
     let hooks_step = progress.step("Cursor hooks");
     if hooks_path.exists() {
         let raw = fs::read_to_string(&hooks_path)?;
@@ -502,78 +438,6 @@ pub fn run(fix: bool) -> Result<()> {
     Ok(())
 }
 
-/// MCP federation deep audit (`agent-brain doctor --mcp`).
-pub fn run_mcp_federation(fix: bool) -> Result<()> {
-    let exe = std::env::current_exe().context("current_exe")?;
-    let home = dirs::home_dir().context("home dir")?;
-    let mcp_path = home.join(".cursor/mcp.json");
-
-    println!("agent-brain doctor --mcp\n");
-
-    let federation = crate::mcp_federation::assess_federation(&mcp_path);
-    if let Some(ref bin) = federation.body_binary {
-        println!("  agent-body binary:     {}", bin.display());
-    } else {
-        println!("  agent-body binary:     NOT FOUND");
-        if fix {
-            println!("  hint:                  autonomic update --organ body");
-        }
-        bail!("agent-body binary not found");
-    }
-
-    if !federation.body_in_mcp_json {
-        println!("  agent-body in mcp.json:  missing");
-        if fix {
-            crate::install::configure_cursor(true, &exe, false)?;
-            println!("  agent-body in mcp.json:  installed");
-        } else {
-            bail!("agent-body missing from mcp.json — run: agent-brain install --global");
-        }
-    } else {
-        println!("  agent-body in mcp.json:  OK");
-    }
-
-    if federation.upstream_configured && federation.upstream_enabled {
-        println!("  upstream agent-body:   configured");
-    } else if fix {
-        match crate::mcp_federation::ensure_upstream_agent_body() {
-            Ok(true) => println!("  upstream agent-body:   enabled"),
-            Ok(false) => bail!("agent-body binary not found for upstream_mcp"),
-            Err(err) => bail!(err),
-        }
-    } else {
-        println!("  upstream agent-body:   missing (route_to_mcp will fail)");
-        if !federation.upstream_configured {
-            bail!("upstream agent-body missing — run: agent-brain doctor --mcp --fix");
-        }
-    }
-
-    println!();
-    println!("  Running tools/list schema audit…");
-    match crate::mcp_federation::audit_with_timeout() {
-        Ok(audit) => {
-            println!("  tools listed:          {}", audit.tool_count);
-            if let Some(name) = &audit.server_info_name {
-                println!("  serverInfo.name:       {name}");
-            }
-            if audit.ok {
-                println!("  inputSchema audit:     OK ({})", audit.detail);
-            } else {
-                println!("  inputSchema audit:     FAIL — {}", audit.detail);
-                bail!("agent-body MCP schema audit failed");
-            }
-        }
-        Err(err) => {
-            println!("  inputSchema audit:     ERROR — {err:#}");
-            bail!(err);
-        }
-    }
-
-    println!();
-    println!("MCP federation OK — restart Cursor/OpenCode MCP servers if tools still missing.");
-    Ok(())
-}
-
 fn print_other_hosts(home: &Path) {
     for rules_dir in [
         ".claude/rules",
@@ -869,13 +733,8 @@ fn bootstrap_registry_bundles(config: &crate::config::Config) -> Result<()> {
     let settings = crate::settings::AgentBrainSettings::load(&config.home);
     crate::registry_sync::ensure_cached(&config.home, &settings.registry)?;
     let registry = crate::packages::PackageRegistry::load(&config.home)?;
-    let has_core = registry.packages.iter().any(|p| p.name == "autonomic-core");
     let has_supervisor = registry.packages.iter().any(|p| p.name == "supervisor");
     let has_agstack = registry.packages.iter().any(|p| p.name == "agstack");
-    if !has_core {
-        crate::packages::install_bundled(config, "autonomic-core")?;
-        println!("  bootstrap:           installed @autonomic-core");
-    }
     if !has_supervisor {
         crate::packages::install_bundled(config, "supervisor")?;
         println!("  bootstrap:           installed @supervisor");
