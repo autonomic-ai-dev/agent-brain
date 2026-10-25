@@ -46,6 +46,7 @@ allow tar -xf archive.tar
 allow truncate -s 0 build/out.log
 block /bin/dd if=/dev/zero of=/dev/disk2
 block /bin/rm -rf /
+block rm -rf /
 block /usr/bin/git commit -n -m x
 block \git commit -n -m x
 block \rm -rf /

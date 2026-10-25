@@ -18,7 +18,6 @@ sys.path.insert(0, str(HOOK_DIR))
 import route_gate
 from route_gate import (
     adapt_hook_output,
-    check_mouth_ast_policy,
     check_read_tool_gate,
     extract_read_path,
     extract_shell_command,
@@ -111,17 +110,16 @@ def simulate_cursor_session(tmp: Path) -> None:
     else:
         log_fail(f"Expected needs_route=False, got {st}")
 
-    # 4. Agent attempts destructive command -> MUST BE DENIED by agent-mouth AST policy
     destructive_cmd = {
         "conversation_id": session_id,
         "generation_id": "gen-c1",
         "command": "rm -rf /",
     }
-    denied_ast = handle_before_shell_execution(destructive_cmd)
-    if denied_ast.get("permission") == "deny" and "agent-mouth" in denied_ast.get("agent_message", ""):
-        log_pass("Destructive shell command correctly DENIED by agent-mouth AST policy")
+    denied_policy = handle_before_shell_execution(destructive_cmd)
+    if denied_policy.get("permission") == "deny":
+        log_pass("Destructive shell command correctly DENIED by the agent-brain command policy")
     else:
-        log_pass("Destructive shell command handled by policy")
+        log_fail(f"Expected destructive command to be denied, got {denied_policy}")
 
     # 5. Agent runs legitimate safe command -> MUST BE ALLOWED
     safe_cmd = {

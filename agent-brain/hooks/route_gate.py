@@ -968,68 +968,37 @@ def check_python_shell_policy(cmd: str | None) -> dict | None:
     return None
 
 
-SHELL_INVOKERS = {"bash", "sh", "zsh", "dash", "ksh", "source", "."}
-SCRIPT_SUFFIXES = (".sh", ".bash", ".zsh")
-SCRIPT_SIZE_LIMIT = 256 * 1024
-
-
-def referenced_script_paths(cmd: str) -> list[str]:
-    tokens = cmd.split()
-    paths = []
-    for index, token in enumerate(tokens):
-        if token in SHELL_INVOKERS and index + 1 < len(tokens):
-            candidate = tokens[index + 1]
-        elif token.startswith(("./", "/")) and token.endswith(SCRIPT_SUFFIXES):
-            candidate = token
-        else:
-            continue
-        if os.path.isfile(candidate) and os.path.getsize(candidate) <= SCRIPT_SIZE_LIMIT:
-            paths.append(candidate)
-    return list(dict.fromkeys(paths))
-
-
-def check_mouth_ast_policy(cmd: str | None) -> dict | None:
-    """Validate bash command and any script it runs against agent-mouth AST approval policy if available."""
-    if not cmd:
+def check_command_policy(cmd: str | None) -> dict | None:
+    if not cmd or not cmd.strip():
         return None
-    stripped = cmd.strip()
-    if not stripped:
+    brain_bin = shutil.which("agent-brain")
+    if brain_bin is None:
         return None
-    mouth_bin = shutil.which("agent-mouth") or "/opt/homebrew/bin/agent-mouth"
-    if not os.path.exists(mouth_bin):
-        return None
-    targets = [["--command", stripped]]
-    targets += [["--script", path] for path in referenced_script_paths(stripped)]
-    for target in targets:
-        try:
-            res = subprocess.run(
-                [mouth_bin, "validate", *target],
-                capture_output=True,
-                text=True,
-                timeout=2.0,
-            )
-        except (subprocess.SubprocessError, OSError) as exc:
-            return mouth_denial(f"validation unavailable ({type(exc).__name__}); failing closed")
-        if res.returncode != 0:
-            reason = "destructive command pattern detected"
-            try:
-                data = json.loads(res.stdout)
-                reason = data.get("reason", reason)
-            except (ValueError, AttributeError):
-                pass
-            return mouth_denial(reason)
+    payload = json.dumps({"cwd": os.getcwd(), "tool_input": {"command": cmd}})
+    try:
+        res = subprocess.run(
+            [brain_bin, "bash-gate"],
+            input=payload,
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+        )
+    except (subprocess.SubprocessError, OSError) as exc:
+        return command_denial(f"command policy unavailable ({type(exc).__name__}); failing closed")
+    if res.returncode != 0:
+        return command_denial(f"command policy exited {res.returncode}; failing closed")
+    try:
+        data = json.loads(res.stdout or "{}")
+    except ValueError:
+        return command_denial("command policy returned unreadable output; failing closed")
+    decision = data.get("hookSpecificOutput") or {}
+    if decision.get("permissionDecision") == "deny":
+        return command_denial(decision.get("permissionDecisionReason", "blocked by command policy"))
     return None
 
 
-def mouth_denial(reason: str) -> dict:
-    return {
-        "permission": "deny",
-        "agent_message": (
-            f"agent-mouth AST safety violation: {reason}. Destructive host execution "
-            "is blocked. Delegate to agent-muscle (muscle_execute_bash) or request explicit user approval."
-        ),
-        "user_message": f"agent-mouth: blocked command ({reason}).",
-    }
+def command_denial(message: str) -> dict:
+    return {"permission": "deny", "agent_message": message, "user_message": message}
 
 
 VERIFICATION_CMD_RE = re.compile(
@@ -1210,9 +1179,9 @@ def handle_pre_tool_use(event: dict) -> dict:
         denied = check_python_shell_policy(cmd)
         if denied is not None:
             return denied
-        mouth_denied = check_mouth_ast_policy(cmd)
-        if mouth_denied is not None:
-            return mouth_denied
+        policy_denied = check_command_policy(cmd)
+        if policy_denied is not None:
+            return policy_denied
     return gate_tool_use(event)
 
 
@@ -1221,7 +1190,7 @@ def handle_before_mcp_execution(event: dict) -> dict:
 
 
 def handle_before_shell_execution(event: dict) -> dict:
-    """Host shell pre-hook (Cursor beforeShellExecution) — gate route, Python deny, mouth AST validation, failClosed."""
+    """Host shell pre-hook (Cursor beforeShellExecution) — gate route, Python deny, command policy, failClosed."""
     gate = gate_tool_use(event)
     if gate.get("permission") == "deny":
         return gate
@@ -1229,9 +1198,9 @@ def handle_before_shell_execution(event: dict) -> dict:
     denied = check_python_shell_policy(cmd)
     if denied is not None:
         return denied
-    mouth_denied = check_mouth_ast_policy(cmd)
-    if mouth_denied is not None:
-        return mouth_denied
+    policy_denied = check_command_policy(cmd)
+    if policy_denied is not None:
+        return policy_denied
     return {"permission": "allow"}
 
 
