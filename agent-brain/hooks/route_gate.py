@@ -252,7 +252,7 @@ def is_claude_agent_brain_mcp(tool_name: str) -> bool:
     if server is None:
         return False
     normalized = server.lower().replace("_", "-")
-    return normalized in {"agent-brain", "agentbrain", "agent-body", "agentbody"}
+    return normalized in {"agent-brain", "agentbrain"}
 
 
 def is_opencode_brain_tool(tool: str) -> bool:
@@ -314,18 +314,14 @@ def is_agent_brain_mcp_tool(event: dict) -> bool:
         return True
     if is_claude_agent_brain_mcp(tool):
         return True
-    if tool_lower.startswith("mcp_agent-brain_") or tool_lower.startswith("mcp_agent-body_"):
+    if tool_lower.startswith("mcp_agent-brain_") or tool_lower.startswith("mcp_agent_brain_"):
         return True
-    if tool_lower.startswith("mcp_agent_brain_") or tool_lower.startswith("mcp_agent_body_"):
+    if tool_lower.startswith("mcp_agent-brain-") or tool_lower.startswith("mcp_agent_brain-"):
         return True
-    if tool_lower.startswith("mcp_agent-brain-") or tool_lower.startswith("mcp_agent-body-"):
-        return True
-    if tool_lower.startswith("mcp_agent_brain-") or tool_lower.startswith("mcp_agent_body-"):
-        return True
-    if ("agent-brain" in tool_lower or "agent-body" in tool_lower) and "mcp" in tool_lower:
+    if "agent-brain" in tool_lower and "mcp" in tool_lower:
         return True
     server = str(event.get("server") or "").strip().lower()
-    if server in {"agent-brain", "agent_brain", "agent-body", "agent_body"}:
+    if server in {"agent-brain", "agent_brain"}:
         return True
     return is_agent_brain_command(event)
 

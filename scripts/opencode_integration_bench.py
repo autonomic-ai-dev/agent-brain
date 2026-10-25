@@ -36,7 +36,7 @@ MODE_CANDIDATES: list[tuple[str, Path]] = [
     ("vscode", Path.home() / ".vscode/agent-brain-mode.md"),
 ]
 
-REQUIRED_ALIASES = ("autonomic-core", "supervisor", "starter")
+REQUIRED_ALIASES = ("supervisor", "starter")
 REQUIRED_WORKFLOWS = ("release-notes", "stacked-pr", "bugfix")
 
 

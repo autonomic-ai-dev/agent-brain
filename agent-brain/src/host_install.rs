@@ -1476,8 +1476,6 @@ mod tests {
 
     #[test]
     fn gemini_project_uses_settings_json() {
-        let dir = TempDir::new().unwrap();
-        std::env::set_current_dir(dir.path()).unwrap();
         let path = gemini_config_path(false).unwrap();
         assert!(path.ends_with(".gemini/settings.json"));
     }

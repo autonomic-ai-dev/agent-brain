@@ -734,11 +734,12 @@ class ScoutUnlockTests(unittest.TestCase):
         shell_ev = {"tool_name": "run_command", "tool_input": {"CommandLine": "git status"}}
         self.assertEqual(extract_shell_command(shell_ev), "git status")
 
-    def test_agent_body_federated_mcp_matching(self) -> None:
+    def test_agent_brain_mcp_matching_ignores_other_servers(self) -> None:
         from route_gate import is_agent_brain_mcp_tool
 
-        self.assertTrue(is_agent_brain_mcp_tool({"tool_name": "mcp_agent-body_muscle_execute_bash"}))
-        self.assertTrue(is_agent_brain_mcp_tool({"tool_name": "eyes_describe_dom", "server": "agent-body"}))
+        self.assertTrue(is_agent_brain_mcp_tool({"tool_name": "mcp_agent-brain_grep_search"}))
+        self.assertFalse(is_agent_brain_mcp_tool({"tool_name": "mcp_agent-body_muscle_execute_bash"}))
+        self.assertFalse(is_agent_brain_mcp_tool({"tool_name": "eyes_describe_dom", "server": "agent-body"}))
         self.assertFalse(is_agent_brain_mcp_tool({"tool_name": "route_task"}))
 
     def test_before_shell_execution_allowed_when_routed(self) -> None:

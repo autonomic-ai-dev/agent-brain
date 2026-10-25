@@ -312,18 +312,15 @@ def simulate_codex_and_opencode_sessions() -> None:
     else:
         log_fail(f"Expected Codex deny, got {codex_out}")
 
-    # Organ MCP federator tool matching
-    for organ_tool in (
-        "mcp_agent-body_muscle_execute_bash",
-        "mcp_agent-body_eyes_describe_dom",
-        "mcp_agent-body_heart_budget_status",
-        "mcp_agent-body_spine_submit_workflow",
+    for brain_tool in (
+        "mcp_agent-brain_grep_search",
+        "mcp_agent-brain_read_file_head",
     ):
-        ev = {"tool_name": organ_tool}
+        ev = {"tool_name": brain_tool}
         if is_agent_brain_mcp_tool(ev):
-            log_pass(f"Federated organ tool '{organ_tool}' recognized by gate")
+            log_pass(f"agent-brain MCP tool '{brain_tool}' recognized by gate")
         else:
-            log_fail(f"Expected '{organ_tool}' to be recognized as organ MCP tool")
+            log_fail(f"Expected '{brain_tool}' to be recognized as an agent-brain MCP tool")
 
 
 def main() -> int:
