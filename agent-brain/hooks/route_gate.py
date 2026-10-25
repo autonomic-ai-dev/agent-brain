@@ -973,7 +973,7 @@ def check_command_policy(cmd: str | None) -> dict | None:
         return None
     brain_bin = shutil.which("agent-brain")
     if brain_bin is None:
-        return None
+        return command_denial("agent-brain is not on PATH, so the command policy cannot run; failing closed")
     payload = json.dumps({"cwd": os.getcwd(), "tool_input": {"command": cmd}})
     try:
         res = subprocess.run(
@@ -981,7 +981,7 @@ def check_command_policy(cmd: str | None) -> dict | None:
             input=payload,
             capture_output=True,
             text=True,
-            timeout=2.0,
+            timeout=10.0,
         )
     except (subprocess.SubprocessError, OSError) as exc:
         return command_denial(f"command policy unavailable ({type(exc).__name__}); failing closed")

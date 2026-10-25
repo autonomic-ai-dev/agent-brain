@@ -1,3 +1,4 @@
+use std::fs;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
@@ -111,13 +112,18 @@ struct Ctx<'a> {
     root: Option<&'a Path>,
     rules: &'a [Rule],
     piped: bool,
+    scripts: u8,
 }
+
+const SCRIPT_DEPTH: u8 = 3;
+const SCRIPT_SIZE_LIMIT: u64 = 256 * 1024;
 
 pub fn classify(command: &str, root: Option<&Path>, rules: &[Rule]) -> Verdict {
     let ctx = Ctx {
         root,
         rules,
         piped: false,
+        scripts: SCRIPT_DEPTH,
     };
     classify_in(command, ctx, root.map(normalize))
 }
@@ -187,7 +193,10 @@ fn segment_verdict(
             }
         }
         "sh" | "bash" | "zsh" | "dash" | "ksh" => shell_verdict(args, ctx, dir.as_deref()),
-        "source" | "." => Verdict::Warn(format!("sources code that cannot be inspected: {first}")),
+        "source" | "." => args
+            .first()
+            .and_then(|script| script_verdict(script, ctx, dir.as_deref()))
+            .unwrap_or_else(|| Verdict::Warn(format!("sources code that cannot be inspected: {first}"))),
         "dd" if args.iter().any(|arg| is_device_write(arg)) => {
             Verdict::Block("dd writes to a device".into())
         }
@@ -198,6 +207,10 @@ fn segment_verdict(
         name if INTERPRETERS.contains(&name) => merge(
             interpreter_verdict(args),
             rule_verdict(name, args, ctx, dir.as_deref(), false),
+        ),
+        name if is_script_name(name) => merge(
+            script_verdict(first, ctx, dir.as_deref()).unwrap_or(Verdict::Allow),
+            rule_verdict(name, args, ctx, dir.as_deref(), true),
         ),
         name => rule_verdict(name, args, ctx, dir.as_deref(), true),
     }
@@ -273,8 +286,45 @@ fn shell_verdict(args: &[&str], ctx: Ctx<'_>, dir: Option<&Path>) -> Verdict {
     match shell_payload(args) {
         Some(payload) => classify_in(payload, ctx, dir.map(Path::to_path_buf)),
         None if ctx.piped => Verdict::Block("it runs code piped into a shell".into()),
-        None => Verdict::Warn("runs a script file that cannot be inspected".into()),
+        None => args
+            .iter()
+            .find(|arg| !arg.starts_with('-'))
+            .and_then(|script| script_verdict(script, ctx, dir))
+            .unwrap_or_else(|| Verdict::Warn("runs a script file that cannot be inspected".into())),
     }
+}
+
+fn is_script_name(name: &str) -> bool {
+    [".sh", ".bash", ".zsh"]
+        .iter()
+        .any(|suffix| name.ends_with(suffix))
+}
+
+fn script_verdict(path: &str, ctx: Ctx<'_>, dir: Option<&Path>) -> Option<Verdict> {
+    let text = script_text(path, dir)?;
+    if ctx.scripts == 0 {
+        return Some(Verdict::Warn(format!(
+            "runs {path}, which nests scripts too deeply to inspect"
+        )));
+    }
+    let body: Vec<&str> = text
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .collect();
+    let inner = Ctx {
+        scripts: ctx.scripts - 1,
+        ..ctx
+    };
+    Some(classify_in(&body.join("\n"), inner, dir.map(Path::to_path_buf)))
+}
+
+fn script_text(path: &str, dir: Option<&Path>) -> Option<String> {
+    let resolved = resolve(path, dir)?;
+    let meta = fs::metadata(&resolved).ok()?;
+    if !meta.is_file() || meta.len() > SCRIPT_SIZE_LIMIT {
+        return None;
+    }
+    fs::read_to_string(resolved).ok()
 }
 
 fn quote_words(words: &[&str]) -> String {
@@ -728,6 +778,58 @@ mod tests {
         assert!(matches!(
             classify("rm -rf build", None, &command_rules::defaults()),
             Verdict::Block(_)
+        ));
+    }
+
+    fn script_dir(name: &str, body: &str) -> tempfile::TempDir {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join(name), body).unwrap();
+        dir
+    }
+
+    #[test]
+    fn blocks_a_script_whose_contents_are_destructive() {
+        let dir = script_dir("cleanup.sh", "echo start\nrm -rf /\n");
+        for command in ["bash cleanup.sh", "sh cleanup.sh", "./cleanup.sh", "source cleanup.sh"] {
+            assert!(
+                matches!(
+                    classify(command, Some(dir.path()), &command_rules::defaults()),
+                    Verdict::Block(_)
+                ),
+                "{command} should be blocked by its contents"
+            );
+        }
+    }
+
+    #[test]
+    fn allows_a_script_whose_contents_are_safe() {
+        let dir = script_dir("build.sh", "# rm -rf / is only a comment\ncargo test\n");
+        assert!(matches!(
+            classify("bash build.sh", Some(dir.path()), &command_rules::defaults()),
+            Verdict::Allow
+        ));
+    }
+
+    #[test]
+    fn unreadable_scripts_keep_their_existing_verdicts() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let rules = command_rules::defaults();
+        assert!(matches!(
+            classify("bash missing.sh", Some(dir.path()), &rules),
+            Verdict::Warn(_)
+        ));
+        assert!(matches!(
+            classify("./missing.sh", Some(dir.path()), &rules),
+            Verdict::Warn(_)
+        ));
+    }
+
+    #[test]
+    fn self_calling_script_stops_at_the_depth_limit() {
+        let dir = script_dir("loop.sh", "bash loop.sh\n");
+        assert!(matches!(
+            classify("bash loop.sh", Some(dir.path()), &command_rules::defaults()),
+            Verdict::Warn(_)
         ));
     }
 
