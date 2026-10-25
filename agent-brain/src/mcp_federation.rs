@@ -304,20 +304,13 @@ pub fn ensure_upstream_agent_body() -> Result<bool> {
 }
 
 pub fn persist_brain_settings(settings: &crate::settings::AgentBrainSettings) -> Result<()> {
-    if std::env::var("AGENT_BRAIN_HOME").is_ok() {
-        let home = crate::config::Config::load()?.home;
-        let path = home.join("config.yaml");
-        let yaml = serde_yaml::to_string(settings).context("serialize brain settings")?;
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(&path, yaml).with_context(|| format!("write {}", path.display()))?;
-        return Ok(());
+    let home = crate::config::Config::load()?.home;
+    let path = home.join("config.yaml");
+    let yaml = serde_yaml::to_string(settings).context("serialize brain settings")?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
     }
-    let json = serde_json::to_value(settings).context("serialize [brain]")?;
-    let table: toml::Table = serde_json::from_value(json).context("convert [brain] to toml")?;
-    agent_body_core::ensure_default_ecosystem_sections().ok();
-    agent_body_core::write_organ_section_raw("brain", &table)?;
+    fs::write(&path, yaml).with_context(|| format!("write {}", path.display()))?;
     Ok(())
 }
 

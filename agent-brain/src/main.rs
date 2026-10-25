@@ -17,7 +17,7 @@ async fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
-    let args = agent_body_core::cli::strip_progress_argv(std::env::args().collect());
+    let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "--version" || a == "-V") {
         println!("{}", env!("CARGO_PKG_VERSION"));
         return Ok(());

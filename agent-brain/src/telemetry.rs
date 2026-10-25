@@ -151,7 +151,7 @@ pub fn calculate_pricing(
 
 /// Ingest and process a turn telemetry request, calculating cost and savings.
 pub fn process_turn_telemetry(req: TurnTelemetryRequest) -> TurnTelemetryOutcome {
-    process_turn_telemetry_in(req, &agent_body_core::organ_state_dir("heart"))
+    process_turn_telemetry_in(req, &crate::global_workspace::organ_state_dir("heart"))
 }
 
 fn process_turn_telemetry_in(req: TurnTelemetryRequest, heart_dir: &Path) -> TurnTelemetryOutcome {
@@ -197,7 +197,7 @@ fn process_turn_telemetry_in(req: TurnTelemetryRequest, heart_dir: &Path) -> Tur
 
 /// Asynchronously dispatch telemetry event to agent-heart without blocking the agent turn loop.
 pub fn sync_to_heart_async(outcome: &TurnTelemetryOutcome) -> bool {
-    sync_to_heart_async_in(outcome, &agent_body_core::organ_state_dir("heart"))
+    sync_to_heart_async_in(outcome, &crate::global_workspace::organ_state_dir("heart"))
 }
 
 fn sync_to_heart_async_in(outcome: &TurnTelemetryOutcome, heart_dir: &Path) -> bool {
@@ -216,7 +216,7 @@ fn sync_to_heart_async_in(outcome: &TurnTelemetryOutcome, heart_dir: &Path) -> b
 
 /// Locate heart.db and append event directly to model_usage_events if heart is initialized.
 pub fn sync_to_heart(outcome: &TurnTelemetryOutcome) -> bool {
-    sync_to_heart_in(outcome, &agent_body_core::organ_state_dir("heart"))
+    sync_to_heart_in(outcome, &crate::global_workspace::organ_state_dir("heart"))
 }
 
 fn sync_to_heart_in(outcome: &TurnTelemetryOutcome, heart_dir: &Path) -> bool {

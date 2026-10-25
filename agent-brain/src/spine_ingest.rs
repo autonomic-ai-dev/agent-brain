@@ -1,4 +1,4 @@
-use agent_body_core::executions_dir;
+use crate::global_workspace::{ensure_dirs, executions_dir, memory_dir};
 use anyhow::{Context, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -40,7 +40,7 @@ pub struct IngestReport {
 }
 
 pub fn default_dataset_path() -> PathBuf {
-    agent_body_core::memory_dir()
+    memory_dir()
         .join("datasets")
         .join("spine.jsonl")
 }
@@ -50,7 +50,7 @@ pub fn ingest_executions(
     out: &Path,
     only_successful: bool,
 ) -> Result<IngestReport> {
-    agent_body_core::ensure_dirs().context("ensure autonomic dirs")?;
+    ensure_dirs().context("ensure autonomic dirs")?;
     if let Some(parent) = out.parent() {
         std::fs::create_dir_all(parent)?;
     }

@@ -2,7 +2,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use agent_body_core::ui::ProgressRun;
 use anyhow::{bail, Context, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -12,6 +11,32 @@ pub enum SignatureStatus {
     Invalid,
     #[cfg(target_os = "macos")]
     LinkerSigned,
+}
+
+struct ProgressRun;
+
+struct ProgressStep;
+
+impl ProgressRun {
+    fn new(_title: &str) -> Self {
+        Self
+    }
+
+    fn with_total_hint(self, _total: usize) -> Self {
+        self
+    }
+
+    fn step(&mut self, _name: &str) -> ProgressStep {
+        ProgressStep
+    }
+
+    fn finish(self) {}
+}
+
+impl ProgressStep {
+    fn done(self) {}
+
+    fn warn(self, _message: impl std::fmt::Display) {}
 }
 
 pub fn run(fix: bool) -> Result<()> {
@@ -34,37 +59,21 @@ pub fn run(fix: bool) -> Result<()> {
 
     let mut ok = true;
 
-    let cfg_step = progress.step("unified config");
-    let unified = agent_body_core::config_path();
-    if unified.is_file() {
-        if agent_body_core::read_organ_section_raw("brain")
-            .ok()
-            .flatten()
-            .is_some()
-        {
-            println!("  unified config:        OK ({})", unified.display());
+    let cfg_step = progress.step("config");
+    match crate::settings::config_path_optional(&config.home) {
+        Some(settings_file) => {
+            println!("  config:                OK ({})", settings_file.display());
             cfg_step.done();
-        } else {
-            println!("  unified config:        missing [brain] section");
-            ok = false;
-            if fix {
-                let _ = agent_body_core::run_legacy_migrations();
-                let _ = crate::settings::AgentBrainSettings::save_default(&config.home);
-                println!("  unified config:        migrated [brain]");
-                cfg_step.done();
-                ok = true;
-            } else {
-                cfg_step.warn("missing [brain]");
-            }
         }
-    } else {
-        println!("  unified config:        not found — run `autonomic init`");
-        ok = false;
-        cfg_step.warn("missing ~/.autonomic/config.toml");
+        None => {
+            println!("  config:                not found — run `agent-brain config init`");
+            ok = false;
+            cfg_step.warn("missing config file");
+        }
     }
 
     let agents_step = progress.step("AGENTS.md");
-    let agents_md = agent_body_core::agents_md_path();
+    let agents_md = crate::global_workspace::agents_md_path();
     if agents_md.is_file() {
         println!("  AGENTS.md:             {}", agents_md.display());
         agents_step.done();
@@ -439,7 +448,7 @@ pub fn run(fix: bool) -> Result<()> {
     }
     _hosts.done();
 
-    let _ = progress.finish();
+    progress.finish();
 
     println!();
     println!("Tips:");

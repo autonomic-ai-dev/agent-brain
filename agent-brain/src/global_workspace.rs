@@ -1,11 +1,51 @@
 use anyhow::{Context, Result};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-pub use agent_body_core::global_workspace::{
-    autonomic_root, broker_dir, config_path, default_state_db, ensure_dirs, executions_dir,
-    memory_dir, memory_logs_dir, organ_state_dir, spine_logs_dir,
-};
+pub fn autonomic_root() -> PathBuf {
+    std::env::var("AUTONOMIC_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| home_dir().join(".autonomic"))
+}
+
+fn home_dir() -> PathBuf {
+    dirs::home_dir()
+        .or_else(|| std::env::var("HOME").ok().map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+pub fn memory_dir() -> PathBuf {
+    autonomic_root().join("memory")
+}
+
+pub fn memory_logs_dir() -> PathBuf {
+    memory_dir().join("logs")
+}
+
+pub fn spine_logs_dir() -> PathBuf {
+    autonomic_root().join("logs").join("spine")
+}
+
+pub fn executions_dir() -> PathBuf {
+    spine_logs_dir().join("executions")
+}
+
+pub fn organ_state_dir(organ: &str) -> PathBuf {
+    autonomic_root().join("state").join(organ)
+}
+
+pub fn agents_md_path() -> PathBuf {
+    autonomic_root().join("AGENTS.md")
+}
+
+pub fn ensure_dirs() -> std::io::Result<()> {
+    fs::create_dir_all(memory_dir())?;
+    fs::create_dir_all(memory_logs_dir())?;
+    fs::create_dir_all(spine_logs_dir())?;
+    fs::create_dir_all(executions_dir())?;
+    fs::create_dir_all(autonomic_root())?;
+    Ok(())
+}
 
 /// Copy legacy `~/.agent_brain/data` and logs into `~/.autonomic/memory` when empty.
 pub fn migrate_legacy_storage(legacy_home: &Path, memory_dir: &Path) -> Result<()> {

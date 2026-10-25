@@ -516,7 +516,41 @@ const HARD_ROUTE_RULE: &str = r"## HARD RULES (never skip)
 - Choose shell and organ tools from the `route_task` result: read `suggested_tools` and `must_apply` before the first shell or organ call. Prefer routed agent-body tools (e.g. `muscle_execute_bash`, `spine_check_status`, `heart_record_usage`) over native Bash when they are listed. Test agent-body reachability once per session and reuse the result. If a routed tool is skipped, say so and why. If an agent-body call fails, report the failure and fall back to native tools.
 ";
 
-pub const AGENT_BRAIN_MODE_SNIPPET: &str = agent_body_core::BASE_AGENT_MODE;
+pub const AGENT_BRAIN_MODE_SNIPPET: &str = r#"# Autonomic Agent Mode & Orchestration Policy
+
+This environment is governed by the Autonomic 11-Organ Ecosystem. All AI agents (Claude Code, Cursor, Codex, OpenCode, Gemini, Antigravity) must route through agent-brain and adhere to these operational protocols.
+
+## 1. Mandatory Pre-Flight Turn Routine
+- Route Before Action: Always call `agent-brain_route_task` (or `route_task` MCP tool) with `user_message`, `current_working_directory`, and `open_files` at the start of every turn before running commands, file reads, or edits.
+- Discover Capabilities: When starting complex tasks or unknown workflows, call `get_autonomic_catalog` to discover available organ tools and delegation rules.
+- Durable Memory: Always call `store_memory` at task end to persist key learnings, bug fixes, decisions, and system patterns into vector memory (`brain.db`).
+
+## 2. Tool Delegation & Bounded Exploration (Never Raw Grep/Cat/Ls/Find)
+- Bounded Exploration & Traversal: Use `agent-brain`'s organ tools (`list_directory` for `ls`, `find_files` for `find`/`glob`, `read_file` for `cat`/`view_file`, `read_file_head`, `read_file_tail`, `file_summary`, `grep_search`) instead of host commands.
+- Sandboxed Execution & In-Gateway AST Validation: Delegate all command execution to `agent-muscle` (`muscle_execute_bash`). `agent-body` automatically passes every command through `agent-mouth` AST safety validation in-gateway before execution, eliminating manual 2-step roundtrips.
+- Self-Correction (No Bypass): If a command is rejected by AST validation or fails execution, the agent must diagnose and correct the command; NEVER attempt to bypass the gate or fall back to native host improvisation.
+- Workflows & DAGs: Orchestrate multi-step pipelines via `agent-spine` (`spine_submit_workflow`, `agent-spine run --workflow engineering-safety`, or `agent-spine run --meta "..."`).
+
+## 3. Resilient Tool Calls, 3-Retry Policy & Auto-Recovery (No Fallback Stickiness)
+- Automatic 3-Retry & Timeout Protection: `agent-body` enforces per-call deadlines and automatically retries failed or timed-out tool invocations up to 3 times with session auto-recovery before engaging fallback.
+- Auto-Recovery in Same Session: Failed or crashed organ sessions are automatically evicted and re-established cleanly. Even if a tool call encounters a degraded fallback response, the organ is immediately eligible for primary execution on the next invocation.
+- NO Fallback Stickiness: Never latch onto raw host commands after a fallback. Always re-attempt the designated organ MCP tools (`muscle_execute_bash`, `mouth_validate_ast`, `heart_budget_status`, etc.) on subsequent actions in the same session.
+
+## 4. Engineering Safety & Mandatory 5-Gate Verification Workflow
+Never equate confidence, plausible reasoning, successful compilation, or passing a single test with correctness. Changes must be proven safe through machine-verifiable evidence, not narrative persuasion.
+- Gate 1 — Understand: Inspect code, callers, interfaces, contracts, dependencies, and baseline behavior before touching files.
+- Gate 2 — Predict Failure: Enumerate invariants, boundary conditions (null/empty/overflow), failure paths (timeouts/restarts), API/data compatibility, concurrency/races, and rollback requirements.
+- Gate 3 — Implement: Implement the smallest change satisfying requirements while preserving existing contracts.
+- Gate 4 — Attempt to Break It: Run regression tests, edge-case tests, static analysis (`clippy`), and fault-injection where relevant. Never modify tests merely to obtain a green result.
+- Gate 5 — Verify and Report: Execute independent verification with observable outputs. Explicitly state tested failure modes, observed results, and any unresolved risks.
+
+## Autonomic utilities (delegate, don't improvise)
+- Execution: `muscle_execute_bash` for sandboxed builds, tests, git operations, and commands
+- Workflows: `agent-spine run --workflow engineering-safety`, `spine_submit_workflow`, or `agent-spine init --with @workflow`
+- Ecosystem catalog: `get_autonomic_catalog` (comprehensive organ capabilities)
+- Discovery: `agent-brain registry list` (skills + utilities)
+- Upstream MCP: `route_to_mcp` when `suggested_tools` appears in route_task
+"#;
 
 fn write_agent_brain_mode(dir: &Path, quiet: bool, label: &str) -> Result<PathBuf> {
     fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
@@ -561,7 +595,7 @@ pub fn agent_brain_mode_locations(user: bool) -> Vec<(&'static str, PathBuf)> {
         Some(h) => h,
         None => return Vec::new(),
     };
-    let canonical = agent_body_core::agents_md_path();
+    let canonical = crate::global_workspace::agents_md_path();
     vec![
         (
             "cursor (User Rules)",
@@ -588,21 +622,10 @@ pub fn install_agent_brain_modes(user: bool, quiet: bool) -> Result<()> {
     let home = dirs::home_dir().context("home directory")?;
     let brain_home = home.join(".agent_brain");
 
-    agent_body_core::ensure_default_ecosystem_sections().ok();
-    agent_body_core::scaffold_agents_dir().context("scaffold agents fragments")?;
-    if let Some(content) = agent_body_core::default_fragment("brain") {
-        agent_body_core::write_fragment("brain", content)?;
-    }
-    let links = agent_body_core::install_host_agents_md_links()?;
-    let composed = agent_body_core::agents_md_path();
-
+    write_agent_brain_mode_file(&crate::global_workspace::agents_md_path(), quiet, "canonical")?;
     write_cursor_agent_brain_mode_mdc(&brain_home, quiet)?;
 
     if !quiet {
-        println!("Composed AGENTS.md at {}", composed.display());
-        for link in &links {
-            println!("  AGENTS.md link: {}", link.display());
-        }
         println!();
         println!(
             "agent-brain mode installed for all hosts. Run `agent-brain mode paths` to list files."
