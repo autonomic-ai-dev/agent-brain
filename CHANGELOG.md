@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0-rc2] - 2026-10-26
+
+### Changed
+- Scoped to agent-brain and agent-spine. Other-tool integrations are removed: the agent-body dependency, the autonomic-core bundle, upstream MCP federation, the dataset pipeline, and the heart usage sync.
+- Agent mode is agent-brain and agent-spine guidance plus the agstack section, written locally. The host instructions version is 16, so existing installs refresh their route rule and mode files.
+- The route gate's shell check asks `agent-brain bash-gate` (the command policy) instead of the external agent-mouth binary.
+
+### Added
+- The command policy checks the contents of scripts a command runs (`bash`, `sh`, `source`, `./x.sh`), bounded in size and depth.
+
+### Fixed
+- The route gate fails closed when agent-brain is not on PATH, and allows the policy check 10 seconds.
+- Path-only tests no longer change the process working directory.
+- Hook tests isolate the session environment variables that chose a different route-state key.
+
+### Migration
+- Re-run `agent-brain install --global` so hosts pick up the new route gate and mode files.
+
 ## [1.0.0-rc1] - 2026-10-24
 
 ### Changed

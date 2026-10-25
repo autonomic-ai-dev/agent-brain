@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use serde_json::{json, Value};
 
 const ROUTE_GATE_PY: &str = include_str!("../hooks/route_gate.py");
-const OPENCODE_ROUTE_GATE_TS: &str = include_str!("../hooks/opencode/route-gate.ts");
+const OPENCODE_ROUTE_GATE_JS: &str = include_str!("../hooks/opencode/route-gate.js");
 
 /// Copy `route_gate.py` into `dest_dir/route_gate.py` and return the path.
 pub fn deploy_route_gate_script(dest_dir: &Path) -> Result<PathBuf> {
@@ -26,8 +26,14 @@ pub fn deploy_route_gate_script(dest_dir: &Path) -> Result<PathBuf> {
 
 pub fn deploy_opencode_plugin(dest_dir: &Path) -> Result<PathBuf> {
     fs::create_dir_all(dest_dir).with_context(|| format!("create {}", dest_dir.display()))?;
-    let plugin = dest_dir.join("agent-brain-route-gate.ts");
-    fs::write(&plugin, OPENCODE_ROUTE_GATE_TS)
+    let stale = dest_dir.join("agent-brain-route-gate.ts");
+    if let Err(err) = fs::remove_file(&stale) {
+        if err.kind() != std::io::ErrorKind::NotFound {
+            return Err(err).with_context(|| format!("remove {}", stale.display()));
+        }
+    }
+    let plugin = dest_dir.join("agent-brain-route-gate.js");
+    fs::write(&plugin, OPENCODE_ROUTE_GATE_JS)
         .with_context(|| format!("write {}", plugin.display()))?;
     Ok(plugin)
 }
@@ -471,6 +477,21 @@ pub fn claude_hooks_need_refresh(path: &Path) -> bool {
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn opencode_plugin_deploys_js_and_removes_stale_ts() {
+        let dir = TempDir::new().unwrap();
+        let stale = dir.path().join("agent-brain-route-gate.ts");
+        fs::write(&stale, "export default AgentBrainRouteGate;").unwrap();
+        let plugin = deploy_opencode_plugin(dir.path()).unwrap();
+        assert_eq!(plugin, dir.path().join("agent-brain-route-gate.js"));
+        assert!(!stale.exists());
+        let text = fs::read_to_string(&plugin).unwrap();
+        assert!(text.contains("id: \"agent-brain-route-gate\""));
+        assert!(text.contains("async setup(ctx)"));
+        assert!(text.contains("ctx.tool.hook(\"execute.before\""));
+        assert!(!text.contains("export default AgentBrainRouteGate"));
+    }
 
     #[test]
     fn merges_gemini_hooks_into_settings() {

@@ -13,6 +13,21 @@ from pathlib import Path
 
 _ISOLATED_HOME = tempfile.TemporaryDirectory(prefix="agent-brain-route-test-")
 os.environ["AGENT_BRAIN_HOME"] = _ISOLATED_HOME.name
+for _session_var in (
+    "CURSOR_CONVERSATION_ID",
+    "AGENT_BRAIN_HOOK_SESSION",
+    "AGY_CONVERSATION_ID",
+    "CODEX_THREAD_ID",
+):
+    os.environ.pop(_session_var, None)
+
+_ORIGINAL_PATH = os.environ.get("PATH", "")
+_STUB_BIN = tempfile.TemporaryDirectory(prefix="agent-brain-stub-bin-")
+_STUB_BRAIN = os.path.join(_STUB_BIN.name, "agent-brain")
+with open(_STUB_BRAIN, "w", encoding="utf-8") as _stub:
+    _stub.write("#!/bin/sh\nexit 0\n")
+os.chmod(_STUB_BRAIN, 0o755)
+os.environ["PATH"] = _STUB_BIN.name + os.pathsep + _ORIGINAL_PATH
 
 import route_gate
 from route_gate import (
@@ -749,7 +764,7 @@ class ScoutUnlockTests(unittest.TestCase):
         self.assertIsNotNone(denied)
         self.assertEqual(denied.get("permission"), "deny")
 
-    def test_command_policy_skipped_without_agent_brain_binary(self) -> None:
+    def test_command_policy_fails_closed_without_agent_brain_binary(self) -> None:
         from unittest import mock
 
         from route_gate import check_command_policy
@@ -757,14 +772,20 @@ class ScoutUnlockTests(unittest.TestCase):
         with mock.patch("route_gate.shutil.which", return_value=None), mock.patch(
             "route_gate.subprocess.run"
         ) as run:
-            self.assertIsNone(check_command_policy("rm -rf /"))
+            denied = check_command_policy("cargo test")
+        self.assertIsNotNone(denied)
+        self.assertEqual(denied.get("permission"), "deny")
+        self.assertIn("failing closed", denied.get("agent_message", ""))
         run.assert_not_called()
 
-    @unittest.skipUnless(shutil.which("agent-brain"), "agent-brain not installed")
+    @unittest.skipUnless(shutil.which("agent-brain", path=_ORIGINAL_PATH), "agent-brain not installed")
     def test_command_policy_real_binary_blocks_root_delete(self) -> None:
+        from unittest import mock
+
         from route_gate import check_command_policy
 
-        denied = check_command_policy("rm -rf /")
+        with mock.patch.dict(os.environ, {"PATH": _ORIGINAL_PATH}):
+            denied = check_command_policy("rm -rf /")
         self.assertIsNotNone(denied)
         self.assertEqual(denied.get("permission"), "deny")
 
@@ -789,8 +810,9 @@ class ScoutUnlockTests(unittest.TestCase):
         from route_gate import STATE_PATH, save_state
 
         STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        save_state({"needs_route": False, "route_grace_until": 0})
-        res = handle_before_shell_execution({"command": "cargo test"})
+        event = {"command": "cargo test"}
+        save_state({"needs_route": False, "route_grace_until": 0}, event)
+        res = handle_before_shell_execution(event)
         self.assertEqual(res.get("permission"), "allow")
 
     def test_claude_bash_pre_tool_use_denied_when_route_needed(self) -> None:

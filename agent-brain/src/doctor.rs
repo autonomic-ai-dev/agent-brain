@@ -803,7 +803,7 @@ fn opencode_integration_detail(home: &Path) -> String {
     if !base.join("agent-brain.md").is_file() {
         issues.push("instructions-file");
     }
-    if !base.join("plugin/agent-brain-route-gate.ts").is_file() {
+    if !base.join("plugin/agent-brain-route-gate.js").is_file() {
         issues.push("plugin-file");
     }
     if !base.join("hooks/agent-brain/route_gate.py").is_file() {
