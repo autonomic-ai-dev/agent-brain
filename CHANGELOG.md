@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0-rc1] - 2026-10-24
+
+### Changed
+- Indexing and ranking no longer depend on which agent calls agent-brain.
+- Agent mode installs an agstack section in every host.
+
+### Fixed
+- The idle embedding model unloads after 10 minutes; stdio proxies exit when their host exits.
+- The stop gate requires feature maps and knowledge base updates.
+- The test gate runs serially to avoid timing flakes.
+- Workflows with no file are removed from the registry.
+
 ## [1.0.0-beta.3.11] - 2026-10-23
 
 ### Added
