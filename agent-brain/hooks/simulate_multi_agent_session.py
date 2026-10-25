@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -325,6 +326,9 @@ def main() -> int:
     print("=" * 60)
     print("AUTONOMIC MULTI-AGENT INTERCEPTION & SIMULATION SUITE")
     print("=" * 60)
+    if shutil.which("agent-brain") is None:
+        print("agent-brain must be on PATH: the command-policy checks call `agent-brain bash-gate`.")
+        return 1
 
     tmp = setup_isolated_env()
     try:
@@ -338,7 +342,6 @@ def main() -> int:
         print("=" * 60)
         return 0
     finally:
-        import shutil
         shutil.rmtree(tmp, ignore_errors=True)
 
 

@@ -21,6 +21,14 @@ for _session_var in (
 ):
     os.environ.pop(_session_var, None)
 
+_ORIGINAL_PATH = os.environ.get("PATH", "")
+_STUB_BIN = tempfile.TemporaryDirectory(prefix="agent-brain-stub-bin-")
+_STUB_BRAIN = os.path.join(_STUB_BIN.name, "agent-brain")
+with open(_STUB_BRAIN, "w", encoding="utf-8") as _stub:
+    _stub.write("#!/bin/sh\nexit 0\n")
+os.chmod(_STUB_BRAIN, 0o755)
+os.environ["PATH"] = _STUB_BIN.name + os.pathsep + _ORIGINAL_PATH
+
 import route_gate
 from route_gate import (
     GATE_SCOPE,
@@ -770,11 +778,14 @@ class ScoutUnlockTests(unittest.TestCase):
         self.assertIn("failing closed", denied.get("agent_message", ""))
         run.assert_not_called()
 
-    @unittest.skipUnless(shutil.which("agent-brain"), "agent-brain not installed")
+    @unittest.skipUnless(shutil.which("agent-brain", path=_ORIGINAL_PATH), "agent-brain not installed")
     def test_command_policy_real_binary_blocks_root_delete(self) -> None:
+        from unittest import mock
+
         from route_gate import check_command_policy
 
-        denied = check_command_policy("rm -rf /")
+        with mock.patch.dict(os.environ, {"PATH": _ORIGINAL_PATH}):
+            denied = check_command_policy("rm -rf /")
         self.assertIsNotNone(denied)
         self.assertEqual(denied.get("permission"), "deny")
 
