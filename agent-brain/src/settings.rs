@@ -510,29 +510,14 @@ impl Default for McpAutoUpdateSettings {
     }
 }
 
-static MIGRATIONS_ONCE: std::sync::Once = std::sync::Once::new();
 static SETTINGS_CACHE: std::sync::Mutex<Option<(PathBuf, std::time::SystemTime, AgentBrainSettings)>> =
     std::sync::Mutex::new(None);
 
 impl AgentBrainSettings {
     pub fn load(home: &Path) -> Self {
-        MIGRATIONS_ONCE.call_once(|| {
-            let _ = agent_body_core::run_legacy_migrations();
-        });
-        let mut settings = Self::from_unified_config()
-            .or_else(|| Self::from_file(home).ok())
-            .unwrap_or_default();
+        let mut settings = Self::from_file(home).ok().unwrap_or_default();
         settings.apply_env_overrides();
         settings
-    }
-
-    fn from_unified_config() -> Option<Self> {
-        let table = agent_body_core::read_organ_section_raw("brain").ok()??;
-        if table.is_empty() {
-            return None;
-        }
-        let json = serde_json::to_value(&table).ok()?;
-        serde_json::from_value(json).ok()
     }
 
     pub fn from_file(home: &Path) -> Result<Self> {
@@ -564,29 +549,15 @@ impl AgentBrainSettings {
     }
 
     pub fn save_default(home: &Path) -> Result<PathBuf> {
-        if std::env::var("AGENT_BRAIN_HOME").is_ok() {
-            let path = home.join("config.yaml");
-            if path.exists() {
-                return Ok(path);
-            }
-            fs::create_dir_all(home).context("create home dir")?;
-            let settings = Self::default_enabled_example();
-            let yaml = serde_yaml::to_string(&settings).context("serialize default config")?;
-            fs::write(&path, yaml).with_context(|| format!("write {}", path.display()))?;
+        let path = home.join("config.yaml");
+        if path.exists() {
             return Ok(path);
         }
-
-        agent_body_core::ensure_default_ecosystem_sections().context("init ecosystem config")?;
-        if let Some(existing) = agent_body_core::read_organ_section_raw("brain")? {
-            if !existing.is_empty() {
-                return Ok(agent_body_core::config_path());
-            }
-        }
+        fs::create_dir_all(home).context("create home dir")?;
         let settings = Self::default_enabled_example();
-        let json = serde_json::to_value(&settings).context("serialize [brain]")?;
-        let table: toml::Table = serde_json::from_value(json).context("convert [brain] to toml")?;
-        agent_body_core::write_organ_section_raw("brain", &table)?;
-        Ok(agent_body_core::config_path())
+        let yaml = serde_yaml::to_string(&settings).context("serialize default config")?;
+        fs::write(&path, yaml).with_context(|| format!("write {}", path.display()))?;
+        Ok(path)
     }
 
     fn default_enabled_example() -> Self {

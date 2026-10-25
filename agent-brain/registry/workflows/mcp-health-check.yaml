@@ -6,15 +6,15 @@ start_node: AuditSchemas
 nodes:
   - name: AuditSchemas
     kind: agent
-    description: "Run agent-brain doctor --mcp to verify agent-body serve-mcp returns JSON Schema draft 2020-12 inputSchema on tools/list."
+    description: "Run agent-brain doctor and confirm the config, AGENTS.md, and MCP path checks report OK."
 
-  - name: ProbeGateway
+  - name: ProbeSkillSearch
     kind: agent
-    description: "Call muscle_execute_bash via agent-body MCP (direct or route_to_mcp) with echo probe; confirm stdout."
+    description: "Call skill_search with the keyword route and confirm at least one skill is returned."
 
   - name: VerifyRouting
     kind: agent
-    description: "Call route_task with an MCP host message; confirm rmcp-mcp-gateway or mcp-server-patterns in recommended_skills and agent-body in suggested_tools."
+    description: "Call route_task with an MCP host message; confirm recommended_skills is non-empty and must_apply is present."
 
   - name: Report
     kind: checkpoint
@@ -22,8 +22,8 @@ nodes:
 
 edges:
   - from: AuditSchemas
-    to: ProbeGateway
-  - from: ProbeGateway
+    to: ProbeSkillSearch
+  - from: ProbeSkillSearch
     to: VerifyRouting
   - from: VerifyRouting
     to: Report

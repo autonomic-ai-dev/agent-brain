@@ -1,11 +1,6 @@
 {
   "version": 1,
   "aliases": {
-    "autonomic-core": {
-      "description": "Registry discovery \u2014 find-skills and rmcp MCP gateway patterns for Autonomic stack",
-      "bundle": "autonomic-core",
-      "packages": []
-    },
     "official": {
       "description": "Official skill repos \u2014 awesome-copilot, anthropics/skills, azure-skills",
       "packages": [

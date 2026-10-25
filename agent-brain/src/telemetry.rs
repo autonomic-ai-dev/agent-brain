@@ -1,11 +1,8 @@
 //! Turn Telemetry Ingestion, Token Tracking & Cache Savings Attribution (ABH-7).
 
 use chrono::Utc;
-use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::collections::HashMap;
-use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TurnTelemetryRequest {
@@ -40,7 +37,6 @@ pub struct TurnTelemetryOutcome {
     pub estimated_cost_usd: f64,
     pub estimated_dollars_saved: f64,
     pub cache_hit_pct: f64,
-    pub heart_synced: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -151,10 +147,6 @@ pub fn calculate_pricing(
 
 /// Ingest and process a turn telemetry request, calculating cost and savings.
 pub fn process_turn_telemetry(req: TurnTelemetryRequest) -> TurnTelemetryOutcome {
-    process_turn_telemetry_in(req, &agent_body_core::organ_state_dir("heart"))
-}
-
-fn process_turn_telemetry_in(req: TurnTelemetryRequest, heart_dir: &Path) -> TurnTelemetryOutcome {
     let (cost, saved, hit_pct) = calculate_pricing(
         &req.provider,
         &req.model,
@@ -167,12 +159,9 @@ fn process_turn_telemetry_in(req: TurnTelemetryRequest, heart_dir: &Path) -> Tur
     let total_tokens =
         req.prompt_tokens + req.completion_tokens + req.cache_read_tokens + req.cache_write_tokens;
 
-    let event_id = uuid::Uuid::new_v4().to_string();
-    let timestamp = Utc::now().timestamp_millis();
-
-    let outcome = TurnTelemetryOutcome {
-        event_id,
-        timestamp,
+    TurnTelemetryOutcome {
+        event_id: uuid::Uuid::new_v4().to_string(),
+        timestamp: Utc::now().timestamp_millis(),
         session_id: req.session_id,
         organ: "agent-brain".to_string(),
         provider: req.provider,
@@ -185,157 +174,12 @@ fn process_turn_telemetry_in(req: TurnTelemetryRequest, heart_dir: &Path) -> Tur
         estimated_cost_usd: cost,
         estimated_dollars_saved: saved,
         cache_hit_pct: hit_pct,
-        heart_synced: false,
-    };
-
-    let synced = sync_to_heart_async_in(&outcome, heart_dir);
-    TurnTelemetryOutcome {
-        heart_synced: synced,
-        ..outcome
     }
-}
-
-/// Asynchronously dispatch telemetry event to agent-heart without blocking the agent turn loop.
-pub fn sync_to_heart_async(outcome: &TurnTelemetryOutcome) -> bool {
-    sync_to_heart_async_in(outcome, &agent_body_core::organ_state_dir("heart"))
-}
-
-fn sync_to_heart_async_in(outcome: &TurnTelemetryOutcome, heart_dir: &Path) -> bool {
-    let heart_db = heart_dir.join("heart.db");
-    if !heart_db.exists() {
-        return false;
-    }
-
-    let cloned = outcome.clone();
-    let heart_dir = heart_dir.to_path_buf();
-    std::thread::spawn(move || {
-        let _ = sync_to_heart_in(&cloned, &heart_dir);
-    });
-    true
-}
-
-/// Locate heart.db and append event directly to model_usage_events if heart is initialized.
-pub fn sync_to_heart(outcome: &TurnTelemetryOutcome) -> bool {
-    sync_to_heart_in(outcome, &agent_body_core::organ_state_dir("heart"))
-}
-
-fn sync_to_heart_in(outcome: &TurnTelemetryOutcome, heart_dir: &Path) -> bool {
-    let heart_db = heart_dir.join("heart.db");
-    if !heart_db.exists() {
-        return false;
-    }
-
-    match Connection::open(&heart_db) {
-        Ok(conn) => {
-            let res = conn.execute(
-                r#"INSERT OR IGNORE INTO model_usage_events 
-                   (id, timestamp, session_id, organ, provider, model, billing_type,
-                    prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens,
-                    estimated_cost_usd, latency_ms)
-                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"#,
-                params![
-                    outcome.event_id,
-                    outcome.timestamp,
-                    outcome.session_id,
-                    outcome.organ,
-                    outcome.provider,
-                    outcome.model,
-                    "metered_api",
-                    outcome.prompt_tokens as i64,
-                    outcome.completion_tokens as i64,
-                    outcome.cache_read_tokens as i64,
-                    outcome.cache_write_tokens as i64,
-                    outcome.estimated_cost_usd,
-                    0i64,
-                ],
-            );
-            if res.is_ok() {
-                if let Err(err) = publish_usage_to_cloud(outcome) {
-                    tracing::warn!("usage publish to cloud failed: {err}");
-                }
-            }
-            res.is_ok()
-        }
-        Err(_) => false,
-    }
-}
-
-const USAGE_SUBJECT: &str = "events.heart.usage";
-const USAGE_NATS_URL_ENV: &str = "AUTONOMIC_USAGE_NATS_URL";
-const USAGE_NATS_CREDS_ENV: &str = "AUTONOMIC_USAGE_NATS_CREDS";
-
-fn usage_event_payload(outcome: &TurnTelemetryOutcome) -> serde_json::Value {
-    json!({
-        "id": outcome.event_id,
-        "timestamp": outcome.timestamp,
-        "organ": outcome.organ,
-        "provider": outcome.provider,
-        "model": outcome.model,
-        "billing_type": "metered_api",
-        "prompt_tokens": outcome.prompt_tokens,
-        "completion_tokens": outcome.completion_tokens,
-        "cache_read_tokens": outcome.cache_read_tokens,
-        "cache_write_tokens": outcome.cache_write_tokens,
-        "estimated_cost_usd": outcome.estimated_cost_usd,
-    })
-}
-
-fn publish_usage_to_cloud(outcome: &TurnTelemetryOutcome) -> Result<(), String> {
-    let Ok(url) = std::env::var(USAGE_NATS_URL_ENV) else {
-        return Ok(());
-    };
-    let body = serde_json::to_vec(&usage_event_payload(outcome)).map_err(|e| e.to_string())?;
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| e.to_string())?;
-    runtime.block_on(async {
-        let options = match std::env::var(USAGE_NATS_CREDS_ENV) {
-            Ok(creds) => async_nats::ConnectOptions::with_credentials_file(creds)
-                .await
-                .map_err(|e| e.to_string())?,
-            Err(_) => async_nats::ConnectOptions::new(),
-        };
-        let client = options.connect(url).await.map_err(|e| e.to_string())?;
-        client
-            .publish(USAGE_SUBJECT, body.into())
-            .await
-            .map_err(|e| e.to_string())?;
-        client.flush().await.map_err(|e| e.to_string())
-    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn no_heart_db_dir() -> std::path::PathBuf {
-        std::env::temp_dir().join("agent-brain-telemetry-test-no-heart-db")
-    }
-
-    #[test]
-    fn usage_payload_keeps_cost_fields_and_omits_session_id() {
-        let req = TurnTelemetryRequest {
-            session_id: Some("private-session".into()),
-            provider: "anthropic".into(),
-            model: "claude-3-5-sonnet".into(),
-            prompt_tokens: 1_000,
-            completion_tokens: 200,
-            cache_read_tokens: 4_000,
-            cache_write_tokens: 0,
-            latency_ms: 300,
-            task_phase: None,
-        };
-        let outcome = process_turn_telemetry_in(req, &no_heart_db_dir());
-        let payload = usage_event_payload(&outcome);
-        assert!(payload.get("session_id").is_none());
-        assert_eq!(payload["organ"], "agent-brain");
-        assert_eq!(payload["model"], "claude-3-5-sonnet");
-        assert_eq!(payload["prompt_tokens"], 1_000);
-        assert_eq!(payload["cache_read_tokens"], 4_000);
-        assert!(payload["estimated_cost_usd"].as_f64().is_some());
-        assert!(payload["id"].as_str().is_some_and(|id| !id.is_empty()));
-    }
 
     #[test]
     fn test_calculate_pricing_anthropic_sonnet() {
@@ -393,7 +237,7 @@ mod tests {
             task_phase: Some("executing".into()),
         };
 
-        let outcome = process_turn_telemetry_in(req, &no_heart_db_dir());
+        let outcome = process_turn_telemetry(req);
         assert_eq!(outcome.organ, "agent-brain");
         assert_eq!(outcome.provider, "anthropic");
         assert_eq!(outcome.prompt_tokens, 5_000);
@@ -441,74 +285,6 @@ mod tests {
     }
 
     #[test]
-    fn test_sync_to_heart_non_blocking_integration() {
-        let temp_dir = tempfile::tempdir().unwrap();
-        let heart_db = temp_dir.path().join("heart.db");
-        let conn = Connection::open(&heart_db).unwrap();
-        conn.execute(
-            r#"CREATE TABLE IF NOT EXISTS model_usage_events (
-                id TEXT PRIMARY KEY,
-                timestamp INTEGER,
-                session_id TEXT,
-                organ TEXT,
-                provider TEXT,
-                model TEXT,
-                billing_type TEXT,
-                prompt_tokens INTEGER,
-                completion_tokens INTEGER,
-                cache_read_tokens INTEGER,
-                cache_write_tokens INTEGER,
-                estimated_cost_usd REAL,
-                latency_ms INTEGER
-            )"#,
-            [],
-        )
-        .unwrap();
-
-        let outcome = TurnTelemetryOutcome {
-            event_id: "test-evt-nonblock".into(),
-            timestamp: Utc::now().timestamp_millis(),
-            session_id: Some("sess-1".into()),
-            organ: "agent-brain".into(),
-            provider: "anthropic".into(),
-            model: "claude-3-7-sonnet".into(),
-            prompt_tokens: 1000,
-            completion_tokens: 500,
-            cache_read_tokens: 2000,
-            cache_write_tokens: 0,
-            total_tokens: 3500,
-            estimated_cost_usd: 0.01,
-            estimated_dollars_saved: 0.005,
-            cache_hit_pct: 66.6,
-            heart_synced: false,
-        };
-
-        let res = conn.execute(
-            r#"INSERT OR IGNORE INTO model_usage_events 
-               (id, timestamp, session_id, organ, provider, model, billing_type,
-                prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens,
-                estimated_cost_usd, latency_ms)
-               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"#,
-            params![
-                outcome.event_id,
-                outcome.timestamp,
-                outcome.session_id,
-                outcome.organ,
-                outcome.provider,
-                outcome.model,
-                "metered_api",
-                outcome.prompt_tokens as i64,
-                outcome.completion_tokens as i64,
-                outcome.cache_read_tokens as i64,
-                outcome.cache_write_tokens as i64,
-                outcome.estimated_cost_usd,
-                0i64,
-            ],
-        );
-        assert!(res.is_ok());
-    }
-
-    #[test]
     fn test_telemetry_dispatch_latency_overhead() {
         let req = TurnTelemetryRequest {
             session_id: Some("perf-sess".into()),
@@ -523,12 +299,12 @@ mod tests {
         };
 
         // Warm up connection/disk caching
-        let _ = process_turn_telemetry_in(req.clone(), &no_heart_db_dir());
+        let _ = process_turn_telemetry(req.clone());
 
         let iterations = 10;
         let start = std::time::Instant::now();
         for _ in 0..iterations {
-            let outcome = process_turn_telemetry_in(req.clone(), &no_heart_db_dir());
+            let outcome = process_turn_telemetry(req.clone());
             assert_eq!(outcome.organ, "agent-brain");
         }
         let avg_micros = start.elapsed().as_micros() / iterations;

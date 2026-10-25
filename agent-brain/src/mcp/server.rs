@@ -371,7 +371,9 @@ fn default_read_bytes() -> usize {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 struct GrepSearchParams {
+    #[serde(alias = "query")]
     pattern: String,
+    #[serde(default = "default_grep_path")]
     path: String,
     #[serde(default)]
     current_working_directory: Option<String>,
@@ -383,6 +385,10 @@ struct GrepSearchParams {
     allow_blocked_paths: bool,
     #[serde(default = "default_max_tokens")]
     max_tokens: usize,
+}
+
+fn default_grep_path() -> String {
+    ".".to_string()
 }
 
 fn default_grep_matches() -> usize {
@@ -699,7 +705,7 @@ impl BrainMcp {
     }
 
     #[tool(
-        description = "Returns the complete capability catalog, delegation rules, and organ tools for all autonomic organs (agent-body, agent-spine, agent-heart, agent-muscle, agent-immune, agent-eyes, agent-mouth). Call during agent initialization or before complex tasks to discover available specialized tools."
+        description = "Returns the capability catalog and delegation rules for agent-brain and agent-spine. Call during agent initialization or before complex tasks to discover available tools."
     )]
     async fn get_autonomic_catalog(
         &self,
@@ -920,7 +926,7 @@ impl BrainMcp {
     }
 
     #[tool(
-        description = "Record LLM turn telemetry, calculate prompt/cache costs and savings, and sync with agent-heart usage governor."
+        description = "Record LLM turn telemetry, calculate prompt/cache costs and savings, ."
     )]
     async fn record_turn_telemetry(
         &self,
@@ -2428,86 +2434,11 @@ async fn serve_health(addr: SocketAddr) {
 fn build_autonomic_catalog(organ_filter: Option<&str>, verbose: bool) -> serde_json::Value {
     let mut organs = vec![
         serde_json::json!({
-            "name": "agent-body",
-            "role": "Mesh Gateway & Supervisor",
-            "description": "Unified MCP gateway and daemon supervisor managing all autonomic organs.",
-            "preferred_over": "Unmanaged background processes and raw host socket calls",
-            "primary_tools": [
-                "muscle_execute_bash",
-                "spine_submit_workflow",
-                "heart_budget_status",
-                "immune_scan_manifest"
-            ],
-            "status_check": "agent-body status"
-        }),
-        serde_json::json!({
-            "name": "agent-muscle",
-            "role": "Execution Engine",
-            "description": "Sandboxed bash & python execution with strict CPU/memory caps, timeout controls, and isolated environment.",
-            "preferred_over": "Native host terminal / raw shell execution",
-            "primary_tools": [
-                "muscle_execute_bash",
-                "muscle_execute_python"
-            ],
-            "delegation_guideline": "Always delegate compilation, tests, scripts, and package management commands to muscle_execute_bash instead of running raw host bash."
-        }),
-        serde_json::json!({
             "name": "agent-spine",
-            "role": "Workflow Orchestration",
-            "description": "YAML DAG workflow orchestrator with step rollbacks, failure isolation, and approval checkpoints.",
-            "preferred_over": "Sequential long-running manual edits or bash loops",
-            "primary_tools": [
-                "spine_submit_workflow",
-                "spine_list_workflows",
-                "spine_check_status"
-            ],
-            "delegation_guideline": "Use spine_submit_workflow for multi-step tasks (e.g. build -> test -> lint -> bench -> pr) with built-in rollback gates."
-        }),
-        serde_json::json!({
-            "name": "agent-immune",
-            "role": "Security & Validation",
-            "description": "Vulnerability scanning against OSV/CVE databases, AST safety analysis, and sandbox verification.",
-            "preferred_over": "Unsanitized dependency upgrades and blind regex edits",
-            "primary_tools": [
-                "immune_scan_manifest",
-                "immune_sandbox_run",
-                "immune_lint_ast"
-            ],
-            "delegation_guideline": "Call immune_scan_manifest when modifying dependencies or Cargo/npm files, and immune_lint_ast for syntax safety."
-        }),
-        serde_json::json!({
-            "name": "agent-eyes",
-            "role": "Perception & UI Verification",
-            "description": "Local browser capture, DOM indexing, visual regression diffing, and local Candle VLM image captioning.",
-            "preferred_over": "Unrendered HTML inspection or blind scraping",
-            "primary_tools": [
-                "eyes_diff_screenshots",
-                "eyes_describe_dom",
-                "eyes_vlm_caption"
-            ],
-            "delegation_guideline": "Use eyes_diff_screenshots for frontend regression and eyes_describe_dom to inspect dynamic client DOM."
-        }),
-        serde_json::json!({
-            "name": "agent-heart",
-            "role": "Homeostasis & Budget",
-            "description": "Token/WASM fuel budget monitor, background distillation scheduler, and memory garbage collection.",
-            "primary_tools": [
-                "heart_budget_status",
-                "heart_status",
-                "heart_gc",
-                "heart_memory_distill"
-            ],
-            "delegation_guideline": "Check heart_budget_status periodically during large sessions to ensure token homeostasis."
-        }),
-        serde_json::json!({
-            "name": "agent-mouth",
-            "role": "Approval & Notifications",
-            "description": "AST-level command validation, Slack notifications, and human-in-the-loop approval gates.",
-            "primary_tools": [
-                "mouth_request_approval",
-                "mouth_validate_ast"
-            ],
-            "delegation_guideline": "Use mouth_request_approval when an action requires human review (e.g. force push, credential deletion)."
+            "role": "Deterministic Workflow Runner",
+            "description": "Runs YAML workflow DAGs with explicit state transitions and approval gates.",
+            "primary_tools": [],
+            "delegation_guideline": "For multi-step repeatable tasks with approval gates, run agent-spine run --workflow <name>."
         }),
         serde_json::json!({
             "name": "agent-brain",
@@ -2549,7 +2480,7 @@ fn build_autonomic_catalog(organ_filter: Option<&str>, verbose: bool) -> serde_j
         "organs": organs,
         "governance_rules": [
             "1. Route Task: Call agent-brain route_task at the beginning of each turn before using any other tools.",
-            "2. Delegation: Prefer specialized organ tools (e.g. muscle_execute_bash) over native host improvisation.",
+            "2. Delegation: Prefer the tools listed in suggested_tools and the agent-spine workflows over native host improvisation.",
             "3. Durable Outcomes: Use agent-brain verify -- <cmd> to produce cryptographically signed proof in brain.db.",
             "4. Feedback: Store learned facts and decisions via store_memory."
         ],
@@ -2579,6 +2510,15 @@ mod tests {
         let mut handshake = ProxyHandshake::default();
         handshake.record(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#);
         assert!(handshake.replay().is_empty());
+    }
+
+    #[test]
+    fn grep_search_params_accept_query_alias_and_default_path() {
+        let params: GrepSearchParams =
+            serde_json::from_value(serde_json::json!({ "query": "needle" }))
+                .expect("query is accepted as the pattern");
+        assert_eq!(params.pattern, "needle");
+        assert_eq!(params.path, ".");
     }
     use crate::types::ItemType;
     use tempfile::TempDir;
@@ -2907,20 +2847,19 @@ mod tests {
     }
 
     #[test]
-    fn test_build_autonomic_catalog_returns_all_organs() {
+    fn test_build_autonomic_catalog_lists_only_in_scope_components() {
         let catalog = build_autonomic_catalog(None, false);
-        assert_eq!(catalog["total_organs"], 8);
+        assert_eq!(catalog["total_organs"], 2);
         let organs = catalog["organs"].as_array().unwrap();
         let names: Vec<_> = organs.iter().filter_map(|o| o["name"].as_str()).collect();
-        assert!(names.contains(&"agent-muscle"));
         assert!(names.contains(&"agent-spine"));
         assert!(names.contains(&"agent-brain"));
     }
 
     #[test]
     fn test_build_autonomic_catalog_filters_organ() {
-        let catalog = build_autonomic_catalog(Some("muscle"), false);
+        let catalog = build_autonomic_catalog(Some("spine"), false);
         assert_eq!(catalog["total_organs"], 1);
-        assert_eq!(catalog["organs"][0]["name"], "agent-muscle");
+        assert_eq!(catalog["organs"][0]["name"], "agent-spine");
     }
 }

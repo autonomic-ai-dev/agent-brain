@@ -72,7 +72,7 @@ mod tests {
 
     #[test]
     fn cross_score_prefers_overlap() {
-        let strong = cross_score("token budget wasm", "agent-heart", "WASM fuel token budget");
+        let strong = cross_score("token budget wasm", "agent-spine", "WASM fuel token budget");
         let weak = cross_score("token budget wasm", "other", "unrelated topic");
         assert!(strong > weak);
     }

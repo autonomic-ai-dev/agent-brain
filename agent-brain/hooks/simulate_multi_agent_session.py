@@ -18,7 +18,6 @@ sys.path.insert(0, str(HOOK_DIR))
 import route_gate
 from route_gate import (
     adapt_hook_output,
-    check_mouth_ast_policy,
     check_read_tool_gate,
     extract_read_path,
     extract_shell_command,
@@ -111,17 +110,16 @@ def simulate_cursor_session(tmp: Path) -> None:
     else:
         log_fail(f"Expected needs_route=False, got {st}")
 
-    # 4. Agent attempts destructive command -> MUST BE DENIED by agent-mouth AST policy
     destructive_cmd = {
         "conversation_id": session_id,
         "generation_id": "gen-c1",
         "command": "rm -rf /",
     }
-    denied_ast = handle_before_shell_execution(destructive_cmd)
-    if denied_ast.get("permission") == "deny" and "agent-mouth" in denied_ast.get("agent_message", ""):
-        log_pass("Destructive shell command correctly DENIED by agent-mouth AST policy")
+    denied_policy = handle_before_shell_execution(destructive_cmd)
+    if denied_policy.get("permission") == "deny":
+        log_pass("Destructive shell command correctly DENIED by the agent-brain command policy")
     else:
-        log_pass("Destructive shell command handled by policy")
+        log_fail(f"Expected destructive command to be denied, got {denied_policy}")
 
     # 5. Agent runs legitimate safe command -> MUST BE ALLOWED
     safe_cmd = {
@@ -312,18 +310,15 @@ def simulate_codex_and_opencode_sessions() -> None:
     else:
         log_fail(f"Expected Codex deny, got {codex_out}")
 
-    # Organ MCP federator tool matching
-    for organ_tool in (
-        "mcp_agent-body_muscle_execute_bash",
-        "mcp_agent-body_eyes_describe_dom",
-        "mcp_agent-body_heart_budget_status",
-        "mcp_agent-body_spine_submit_workflow",
+    for brain_tool in (
+        "mcp_agent-brain_grep_search",
+        "mcp_agent-brain_read_file_head",
     ):
-        ev = {"tool_name": organ_tool}
+        ev = {"tool_name": brain_tool}
         if is_agent_brain_mcp_tool(ev):
-            log_pass(f"Federated organ tool '{organ_tool}' recognized by gate")
+            log_pass(f"agent-brain MCP tool '{brain_tool}' recognized by gate")
         else:
-            log_fail(f"Expected '{organ_tool}' to be recognized as organ MCP tool")
+            log_fail(f"Expected '{brain_tool}' to be recognized as an agent-brain MCP tool")
 
 
 def main() -> int:

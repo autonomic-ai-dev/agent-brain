@@ -1,6 +1,5 @@
 //! Curated bundles shipped inside the binary (no git clone).
 
-mod autonomic_core;
 mod supervisor;
 
 use anyhow::{Context, Result};
@@ -102,7 +101,6 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
 
 pub fn bundled_manifest_dir(bundle: &str) -> Option<&'static [(&'static str, &'static str)]> {
     match bundle {
-        "autonomic-core" => Some(autonomic_core::files()),
         "supervisor" => Some(supervisor::files()),
         _ => None,
     }
@@ -113,23 +111,6 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use tempfile::TempDir;
-
-    #[test]
-    fn installs_autonomic_core_bundle_files() {
-        let dir = TempDir::new().unwrap();
-        let home = dir.path().to_path_buf();
-        let mut config = Config::isolated(home.clone());
-        config.db_path = home.join("data").join("brain.db");
-        config.data_dir = home.join("data");
-        config.vectors_path = home.join("data").join("vectors.bin");
-        config.ensure_dirs().unwrap();
-        let record = install_bundled(&config, "autonomic-core").unwrap();
-        assert_eq!(record.name, "autonomic-core");
-        let skill = home.join("packages/autonomic-core/skills/find-skills/SKILL.md");
-        assert!(skill.is_file(), "missing {}", skill.display());
-        let rmcp = home.join("packages/autonomic-core/skills/rmcp-mcp-gateway/SKILL.md");
-        assert!(rmcp.is_file(), "missing {}", rmcp.display());
-    }
 
     #[test]
     fn installs_supervisor_bundle_files() {

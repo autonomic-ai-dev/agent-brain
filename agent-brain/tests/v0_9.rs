@@ -33,16 +33,12 @@ fn claude_desktop_path_is_absolute_file() {
 
 #[test]
 fn vscode_workspace_path_under_vscode_dir() {
-    let dir = TempDir::new().unwrap();
-    std::env::set_current_dir(dir.path()).unwrap();
     let path = host_install::vscode_mcp_path(false).unwrap();
     assert!(path.ends_with(".vscode/mcp.json"));
 }
 
 #[test]
 fn claude_code_project_uses_mcp_json_at_root() {
-    let dir = TempDir::new().unwrap();
-    std::env::set_current_dir(dir.path()).unwrap();
     let path = host_install::claude_code_mcp_path(false).unwrap();
     assert!(path
         .file_name()
@@ -53,8 +49,6 @@ fn claude_code_project_uses_mcp_json_at_root() {
 
 #[test]
 fn opencode_project_uses_opencode_json_at_root() {
-    let dir = TempDir::new().unwrap();
-    std::env::set_current_dir(dir.path()).unwrap();
     let path = host_install::opencode_config_path(false).unwrap();
     assert!(path
         .file_name()
@@ -112,8 +106,6 @@ fn install_flags_resolve_antigravity() {
 
 #[test]
 fn gemini_project_uses_settings_json_at_root() {
-    let dir = TempDir::new().unwrap();
-    std::env::set_current_dir(dir.path()).unwrap();
     let path = host_install::gemini_config_path(false).unwrap();
     assert!(path.ends_with(".gemini/settings.json"));
 }

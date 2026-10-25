@@ -29,7 +29,6 @@ pub enum VerifySource {
     Mcp,
     /// Explicit playbook-driven record.
     Playbook,
-    /// Spine/muscle/orchestrator invoked `verify --` (trusted; distinct from agent CLI).
     Orchestrator,
 }
 
@@ -55,7 +54,7 @@ impl VerifySource {
             "hook" => Ok(Self::Hook),
             "mcp" => Ok(Self::Mcp),
             "playbook" => Ok(Self::Playbook),
-            "orchestrator" | "spine" | "muscle" => Ok(Self::Orchestrator),
+            "orchestrator" | "spine" => Ok(Self::Orchestrator),
             other => bail!(
                 "unknown verify source `{other}` (expected cli|hook|mcp|playbook|orchestrator)"
             ),
@@ -556,38 +555,6 @@ Discovered by `agent-brain verify` and `agent-brain report`.
     Ok(verify_dir)
 }
 
-fn script_preflight(cmd: &[String], project_root: Option<&Path>) -> Result<()> {
-    for arg in cmd.iter().filter(|arg| arg.ends_with(".sh")) {
-        let path = project_root.map_or_else(|| PathBuf::from(arg), |root| root.join(arg));
-        if !path.is_file() {
-            continue;
-        }
-        let Ok(output) = Command::new("agent-mouth")
-            .args(["validate", "--script"])
-            .arg(&path)
-            .output()
-        else {
-            continue;
-        };
-        if let Err(reason) = script_verdict(&String::from_utf8_lossy(&output.stdout)) {
-            bail!("verify preflight rejected {arg}: {reason}");
-        }
-    }
-    Ok(())
-}
-
-fn script_verdict(report: &str) -> std::result::Result<(), String> {
-    let report: serde_json::Value = serde_json::from_str(report)
-        .map_err(|_| "agent-mouth returned an unreadable report".to_string())?;
-    if report["approved"].as_bool() == Some(true) {
-        return Ok(());
-    }
-    Err(report["issues"][0]["message"]
-        .as_str()
-        .unwrap_or("rejected without details")
-        .to_string())
-}
-
 pub fn run_verify(
     store: &BrainStore,
     cmd: &[String],
@@ -611,7 +578,6 @@ pub fn run_verify(
     if !command_is_allowlisted(&joined, project_root.as_deref()) {
         bail!("`{joined}` is not in the verify allowlist; add it to .verify/verify.toml");
     }
-    script_preflight(cmd, project_root.as_deref())?;
     let (exit_code, output) = run_process(cmd, None, VERIFY_RUN_TIMEOUT, true)?;
     print!("{output}");
     let cwd = std::env::current_dir().ok();
@@ -1017,7 +983,7 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
             None,
             None,
             None,
-            "cargo test -p agent-muscle",
+            "cargo test -p agent-brain",
             "dev1",
             "orchestrator",
             Some("project-a"),
@@ -1035,9 +1001,9 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
         );
 
         let recipes =
-            suggest_verified_recipes(&store, "run tests for muscle", Some("project-a"), 2);
+            suggest_verified_recipes(&store, "run tests for brain", Some("project-a"), 2);
         assert!(!recipes.is_empty());
-        assert_eq!(recipes[0].cmd, "cargo test -p agent-muscle");
+        assert_eq!(recipes[0].cmd, "cargo test -p agent-brain");
         assert_eq!(recipes[0].exit_code, 0);
         assert_eq!(recipes[0].source, "orchestrator");
     }
@@ -1055,7 +1021,7 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
             None,
             None,
             None,
-            "cargo test -p agent-muscle",
+            "cargo test -p agent-brain",
             "dev1",
             "orchestrator",
             Some("project-a"),
@@ -1067,14 +1033,14 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
             Some("build error"),
             None,
             None,
-            "cargo test -p agent-muscle",
+            "cargo test -p agent-brain",
             "dev1",
             "cli",
             Some("project-a"),
         );
 
         let recipes =
-            suggest_verified_recipes(&store, "run tests for muscle", Some("project-a"), 2);
+            suggest_verified_recipes(&store, "run tests for brain", Some("project-a"), 2);
         assert!(
             recipes.is_empty(),
             "recently failed command must be squelched"
@@ -1101,25 +1067,6 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
         assert_eq!(status.cmd, "cargo test --lib");
         assert!(!status.passing);
         assert!(last_verification(&store, "project-b").is_none());
-    }
-
-    #[test]
-    fn script_verdict_passes_approved_reports() {
-        assert!(script_verdict(r#"{"approved": true, "issues": []}"#).is_ok());
-    }
-
-    #[test]
-    fn script_verdict_names_the_first_rejection() {
-        let report = r#"{"approved": false, "issues": [{"severity": "error", "message": "dynamic command name blocked: `$command_line`"}]}"#;
-        assert_eq!(
-            script_verdict(report).unwrap_err(),
-            "dynamic command name blocked: `$command_line`"
-        );
-    }
-
-    #[test]
-    fn script_verdict_fails_closed_on_unreadable_reports() {
-        assert!(script_verdict("agent-mouth: unexpected output").is_err());
     }
 
     #[test]

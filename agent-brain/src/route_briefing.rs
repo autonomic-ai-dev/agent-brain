@@ -109,13 +109,13 @@ pub fn format_briefing(resp: &RouteTaskResponse) -> String {
             .map(|t| format!("{}:{}", t.server, t.tool))
             .collect();
         out.push_str(&format!(
-            "**Organ delegation:** prefer {} for autonomic execution\n",
+            "**Suggested tools:** prefer {}\n",
             tools.join(", ")
         ));
     }
     if let Some(wf) = &resp.suggested_workflow {
         out.push_str(&format!(
-            "**Spine workflow:** prefer `{wf}.yaml` via `spine_submit_workflow`\n"
+            "**Spine workflow:** prefer `agent-spine run --workflow {wf}`\n"
         ));
     }
     if !resp.log_id.is_empty() {

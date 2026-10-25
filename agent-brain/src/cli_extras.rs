@@ -80,39 +80,10 @@ pub fn dispatch(cmd: &str, args: &[String]) -> Result<()> {
                     )?;
                     println!("{}", serde_json::to_string_pretty(&report)?);
                 }
-                "pipeline" => {
-                    let only_successful = !args.iter().any(|a| a == "--all-outcomes");
-                    let out = flag_value(&args, "--out")
-                        .map(std::path::PathBuf::from)
-                        .unwrap_or_else(crate::spine_ingest::default_dataset_path);
-                    let min_confidence = flag_value(&args, "--min-confidence")
-                        .and_then(|v| v.parse::<f64>().ok())
-                        .unwrap_or(0.8);
-                    let gates = crate::dataset_pipeline::PipelineGates {
-                        verify_ui_url: flag_value(&args, "--verify-ui"),
-                        verify_memory_script: flag_value(&args, "--verify-memory-script")
-                            .map(std::path::PathBuf::from),
-                        ui_threshold: flag_value(&args, "--ui-threshold")
-                            .and_then(|v| v.parse().ok())
-                            .unwrap_or(1.0),
-                        memory_threshold_kb: flag_value(&args, "--memory-threshold-kb")
-                            .and_then(|v| v.parse().ok())
-                            .unwrap_or(524_288),
-                    };
-                    let report = crate::dataset_pipeline::run_pipeline(
-                        &store,
-                        &out,
-                        only_successful,
-                        min_confidence,
-                        &gates,
-                    )?;
-                    println!("{}", serde_json::to_string_pretty(&report)?);
-                }
                 _ => {
                     eprintln!("Usage: agent-brain dataset export [--out PATH] [--min-confidence N] [--all-outcomes]");
                     eprintln!("       agent-brain dataset stats [--min-confidence N]");
                     eprintln!("       agent-brain dataset ingest-spine [--out PATH] [--executions-dir DIR] [--all-outcomes]");
-                    eprintln!("       agent-brain dataset pipeline [--out PATH] [--min-confidence N] [--all-outcomes] [--verify-ui URL] [--verify-memory-script PATH]");
                     std::process::exit(1);
                 }
             }

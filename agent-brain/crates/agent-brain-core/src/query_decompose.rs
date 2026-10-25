@@ -55,7 +55,7 @@ mod tests {
 
     #[test]
     fn splits_and_also() {
-        let parts = decompose_query("fix agent-heart CI and also tag v0.6.0 release");
+        let parts = decompose_query("fix agent-spine CI and also tag v0.6.0 release");
         assert!(parts.len() >= 2);
     }
 

@@ -635,8 +635,6 @@ mod tests {
 
     #[test]
     fn claude_settings_path_project_scope() {
-        let dir = TempDir::new().unwrap();
-        std::env::set_current_dir(dir.path()).unwrap();
         let path = claude_code_settings_path(false).unwrap();
         assert!(path.ends_with(".claude/settings.json"));
     }

@@ -46,7 +46,7 @@ fn git_output(repo: &Path, args: &[&str]) -> Result<String, String> {
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
         let hint = if stderr.contains("not a git repository") {
-            " — not a git repository"
+            " — not a git repository; pass current_working_directory set to the repository root"
         } else if stderr.contains("ambiguous argument") {
             " — invalid ref or range"
         } else {
@@ -227,5 +227,13 @@ mod tests {
             parse_shortstat(" 1 file changed, 0 insertions(+), 0 deletions(-)"),
             (1, 0, 0)
         );
+    }
+
+    #[test]
+    fn git_log_outside_repo_hints_to_pass_repository_root() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let err = git_log(dir.path(), None, 5).expect_err("temp dir is not a repository");
+        assert!(err.contains("not a git repository"), "{err}");
+        assert!(err.contains("current_working_directory"), "{err}");
     }
 }

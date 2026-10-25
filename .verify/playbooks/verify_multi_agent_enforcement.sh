@@ -2,8 +2,6 @@
 set -euo pipefail
 
 # Playbook: Verify Multi-Agent Enforcement & Gate Interception (ABH-16)
-# Validates route_gate.py hook logic, mouth AST safety policy, multi-agent tool extractors,
-# and Rust host_hooks + MCP route gate modules.
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$DIR/../.." && pwd)"

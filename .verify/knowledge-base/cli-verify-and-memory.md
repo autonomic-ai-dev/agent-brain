@@ -40,6 +40,12 @@ agent-brain is the routing layer every agent calls at the start of a turn. Its C
 - The stop gate tests in `stop_gate.rs`: the verification rules, the feature-map and knowledge-base rule, and the end-to-end cases with a real git repository
 - `sh .verify/checks/core_boundary.sh` for the core crate's dependency boundary
 
+## Behaviour that matters
+
+- `grep_search` accepts `query` as an alias for `pattern`, and `path` defaults to `"."`. Callers that send `query` no longer fail with a missing-field error.
+- The `brain_git_*` tools run `git` with the working directory set to the given path. Git does not climb past a mount boundary, so a non-repository path reports a hint to pass the repository root.
+- `GIT_DISCOVERY_ACROSS_FILESYSTEM` is deliberately not set globally. Setting it would let git find an unrelated parent repository.
+
 ## Known limits
 
 - Plain `cargo test` does not build the `extras` tests. Use `--all-features`, as the allowlist does.

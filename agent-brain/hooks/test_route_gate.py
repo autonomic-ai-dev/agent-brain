@@ -664,66 +664,109 @@ class ScoutUnlockTests(unittest.TestCase):
         self.assertEqual(res.get("permission"), "deny")
         self.assertIn("route_task", res.get("agent_message", ""))
 
-    def test_agent_mouth_ast_validation(self) -> None:
-        from route_gate import check_mouth_ast_policy
-
-        safe = check_mouth_ast_policy("cargo test")
-        self.assertIsNone(safe)
-        blocked = check_mouth_ast_policy("rm -rf /")
-        if blocked is not None:
-            self.assertEqual(blocked.get("permission"), "deny")
-            self.assertIn("agent-mouth", blocked.get("agent_message", ""))
-
-    def test_agent_mouth_timeout_fails_closed(self) -> None:
+    def test_command_policy_allows_when_bash_gate_allows(self) -> None:
         import subprocess
         from unittest import mock
 
-        from route_gate import check_mouth_ast_policy
+        from route_gate import check_command_policy
 
-        with mock.patch("route_gate.shutil.which", return_value="/bin/echo"), mock.patch(
-            "route_gate.subprocess.run", side_effect=subprocess.TimeoutExpired("agent-mouth", 2.0)
+        allowed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        with mock.patch("route_gate.shutil.which", return_value="/bin/agent-brain"), mock.patch(
+            "route_gate.subprocess.run", return_value=allowed
         ):
-            denied = check_mouth_ast_policy("echo hello")
+            self.assertIsNone(check_command_policy("cargo test"))
+
+    def test_command_policy_warning_is_not_a_denial(self) -> None:
+        import subprocess
+        from unittest import mock
+
+        from route_gate import check_command_policy
+
+        warned = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=json.dumps({"systemMessage": "agent-brain warning: something"}),
+            stderr="",
+        )
+        with mock.patch("route_gate.shutil.which", return_value="/bin/agent-brain"), mock.patch(
+            "route_gate.subprocess.run", return_value=warned
+        ):
+            self.assertIsNone(check_command_policy("git reset --hard"))
+
+    def test_command_policy_denies_when_bash_gate_blocks(self) -> None:
+        import subprocess
+        from unittest import mock
+
+        from route_gate import check_command_policy
+
+        reason = "agent-brain blocked this command: deletes the filesystem root."
+        blocked = subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": reason,
+                    }
+                }
+            ),
+            stderr="",
+        )
+        with mock.patch("route_gate.shutil.which", return_value="/bin/agent-brain"), mock.patch(
+            "route_gate.subprocess.run", return_value=blocked
+        ):
+            denied = check_command_policy("rm -rf /")
+        self.assertIsNotNone(denied)
+        self.assertEqual(denied.get("permission"), "deny")
+        self.assertEqual(denied.get("agent_message"), reason)
+
+    def test_command_policy_timeout_fails_closed(self) -> None:
+        import subprocess
+        from unittest import mock
+
+        from route_gate import check_command_policy
+
+        with mock.patch("route_gate.shutil.which", return_value="/bin/agent-brain"), mock.patch(
+            "route_gate.subprocess.run",
+            side_effect=subprocess.TimeoutExpired("agent-brain", 2.0),
+        ):
+            denied = check_command_policy("echo hello")
         self.assertIsNotNone(denied)
         self.assertEqual(denied.get("permission"), "deny")
         self.assertIn("failing closed", denied.get("agent_message", ""))
 
-    def test_agent_mouth_os_error_fails_closed(self) -> None:
+    def test_command_policy_os_error_fails_closed(self) -> None:
         from unittest import mock
 
-        from route_gate import check_mouth_ast_policy
+        from route_gate import check_command_policy
 
-        with mock.patch("route_gate.shutil.which", return_value="/bin/echo"), mock.patch(
+        with mock.patch("route_gate.shutil.which", return_value="/bin/agent-brain"), mock.patch(
             "route_gate.subprocess.run", side_effect=OSError("exec failed")
         ):
-            denied = check_mouth_ast_policy("echo hello")
+            denied = check_command_policy("echo hello")
         self.assertIsNotNone(denied)
         self.assertEqual(denied.get("permission"), "deny")
 
-    def test_referenced_script_paths_only_returns_existing_scripts(self) -> None:
-        from route_gate import referenced_script_paths
+    def test_command_policy_skipped_without_agent_brain_binary(self) -> None:
+        from unittest import mock
 
-        with tempfile.TemporaryDirectory() as tmp:
-            script = os.path.join(tmp, "run.sh")
-            with open(script, "w", encoding="utf-8") as handle:
-                handle.write("echo ok\n")
-            self.assertEqual(referenced_script_paths(f"bash {script}"), [script])
-            self.assertEqual(referenced_script_paths(f"source {script}"), [script])
-            self.assertEqual(referenced_script_paths(f"{script}"), [script])
-            self.assertEqual(referenced_script_paths("echo hi"), [])
-            self.assertEqual(referenced_script_paths(f"bash {tmp}/missing.sh"), [])
+        from route_gate import check_command_policy
 
-    @unittest.skipUnless(shutil.which("agent-mouth"), "agent-mouth not installed")
-    def test_agent_mouth_validates_script_contents_not_only_command_text(self) -> None:
-        from route_gate import check_mouth_ast_policy
+        with mock.patch("route_gate.shutil.which", return_value=None), mock.patch(
+            "route_gate.subprocess.run"
+        ) as run:
+            self.assertIsNone(check_command_policy("rm -rf /"))
+        run.assert_not_called()
 
-        with tempfile.TemporaryDirectory() as tmp:
-            script = os.path.join(tmp, "cleanup.sh")
-            with open(script, "w", encoding="utf-8") as handle:
-                handle.write("rm -rf /\n")
-            blocked = check_mouth_ast_policy(f"bash {script}")
-            self.assertIsNotNone(blocked)
-            self.assertEqual(blocked.get("permission"), "deny")
+    @unittest.skipUnless(shutil.which("agent-brain"), "agent-brain not installed")
+    def test_command_policy_real_binary_blocks_root_delete(self) -> None:
+        from route_gate import check_command_policy
+
+        denied = check_command_policy("rm -rf /")
+        self.assertIsNotNone(denied)
+        self.assertEqual(denied.get("permission"), "deny")
 
     def test_antigravity_gemini_extractors(self) -> None:
         from route_gate import extract_read_path, extract_shell_command
@@ -734,11 +777,12 @@ class ScoutUnlockTests(unittest.TestCase):
         shell_ev = {"tool_name": "run_command", "tool_input": {"CommandLine": "git status"}}
         self.assertEqual(extract_shell_command(shell_ev), "git status")
 
-    def test_agent_body_federated_mcp_matching(self) -> None:
+    def test_agent_brain_mcp_matching_ignores_other_servers(self) -> None:
         from route_gate import is_agent_brain_mcp_tool
 
-        self.assertTrue(is_agent_brain_mcp_tool({"tool_name": "mcp_agent-body_muscle_execute_bash"}))
-        self.assertTrue(is_agent_brain_mcp_tool({"tool_name": "eyes_describe_dom", "server": "agent-body"}))
+        self.assertTrue(is_agent_brain_mcp_tool({"tool_name": "mcp_agent-brain_grep_search"}))
+        self.assertFalse(is_agent_brain_mcp_tool({"tool_name": "mcp_agent-body_muscle_execute_bash"}))
+        self.assertFalse(is_agent_brain_mcp_tool({"tool_name": "eyes_describe_dom", "server": "agent-body"}))
         self.assertFalse(is_agent_brain_mcp_tool({"tool_name": "route_task"}))
 
     def test_before_shell_execution_allowed_when_routed(self) -> None:

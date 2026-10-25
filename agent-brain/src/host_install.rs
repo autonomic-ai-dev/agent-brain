@@ -456,7 +456,6 @@ pub fn merge_opencode_config(path: &Path, mut server_entry: Value, user: bool) -
                 }
             }
             mcp.insert("agent-brain".to_string(), server_entry);
-            crate::mcp_federation::ensure_agent_body_opencode_server(mcp);
         }
         None => {
             root["mcp"] = json!({ "agent-brain": server_entry });
@@ -513,16 +512,36 @@ const HARD_ROUTE_RULE: &str = r"## HARD RULES (never skip)
 - At task end call `store_memory` for durable outcomes (max 50 words, no secrets).
 - Skills and MCP tools: `route_task` returns only the skills it matched. If a task needs another skill, call `skill_search` with keywords, then `skill_get` with the exact name. If it needs an upstream MCP tool, call `mcp_search` with keywords, then `get_mcp` with the server and tool to read its schema, then `route_to_mcp` to call it. Never guess skill or tool names. Before saying a skill, tool, or MCP server is unavailable, check the `capability-discovery` entry in `must_apply` and run `skill_search` or `mcp_search`; report it unavailable only after those checks fail, quoting their output.
 - If a route gate denies a tool, call `route_task` first — do not work around the gate.
-- Choose shell and organ tools from the `route_task` result: read `suggested_tools` and `must_apply` before the first shell or organ call. Prefer routed agent-body tools (e.g. `muscle_execute_bash`, `spine_check_status`, `heart_record_usage`) over native Bash when they are listed. Test agent-body reachability once per session and reuse the result. If a routed tool is skipped, say so and why. If an agent-body call fails, report the failure and fall back to native tools.
 ";
 
+pub const AGENT_BRAIN_MODE_SNIPPET: &str = r#"# agent-brain mode
+
+Route every turn through agent-brain before acting. agent-brain supplies the skills, rules, and memory for the task.
+
+## 1. Pre-flight routine
+- Call `route_task` with `user_message`, `current_working_directory`, and `open_files` before the first command, file read, or edit. Obey its `must_apply` constraints.
+- To find a skill or memory, call `skill_search` with keywords, then `skill_get` with the exact name. Never guess skill or tool names.
+- Prefer `grep_search`, `file_summary`, `read_file_head`, and `read_file_tail` over raw cat, grep, ls, or find when the agent-brain MCP server is connected.
+- At task end, call `store_memory` for durable outcomes (max 50 words, no secrets).
+
+## 2. Verification
+- Run checks through `agent-brain verify -- <cmd>`. A command run any other way is not recorded as evidence.
+- Do not claim tests or checks pass without a recorded run that exited 0.
+
+## 3. Workflows
+- For multi-step workflows with approval gates, run `agent-spine run --workflow <name>` instead of improvising the steps.
+
+## 4. Route gate and upstream tools
+- If a route gate denies a tool, call `route_task` first. Do not work around the gate.
+- When `suggested_tools` lists an upstream MCP tool, read its schema with `get_mcp` and call it with `route_to_mcp`.
+"#;
 const AGSTACK_MODE: &str = r"## agstack mode (default for engineering work)
 
 For any coding, design, review, debugging, UI, or documentation task, start agstack mode. Read the agstack-mode skill (`skill_get` with `agstack-mode`, or `skills/agstack-mode/SKILL.md` in the agstack package) and run its core path on every call: route, load token-efficiency and no-comments, bounded reads, the matched playbook, the triggered principles, then verification. Name the principles that shaped each decision. A code change is complete only with verification evidence from `agent-brain verify -- <cmd>` and, for UI changes, the UI skills. Say `agstack` in any session to start this mode explicitly.
 ";
 
 pub fn mode_snippet() -> String {
-    format!("{}\n{AGSTACK_MODE}", agent_body_core::BASE_AGENT_MODE)
+    format!("{AGENT_BRAIN_MODE_SNIPPET}\n{AGSTACK_MODE}")
 }
 
 fn write_agent_brain_mode(dir: &Path, quiet: bool, label: &str) -> Result<PathBuf> {
@@ -568,7 +587,7 @@ pub fn agent_brain_mode_locations(user: bool) -> Vec<(&'static str, PathBuf)> {
         Some(h) => h,
         None => return Vec::new(),
     };
-    let canonical = agent_body_core::agents_md_path();
+    let canonical = crate::global_workspace::agents_md_path();
     vec![
         (
             "cursor (User Rules)",
@@ -595,21 +614,10 @@ pub fn install_agent_brain_modes(user: bool, quiet: bool) -> Result<()> {
     let home = dirs::home_dir().context("home directory")?;
     let brain_home = home.join(".agent_brain");
 
-    agent_body_core::ensure_default_ecosystem_sections().ok();
-    agent_body_core::scaffold_agents_dir().context("scaffold agents fragments")?;
-    if let Some(content) = agent_body_core::default_fragment("brain") {
-        agent_body_core::write_fragment("brain", content)?;
-    }
-    let links = agent_body_core::install_host_agents_md_links()?;
-    let composed = agent_body_core::agents_md_path();
-
+    write_agent_brain_mode_file(&crate::global_workspace::agents_md_path(), quiet, "canonical")?;
     write_cursor_agent_brain_mode_mdc(&brain_home, quiet)?;
 
     if !quiet {
-        println!("Composed AGENTS.md at {}", composed.display());
-        for link in &links {
-            println!("  AGENTS.md link: {}", link.display());
-        }
         println!();
         println!(
             "agent-brain mode installed for all hosts. Run `agent-brain mode paths` to list files."
@@ -868,7 +876,7 @@ fn write_host_instructions(path: &Path, content: &str, quiet: bool, label: &str)
     Ok(())
 }
 
-const HOST_INSTRUCTIONS_VERSION: &str = "14";
+const HOST_INSTRUCTIONS_VERSION: &str = "16";
 
 const HOST_AGENT_BRAIN_INSTRUCTIONS: &str = r#"# agent-brain MCP (required)
 instructions-version: 13
@@ -896,23 +904,11 @@ If the agent skips route_task, cross-agent ingest and shared memory provide **ze
 
 Prefer **`agent-brain verify -- <cmd>`** (orchestrators: `--source orchestrator`) over MCP `record_verify_outcome`. Agent-asserted MCP exits are not trusted for learning. Allowlisted commands live in `.verify/verify.toml`.
 
-## Autonomic utility ecosystem (prefer agent-body)
+## Workflows (agent-spine)
 
-For multi-step or organ work, **prefer agent-body** — do not reinvent execute/workflow/budget/sandbox/UI/approval with ad-hoc Shell.
+For multi-step workflows with approval gates, run `agent-spine run --workflow <name>` instead of improvising the steps.
 
-1. Call `route_task` and check `suggested_tools` for `server=agent-body`.
-2. Call **`route_to_mcp`** with that server/tool (gateway exposes `muscle_*`, `spine_*`, `heart_*`, `eyes_*`, `immune_*`, `mouth_*`).
-3. Or use the CLI: `autonomic status` / `autonomic spine run` / `autonomic doctor`.
-
-| Utility | When | Prefer |
-|---------|------|--------|
-| **agent-body** | Execute, workflows, budget, scan, UI QA, approvals, cluster | `route_to_mcp` → agent-body **or** `autonomic …` |
-| **agent-spine** | DAG workflows | body `spine_*` tools / `autonomic spine run` |
-| **agent-heart** | Budget / long runs | body `heart_*` / `autonomic heart status` |
-| **agent-muscle** | Shell/tests/builds | body `muscle_execute_bash` |
-
-- `agent-brain registry list` — full utility + skill catalog
-- Bootstrap: `agent-brain doctor --fix` enables upstream agent-body for `route_to_mcp`
+- `agent-brain registry list` shows the skill and workflow catalog.
 
 ## Native host tools
 
@@ -1426,7 +1422,7 @@ mod tests {
         assert!(written.contains(&format!(
             "instructions-version: {HOST_INSTRUCTIONS_VERSION}"
         )));
-        assert!(written.contains("muscle_execute_bash"));
+        assert!(!written.contains("muscle_execute_bash"));
         assert!(written.contains("route_task"));
         assert!(written.contains("capability-discovery"));
     }
@@ -1480,8 +1476,6 @@ mod tests {
 
     #[test]
     fn gemini_project_uses_settings_json() {
-        let dir = TempDir::new().unwrap();
-        std::env::set_current_dir(dir.path()).unwrap();
         let path = gemini_config_path(false).unwrap();
         assert!(path.ends_with(".gemini/settings.json"));
     }
@@ -1554,6 +1548,17 @@ approval_policy = "on-request"
             HostTarget::from_args(&args),
             HostTarget::ClaudeCode { user: true }
         );
+    }
+
+    #[test]
+    fn agent_brain_mode_file_ships_agstack_mode_without_retired_tools() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("agent-brain-mode.md");
+        write_agent_brain_mode_file(&path, true, "test").unwrap();
+        let written = fs::read_to_string(&path).unwrap();
+        assert!(written.contains("agstack mode (default for engineering work)"));
+        assert!(written.contains("route_task"));
+        assert!(!written.contains("muscle_execute_bash"));
     }
 
     #[test]

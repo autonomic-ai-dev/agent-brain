@@ -2,7 +2,7 @@
 
 Local MCP router that picks the right skills, rules, and memory for each agent turn (~500 tokens), and enforces `route_task` via host hooks.
 
-Part of the [Autonomic AI](https://github.com/autonomic-ai-dev/agent-body) stack. Standalone over stdio for Cursor and other MCP hosts; optional cluster mode via `agent-nerves` / `autonomic serve-mcp`.
+Part of [Autonomic AI](https://github.com/autonomic-ai-dev/agent-brain), together with agent-spine. Standalone over stdio for Cursor and other MCP hosts.
 
 ```mermaid
 flowchart LR
@@ -77,7 +77,13 @@ Packages: `agent-brain registry list` · defaults `@matt-skills` · `agent-brain
 | `sync git\|cloud …` | Multi-machine brain sync |
 | `bootstrap` | Bootstrap new device into sync repo |
 
-Recipes that pass verification are promoted to `must_apply`, and recipes that fail drop out of recommendations. `get_autonomic_catalog` lists the tools of every organ.
+### Autonomic Capabilities & Adaptive Routing
+
+- **Catalog Discovery**: `get_autonomic_catalog` MCP tool gives AI agents the agent-brain and agent-spine capability catalog and delegation rules without being blocked by route gates.
+- **Adaptive Tool Suggestion**: Upstream tool recommendations in `route_task` dynamically evaluate historical `verify_outcomes` from `brain.db`, reinforcing tools that succeed and dampening those that fail.
+- **Adherence Gating (`must_apply` Promotion)**: High-confidence verified recipes (exit `0`) are automatically elevated into `must_apply` constraints in `RouteTaskResponse`, converting advisory recommendations into mandatory execution directives.
+- **Instant Failure Squelching**: When a command fails (`exit != 0`), its latest failure instantly removes it from few-shot recipe recommendations, preventing broken suggestions from propagating.
+- **Automatic Outcome Attribution**: Command executions captured via `agent-brain verify` or host shell hooks automatically correlate with the active turn's `route_log_id`, boosting or penalizing retrieved context weights without manual feedback calls.
 
 ---
 
