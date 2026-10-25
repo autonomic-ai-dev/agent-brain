@@ -261,7 +261,7 @@ fn install_opencode(exe: &Path, user: bool, quiet: bool) -> Result<Vec<PathBuf>>
             println!("  Project scope: opencode.json at repository root.");
         }
         println!("  Restart OpenCode or run `opencode mcp list` to verify.");
-        println!("  Route gate plugin: agent-brain-route-gate.ts in opencode/plugin/.");
+        println!("  Route gate plugin: agent-brain-route-gate.js in opencode/plugin/.");
     }
     Ok(vec![path])
 }
@@ -986,7 +986,7 @@ instructions-version: 13
 `agent-brain install --opencode [--global]` installs:
 
 - MCP entry in `opencode.json` plus `plugin: ["agent-brain-route-gate"]`
-- Plugin `agent-brain-route-gate.ts` (fail-closed if `route_gate.py` is missing)
+- Plugin `agent-brain-route-gate.js` (fail-closed if `route_gate.py` is missing)
 - Hard rule `rules/agent-brain-route.md` and mode `modes/agent-brain.md`
 
 The plugin blocks other agent-brain tools until `agent-brain_route_task` succeeds for the turn. Prefer agent-brain file tools over host Read/Grep.
