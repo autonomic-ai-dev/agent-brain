@@ -956,7 +956,7 @@ Prefer **`agent-brain verify -- <cmd>`** (orchestrators: `--source orchestrator`
 `agent-brain install --claude-code [--global]` installs route gate hooks in `.claude/settings.json`:
 
 - **UserPromptSubmit** — marks each new prompt as needing `route_task`.
-- **PreToolUse / PostToolUse** (`matcher: .*`) — every tool hits the gate; `AGENT_BRAIN_ROUTE_GATE_SCOPE=brain_mcp` (default) still allows Read/Bash/Grep while blocking other agent-brain MCP tools until `route_task` succeeds.
+- **PreToolUse / PostToolUse** (`matcher: .*`) — every tool hits the gate; `AGENT_BRAIN_ROUTE_GATE_SCOPE=all` (default) blocks tools until `route_task` succeeds, ensuring deferred MCP tools are resolved.
 - Hard rule file: `.claude/rules/agent-brain-route.md` (user: `~/.claude/rules/agent-brain-route.md`).
 
 Prefer agent-brain `grep_search`, `file_summary`, `read_file_head`, and `read_file_tail` for exploration.

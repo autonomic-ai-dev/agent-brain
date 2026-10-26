@@ -835,15 +835,29 @@ impl Engine {
             )?;
 
         let build_started = Instant::now();
+        let elastic_budget = if max_tokens == 500 {
+            match task_kind {
+                crate::types::TaskKind::Verification => 350,
+                crate::types::TaskKind::Architecture => 700,
+                crate::types::TaskKind::Review => 550,
+                crate::types::TaskKind::Debugging => 650,
+                crate::types::TaskKind::Implementing => 600,
+            }
+        } else {
+            max_tokens
+        };
+        let settings = crate::settings::AgentBrainSettings::load(&self.config.home);
+        let prefer_agstack = settings.routing.prefer_agstack;
         let mut resp = build_route_response(
             &scored,
             &limits,
             &phase,
-            max_tokens,
+            elastic_budget,
             project_key_opt,
             ws.repo_root.as_deref(),
             &ws.tags,
             user_message,
+            prefer_agstack,
         );
         resp.index_total = index_total;
         if let Some(repo) = ws.repo_root.as_deref() {
@@ -853,7 +867,6 @@ impl Engine {
                 resp.scratchpad = entries;
             }
         }
-        let settings = crate::settings::AgentBrainSettings::load(&self.config.home);
         resp.suggested_tools = crate::upstream::suggest_upstream_tools(
             &self.store,
             &settings.upstream_mcp,
@@ -889,10 +902,12 @@ impl Engine {
                 ),
             });
         }
-        resp.must_apply.push(crate::types::MustApply {
-            topic: "agstack-invariants".into(),
-            text: "Mandatory agstack invariants: 1. Immutability first (never mutate in-place; return fresh copies). 2. Zero AI comment slop (self-documenting code; pre-commit rejects comment lines). 3. Boundary discipline (validate schemas at boundaries). 4. Fix root causes (never mask with defensive null-checks; verify with regression test). 5. Verification root separation: All generated test harnesses, snapshots, logs, and artifacts MUST output strictly to `.verify/` (keeping input reference fixtures under `verify/` read-only). 6. Mandatory Skill Hydration: When matched_skills or playbooks are returned, you MUST call read_file on the matched path and copy its numbered checklist steps verbatim into your active plan before taking action. 7. Default Post-Dev Verification via agstack: Any code modification is strictly INCOMPLETE until verified through the agstack verification skill (.verify/run.sh / allowlist). Never ask permission to run tests; automatically invoke the verification skill, write outputs to .verify/artifacts/, and record the evidence record before completing the turn.".into(),
-        });
+        if prefer_agstack {
+            resp.must_apply.push(crate::types::MustApply {
+                topic: "agstack-invariants".into(),
+                text: "Mandatory agstack invariants: 1. Immutability first (never mutate in-place; return fresh copies). 2. Zero AI comment slop (self-documenting code; pre-commit rejects comment lines). 3. Boundary discipline (validate schemas at boundaries). 4. Fix root causes (never mask with defensive null-checks; verify with regression test). 5. Verification root separation: All generated test harnesses, snapshots, logs, and artifacts MUST output strictly to `.verify/` (keeping input reference fixtures under `verify/` read-only). 6. Mandatory Skill Hydration: When matched_skills or playbooks are returned, you MUST call read_file on the matched path and copy its numbered checklist steps verbatim into your active plan before taking action. 7. Default Post-Dev Verification via agstack: Any code modification is strictly INCOMPLETE until verified through the agstack verification skill (.verify/run.sh / allowlist). Never ask permission to run tests; automatically invoke the verification skill, write outputs to .verify/artifacts/, and record the evidence record before completing the turn.".into(),
+            });
+        }
         #[cfg(feature = "extras")]
         if let Some(repo) = ws.repo_root.as_deref() {
             if settings.graphify.enabled {
@@ -1339,6 +1354,7 @@ fn build_route_response(
     repo_root: Option<&str>,
     ws_tags: &[String],
     user_message: &str,
+    prefer_agstack: bool,
 ) -> RouteTaskResponse {
     let mut resp = RouteTaskResponse {
         recommended_phase: phase.to_string(),
@@ -1387,17 +1403,45 @@ fn build_route_response(
             .filter(|i| matches!(i.item_type, ItemType::Memory))
             .map(|i| i.score)
             .fold(0.0_f64, f64::max);
-        if top >= 0.60 {
-            min_score.max(0.35)
+        if top >= 0.50 {
+            (top * 0.55).max(0.20)
+        } else if top > 0.0 {
+            (top * 0.45).max(0.15)
         } else {
-            min_score
+            0.15
         }
     };
 
     resp.must_apply =
         collect_must_apply_from_scored(scored, 3, project_key, repo_root, ws_tags, user_message);
 
-    // Pass 1: workflows, agents, skills, rules — before memory consumes the token budget.
+    let memory_reserved_tokens = if limits.memory > 0 { 120 } else { 0 };
+    let pass1_max_tokens = max_tokens.saturating_sub(memory_reserved_tokens).max(250);
+
+    if prefer_agstack
+        && limits.skills > 0
+        && !crate::retrieval::is_conversational_or_meta(user_message)
+    {
+        if let Some(agstack_mode_item) = scored.iter().find(|i| {
+            matches!(i.item_type, ItemType::Skill)
+                && (i.topic == "agstack-mode"
+                    || i.source_path
+                        .as_deref()
+                        .map_or(false, |p| p.contains("agstack-mode")))
+        }) {
+            try_add_route_item(
+                &mut resp,
+                &mut state,
+                agstack_mode_item,
+                limits,
+                phase,
+                pass1_max_tokens,
+                project_key,
+                repo_root,
+            );
+        }
+    }
+
     for item in scored.iter() {
         if matches!(item.item_type, ItemType::Memory) {
             continue;
@@ -1425,10 +1469,11 @@ fn build_route_response(
         // Margin: additional items must stay close to the top hit of their type.
         match item.item_type {
             ItemType::Skill => {
-                let is_agstack = item
-                    .source_path
-                    .as_deref()
-                    .map_or(false, |p| p.contains("agstack"));
+                let is_agstack = prefer_agstack
+                    && item
+                        .source_path
+                        .as_deref()
+                        .map_or(false, |p| p.contains("agstack"));
 
                 if crate::retrieval::is_conversational_or_meta(user_message) {
                     continue;
@@ -1503,17 +1548,35 @@ fn build_route_response(
             item,
             limits,
             phase,
-            max_tokens,
+            pass1_max_tokens,
             project_key,
             repo_root,
         );
     }
 
-    if resp.recommended_skills.is_empty()
+    if prefer_agstack
         && limits.skills > 0
         && !crate::retrieval::is_conversational_or_meta(user_message)
+        && resp.recommended_skills.iter().all(|s| !s.name.contains("agstack"))
     {
         if let Some(agstack_item) = scored.iter().find(|i| {
+            matches!(i.item_type, ItemType::Skill)
+                && (i.topic == "agstack-mode"
+                    || i.source_path
+                        .as_deref()
+                        .map_or(false, |p| p.contains("agstack-mode")))
+        }) {
+            try_add_route_item(
+                &mut resp,
+                &mut state,
+                agstack_item,
+                limits,
+                phase,
+                pass1_max_tokens,
+                project_key,
+                repo_root,
+            );
+        } else if let Some(agstack_fallback) = scored.iter().find(|i| {
             matches!(i.item_type, ItemType::Skill)
                 && i.source_path
                     .as_deref()
@@ -1522,17 +1585,16 @@ fn build_route_response(
             try_add_route_item(
                 &mut resp,
                 &mut state,
-                agstack_item,
+                agstack_fallback,
                 limits,
                 phase,
-                max_tokens,
+                pass1_max_tokens,
                 project_key,
                 repo_root,
             );
         }
     }
 
-    // Pass 2: memory with whatever budget remains (same score floor; domain filter; no digest/obs noise).
     for item in scored.iter() {
         if !matches!(item.item_type, ItemType::Memory) {
             continue;
@@ -1565,6 +1627,26 @@ fn build_route_response(
             project_key,
             repo_root,
         );
+    }
+
+    if resp.relevant_memory.is_empty() && limits.memory > 0 {
+        if let Some(fallback_mem) = scored.iter().find(|i| {
+            matches!(i.item_type, ItemType::Memory)
+                && !scoped_to_other_project(i, project_key, repo_root)
+                && i.score >= 0.12
+                && !is_low_signal_memory(&i.topic, None)
+        }) {
+            try_add_route_item(
+                &mut resp,
+                &mut state,
+                fallback_mem,
+                limits,
+                phase,
+                max_tokens,
+                project_key,
+                repo_root,
+            );
+        }
     }
 
     resp
@@ -1932,7 +2014,7 @@ mod tests {
             rules: 3,
             memory: 5,
         };
-        let resp = build_route_response(&scored, &limits, "implementing", 800, None, None, &[], "");
+        let resp = build_route_response(&scored, &limits, "implementing", 800, None, None, &[], "", true);
         assert!(
             resp.relevant_memory.iter().all(|m| {
                 !m.topic.starts_with("session-digest-")
@@ -1981,6 +2063,7 @@ mod tests {
             None,
             &[],
             "",
+            true,
         );
         assert!(
             resp.relevant_memory
@@ -2070,7 +2153,7 @@ mod tests {
             rules: 0,
             memory: 0,
         };
-        let resp = build_route_response(&scored, &limits, "planning", 800, None, None, &[], "");
+        let resp = build_route_response(&scored, &limits, "planning", 800, None, None, &[], "", true);
         assert_eq!(resp.recommended_skills.len(), 1);
         assert_eq!(resp.recommended_skills[0].name, "rust-patterns");
     }
@@ -2098,6 +2181,7 @@ mod tests {
             None,
             &ws_tags,
             "implement tests for engine",
+            true,
         );
         assert_eq!(resp.recommended_skills.len(), 1);
         assert_eq!(resp.recommended_skills[0].name, "rust-testing-guide");
@@ -2112,6 +2196,7 @@ mod tests {
             None,
             &ws_tags,
             "refactor react frontend",
+            true,
         );
         assert_eq!(resp_explicit.recommended_skills.len(), 2);
         assert_eq!(
@@ -2142,6 +2227,7 @@ mod tests {
             None,
             &["rust".to_string()],
             "refactor rust code",
+            true,
         );
         // 0.90 top hit -> min_relative is max(0.90 * 0.70 = 0.63, 0.90 - 0.18 = 0.72) = 0.72.
         // 0.78 >= 0.72 -> kept
@@ -2222,6 +2308,7 @@ mod tests {
             None,
             &ws_tags,
             "verify safety gates before release",
+            true,
         );
         assert_eq!(
             resp.suggested_workflow.as_deref(),
@@ -2238,6 +2325,7 @@ mod tests {
             None,
             &ws_tags,
             "run react component pipeline",
+            true,
         );
         assert_eq!(
             resp_explicit.suggested_workflow.as_deref(),
@@ -2271,6 +2359,7 @@ mod tests {
             None,
             &ws_tags,
             "design rust architecture",
+            true,
         );
         // Agents: react-frontend-dev filtered by domain; rust-junior-assistant (0.55) dropped by relative gap
         assert_eq!(resp.recommended_agents.len(), 1);
@@ -2279,5 +2368,68 @@ mod tests {
         // Rules: react-hooks-rule filtered by domain; rust-minor-style (0.50) dropped by relative gap
         assert_eq!(resp.applicable_rules.len(), 1);
         assert_eq!(resp.applicable_rules[0].topic, "rust-safety-rule");
+    }
+
+    #[test]
+    fn memory_recall_decoupled_from_high_scoring_rules() {
+        let scored = vec![
+            rule("strict-rule", 1.15, "Very high scoring rule"),
+            skill("tool-selection", 0.95),
+            mem("build-flag", 0.45, "Use --release for benchmarks"),
+            mem("db-setting", 0.38, "Use sqlite with WAL mode"),
+        ];
+        let limits = RouteLimits {
+            agents: 0,
+            skills: 2,
+            rules: 2,
+            memory: 3,
+        };
+        let resp = build_route_response(&scored, &limits, "implementing", 500, None, None, &[], "", true);
+        assert_eq!(resp.applicable_rules.len(), 1);
+        assert!(!resp.relevant_memory.is_empty());
+        assert!(resp.relevant_memory.iter().any(|m| m.topic == "build-flag"));
+    }
+
+    #[test]
+    fn agstack_mode_prioritized_for_engineering_tasks() {
+        let mut agstack_skill = skill("agstack-mode", 0.60);
+        agstack_skill.source_path = Some("/packages/agstack/skills/agstack-mode/SKILL.md".into());
+        let scored = vec![
+            skill("general-skill", 0.85),
+            skill("another-tool", 0.80),
+            agstack_skill,
+        ];
+        let limits = RouteLimits {
+            agents: 0,
+            skills: 3,
+            rules: 0,
+            memory: 0,
+        };
+        let resp = build_route_response(&scored, &limits, "implementing", 500, None, None, &[], "write rust code", true);
+        assert!(resp.recommended_skills.iter().any(|s| s.name == "agstack-mode"));
+        assert_eq!(resp.recommended_skills[0].name, "agstack-mode");
+    }
+
+    #[test]
+    fn agstack_mode_toggle_respects_config() {
+        let mut agstack_skill = skill("agstack-mode", 0.60);
+        agstack_skill.source_path = Some("/packages/agstack/skills/agstack-mode/SKILL.md".into());
+        let scored = vec![
+            skill("general-skill", 0.85),
+            skill("another-tool", 0.80),
+            agstack_skill,
+        ];
+        let limits = RouteLimits {
+            agents: 0,
+            skills: 2,
+            rules: 0,
+            memory: 0,
+        };
+        let resp_enabled = build_route_response(&scored, &limits, "implementing", 500, None, None, &[], "write rust code", true);
+        assert_eq!(resp_enabled.recommended_skills[0].name, "agstack-mode");
+
+        let resp_disabled = build_route_response(&scored, &limits, "implementing", 500, None, None, &[], "write rust code", false);
+        assert!(!resp_disabled.recommended_skills.iter().any(|s| s.name == "agstack-mode"));
+        assert_eq!(resp_disabled.recommended_skills[0].name, "general-skill");
     }
 }
