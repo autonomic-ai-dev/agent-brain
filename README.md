@@ -84,6 +84,11 @@ Packages: `agent-brain registry list` · defaults `@matt-skills` · `agent-brain
 - **Adherence Gating (`must_apply` Promotion)**: High-confidence verified recipes (exit `0`) are automatically elevated into `must_apply` constraints in `RouteTaskResponse`, converting advisory recommendations into mandatory execution directives.
 - **Instant Failure Squelching**: When a command fails (`exit != 0`), its latest failure instantly removes it from few-shot recipe recommendations, preventing broken suggestions from propagating.
 - **Automatic Outcome Attribution**: Command executions captured via `agent-brain verify` or host shell hooks automatically correlate with the active turn's `route_log_id`, boosting or penalizing retrieved context weights without manual feedback calls.
+- **Elastic Token Budgeting**: Dynamically scales token budget according to task kind (Verification: 350, Review: 550, Implementing: 600, Debugging: 650, Architecture: 700 tokens), preventing token bloat while giving deep tasks sufficient budget.
+- **Decoupled Memory Recall**: Memory score floor calculation decoupled from high-scoring rules, with a 120-token reservation ensuring relevant memory items are never starved out of the context budget.
+- **agstack Mode Prioritization & Config Toggle**: Prioritizes `agstack-mode` at position #1 for all engineering tasks. Configurable via `config.yaml` (`routing: prefer_agstack: true/false`) or environment variable `AGENT_BRAIN_PREFER_AGSTACK=0` or `1`.
+- **Silent Watcher Ambient Guidance**: Injects verified recipes and critical invariants ambiently into agent context on prompt submit (`AGENT_BRAIN_SILENT_WATCHER=1`) without requiring active agent tool calls.
+- **Deferred Tool Hook Enforcement**: Strict hook enforcement (`GATE_SCOPE=all`) ensuring deferred-loading MCP environments (such as Claude Code) cannot bypass routing.
 
 ---
 

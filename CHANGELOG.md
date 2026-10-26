@@ -14,8 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - The command policy checks the contents of scripts a command runs (`bash`, `sh`, `source`, `./x.sh`), bounded in size and depth.
+- Elastic Token Budgeting: dynamically scales token budget across task kinds (350 to 700 tokens).
+- `routing.prefer_agstack` configuration toggle in `config.yaml`/`config.json` and `AGENT_BRAIN_PREFER_AGSTACK` environment variable override.
+- Silent Watcher ambient context injection in route gate for prompt-level verified recipes and invariants.
 
 ### Fixed
+- Decoupled memory retrieval score floor from high rule scores, and reserved 120 tokens in Pass 1 to prevent memory recall starvation.
+- Prioritized `agstack-mode` to slot #1 in `recommended_skills` for non-conversational engineering tasks.
+- Claude Code deferred mode gate bypass fixed by setting `GATE_SCOPE=all` and handling deferred MCP tool states.
+- Scale benchmark dynamic threshold in debug assertions to eliminate test flakes under CPU load.
 - The route gate fails closed when agent-brain is not on PATH, and allows the policy check 10 seconds.
 - Path-only tests no longer change the process working directory.
 - Hook tests isolate the session environment variables that chose a different route-state key.
