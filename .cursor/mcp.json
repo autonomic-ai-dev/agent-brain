@@ -4,7 +4,7 @@
       "args": [
         "serve"
       ],
-      "command": "/Users/aeswibon/.local/bin/agent-brain",
+      "command": "/opt/homebrew/bin/agent-brain",
       "env": {
         "AGENT_BRAIN_AUTO_UPDATE_DELAY_SEC": "60",
         "AGENT_BRAIN_BOOTSTRAP_BG": "1",

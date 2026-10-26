@@ -78,6 +78,7 @@ OFFLINE_SECS = float(os.environ.get("AGENT_BRAIN_ROUTE_OFFLINE_SECS", "1800"))
 SESSION_ROUTE_TTL_SECS = float(os.environ.get("AGENT_BRAIN_ROUTE_SESSION_TTL_SECS", "14400"))
 # all = gate every tool (hard blocking across all agents); brain_mcp = gate only agent-brain tools.
 GATE_SCOPE = os.environ.get("AGENT_BRAIN_ROUTE_GATE_SCOPE", "all").strip().lower()
+SILENT_WATCHER = os.environ.get("AGENT_BRAIN_SILENT_WATCHER", "0").strip().lower() in {"1", "true", "yes"}
 READ_GATE_MODE = os.environ.get("AGENT_BRAIN_READ_GATE", "hard").strip().lower()
 READ_WARN_BYTES = int(os.environ.get("AGENT_BRAIN_READ_WARN_BYTES", "65536"))
 # After a bounded MCP scout on a path, allow native Read/StrReplace for this long
@@ -417,10 +418,11 @@ def deny_payload() -> dict:
     return {
         "permission": "deny",
         "agent_message": (
-            "You must call agent-brain MCP tool route_task first with the user's "
-            "message, current_working_directory, and open_files. If the response "
-            "is empty (tokens_used 0), restart the agent-brain MCP server and "
-            "retry route_task; pass explicit limits if needed."
+            "You must call agent-brain MCP tool route_task (mcp__agent-brain__route_task) "
+            "first with the user's message, current_working_directory, and open_files. "
+            "If MCP tools are deferred or lazy-loaded, resolve and invoke route_task now. "
+            "If the response is empty (tokens_used 0), restart the agent-brain MCP server "
+            "and retry route_task; pass explicit limits if needed."
         ),
         "user_message": "agent-brain hook: call route_task before other tools.",
     }
@@ -874,6 +876,25 @@ def session_route_reusable(state: dict, cwd: str) -> bool:
     return time.time() - routed_at < SESSION_ROUTE_TTL_SECS
 
 
+def build_ambient_guidance(state: dict) -> str:
+    must_apply = state.get("must_apply") or []
+    recipes = state.get("verified_recipes") or []
+    lines = []
+    if recipes:
+        top_recipe = recipes[0]
+        cmd = top_recipe.get("cmd") if isinstance(top_recipe, dict) else str(top_recipe)
+        if cmd:
+            lines.append(f"• Verified Recipe: `{cmd}` (exit 0)")
+    for rule in must_apply[:2]:
+        if isinstance(rule, dict) and rule.get("text"):
+            lines.append(f"• Invariant: {rule['text']}")
+        elif isinstance(rule, str):
+            lines.append(f"• Invariant: {rule}")
+    if not lines:
+        return ""
+    return "[agent-brain: ambient guidance]\n" + "\n".join(lines)
+
+
 def handle_before_submit_prompt(event: dict) -> dict:
     state = load_state(event)
     if in_mcp_offline(state):
@@ -885,8 +906,6 @@ def handle_before_submit_prompt(event: dict) -> dict:
         if isinstance(val, str) and val.strip():
             gen = val.strip()
             break
-    # Mid-turn / duplicate UserPromptSubmit for the same generation must NOT re-arm
-    # the gate after a successful route_task (this was the main mid-turn flake).
     if gen and state.get("routed_generation") == gen and not state.get("needs_route"):
         return {"continue": True}
     if session_route_reusable(state, current_cwd(event)):
@@ -898,8 +917,14 @@ def handle_before_submit_prompt(event: dict) -> dict:
     state["route_grace_until"] = 0
     if gen:
         state["pending_generation"] = gen
+    res = {"continue": True}
+    if SILENT_WATCHER:
+        ambient = build_ambient_guidance(state)
+        if ambient:
+            res["additional_context"] = ambient
+            res["hook_output"] = ambient
     save_state(state, event)
-    return {"continue": True}
+    return res
 
 
 def handle_after_mcp_execution(event: dict) -> dict:
@@ -1163,6 +1188,14 @@ def gate_tool_use(event: dict) -> dict:
         return {"permission": "allow"}
     state = load_state(event)
     if state.get("needs_route"):
+        if SILENT_WATCHER:
+            state["needs_route"] = False
+            save_state(state, event)
+            ambient = build_ambient_guidance(state)
+            return {
+                "permission": "allow",
+                "agent_message": ambient or "[agent-brain] Proceeding with ambient guidance.",
+            }
         if should_allow_without_route(state):
             return grace_allow_payload(state)
         return deny_payload()
