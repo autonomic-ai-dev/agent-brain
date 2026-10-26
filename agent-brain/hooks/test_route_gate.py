@@ -34,6 +34,7 @@ from route_gate import (
     GATE_SCOPE,
     OFFLINE_SECS,
     STALE_ROUTE_SECS,
+    build_ambient_guidance,
     enter_grace,
     enter_mcp_offline,
     handle_before_mcp_execution,
@@ -957,6 +958,53 @@ class SessionGateTests(unittest.TestCase):
             adapted.get("hookSpecificOutput", {}).get("permissionDecision"),
             "allow",
         )
+
+    def test_build_ambient_guidance_empty_when_no_rules_or_recipes(self) -> None:
+        self.assertEqual(build_ambient_guidance({}), "")
+        self.assertEqual(build_ambient_guidance({"must_apply": [], "verified_recipes": []}), "")
+
+    def test_build_ambient_guidance_formats_recipes_and_invariants(self) -> None:
+        state = {
+            "verified_recipes": [{"cmd": "cargo test --all-features"}],
+            "must_apply": [{"text": "Immutability first"}, "Zero comment slop"],
+        }
+        res = build_ambient_guidance(state)
+        self.assertIn("[agent-brain: ambient guidance]", res)
+        self.assertIn("• Verified Recipe: `cargo test --all-features` (exit 0)", res)
+        self.assertIn("• Invariant: Immutability first", res)
+        self.assertIn("• Invariant: Zero comment slop", res)
+
+    def test_silent_watcher_injects_additional_context_when_enabled(self) -> None:
+        from unittest import mock
+        import route_gate
+
+        state = {
+            "must_apply": [{"text": "Fix root causes"}],
+            "verified_recipes": [{"cmd": "cargo check"}],
+        }
+        route_gate.save_state(state)
+        with mock.patch.object(route_gate, "SILENT_WATCHER", True):
+            out = route_gate.handle_before_submit_prompt({})
+        self.assertTrue(out.get("continue"))
+        self.assertIn("additional_context", out)
+        self.assertIn("hook_output", out)
+        self.assertIn("[agent-brain: ambient guidance]", out["additional_context"])
+        self.assertIn("Fix root causes", out["additional_context"])
+
+    def test_silent_watcher_does_not_inject_when_disabled(self) -> None:
+        from unittest import mock
+        import route_gate
+
+        state = {
+            "must_apply": [{"text": "Fix root causes"}],
+        }
+        route_gate.save_state(state)
+        with mock.patch.object(route_gate, "SILENT_WATCHER", False):
+            out = route_gate.handle_before_submit_prompt({})
+        self.assertTrue(out.get("continue"))
+        self.assertNotIn("additional_context", out)
+        self.assertNotIn("hook_output", out)
+
 
 class SessionRouteReuseTests(unittest.TestCase):
     def setUp(self) -> None:

@@ -316,3 +316,129 @@ fn agstack_project_rule_is_applied_to_applicable_rules() {
         resp.applicable_rules
     );
 }
+
+#[test]
+fn agstack_mode_toggle_in_config_file_disables_preference() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(
+        dir.path().join("config.yaml"),
+        "routing:\n  prefer_agstack: false\n",
+    )
+    .unwrap();
+    let config = test_config(&dir);
+    let store = Arc::new(BrainStore::open(&config.db_path).unwrap());
+
+    let general_text = "General software development and code search workflows";
+    let general_emb = deterministic_embedding(&format!("general-skill {}", general_text));
+    store
+        .upsert_indexed_item(
+            ItemType::Skill,
+            "general-skill",
+            general_text,
+            "/packages/general/SKILL.md",
+            "global",
+            None,
+            &content_hash(general_text),
+            Some(&general_emb),
+        )
+        .unwrap();
+
+    let agstack_text = "agstack engineering mode token-efficient playbook verification";
+    let agstack_emb = deterministic_embedding(&format!("agstack-mode {}", agstack_text));
+    store
+        .upsert_indexed_item(
+            ItemType::Skill,
+            "agstack-mode",
+            agstack_text,
+            "/packages/agstack/skills/agstack-mode/SKILL.md",
+            "global",
+            None,
+            &content_hash(agstack_text),
+            Some(&agstack_emb),
+        )
+        .unwrap();
+
+    let engine = Engine::new_with_store(config, store).unwrap();
+    let resp = engine
+        .route_task(
+            "general software development task",
+            None,
+            &[],
+            500,
+            RouteLimits {
+                agents: 0,
+                skills: 1,
+                rules: 0,
+                memory: 0,
+            },
+            None,
+            None,
+        )
+        .unwrap();
+
+    assert!(resp.recommended_skills.iter().all(|s| s.name != "agstack-mode"));
+    assert!(resp.must_apply.iter().all(|m| m.topic != "agstack-invariants"));
+}
+
+#[test]
+fn agstack_mode_toggle_in_config_file_enables_preference() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(
+        dir.path().join("config.yaml"),
+        "routing:\n  prefer_agstack: true\n",
+    )
+    .unwrap();
+    let config = test_config(&dir);
+    let store = Arc::new(BrainStore::open(&config.db_path).unwrap());
+
+    let general_text = "General software development and code search workflows";
+    let general_emb = deterministic_embedding(&format!("general-skill {}", general_text));
+    store
+        .upsert_indexed_item(
+            ItemType::Skill,
+            "general-skill",
+            general_text,
+            "/packages/general/SKILL.md",
+            "global",
+            None,
+            &content_hash(general_text),
+            Some(&general_emb),
+        )
+        .unwrap();
+
+    let agstack_text = "agstack engineering mode token-efficient playbook verification";
+    let agstack_emb = deterministic_embedding(&format!("agstack-mode {}", agstack_text));
+    store
+        .upsert_indexed_item(
+            ItemType::Skill,
+            "agstack-mode",
+            agstack_text,
+            "/packages/agstack/skills/agstack-mode/SKILL.md",
+            "global",
+            None,
+            &content_hash(agstack_text),
+            Some(&agstack_emb),
+        )
+        .unwrap();
+
+    let engine = Engine::new_with_store(config, store).unwrap();
+    let resp = engine
+        .route_task(
+            "general software development task",
+            None,
+            &[],
+            500,
+            RouteLimits {
+                agents: 0,
+                skills: 2,
+                rules: 0,
+                memory: 0,
+            },
+            None,
+            None,
+        )
+        .unwrap();
+
+    assert_eq!(resp.recommended_skills[0].name, "agstack-mode");
+    assert!(resp.must_apply.iter().any(|m| m.topic == "agstack-invariants"));
+}
