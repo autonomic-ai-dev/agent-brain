@@ -26,6 +26,8 @@ pub struct AgentBrainSettings {
     pub registry: RegistrySettings,
     #[serde(default)]
     pub docs: DocsSettings,
+    #[serde(default)]
+    pub routing: RoutingSettings,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -194,6 +196,20 @@ impl Default for DocsSettings {
             max_chunks: default_docs_max_chunks(),
             chunk_words: default_docs_chunk_words(),
             summary_words: default_docs_summary_words(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RoutingSettings {
+    #[serde(default = "default_true")]
+    pub prefer_agstack: bool,
+}
+
+impl Default for RoutingSettings {
+    fn default() -> Self {
+        Self {
+            prefer_agstack: true,
         }
     }
 }
@@ -574,6 +590,7 @@ impl AgentBrainSettings {
             graphify: GraphifySettings::default(),
             registry: RegistrySettings::default(),
             docs: DocsSettings::default(),
+            routing: RoutingSettings::default(),
         }
     }
 
@@ -593,6 +610,11 @@ impl AgentBrainSettings {
             if let Ok(n) = hours.parse::<u64>() {
                 self.auto_update.interval_hours = n.max(1);
             }
+        }
+        if env_disabled("AGENT_BRAIN_PREFER_AGSTACK") {
+            self.routing.prefer_agstack = false;
+        } else if env_enabled("AGENT_BRAIN_PREFER_AGSTACK") {
+            self.routing.prefer_agstack = true;
         }
     }
 }
@@ -735,5 +757,33 @@ memory_gc:
         let settings = AgentBrainSettings::from_file(dir.path()).unwrap();
         assert_eq!(settings.memory_gc.stale_days, 45);
         assert_eq!(settings.memory_gc.very_stale_days, 120);
+    }
+
+    #[test]
+    fn parses_routing_config_toggle() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("config.yaml"),
+            r#"
+routing:
+  prefer_agstack: false
+"#,
+        )
+        .unwrap();
+        let settings = AgentBrainSettings::from_file(dir.path()).unwrap();
+        assert!(!settings.routing.prefer_agstack);
+    }
+
+    #[test]
+    fn env_can_toggle_prefer_agstack() {
+        let mut settings = AgentBrainSettings::default_enabled_example();
+        assert!(settings.routing.prefer_agstack);
+        std::env::set_var("AGENT_BRAIN_PREFER_AGSTACK", "0");
+        settings.apply_env_overrides();
+        assert!(!settings.routing.prefer_agstack);
+        std::env::set_var("AGENT_BRAIN_PREFER_AGSTACK", "1");
+        settings.apply_env_overrides();
+        assert!(settings.routing.prefer_agstack);
+        std::env::remove_var("AGENT_BRAIN_PREFER_AGSTACK");
     }
 }

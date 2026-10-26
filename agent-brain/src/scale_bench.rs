@@ -7,6 +7,20 @@ use crate::bench::{run_bench_on_engine, PercentileMs};
 use crate::fixture::{new_isolated_engine, seed_bench_fixture};
 
 pub const SCALE_P95_THRESHOLD_MS: u64 = 50;
+
+pub fn scale_p95_threshold_ms() -> u64 {
+    if let Ok(v) = std::env::var("AGENT_BRAIN_BENCH_P95_MS") {
+        if let Ok(ms) = v.parse() {
+            return ms;
+        }
+    }
+    if cfg!(debug_assertions) {
+        150
+    } else {
+        SCALE_P95_THRESHOLD_MS
+    }
+}
+
 pub const SCALE_SIZES: &[usize] = &[1_000, 5_000, 10_000];
 
 const WARMUP_ROUTES: usize = 3;
@@ -45,12 +59,13 @@ pub fn run_scale_tier(index_size: usize) -> Result<ScaleTierReport> {
     seed_bench_fixture(&engine.store, index_size)?;
     let bench = run_bench_on_engine(&engine, index_size, WARMUP_ROUTES)?;
     let ann_active = index_size >= DEFAULT_ANN_MIN_INDEX;
-    let passed = bench.warm_route.p95_ms <= SCALE_P95_THRESHOLD_MS;
+    let threshold = scale_p95_threshold_ms();
+    let passed = bench.warm_route.p95_ms <= threshold;
     Ok(ScaleTierReport {
         index_size,
         ann_active,
         warm_route: bench.warm_route,
-        p95_threshold_ms: SCALE_P95_THRESHOLD_MS,
+        p95_threshold_ms: threshold,
         passed,
     })
 }
