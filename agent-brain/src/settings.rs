@@ -204,12 +204,29 @@ impl Default for DocsSettings {
 pub struct RoutingSettings {
     #[serde(default = "default_true")]
     pub prefer_agstack: bool,
+    #[serde(default = "default_session_stickiness_secs")]
+    pub session_stickiness_secs: u64,
+    #[serde(default = "default_turn_ttl_secs")]
+    pub turn_ttl_secs: u64,
+    #[serde(default = "default_true")]
+    pub auto_trajectory: bool,
+}
+
+fn default_session_stickiness_secs() -> u64 {
+    1800
+}
+
+fn default_turn_ttl_secs() -> u64 {
+    60
 }
 
 impl Default for RoutingSettings {
     fn default() -> Self {
         Self {
             prefer_agstack: true,
+            session_stickiness_secs: default_session_stickiness_secs(),
+            turn_ttl_secs: default_turn_ttl_secs(),
+            auto_trajectory: true,
         }
     }
 }
@@ -526,8 +543,9 @@ impl Default for McpAutoUpdateSettings {
     }
 }
 
-static SETTINGS_CACHE: std::sync::Mutex<Option<(PathBuf, std::time::SystemTime, AgentBrainSettings)>> =
-    std::sync::Mutex::new(None);
+static SETTINGS_CACHE: std::sync::Mutex<
+    Option<(PathBuf, std::time::SystemTime, AgentBrainSettings)>,
+> = std::sync::Mutex::new(None);
 
 impl AgentBrainSettings {
     pub fn load(home: &Path) -> Self {

@@ -44,6 +44,8 @@ pub struct Engine {
     prev_snapshot: Mutex<Option<ResponseSnapshot>>,
     touched_files: Mutex<Vec<String>>,
     prev_tool_names: Mutex<Vec<String>>,
+    prev_route_log_id: Mutex<Option<String>>,
+    prev_task_node: Mutex<Option<String>>,
     write_queue: WriteQueue,
 }
 
@@ -82,6 +84,8 @@ impl Engine {
             prev_snapshot: Mutex::new(None),
             touched_files: Mutex::new(Vec::new()),
             prev_tool_names: Mutex::new(Vec::new()),
+            prev_route_log_id: Mutex::new(None),
+            prev_task_node: Mutex::new(None),
             write_queue,
         })
     }
@@ -123,6 +127,8 @@ impl Engine {
             prev_snapshot: Mutex::new(None),
             touched_files: Mutex::new(Vec::new()),
             prev_tool_names: Mutex::new(Vec::new()),
+            prev_route_log_id: Mutex::new(None),
+            prev_task_node: Mutex::new(None),
             write_queue,
         })
     }
@@ -728,6 +734,37 @@ impl Engine {
             .or_else(|| ws.repo_root.clone())
             .unwrap_or_default();
         let project_key_opt = project_identity.as_ref().map(|id| id.project_key.as_str());
+
+        if self.config.auto_trajectory_enabled && self.mcp_activity.tools_used_since_last_route() {
+            if let Ok(prev) = self.prev_briefing.lock() {
+                if let Some(ref briefing) = *prev {
+                    if !briefing.is_empty() {
+                        let clean_briefing: String = briefing.chars().take(80).collect();
+                        let prev_id = self.prev_route_log_id.lock().ok().and_then(|id| id.clone());
+                        let prev_node = self.prev_task_node.lock().ok().and_then(|n| n.clone());
+                        let _ = crate::trajectory::auto_record_trajectory(
+                            &self.store,
+                            &scope_key,
+                            task_kind.as_str(),
+                            "success",
+                            prev_id.as_deref(),
+                            Some(task_kind.as_str()),
+                            Some(&clean_briefing),
+                        );
+                        if let Some(ref pn) = prev_node {
+                            if pn != task_kind.as_str() {
+                                let _ = self.store.record_procedure_edge(
+                                    &scope_key,
+                                    pn,
+                                    task_kind.as_str(),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let cache_warm = self.warmed.load(Ordering::Relaxed);
 
         let cache_key = route_cache_key(
@@ -753,6 +790,7 @@ impl Engine {
                 }
                 let total_us = started.elapsed().as_micros() as u64;
                 cached.latency_ms = total_us / 1000;
+                cached.cache_hit = true;
                 let timing = RouteTiming {
                     total_us,
                     cache_hit: true,
@@ -762,6 +800,25 @@ impl Engine {
                 let p95 = self.route_latency.p95_ms();
                 self.route_latency.record(timing.total_us / 1000);
                 timing.log_line(p95, &phase);
+                cached.log_id = Uuid::new_v4().to_string();
+                if let Err(err) = crate::observability::log_route(
+                    &self.store,
+                    &cached.log_id,
+                    user_message,
+                    &phase,
+                    &cached,
+                    &[],
+                    false,
+                ) {
+                    tracing::warn!(error = %err, "retrieval log write failed on cache hit");
+                }
+                if let Ok(mut id_guard) = self.prev_route_log_id.lock() {
+                    *id_guard = Some(cached.log_id.clone());
+                }
+                if let Ok(mut node_guard) = self.prev_task_node.lock() {
+                    *node_guard = Some(task_kind.as_str().to_string());
+                }
+                self.mcp_activity.record_route();
                 return Ok(self.finish_route_response(cached));
             }
         }
@@ -785,6 +842,35 @@ impl Engine {
                 }
                 let total_us = started.elapsed().as_micros() as u64;
                 cached.latency_ms = total_us / 1000;
+                cached.cache_hit = true;
+                let timing = RouteTiming {
+                    total_us,
+                    cache_hit: true,
+                    cache_warm,
+                    ..Default::default()
+                };
+                let p95 = self.route_latency.p95_ms();
+                self.route_latency.record(timing.total_us / 1000);
+                timing.log_line(p95, &phase);
+                cached.log_id = Uuid::new_v4().to_string();
+                if let Err(err) = crate::observability::log_route(
+                    &self.store,
+                    &cached.log_id,
+                    user_message,
+                    &phase,
+                    &cached,
+                    &[],
+                    false,
+                ) {
+                    tracing::warn!(error = %err, "retrieval log write failed on session cache hit");
+                }
+                if let Ok(mut id_guard) = self.prev_route_log_id.lock() {
+                    *id_guard = Some(cached.log_id.clone());
+                }
+                if let Ok(mut node_guard) = self.prev_task_node.lock() {
+                    *node_guard = Some(task_kind.as_str().to_string());
+                }
+                self.mcp_activity.record_route();
                 return Ok(self.finish_route_response(cached));
             }
         }
@@ -886,8 +972,8 @@ impl Engine {
         );
         resp.verified_recipes =
             crate::verify::suggest_verified_recipes(&self.store, user_message, project_key_opt, 3);
-        resp.last_verification = project_key_opt
-            .and_then(|key| crate::verify::last_verification(&self.store, key));
+        resp.last_verification =
+            project_key_opt.and_then(|key| crate::verify::last_verification(&self.store, key));
         if let Some(top) = resp.verified_recipes.first() {
             let cmd_display = if top.cmd.len() > 200 {
                 format!("{}...", &top.cmd[..197])
@@ -1028,6 +1114,12 @@ impl Engine {
             if let Ok(mut prev) = self.prev_briefing.lock() {
                 *prev = Some(briefing);
             }
+        }
+        if let Ok(mut id_guard) = self.prev_route_log_id.lock() {
+            *id_guard = Some(resp.log_id.clone());
+        }
+        if let Ok(mut node_guard) = self.prev_task_node.lock() {
+            *node_guard = Some(task_kind.as_str().to_string());
         }
         self.mcp_activity.record_route();
         Ok(resp)
@@ -1488,16 +1580,25 @@ fn build_route_response(
                 let is_info = crate::retrieval::is_informational_query(user_message);
 
                 if !is_agstack && !user_message.is_empty() {
-                    let has_ws_affinity = ws_tags
-                        .iter()
-                        .any(|t| item.topic.to_lowercase().contains(t.to_lowercase().as_str()));
+                    let has_ws_affinity = ws_tags.iter().any(|t| {
+                        item.topic
+                            .to_lowercase()
+                            .contains(t.to_lowercase().as_str())
+                    });
                     if is_info {
-                        let action_match = topic_aff >= 0.5 && (topic_aff == 1.0 || item.score >= 0.68);
+                        let action_match =
+                            topic_aff >= 0.5 && (topic_aff == 1.0 || item.score >= 0.68);
                         if !action_match && item.score < 0.85 {
                             continue;
                         }
-                    } else if (topic_aff == 0.0 && msg_lexical < 0.40 && !has_ws_affinity && item.score < 0.80)
-                        || (topic_aff < 0.5 && msg_lexical < 0.30 && !has_ws_affinity && item.score < 0.72)
+                    } else if (topic_aff == 0.0
+                        && msg_lexical < 0.40
+                        && !has_ws_affinity
+                        && item.score < 0.80)
+                        || (topic_aff < 0.5
+                            && msg_lexical < 0.30
+                            && !has_ws_affinity
+                            && item.score < 0.72)
                     {
                         continue;
                     }
@@ -1557,7 +1658,10 @@ fn build_route_response(
     if prefer_agstack
         && limits.skills > 0
         && !crate::retrieval::is_conversational_or_meta(user_message)
-        && resp.recommended_skills.iter().all(|s| !s.name.contains("agstack"))
+        && resp
+            .recommended_skills
+            .iter()
+            .all(|s| !s.name.contains("agstack"))
     {
         if let Some(agstack_item) = scored.iter().find(|i| {
             matches!(i.item_type, ItemType::Skill)
@@ -1853,7 +1957,10 @@ fn must_apply_for_memory(
 
     if promote {
         let display_text = if is_trap {
-            format!("TRAP WARNING: {}", item.text.chars().take(180).collect::<String>())
+            format!(
+                "TRAP WARNING: {}",
+                item.text.chars().take(180).collect::<String>()
+            )
         } else {
             item.text.chars().take(200).collect()
         };
@@ -2014,7 +2121,17 @@ mod tests {
             rules: 3,
             memory: 5,
         };
-        let resp = build_route_response(&scored, &limits, "implementing", 800, None, None, &[], "", true);
+        let resp = build_route_response(
+            &scored,
+            &limits,
+            "implementing",
+            800,
+            None,
+            None,
+            &[],
+            "",
+            true,
+        );
         assert!(
             resp.relevant_memory.iter().all(|m| {
                 !m.topic.starts_with("session-digest-")
@@ -2153,7 +2270,8 @@ mod tests {
             rules: 0,
             memory: 0,
         };
-        let resp = build_route_response(&scored, &limits, "planning", 800, None, None, &[], "", true);
+        let resp =
+            build_route_response(&scored, &limits, "planning", 800, None, None, &[], "", true);
         assert_eq!(resp.recommended_skills.len(), 1);
         assert_eq!(resp.recommended_skills[0].name, "rust-patterns");
     }
@@ -2384,7 +2502,17 @@ mod tests {
             rules: 2,
             memory: 3,
         };
-        let resp = build_route_response(&scored, &limits, "implementing", 500, None, None, &[], "", true);
+        let resp = build_route_response(
+            &scored,
+            &limits,
+            "implementing",
+            500,
+            None,
+            None,
+            &[],
+            "",
+            true,
+        );
         assert_eq!(resp.applicable_rules.len(), 1);
         assert!(!resp.relevant_memory.is_empty());
         assert!(resp.relevant_memory.iter().any(|m| m.topic == "build-flag"));
@@ -2405,8 +2533,21 @@ mod tests {
             rules: 0,
             memory: 0,
         };
-        let resp = build_route_response(&scored, &limits, "implementing", 500, None, None, &[], "write rust code", true);
-        assert!(resp.recommended_skills.iter().any(|s| s.name == "agstack-mode"));
+        let resp = build_route_response(
+            &scored,
+            &limits,
+            "implementing",
+            500,
+            None,
+            None,
+            &[],
+            "write rust code",
+            true,
+        );
+        assert!(resp
+            .recommended_skills
+            .iter()
+            .any(|s| s.name == "agstack-mode"));
         assert_eq!(resp.recommended_skills[0].name, "agstack-mode");
     }
 
@@ -2425,11 +2566,34 @@ mod tests {
             rules: 0,
             memory: 0,
         };
-        let resp_enabled = build_route_response(&scored, &limits, "implementing", 500, None, None, &[], "write rust code", true);
+        let resp_enabled = build_route_response(
+            &scored,
+            &limits,
+            "implementing",
+            500,
+            None,
+            None,
+            &[],
+            "write rust code",
+            true,
+        );
         assert_eq!(resp_enabled.recommended_skills[0].name, "agstack-mode");
 
-        let resp_disabled = build_route_response(&scored, &limits, "implementing", 500, None, None, &[], "write rust code", false);
-        assert!(!resp_disabled.recommended_skills.iter().any(|s| s.name == "agstack-mode"));
+        let resp_disabled = build_route_response(
+            &scored,
+            &limits,
+            "implementing",
+            500,
+            None,
+            None,
+            &[],
+            "write rust code",
+            false,
+        );
+        assert!(!resp_disabled
+            .recommended_skills
+            .iter()
+            .any(|s| s.name == "agstack-mode"));
         assert_eq!(resp_disabled.recommended_skills[0].name, "general-skill");
     }
 }

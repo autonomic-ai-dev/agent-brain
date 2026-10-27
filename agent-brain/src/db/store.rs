@@ -2320,6 +2320,55 @@ impl BrainStore {
         })
     }
 
+    pub fn record_procedure_edge(
+        &self,
+        source_workflow: &str,
+        source_node: &str,
+        target_node: &str,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            conn.execute(
+                r#"INSERT INTO procedure_edges (source_workflow, source_node, target_node, transition_count, last_transition_at)
+                   VALUES (?1, ?2, ?3, 1, ?4)
+                   ON CONFLICT(source_workflow, source_node, target_node) DO UPDATE SET
+                       transition_count = transition_count + 1,
+                       last_transition_at = ?4"#,
+                params![source_workflow, source_node, target_node, now],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn related_procedure_nodes(
+        &self,
+        source_workflow: &str,
+        seed_node: &str,
+        max_hops: u32,
+    ) -> Result<Vec<String>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"WITH RECURSIVE walk(node_id, depth) AS (
+                       SELECT ?2, 0
+                       UNION ALL
+                       SELECT e.target_node, walk.depth + 1
+                       FROM procedure_edges e
+                       JOIN walk ON e.source_node = walk.node_id
+                       WHERE e.source_workflow = ?1
+                         AND walk.depth < ?3
+                   )
+                   SELECT DISTINCT node_id FROM walk WHERE depth > 0"#,
+            )?;
+            let rows = stmt
+                .query_map(params![source_workflow, seed_node, max_hops], |row| {
+                    row.get::<_, String>(0)
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+            Ok(rows)
+        })
+    }
+
     pub fn tool_log_stats_since(&self, since_ms: i64) -> Result<(usize, u64, f64, usize)> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(

@@ -3,6 +3,9 @@
 //! Routing accuracy is the product USP: these functions normalize queries, expand
 //! related terms, and score lexical overlap so the right skills surface for any task.
 
+use crate::db::store::BrainStore;
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 const STOPWORDS: &[&str] = &[
@@ -223,7 +226,8 @@ pub fn is_conversational_or_meta(query: &str) -> bool {
     }
     let conversational_words = [
         "thanks", "thank", "you", "thx", "ok", "okay", "cool", "great", "done", "got", "it",
-        "sounds", "good", "perfect", "yes", "no", "yep", "nope", "please", "bye", "hello", "hi", "hey",
+        "sounds", "good", "perfect", "yes", "no", "yep", "nope", "please", "bye", "hello", "hi",
+        "hey",
     ];
     let words: Vec<&str> = q
         .split(|c: char| !c.is_alphanumeric())
@@ -288,25 +292,154 @@ pub fn is_conversational_or_meta(query: &str) -> bool {
 }
 
 const SOFTWARE_TERMS: &[&str] = &[
-    "code", "function", "method", "class", "file", "test", "build", "run", "config",
-    "api", "app", "service", "module", "package", "library", "component", "interface",
-    "type", "error", "server", "client", "database", "query", "repo", "git", "branch",
-    "pr", "deploy", "runtime", "script", "framework", "endpoint", "pipeline", "schema",
-    "model", "worker", "process", "stream", "queue", "cache", "token", "auth", "unit",
-    "async", "asyncio", "concurrency", "routing", "migration", "proxy", "container",
-    "k8s", "kubernetes", "postgres", "redis", "nginx", "linux", "sql", "graphql", "grpc",
-    "wasm", "cmake", "terraform", "ansible", "kafka", "rabbitmq", "nats", "sqlite",
-    "mysql", "mongodb", "nextjs", "django", "fastapi", "vitest", "jest", "cypress", "playwright",
-    "numpy", "pandas", "data", "array", "matrix", "tensor", "vector",
-    "pointer", "pointers", "raii", "smart", "mutex", "channel", "goroutine", "goroutines",
-    "sync", "synchronization", "microservice", "microservices", "autowired", "injection",
-    "maven", "pom", "plugin", "plugins", "dependency", "dependencies", "template", "templates",
-    "metaprogramming", "sfinae", "concept", "concepts", "tokio", "mpsc", "cancellation",
-    "angular", "rxjs", "pipe", "debouncetime", "rtic", "cortex", "embedded", "interrupt",
-    "handler", "handlers", "no_std", "cbindgen", "cdylib", "ffi", "header", "export",
-    "exports", "flamegraph", "profiling", "criterion", "microbenchmark", "microbenchmarks",
-    "benchmark", "benchmarks", "compile", "compiler", "golang", "typescript", "javascript",
-    "csharp", "kotlin", "swift", "ruby", "scala", "elixir", "haskell",
+    "code",
+    "function",
+    "method",
+    "class",
+    "file",
+    "test",
+    "build",
+    "run",
+    "config",
+    "api",
+    "app",
+    "service",
+    "module",
+    "package",
+    "library",
+    "component",
+    "interface",
+    "type",
+    "error",
+    "server",
+    "client",
+    "database",
+    "query",
+    "repo",
+    "git",
+    "branch",
+    "pr",
+    "deploy",
+    "runtime",
+    "script",
+    "framework",
+    "endpoint",
+    "pipeline",
+    "schema",
+    "model",
+    "worker",
+    "process",
+    "stream",
+    "queue",
+    "cache",
+    "token",
+    "auth",
+    "unit",
+    "async",
+    "asyncio",
+    "concurrency",
+    "routing",
+    "migration",
+    "proxy",
+    "container",
+    "k8s",
+    "kubernetes",
+    "postgres",
+    "redis",
+    "nginx",
+    "linux",
+    "sql",
+    "graphql",
+    "grpc",
+    "wasm",
+    "cmake",
+    "terraform",
+    "ansible",
+    "kafka",
+    "rabbitmq",
+    "nats",
+    "sqlite",
+    "mysql",
+    "mongodb",
+    "nextjs",
+    "django",
+    "fastapi",
+    "vitest",
+    "jest",
+    "cypress",
+    "playwright",
+    "numpy",
+    "pandas",
+    "data",
+    "array",
+    "matrix",
+    "tensor",
+    "vector",
+    "pointer",
+    "pointers",
+    "raii",
+    "smart",
+    "mutex",
+    "channel",
+    "goroutine",
+    "goroutines",
+    "sync",
+    "synchronization",
+    "microservice",
+    "microservices",
+    "autowired",
+    "injection",
+    "maven",
+    "pom",
+    "plugin",
+    "plugins",
+    "dependency",
+    "dependencies",
+    "template",
+    "templates",
+    "metaprogramming",
+    "sfinae",
+    "concept",
+    "concepts",
+    "tokio",
+    "mpsc",
+    "cancellation",
+    "angular",
+    "rxjs",
+    "pipe",
+    "debouncetime",
+    "rtic",
+    "cortex",
+    "embedded",
+    "interrupt",
+    "handler",
+    "handlers",
+    "no_std",
+    "cbindgen",
+    "cdylib",
+    "ffi",
+    "header",
+    "export",
+    "exports",
+    "flamegraph",
+    "profiling",
+    "criterion",
+    "microbenchmark",
+    "microbenchmarks",
+    "benchmark",
+    "benchmarks",
+    "compile",
+    "compiler",
+    "golang",
+    "typescript",
+    "javascript",
+    "csharp",
+    "kotlin",
+    "swift",
+    "ruby",
+    "scala",
+    "elixir",
+    "haskell",
 ];
 
 pub fn query_has_software_context(query: &str) -> bool {
@@ -421,6 +554,114 @@ pub fn minimum_recommendation_score(scored_top_non_memory: f64) -> f64 {
     (scored_top_non_memory * 0.45).max(0.12)
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcedureRecallItem {
+    pub workflow_id: String,
+    pub node_id: String,
+    pub outcome: String,
+    pub task_kind: Option<String>,
+    pub notes: Option<String>,
+    pub score: f64,
+    pub success_rate: f64,
+    pub total_runs: usize,
+    pub next_nodes: Vec<String>,
+}
+
+pub fn recall_procedures(
+    store: &BrainStore,
+    query: &str,
+    task_kind: Option<&str>,
+    limit: usize,
+) -> Result<Vec<ProcedureRecallItem>> {
+    let all = store.query_trajectories()?;
+    if all.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut groups: std::collections::HashMap<
+        (String, String),
+        (usize, usize, Option<String>, Option<String>),
+    > = std::collections::HashMap::new();
+
+    for t in &all {
+        let key = (t.workflow_id.clone(), t.node_id.clone());
+        let entry = groups
+            .entry(key)
+            .or_insert((0, 0, t.task_kind.clone(), t.notes.clone()));
+        entry.0 += 1;
+        if t.outcome == "success" {
+            entry.1 += 1;
+        }
+        if t.notes.is_some() {
+            entry.3 = t.notes.clone();
+        }
+    }
+
+    let query_lower = query.to_lowercase();
+    let query_tokens: Vec<&str> = query_lower.split_whitespace().collect();
+
+    let mut ranked = Vec::new();
+    for ((wf, node), (total, successes, tk, notes)) in groups {
+        let success_rate = successes as f64 / total as f64;
+        let mut score = 0.0;
+
+        let exact_kind_match = task_kind.is_some_and(|k| {
+            tk.as_deref()
+                .map(|t| t.eq_ignore_ascii_case(k))
+                .unwrap_or(false)
+        });
+        if exact_kind_match {
+            score += 0.5;
+        }
+
+        let wf_lower = wf.to_lowercase();
+        let node_lower = node.to_lowercase();
+        let notes_lower = notes.as_deref().unwrap_or("").to_lowercase();
+
+        let mut token_matches = 0usize;
+        for token in &query_tokens {
+            if wf_lower.contains(token) || node_lower.contains(token) || notes_lower.contains(token)
+            {
+                token_matches += 1;
+            }
+        }
+
+        if !query_tokens.is_empty() {
+            score += 0.3 * (token_matches as f64 / query_tokens.len() as f64);
+        }
+
+        score += 0.2 * success_rate;
+
+        let next_nodes = store
+            .related_procedure_nodes(&wf, &node, 2)
+            .unwrap_or_default();
+
+        ranked.push(ProcedureRecallItem {
+            workflow_id: wf,
+            node_id: node,
+            outcome: if success_rate >= 0.5 {
+                "success".into()
+            } else {
+                "failure".into()
+            },
+            task_kind: tk,
+            notes,
+            score,
+            success_rate,
+            total_runs: total,
+            next_nodes,
+        });
+    }
+
+    ranked.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    ranked.truncate(limit.max(1));
+    Ok(ranked)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -459,5 +700,41 @@ mod tests {
     fn fts_strict_uses_and_for_multiple_terms() {
         let q = fts_query_strict("review pull request changes");
         assert!(q.contains(" AND "));
+    }
+
+    #[test]
+    fn recall_procedures_ranks_exact_and_lexical_matches() {
+        use tempfile::TempDir;
+        let dir = TempDir::new().unwrap();
+        let store = BrainStore::open(&dir.path().join("brain.db")).unwrap();
+        store
+            .insert_workflow_trajectory(
+                "bugfix",
+                "reproduce",
+                "success",
+                None,
+                Some("debugging"),
+                Some("write failing test reproduction"),
+            )
+            .unwrap();
+        store
+            .insert_workflow_trajectory(
+                "bugfix",
+                "fix",
+                "success",
+                None,
+                Some("debugging"),
+                Some("patch root cause"),
+            )
+            .unwrap();
+        store
+            .record_procedure_edge("bugfix", "reproduce", "fix")
+            .unwrap();
+
+        let hits = recall_procedures(&store, "reproduce bug", Some("debugging"), 5).unwrap();
+        assert!(!hits.is_empty());
+        assert_eq!(hits[0].workflow_id, "bugfix");
+        assert_eq!(hits[0].node_id, "reproduce");
+        assert!(hits[0].next_nodes.contains(&"fix".to_string()));
     }
 }

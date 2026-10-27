@@ -50,6 +50,7 @@ pub struct Config {
     pub precision_rerank_enabled: bool,
     /// Split multi-intent turns into sub-queries and RRF-fuse rankings (default off).
     pub query_decompose_enabled: bool,
+    pub auto_trajectory_enabled: bool,
 }
 
 impl Config {
@@ -72,11 +73,17 @@ impl Config {
             (memory.clone(), memory.clone(), memory.join("logs"))
         };
 
+        let settings = crate::settings::AgentBrainSettings::load(&home);
+
         Ok(Self {
             db_path: data_dir.join("brain.db"),
             vectors_path: data_dir.join("vectors.bin"),
-            turn_ttl_secs: 60,
+            turn_ttl_secs: env_u64("AGENT_BRAIN_TURN_TTL_SECS", settings.routing.turn_ttl_secs),
             auto_capture_enabled: true,
+            auto_trajectory_enabled: env_bool(
+                "AGENT_BRAIN_AUTO_TRAJECTORY",
+                settings.routing.auto_trajectory,
+            ),
             session_ingest_enabled: std::env::var("AGENT_BRAIN_SESSION_INGEST")
                 .map(|v| v != "0" && v != "false")
                 .unwrap_or(true),
@@ -119,7 +126,10 @@ impl Config {
             route_briefing_stderr: env_bool("AGENT_BRAIN_ROUTE_BRIEFING_STDERR", true),
             mcp_gate_enabled: env_bool("AGENT_BRAIN_MCP_GATE", true),
             mcp_gate_ttl_secs: env_u64("AGENT_BRAIN_MCP_GATE_TTL", 14_400),
-            session_stickiness_secs: env_u64("AGENT_BRAIN_SESSION_STICKINESS_SECS", 1800),
+            session_stickiness_secs: env_u64(
+                "AGENT_BRAIN_SESSION_STICKINESS_SECS",
+                settings.routing.session_stickiness_secs,
+            ),
             ann_enabled: env_bool("AGENT_BRAIN_ANN", true),
             ann_min_index: env_usize(
                 "AGENT_BRAIN_ANN_MIN_INDEX",
@@ -172,6 +182,7 @@ impl Config {
             ann_top_k: crate::ann::DEFAULT_ANN_TOP_K,
             precision_rerank_enabled: false,
             query_decompose_enabled: false,
+            auto_trajectory_enabled: false,
             workflow_dirs: vec![],
         }
     }

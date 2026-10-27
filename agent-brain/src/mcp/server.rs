@@ -248,6 +248,15 @@ struct StoreTrajectoryParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+struct RecallProceduresParams {
+    query: String,
+    #[serde(default)]
+    task_kind: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 struct GcParams {
     #[serde(default = "default_min_confidence")]
     min_confidence: f64,
@@ -916,6 +925,26 @@ impl BrainMcp {
         json_result(serde_json::json!({ "trajectory": report }))
     }
 
+    #[tool(
+        description = "Recall proven procedures and workflow steps based on task intent and historical trajectories."
+    )]
+    async fn recall_procedures(
+        &self,
+        params: Parameters<RecallProceduresParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let limit = p.limit.unwrap_or(5);
+        let items = crate::retrieval::recall_procedures(
+            &self.engine.store,
+            &p.query,
+            p.task_kind.as_deref(),
+            limit,
+        )
+        .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        json_result(serde_json::json!({ "procedures": items }))
+    }
+
     #[tool(description = "Run garbage collection: dedup, prune, vacuum")]
     async fn brain_gc(&self, params: Parameters<GcParams>) -> Result<CallToolResult, McpError> {
         let _req = self.engine.mcp_activity.begin_request();
@@ -925,9 +954,7 @@ impl BrainMcp {
         json_result(stats)
     }
 
-    #[tool(
-        description = "Record LLM turn telemetry, calculate prompt/cache costs and savings, ."
-    )]
+    #[tool(description = "Record LLM turn telemetry, calculate prompt/cache costs and savings, .")]
     async fn record_turn_telemetry(
         &self,
         params: Parameters<RecordTurnTelemetryParams>,
@@ -2560,6 +2587,7 @@ mod tests {
             ann_enabled: true,
             ann_min_index: 1_500,
             ann_top_k: 100,
+            auto_trajectory_enabled: false,
             workflow_dirs: vec![],
         };
         let store = Arc::new(BrainStore::open(&config.db_path).expect("open store"));

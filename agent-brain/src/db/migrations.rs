@@ -320,6 +320,28 @@ pub fn run(conn: &Connection) -> rusqlite::Result<()> {
         conn.execute("UPDATE schema_version SET version = 22", [])?;
     }
 
+    if version < 23 {
+        migrate_v23(conn)?;
+        conn.execute("UPDATE schema_version SET version = 23", [])?;
+    }
+
+    Ok(())
+}
+
+fn migrate_v23(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS procedure_edges (
+            source_workflow TEXT NOT NULL,
+            source_node TEXT NOT NULL,
+            target_node TEXT NOT NULL,
+            transition_count INTEGER NOT NULL DEFAULT 1,
+            last_transition_at INTEGER NOT NULL,
+            PRIMARY KEY (source_workflow, source_node, target_node)
+        );
+        CREATE INDEX IF NOT EXISTS idx_procedure_edges_source ON procedure_edges(source_workflow, source_node);
+        "#,
+    )?;
     Ok(())
 }
 
@@ -784,7 +806,10 @@ fn migrate_v21(conn: &Connection) -> rusqlite::Result<()> {
 
 fn migrate_v22(conn: &Connection) -> rusqlite::Result<()> {
     if !column_exists(conn, "verify_outcomes", "tests_run")? {
-        conn.execute("ALTER TABLE verify_outcomes ADD COLUMN tests_run INTEGER", [])?;
+        conn.execute(
+            "ALTER TABLE verify_outcomes ADD COLUMN tests_run INTEGER",
+            [],
+        )?;
     }
     Ok(())
 }
