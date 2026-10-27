@@ -418,15 +418,19 @@ pub fn record_from_result(
     let outcome_str = if success { "success" } else { "failure" };
     let clean_cmd = cmd.split_whitespace().next().unwrap_or("verify");
     let notes_str = format!("exit {exit_code} {cmd}");
+    let wf_id = project_key.as_deref().unwrap_or("project");
     let _ = crate::trajectory::auto_record_trajectory(
         store,
-        project_key.as_deref().unwrap_or("project"),
+        wf_id,
         clean_cmd,
         outcome_str,
         resolved_log_id.as_deref(),
         Some("verification"),
         Some(&notes_str),
     );
+    if success {
+        let _ = store.record_procedure_edge(wf_id, "implementing", clean_cmd);
+    }
 
     Ok(VerifyReport {
         id,
