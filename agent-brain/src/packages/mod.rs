@@ -335,6 +335,18 @@ pub fn discover_package_roots(package_root: &Path) -> Vec<PathBuf> {
         "agents",
         "rules",
         "commands",
+        ".claude/skills",
+        ".claude/agents",
+        ".claude/rules",
+        ".claude/commands",
+        ".agents/skills",
+        ".agents/rules",
+        ".agents",
+        ".cursor/rules",
+        ".cursor/skills",
+        ".github/skills",
+        ".antigravity/skills",
+        ".antigravity/rules",
     ] {
         let path = package_root.join(rel);
         if path.exists() {
@@ -349,7 +361,56 @@ pub fn discover_package_roots(package_root: &Path) -> Vec<PathBuf> {
         }
     }
 
-    roots
+    let mut discovered = std::collections::BTreeSet::new();
+    for entry in walkdir::WalkDir::new(package_root)
+        .into_iter()
+        .filter_entry(|e| {
+            let name = e.file_name().to_string_lossy();
+            !matches!(
+                name.as_ref(),
+                ".git" | "node_modules" | "target" | "dist" | "build" | ".venv" | "venv" | "vendor"
+            )
+        })
+        .filter_map(|e| e.ok())
+    {
+        let p = entry.path();
+        if entry.file_type().is_dir() {
+            if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                if matches!(name, "skills" | "agents" | "rules" | "commands") {
+                    discovered.insert(p.to_path_buf());
+                }
+            }
+        } else if entry.file_type().is_file() {
+            if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                if name == "SKILL.md" {
+                    if let Some(parent) = p.parent() {
+                        if let Some(grandparent) = parent.parent() {
+                            if grandparent.file_name().and_then(|n| n.to_str()) == Some("skills") {
+                                discovered.insert(grandparent.to_path_buf());
+                            } else {
+                                discovered.insert(parent.to_path_buf());
+                            }
+                        } else {
+                            discovered.insert(parent.to_path_buf());
+                        }
+                    }
+                } else if matches!(name, "AGENTS.md" | "RULES.md") {
+                    discovered.insert(p.to_path_buf());
+                }
+            }
+        }
+    }
+    roots.extend(discovered);
+
+    roots.sort();
+    roots.dedup();
+    let mut filtered: Vec<PathBuf> = Vec::new();
+    for r in roots {
+        if !filtered.iter().any(|existing| r.starts_with(existing) && &r != existing) {
+            filtered.push(r);
+        }
+    }
+    filtered
 }
 
 fn read_manifest_roots(package_root: &Path) -> Option<Vec<String>> {
@@ -491,6 +552,19 @@ mod tests {
         assert!(roots.iter().any(|p| p.ends_with("skills")));
         assert!(roots.iter().any(|p| p.ends_with("agents")));
         assert!(roots.iter().any(|p| p.ends_with("AGENTS.md")));
+    }
+
+    #[test]
+    fn discovers_nested_and_non_standard_package_roots() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join(".claude/skills/ui-ux")).unwrap();
+        fs::write(dir.path().join(".claude/skills/ui-ux/SKILL.md"), "---\nname: ui-ux\n---\nUI skill").unwrap();
+        fs::create_dir_all(dir.path().join("sub/custom/tools")).unwrap();
+        fs::write(dir.path().join("sub/custom/tools/SKILL.md"), "---\nname: tool\n---\nTool skill").unwrap();
+
+        let roots = discover_package_roots(dir.path());
+        assert!(roots.iter().any(|p| p.ends_with(".claude/skills") || p.ends_with("skills")));
+        assert!(roots.iter().any(|p| p.ends_with("sub/custom/tools") || p.ends_with("tools")));
     }
 
     #[test]
