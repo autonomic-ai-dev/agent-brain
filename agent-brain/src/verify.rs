@@ -414,6 +414,24 @@ pub fn record_from_result(
         source.as_str(),
         project_key.as_deref(),
     )?;
+
+    let outcome_str = if success { "success" } else { "failure" };
+    let clean_cmd = cmd.split_whitespace().next().unwrap_or("verify");
+    let notes_str = format!("exit {exit_code} {cmd}");
+    let wf_id = project_key.as_deref().unwrap_or("project");
+    let _ = crate::trajectory::auto_record_trajectory(
+        store,
+        wf_id,
+        clean_cmd,
+        outcome_str,
+        resolved_log_id.as_deref(),
+        Some("verification"),
+        Some(&notes_str),
+    );
+    if success {
+        let _ = store.record_procedure_edge(wf_id, "implementing", clean_cmd);
+    }
+
     Ok(VerifyReport {
         id,
         exit_code,
@@ -829,7 +847,10 @@ mod tests {
 
         store.set_verify_outcome_tests_run(&report.id, 303).unwrap();
 
-        assert_eq!(store.verify_outcome_tests_run(&report.id).unwrap(), Some(303));
+        assert_eq!(
+            store.verify_outcome_tests_run(&report.id).unwrap(),
+            Some(303)
+        );
     }
 
     #[test]
@@ -1000,8 +1021,7 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
             Some("project-a"),
         );
 
-        let recipes =
-            suggest_verified_recipes(&store, "run tests for brain", Some("project-a"), 2);
+        let recipes = suggest_verified_recipes(&store, "run tests for brain", Some("project-a"), 2);
         assert!(!recipes.is_empty());
         assert_eq!(recipes[0].cmd, "cargo test -p agent-brain");
         assert_eq!(recipes[0].exit_code, 0);
@@ -1039,8 +1059,7 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
             Some("project-a"),
         );
 
-        let recipes =
-            suggest_verified_recipes(&store, "run tests for brain", Some("project-a"), 2);
+        let recipes = suggest_verified_recipes(&store, "run tests for brain", Some("project-a"), 2);
         assert!(
             recipes.is_empty(),
             "recently failed command must be squelched"

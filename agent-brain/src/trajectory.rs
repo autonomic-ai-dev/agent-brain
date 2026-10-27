@@ -70,6 +70,27 @@ pub fn store_trajectory(
     })
 }
 
+pub fn auto_record_trajectory(
+    store: &BrainStore,
+    workflow_id: &str,
+    node_id: &str,
+    outcome: &str,
+    route_log_id: Option<&str>,
+    task_kind: Option<&str>,
+    notes: Option<&str>,
+) -> Result<StoreTrajectoryReport> {
+    let bounded_notes = notes.map(|n| n.split_whitespace().take(50).collect::<Vec<_>>().join(" "));
+    store_trajectory(
+        store,
+        workflow_id,
+        node_id,
+        outcome,
+        route_log_id,
+        task_kind,
+        bounded_notes.as_deref(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

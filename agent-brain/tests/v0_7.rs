@@ -46,6 +46,7 @@ fn test_config(home: &std::path::Path) -> Config {
         ann_enabled: true,
         ann_min_index: 1_500,
         ann_top_k: 100,
+        auto_trajectory_enabled: false,
         workflow_dirs: vec![],
     }
 }

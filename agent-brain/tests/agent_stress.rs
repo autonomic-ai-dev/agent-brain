@@ -48,17 +48,33 @@ fn test_config(dir: &TempDir) -> Config {
         ann_enabled: true,
         ann_min_index: 1_500,
         ann_top_k: 100,
+        auto_trajectory_enabled: false,
         workflow_dirs: vec![],
     }
 }
 
 fn seed_test_skills_agents_and_tools(store: &BrainStore) {
     let skills = [
-        ("rust-testing", "Unit and integration testing with cargo test and proptest assertions"),
-        ("db-migrations", "Database migrations schema evolution with diesel and sqlx"),
-        ("docker-optimization", "Docker container multi-stage build optimization and caching"),
-        ("kubernetes-deploy", "Kubernetes manifest deployment helm charts ingress configuration"),
-        ("python-fastapi", "FastAPI asynchronous REST API endpoints pydantic models validation"),
+        (
+            "rust-testing",
+            "Unit and integration testing with cargo test and proptest assertions",
+        ),
+        (
+            "db-migrations",
+            "Database migrations schema evolution with diesel and sqlx",
+        ),
+        (
+            "docker-optimization",
+            "Docker container multi-stage build optimization and caching",
+        ),
+        (
+            "kubernetes-deploy",
+            "Kubernetes manifest deployment helm charts ingress configuration",
+        ),
+        (
+            "python-fastapi",
+            "FastAPI asynchronous REST API endpoints pydantic models validation",
+        ),
     ];
 
     for (topic, text) in skills {
@@ -78,8 +94,14 @@ fn seed_test_skills_agents_and_tools(store: &BrainStore) {
     }
 
     let agents = [
-        ("research-agent", "Autonomous research agent exploring codebase searching documentation"),
-        ("database-agent", "Database debugger executing explain plans analyzing query performance"),
+        (
+            "research-agent",
+            "Autonomous research agent exploring codebase searching documentation",
+        ),
+        (
+            "database-agent",
+            "Database debugger executing explain plans analyzing query performance",
+        ),
     ];
 
     for (topic, text) in agents {
@@ -107,17 +129,20 @@ fn seed_test_skills_agents_and_tools(store: &BrainStore) {
         IndexedUpstreamTool {
             server: "devtools".into(),
             name: "submit_workflow".into(),
-            description: "Submit DAG workflow yaml to spine for multi-step autonomous execution".into(),
+            description: "Submit DAG workflow yaml to spine for multi-step autonomous execution"
+                .into(),
         },
         IndexedUpstreamTool {
             server: "devtools".into(),
             name: "inspect_dom".into(),
-            description: "Capture and inspect web DOM tree screenshot accessibility elements".into(),
+            description: "Capture and inspect web DOM tree screenshot accessibility elements"
+                .into(),
         },
         IndexedUpstreamTool {
             server: "devtools".into(),
             name: "budget_status".into(),
-            description: "Check token budget quota status and remaining execution allocation".into(),
+            description: "Check token budget quota status and remaining execution allocation"
+                .into(),
         },
     ];
 
@@ -129,15 +154,13 @@ fn configure_upstream_settings(home: &std::path::Path) {
         upstream_mcp: UpstreamMcpSettings {
             enabled: true,
             suggest_limit: 4,
-            servers: vec![
-                UpstreamServerConfig {
-                    name: "devtools".into(),
-                    command: "devtools".into(),
-                    args: vec!["serve".into()],
-                    env: std::collections::HashMap::new(),
-                    enabled: true,
-                },
-            ],
+            servers: vec![UpstreamServerConfig {
+                name: "devtools".into(),
+                command: "devtools".into(),
+                args: vec!["serve".into()],
+                env: std::collections::HashMap::new(),
+                enabled: true,
+            }],
             ..Default::default()
         },
         ..Default::default()
@@ -204,7 +227,9 @@ fn agents_pick_expected_skills_and_mcp_tools() {
 
         if query.contains("unit tests") {
             assert!(
-                resp.recommended_skills.iter().any(|s| s.name == expected_skill_or_none),
+                resp.recommended_skills
+                    .iter()
+                    .any(|s| s.name == expected_skill_or_none),
                 "Query {:?} expected skill {}, got: {:?}",
                 query,
                 expected_skill_or_none,
@@ -260,17 +285,27 @@ fn concurrent_stress_test_routing_and_memory_storage() {
                     )
                     .unwrap();
 
-                assert!(resp.must_apply.iter().any(|m| m.topic == "agstack-invariants"));
+                assert!(resp
+                    .must_apply
+                    .iter()
+                    .any(|m| m.topic == "agstack-invariants"));
 
                 if query.contains("unit tests") {
-                    assert!(resp.recommended_skills.iter().any(|s| s.name == "rust-testing"));
-                    assert!(resp.suggested_tools.iter().any(|t| t.tool == "run_shell_command"));
+                    assert!(resp
+                        .recommended_skills
+                        .iter()
+                        .any(|s| s.name == "rust-testing"));
+                    assert!(resp
+                        .suggested_tools
+                        .iter()
+                        .any(|t| t.tool == "run_shell_command"));
                 } else if query.contains("thanks") {
                     assert!(resp.recommended_skills.is_empty());
                 }
 
                 if i % 10 == 0 {
-                    let fact = format!("Thread {} established invariant milestone {}", thread_id, i);
+                    let fact =
+                        format!("Thread {} established invariant milestone {}", thread_id, i);
                     let emb = deterministic_embedding(&fact);
                     let hash = content_hash(&fact);
                     st.store_fact(

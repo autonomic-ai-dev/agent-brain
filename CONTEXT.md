@@ -1,7 +1,7 @@
 # agent-brain — Deep Operational & Architectural Context for Agents
 
-> **Cognitive Core, Persistent Volume & Turn Router** — In-depth architectural guide, mental model, complete CLI matrix, MCP tool contracts, and failure recovery runbooks for `agent-brain`.  
-> **Ecosystem Version Baseline:** `v1.0.0-beta.3.4`  
+> **Cognitive Core, Persistent Volume, Turn Router & Procedure Graph** — In-depth architectural guide, mental model, complete CLI matrix, MCP tool contracts, and failure recovery runbooks for `agent-brain`.  
+> **Ecosystem Version Baseline:** `v1.0.0-rc2+` (Schema v23)  
 > **Documentation Hub:** [https://autonomic-ai.dev/docs/memory](https://autonomic-ai.dev/docs/memory) · [Architecture Hub](https://autonomic-ai.dev/docs/architecture)  
 > **Default Storage:** `~/.autonomic/memory/` (`brain.db`, `packages/`, `pending/`, `serve.lock`)
 
@@ -40,6 +40,11 @@ flowchart TD
         HistoryCheck -->|Exit != 0| SquelchRecipe["Squelch failing suggestions"]
     end
 
+    subgraph ProcedureEngine ["Procedure Graph Engine (Schema v23)"]
+        RecallCmd["recall_procedures(query, task_kind)"] --> CTE["Recursive CTE Traversal<br>procedure_edges"]
+        CTE --> ProcedureHits["Ranked Procedure Sequences & Next Steps"]
+    end
+
     BudgetPacker & PromoteMustApply & SquelchRecipe --> RouteResponse["RouteTaskResponse<br>(skills, rules, memory, suggested_tools)"]
     RouteResponse --> AgentWork["Agent Executes Task"]
     
@@ -70,7 +75,7 @@ flowchart TD
    - Agents must first scout paths using token-bounded utilities: `file_summary`, `read_file_head`, `read_file_tail`, or `grep_search`.
    - Scouting a file automatically unlocks native `read_file` and editing for that file path for 3,600 seconds (`scout_unlock_secs`).
 5. **Execution & Workflow Delegation:** The agent performs edits and executes commands. For multi-step tasks, the agent runs an `agent-spine` workflow with `agent-spine run --workflow <name>`.
-6. **Closed-Loop Verification:** Command execution is run or recorded via `agent-brain verify -- <cmd>` (or `--source orchestrator`). This links the execution outcome to the current `route_log_id` for reinforcement learning.
+6. **Closed-Loop Verification & Trajectory Ingestion:** Command execution is run or recorded via `agent-brain verify -- <cmd>` (or `--source orchestrator`). This links the execution outcome to the current `route_log_id` for reinforcement learning. Automated trajectory capture concurrently logs the executed transition into `workflow_trajectory` and builds the procedure graph (`procedure_edges`) for subsequent procedural recall.
 7. **Memory Persistence:** At milestone completion, the agent calls `store_memory` with a concise fact (max 50 words). If the host MCP socket disconnects unexpectedly, the resilient fallback queue stores the fact to `~/.autonomic/memory/pending/`.
 
 ---
@@ -215,6 +220,15 @@ When running in stdio MCP mode (`agent-brain serve`), the following tools are ex
 ### 5.6 `get_autonomic_catalog`
 - **Description:** Returns the agent-brain and agent-spine capability catalog and delegation rules. Bypasses turn route gates to allow instant discovery.
 
+### 5.7 `recall_procedures` (Procedure Graph Retrieval)
+- **Description:** Recalls proven multi-step execution procedures matching a task query or kind, ranked by lexical match, task affinity, and historical success rate, with connected next-step graph nodes populated via recursive CTEs.
+- **Parameters:**
+  - `query` (string, required): Search query describing the procedural task or action.
+  - `task_kind` (string, optional): Specific task category (e.g. `implementing`, `debugging`, `review`, `verification`, `architecture`).
+  - `limit` (integer, optional, default: 5): Maximum number of ranked procedure sequences to return.
+- **Return Object:**
+  - Array of procedure matches containing `workflow_id`, `node_id`, `outcome`, `task_kind`, `score`, `success_rate`, `total_runs`, and `next_nodes`.
+
 ---
 
 ## 6. Filesystem & Configuration Schema
@@ -222,7 +236,7 @@ When running in stdio MCP mode (`agent-brain serve`), the following tools are ex
 ### 6.1 Directory Layout
 ```text
 ~/.autonomic/memory/
-├── brain.db                 # SQLite database (tables: memories, skills, verify_outcomes, route_logs)
+├── brain.db                 # SQLite database (tables: memories, skills, verify_outcomes, route_logs, workflow_trajectory, procedure_edges)
 ├── brain.db-wal             # Write-Ahead Log
 ├── brain.db-shm             # Shared memory index
 ├── serve.lock               # PID advisory lock for exclusive stdio serve
@@ -239,8 +253,12 @@ The brain home is `~/.autonomic/memory` by default; set `AGENT_BRAIN_HOME` to ch
 ```yaml
 auto_update:
   enabled: false
+routing:
+  session_stickiness_secs: 1800  # Reuse warm route cache across turns in the same IDE session
+  turn_ttl_secs: 60              # Freshness TTL for route cache keys
+  auto_trajectory: true          # Automatically record execution transitions into procedure DAG
 upstream_mcp:
-  enabled: false        # route_to_mcp to MCP servers you configure
+  enabled: false                 # route_to_mcp to MCP servers you configure
   servers: []
 memory_gc:
   stale_days: 90
