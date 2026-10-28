@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0-rc3] - 2026-10-28
+
+### Added
+- **Procedure Graph Retrieval (`recall_procedures`)**: Ranks multi-step execution procedures by exact `task_kind` match, lexical query relevance, and historical success rate, dynamically hydrating connected downstream nodes via SQLite recursive CTEs (`procedure_edges`, migration v23).
+- **Automated Trajectory Ingestion**: Background capture into `workflow_trajectory` records execution steps and outcomes across `verify` and turn transitions behind a configurable toggle (`auto_trajectory = true`).
+- **Closed-Loop Outcome Attribution**: Automatically correlates verify and shell execution outcomes with the active turn's `route_log_id`, boosting or penalizing retrieved context weights.
+
+### Changed
+- **Modernized Documentation & Architecture Hub**: Re-architected `README.md` into structured core pillars (Dynamic Governor, Procedure Graph, Security Gates, Verification Closed-Loop), clean runtime compatibility matrix, and streamlined CLI reference.
+
+### Fixed
+- Route cache telemetry tracking and retrieval logging across repeated turns.
+- Scale benchmark dynamic threshold in debug assertions under high CPU load.
+
 ## [1.0.0-rc2] - 2026-10-26
 
 ### Changed
