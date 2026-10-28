@@ -30,6 +30,7 @@ pub struct BrainMcp {
     #[allow(dead_code)]
     tool_router: ToolRouter<Self>,
     route_gate: Arc<McpRouteGate>,
+    active_cwd: Arc<std::sync::RwLock<Option<PathBuf>>>,
 }
 
 impl BrainMcp {
@@ -38,7 +39,42 @@ impl BrainMcp {
             route_gate: Arc::new(McpRouteGate::from_config(&engine.config)),
             engine,
             tool_router: Self::tool_router(),
+            active_cwd: Arc::new(std::sync::RwLock::new(None)),
         }
+    }
+
+    fn set_active_cwd(&self, cwd: PathBuf) {
+        if let Ok(mut lock) = self.active_cwd.write() {
+            *lock = Some(cwd);
+        }
+    }
+
+    fn active_cwd(&self) -> Option<PathBuf> {
+        self.active_cwd
+            .read()
+            .ok()
+            .and_then(|guard| guard.clone())
+            .or_else(|| std::env::current_dir().ok())
+    }
+
+    fn resolve_cwd(&self, explicit: Option<&str>) -> Option<PathBuf> {
+        if let Some(explicit) = explicit {
+            let path = PathBuf::from(explicit);
+            self.set_active_cwd(path.clone());
+            Some(path)
+        } else {
+            self.active_cwd()
+        }
+    }
+
+    fn resolve_graphify_repo(&self, cwd: Option<&str>) -> Result<PathBuf, McpError> {
+        let path = self
+            .resolve_cwd(cwd)
+            .ok_or_else(|| {
+                McpError::invalid_params("current_working_directory required".to_string(), None)
+            })?;
+        std::fs::canonicalize(&path)
+            .map_err(|e| McpError::invalid_params(format!("resolve repo root: {e}"), None))
     }
 
     fn require_route(&self, tool: &str) -> Result<(), McpError> {
@@ -138,6 +174,8 @@ struct StoreMemoryParams {
     /// Unix timestamp in milliseconds when this fact expires (archived by temporal prune).
     #[serde(default)]
     invalid_at: Option<i64>,
+    #[serde(default)]
+    current_working_directory: Option<String>,
 }
 
 fn default_scope() -> String {
@@ -696,7 +734,7 @@ impl BrainMcp {
     ) -> Result<CallToolResult, McpError> {
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
-        let cwd = p.current_working_directory.as_ref().map(PathBuf::from);
+        let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
         let resp = self
             .engine
             .route_task(
@@ -735,7 +773,7 @@ impl BrainMcp {
         self.require_route("get_context")?;
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
-        let cwd = p.current_working_directory.as_ref().map(PathBuf::from);
+        let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
         let types: Vec<ItemType> = p
             .include_types
             .iter()
@@ -799,8 +837,9 @@ impl BrainMcp {
             }
         }
 
-        let scope_key = std::env::current_dir().ok().and_then(|cwd| {
-            let identity = crate::project_key::resolve_project_key(&cwd).ok()?;
+        let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
+        let scope_key = cwd.as_deref().and_then(|cwd| {
+            let identity = crate::project_key::resolve_project_key(cwd).ok()?;
             let domain = self
                 .engine
                 .store
@@ -864,7 +903,7 @@ impl BrainMcp {
             .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
         let config_path = p.config_path.as_ref().map(PathBuf::from);
         let scenarios = p.scenarios_dir.as_ref().map(PathBuf::from);
-        let cwd = p.cwd.as_ref().map(PathBuf::from);
+        let cwd = p.cwd.as_ref().map(PathBuf::from).or_else(|| self.active_cwd());
         let report = crate::verify::record_from_result(
             &self.engine.store,
             p.exit_code,
@@ -892,7 +931,8 @@ impl BrainMcp {
             .0
             .project
             .map(PathBuf::from)
-            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+            .or_else(|| self.active_cwd())
+            .unwrap_or_default();
         let engine = self.engine.clone();
         let value = tokio::task::spawn_blocking(move || {
             crate::verify::run_project_verify(&engine.store, &project)
@@ -1378,7 +1418,7 @@ impl BrainMcp {
         self.require_route("file_summary")?;
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
-        let cwd = p.current_working_directory.as_ref().map(PathBuf::from);
+        let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
         let path = crate::token_tools::resolve_tool_path(&p.path, cwd.as_deref())
             .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
         let resp = crate::token_tools::file_summary(&path, p.allow_blocked_paths, p.max_tokens)
@@ -1398,7 +1438,7 @@ impl BrainMcp {
         self.require_route("read_file_head")?;
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
-        let cwd = p.current_working_directory.as_ref().map(PathBuf::from);
+        let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
         let path = crate::token_tools::resolve_tool_path(&p.path, cwd.as_deref())
             .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
         let resp = crate::token_tools::read_file_head(
@@ -1424,7 +1464,7 @@ impl BrainMcp {
         self.require_route("read_file_tail")?;
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
-        let cwd = p.current_working_directory.as_ref().map(PathBuf::from);
+        let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
         let path = crate::token_tools::resolve_tool_path(&p.path, cwd.as_deref())
             .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
         let resp = crate::token_tools::read_file_tail(
@@ -1450,7 +1490,7 @@ impl BrainMcp {
         self.require_route("grep_search")?;
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
-        let cwd = p.current_working_directory.as_ref().map(PathBuf::from);
+        let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
         let path = crate::token_tools::resolve_tool_path(&p.path, cwd.as_deref())
             .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
         let resp = crate::token_tools::grep_search(
@@ -1477,7 +1517,7 @@ impl BrainMcp {
         self.require_route("read_file")?;
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
-        let cwd = p.current_working_directory.as_ref().map(PathBuf::from);
+        let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
         let path = crate::token_tools::resolve_tool_path(&p.path, cwd.as_deref())
             .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
         let resp = crate::token_tools::read_file(
@@ -1504,7 +1544,7 @@ impl BrainMcp {
         self.require_route("list_directory")?;
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
-        let cwd = p.current_working_directory.as_ref().map(PathBuf::from);
+        let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
         let path = crate::token_tools::resolve_tool_path(&p.path, cwd.as_deref())
             .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
         let resp = crate::token_tools::list_directory(
@@ -1529,7 +1569,7 @@ impl BrainMcp {
         self.require_route("find_files")?;
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
-        let cwd = p.current_working_directory.as_ref().map(PathBuf::from);
+        let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
         let path = crate::token_tools::resolve_tool_path(&p.path, cwd.as_deref())
             .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
         let resp = crate::token_tools::find_files(
@@ -1563,7 +1603,7 @@ impl BrainMcp {
             self.require_route("query_codebase")?;
             let _req = self.engine.mcp_activity.begin_request();
             let p = params.0;
-            let repo = resolve_graphify_repo(p.current_working_directory.as_deref())?;
+            let repo = self.resolve_graphify_repo(p.current_working_directory.as_deref())?;
             let settings = crate::settings::AgentBrainSettings::load(&self.engine.config.home);
             let text = crate::graphify::query_codebase(
                 &repo,
@@ -1593,7 +1633,7 @@ impl BrainMcp {
             self.require_route("trigger_deep_analysis")?;
             let _req = self.engine.mcp_activity.begin_request();
             let p = params.0;
-            let repo = resolve_graphify_repo(p.repo_root.as_deref())?;
+            let repo = self.resolve_graphify_repo(p.repo_root.as_deref())?;
             let settings = crate::settings::AgentBrainSettings::load(&self.engine.config.home);
             let mode = match p.mode.as_deref() {
                 Some("full") => crate::graphify::JobMode::Full,
@@ -1717,7 +1757,7 @@ impl BrainMcp {
             self.require_route("search_symbols")?;
             let _req = self.engine.mcp_activity.begin_request();
             let p = params.0;
-            let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
+            let path = self.resolve_graphify_repo(p.current_working_directory.as_deref())?;
             let repo_root = path.display().to_string();
             let results = self
                 .engine
@@ -1751,7 +1791,7 @@ impl BrainMcp {
             self.require_route("get_symbol_definition")?;
             let _req = self.engine.mcp_activity.begin_request();
             let p = params.0;
-            let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
+            let path = self.resolve_graphify_repo(p.current_working_directory.as_deref())?;
             let repo_root = path.display().to_string();
             let result = self
                 .engine
@@ -1779,7 +1819,7 @@ impl BrainMcp {
             self.require_route("get_file_outline")?;
             let _req = self.engine.mcp_activity.begin_request();
             let p = params.0;
-            let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
+            let path = self.resolve_graphify_repo(p.current_working_directory.as_deref())?;
             let repo_root = path.display().to_string();
             let results = self
                 .engine
@@ -1807,7 +1847,7 @@ impl BrainMcp {
             self.require_route("find_callers")?;
             let _req = self.engine.mcp_activity.begin_request();
             let p = params.0;
-            let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
+            let path = self.resolve_graphify_repo(p.current_working_directory.as_deref())?;
             let repo_root = path.display().to_string();
             let results = self
                 .engine
@@ -1835,7 +1875,7 @@ impl BrainMcp {
             self.require_route("get_local_graph")?;
             let _req = self.engine.mcp_activity.begin_request();
             let p = params.0;
-            let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
+            let path = self.resolve_graphify_repo(p.current_working_directory.as_deref())?;
             let repo_root = path.display().to_string();
             let results = self
                 .engine
@@ -1858,7 +1898,7 @@ impl BrainMcp {
         self.require_route("write_scratchpad")?;
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
-        let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
+        let path = self.resolve_graphify_repo(p.current_working_directory.as_deref())?;
         let repo_root = path.display().to_string();
         let id = self
             .engine
@@ -1884,7 +1924,7 @@ impl BrainMcp {
         self.require_route("read_scratchpad")?;
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
-        let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
+        let path = self.resolve_graphify_repo(p.current_working_directory.as_deref())?;
         let repo_root = path.display().to_string();
         let entries = self
             .engine
@@ -1911,7 +1951,7 @@ impl BrainMcp {
             self.require_route("recent_symbols")?;
             let _req = self.engine.mcp_activity.begin_request();
             let p = params.0;
-            let path = resolve_graphify_repo(p.current_working_directory.as_deref())?;
+            let path = self.resolve_graphify_repo(p.current_working_directory.as_deref())?;
             let repo_root = path.display().to_string();
             let results = self
                 .engine
@@ -1932,9 +1972,11 @@ impl BrainMcp {
         self.require_route("brain_git_log")?;
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
-        let cwd = p.current_working_directory.as_deref().map(PathBuf::from);
+        let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
+        let fallback = PathBuf::from(".");
+        let target = cwd.as_deref().unwrap_or(&fallback);
         match crate::git_tools::git_log(
-            cwd.as_deref().unwrap_or_else(|| std::path::Path::new(".")),
+            target,
             p.range.as_deref(),
             p.max_count,
         ) {
@@ -1953,9 +1995,11 @@ impl BrainMcp {
         self.require_route("brain_git_diff")?;
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
-        let cwd = p.current_working_directory.as_deref().map(PathBuf::from);
+        let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
+        let fallback = PathBuf::from(".");
+        let target = cwd.as_deref().unwrap_or(&fallback);
         match crate::git_tools::git_diff(
-            cwd.as_deref().unwrap_or_else(|| std::path::Path::new(".")),
+            target,
             &p.range,
             p.path.as_deref(),
         ) {
@@ -1974,9 +2018,11 @@ impl BrainMcp {
         self.require_route("brain_git_tags")?;
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
-        let cwd = p.current_working_directory.as_deref().map(PathBuf::from);
+        let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
+        let fallback = PathBuf::from(".");
+        let target = cwd.as_deref().unwrap_or(&fallback);
         match crate::git_tools::git_tags(
-            cwd.as_deref().unwrap_or_else(|| std::path::Path::new(".")),
+            target,
             p.pattern.as_deref(),
             p.max_count,
         ) {
@@ -1995,9 +2041,11 @@ impl BrainMcp {
         self.require_route("brain_git_compare")?;
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
-        let cwd = p.current_working_directory.as_deref().map(PathBuf::from);
+        let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
+        let fallback = PathBuf::from(".");
+        let target = cwd.as_deref().unwrap_or(&fallback);
         match crate::git_tools::git_compare(
-            cwd.as_deref().unwrap_or_else(|| std::path::Path::new(".")),
+            target,
             &p.base,
             &p.head,
         ) {
@@ -2048,17 +2096,6 @@ fn missing_extras_mcp(tool: &str) -> McpError {
         ),
         None,
     )
-}
-
-fn resolve_graphify_repo(cwd: Option<&str>) -> Result<PathBuf, McpError> {
-    let path = cwd
-        .map(PathBuf::from)
-        .or_else(|| std::env::current_dir().ok())
-        .ok_or_else(|| {
-            McpError::invalid_params("current_working_directory required".to_string(), None)
-        })?;
-    std::fs::canonicalize(&path)
-        .map_err(|e| McpError::invalid_params(format!("resolve repo root: {e}"), None))
 }
 
 fn infer_memory_polarity(fact: &str) -> Option<String> {
@@ -2889,5 +2926,70 @@ mod tests {
         let catalog = build_autonomic_catalog(Some("spine"), false);
         assert_eq!(catalog["total_organs"], 1);
         assert_eq!(catalog["organs"][0]["name"], "agent-spine");
+    }
+
+    #[tokio::test]
+    async fn route_task_anchors_active_cwd_for_subsequent_token_tool_calls() {
+        let dir = TempDir::new().expect("tempdir");
+        let server = skill_test_server(&dir, &[]);
+        let ws = TempDir::new().expect("workspace");
+        let file_path = ws.path().join("sample.txt");
+        std::fs::write(&file_path, "sample content line 1\nsample content line 2\n")
+            .expect("write sample file");
+
+        let route_res = server
+            .route_task(Parameters(RouteTaskParams {
+                user_message: "inspect workspace files".into(),
+                current_working_directory: Some(ws.path().display().to_string()),
+                open_files: vec![],
+                max_tokens: 500,
+                limits: RouteLimits::default(),
+                phase: None,
+                task_kind: None,
+            }))
+            .await;
+        assert!(route_res.is_ok(), "route_task must succeed");
+
+        let read_res = server
+            .read_file_head(Parameters(ReadFileBoundedParams {
+                path: "sample.txt".into(),
+                current_working_directory: None,
+                lines: 10,
+                max_bytes: 1024,
+                allow_blocked_paths: false,
+                max_tokens: 500,
+            }))
+            .await
+            .expect("read_file_head with relative path should resolve via active_cwd");
+        let read_body = json_body(read_res);
+        let content = read_body["content"].as_str().unwrap();
+        assert!(content.contains("sample content line 1"));
+
+        let summary_res = server
+            .file_summary(Parameters(TokenToolPathParams {
+                path: "sample.txt".into(),
+                current_working_directory: None,
+                allow_blocked_paths: false,
+                max_tokens: 500,
+            }))
+            .await
+            .expect("file_summary with relative path should resolve via active_cwd");
+        let summary_body = json_body(summary_res);
+        assert_eq!(summary_body["total_lines"], 2);
+
+        let list_res = server
+            .list_directory(Parameters(ListDirectoryParams {
+                path: ".".into(),
+                current_working_directory: None,
+                max_entries: 10,
+                include_hidden: false,
+                allow_blocked_paths: false,
+                max_tokens: 500,
+            }))
+            .await
+            .expect("list_directory with relative path should resolve via active_cwd");
+        let list_body = json_body(list_res);
+        let entries = list_body["entries"].as_array().unwrap();
+        assert!(entries.iter().any(|e| e["name"] == "sample.txt"));
     }
 }
