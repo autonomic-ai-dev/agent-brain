@@ -3321,6 +3321,27 @@ mod tests {
             40_000
         );
     }
+
+    #[test]
+    fn test_looks_like_secret_detects_secrets() {
+        assert!(looks_like_secret("api_key: secret12345678901234567890"));
+        assert!(looks_like_secret("sk-1234567890123456789012"));
+        assert!(looks_like_secret("ghp_1234567890123456789012"));
+        assert!(looks_like_secret("-----BEGIN RSA PRIVATE KEY-----"));
+        assert!(looks_like_secret("do not commit .env files"));
+        assert!(!looks_like_secret("prefer bounded reads over cat"));
+        assert!(!looks_like_secret("use git log to inspect commits"));
+    }
+
+    #[test]
+    fn test_word_count_boundaries() {
+        assert_eq!(word_count(""), 0);
+        assert_eq!(word_count("   "), 0);
+        let fifty = (1..=50).map(|i| format!("w{i}")).collect::<Vec<_>>().join(" ");
+        assert_eq!(word_count(&fifty), 50);
+        let fifty_one = format!("{fifty} w51");
+        assert_eq!(word_count(&fifty_one), 51);
+    }
 }
 
 pub struct SearchRow {
@@ -3589,18 +3610,16 @@ pub fn word_count(text: &str) -> usize {
 }
 
 pub fn looks_like_secret(text: &str) -> bool {
-    let patterns = [
-        r"(?i)(api[_-]?key|secret|password|token)\s*[:=]\s*\S+",
-        r"sk-[a-zA-Z0-9]{20,}",
-        r"ghp_[a-zA-Z0-9]{20,}",
-        r"-----BEGIN (RSA |EC )?PRIVATE KEY-----",
-    ];
-    patterns.iter().any(|p| {
-        regex::Regex::new(p)
-            .map(|re| re.is_match(text))
-            .unwrap_or(false)
-    }) || text.contains(".env")
-        || text.contains(".pem")
+    static SECRET_PATTERNS: std::sync::LazyLock<regex::RegexSet> = std::sync::LazyLock::new(|| {
+        regex::RegexSet::new([
+            r"(?i)(api[_-]?key|secret|password|token)\s*[:=]\s*\S+",
+            r"sk-[a-zA-Z0-9]{20,}",
+            r"ghp_[a-zA-Z0-9]{20,}",
+            r"-----BEGIN (RSA |EC )?PRIVATE KEY-----",
+        ])
+        .unwrap()
+    });
+    SECRET_PATTERNS.is_match(text) || text.contains(".env") || text.contains(".pem")
 }
 
 /// Feedback multiplier from `report_context_useful` stats.

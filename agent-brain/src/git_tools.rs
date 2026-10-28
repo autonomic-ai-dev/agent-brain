@@ -45,9 +45,10 @@ fn git_output(repo: &Path, args: &[&str]) -> Result<String, String> {
     let out = cmd.output().map_err(|e| format!("git exec failed: {e}"))?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-        let hint = if stderr.contains("not a git repository") {
+        let stderr_lower = stderr.to_lowercase();
+        let hint = if stderr_lower.contains("not a git repository") {
             " — not a git repository; pass current_working_directory set to the repository root"
-        } else if stderr.contains("ambiguous argument") {
+        } else if stderr_lower.contains("ambiguous argument") {
             " — invalid ref or range"
         } else {
             ""
@@ -93,7 +94,12 @@ pub fn git_diff(
     range: &str,
     path_filter: Option<&str>,
 ) -> Result<GitDiffResult, String> {
-    let stat = git_output(repo, &["diff", "--shortstat", range])?;
+    let mut stat_args = vec!["diff", "--shortstat", range];
+    if let Some(p) = path_filter {
+        stat_args.push("--");
+        stat_args.push(p);
+    }
+    let stat = git_output(repo, &stat_args)?;
     let (files, insertions, deletions) = parse_shortstat(&stat);
 
     let mut args = vec!["diff", range];
@@ -235,5 +241,19 @@ mod tests {
         let err = git_log(dir.path(), None, 5).expect_err("temp dir is not a repository");
         assert!(err.contains("not a git repository"), "{err}");
         assert!(err.contains("current_working_directory"), "{err}");
+    }
+
+    #[test]
+    fn git_tags_outside_repo_returns_informative_error() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let err = git_tags(dir.path(), None, 5).expect_err("temp dir is not a repository");
+        assert!(err.to_lowercase().contains("not a git repository"), "{err}");
+    }
+
+    #[test]
+    fn git_compare_outside_repo_returns_informative_error() {
+        let dir = tempfile::TempDir::new().expect("temp dir");
+        let err = git_compare(dir.path(), "HEAD~1", "HEAD").expect_err("temp dir is not a repository");
+        assert!(err.to_lowercase().contains("not a git repository"), "{err}");
     }
 }
