@@ -44,6 +44,11 @@ impl BrainMcp {
     }
 
     fn set_active_cwd(&self, cwd: PathBuf) {
+        if let Ok(guard) = self.active_cwd.read() {
+            if guard.as_ref() == Some(&cwd) {
+                return;
+            }
+        }
         if let Ok(mut lock) = self.active_cwd.write() {
             *lock = Some(cwd);
         }
