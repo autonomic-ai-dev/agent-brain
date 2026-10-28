@@ -169,7 +169,7 @@ pub fn file_summary(
         sample.lines_returned,
         sample.content
     );
-    let full_estimate = estimate_tokens(&std::fs::read_to_string(path).unwrap_or_default());
+    let full_estimate = estimate_file_tokens(file_bytes);
     build_response(
         path,
         content,
@@ -220,7 +220,7 @@ pub fn read_file_head(
             Err(BoundedLineError::Io(e)) => return Err(e).context("read line"),
         }
     }
-    let full_estimate = estimate_tokens(&std::fs::read_to_string(path).unwrap_or_default());
+    let full_estimate = estimate_file_tokens(file_bytes);
     build_response(
         path,
         out,
@@ -250,7 +250,7 @@ pub fn read_file_tail(
     let max_lines = lines.clamp(1, DEFAULT_MAX_LINES);
     let ring = read_tail_lines(path, max_lines, max_bytes)?;
     let content = ring.join("\n");
-    let full_estimate = estimate_tokens(&std::fs::read_to_string(path).unwrap_or_default());
+    let full_estimate = estimate_file_tokens(file_bytes);
     build_response(
         path,
         content,
@@ -310,7 +310,7 @@ pub fn read_file(
             Err(BoundedLineError::Io(e)) => return Err(e).context("read line"),
         }
     }
-    let full_estimate = estimate_tokens(&std::fs::read_to_string(path).unwrap_or_default());
+    let full_estimate = estimate_file_tokens(file_bytes);
     build_response(
         path,
         out,
@@ -581,11 +581,7 @@ pub fn grep_search(
         content.push_str(&format!("{}:{}:{}\n", m.path, m.line_number, m.line));
     }
     let tokens_used = estimate_tokens(&content).min(max_tokens);
-    let full_estimate = if path.is_file() {
-        estimate_tokens(&std::fs::read_to_string(path).unwrap_or_default())
-    } else {
-        (full_bytes / 4).max(1) as usize
-    };
+    let full_estimate = estimate_file_tokens(full_bytes);
     let (saved, savings_pct) = savings_vs_full(tokens_used, full_estimate);
 
     Ok(GrepResponse {
@@ -735,15 +731,27 @@ fn read_tail_lines(path: &Path, max_lines: usize, max_bytes: usize) -> Result<Ve
     Ok(lines)
 }
 
+fn estimate_file_tokens(file_bytes: u64) -> usize {
+    ((file_bytes as f64) / 4.0).ceil() as usize + 1
+}
+
 fn count_lines(path: &Path) -> Result<usize> {
-    let mut reader = BufReader::new(File::open(path).context("open file for line count")?);
+    let mut file = File::open(path).context("open file for line count")?;
+    let mut buf = [0u8; 64 * 1024];
     let mut count = 0usize;
+    let mut has_bytes = false;
+    let mut last_byte = b'\n';
     loop {
-        match read_bounded_line(&mut reader, MAX_GREP_LINE_BYTES) {
-            Ok(None) => break,
-            Ok(Some(_)) | Err(BoundedLineError::Oversized) => count += 1,
-            Err(BoundedLineError::Io(e)) => return Err(e).context("count lines"),
+        let n = file.read(&mut buf).context("read chunk for line count")?;
+        if n == 0 {
+            break;
         }
+        has_bytes = true;
+        count += buf[..n].iter().filter(|&&b| b == b'\n').count();
+        last_byte = buf[n - 1];
+    }
+    if has_bytes && last_byte != b'\n' {
+        count += 1;
     }
     Ok(count)
 }
@@ -761,8 +769,11 @@ fn build_response(
     let mut tokens_used = estimate_tokens(&content);
     if tokens_used > max_tokens {
         truncated = true;
-        let target_chars = max_tokens.saturating_mul(4);
-        content.truncate(target_chars.min(content.len()));
+        let mut target_bytes = max_tokens.saturating_mul(4).min(content.len());
+        while !content.is_char_boundary(target_bytes) {
+            target_bytes = target_bytes.saturating_sub(1);
+        }
+        content.truncate(target_bytes);
         tokens_used = estimate_tokens(&content);
     }
     let (saved, savings_pct) = savings_vs_full(tokens_used, full_read_tokens.unwrap_or(0));
@@ -1121,5 +1132,44 @@ mod tests {
     fn token_tools_bench_passes() {
         let report = run_token_tools_bench().unwrap();
         assert!(report.passed, "{report:?}");
+    }
+
+    #[test]
+    fn test_multibyte_utf8_truncation_does_not_panic() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("unicode.txt");
+        let content = "🚀🦀日本語中文".repeat(100);
+        std::fs::write(&path, &content).unwrap();
+
+        for max_tokens in 1..=20 {
+            let resp = read_file_head(&path, 50, 4096, false, max_tokens).unwrap();
+            assert!(resp.truncated);
+            assert!(resp.content.is_char_boundary(resp.content.len()));
+        }
+    }
+
+    #[test]
+    fn test_count_lines_edge_cases() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let empty = dir.path().join("empty.txt");
+        std::fs::write(&empty, b"").unwrap();
+        assert_eq!(count_lines(&empty).unwrap(), 0);
+
+        let single_no_nl = dir.path().join("single_no_nl.txt");
+        std::fs::write(&single_no_nl, b"hello").unwrap();
+        assert_eq!(count_lines(&single_no_nl).unwrap(), 1);
+
+        let single_with_nl = dir.path().join("single_with_nl.txt");
+        std::fs::write(&single_with_nl, b"hello\n").unwrap();
+        assert_eq!(count_lines(&single_with_nl).unwrap(), 1);
+
+        let multi_no_nl = dir.path().join("multi_no_nl.txt");
+        std::fs::write(&multi_no_nl, b"hello\nworld\nend").unwrap();
+        assert_eq!(count_lines(&multi_no_nl).unwrap(), 3);
+
+        let multi_with_nl = dir.path().join("multi_with_nl.txt");
+        std::fs::write(&multi_with_nl, b"hello\nworld\nend\n").unwrap();
+        assert_eq!(count_lines(&multi_with_nl).unwrap(), 3);
     }
 }
