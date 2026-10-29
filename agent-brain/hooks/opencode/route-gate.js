@@ -115,6 +115,8 @@ export default {
         hook_event_name: "PostToolUse",
         tool_name: event.tool,
         tool_input: event.input ?? {},
+        tool_output: event.output,
+        result: event.output,
         server: "agent-brain",
         success: event.status === "completed",
         session_id: event.sessionID,

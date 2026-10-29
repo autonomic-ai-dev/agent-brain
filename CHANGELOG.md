@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0-rc4] - 2026-10-29
+
+### Fixed
+- **Route Gate Zero-Token Deadlock**: Resolved an issue where unassisted turns returning 0 tokens with behavioral contract constraints (`must_apply`) were rejected by `route_response_useful()`, causing repeated route gate deadlocks. Non-useful route attempts now enter grace rather than deadlocking tool execution.
+- **Autonomic Index Directory Inclusion**: Fixed path filtering in `should_skip` so that user-defined rules, skills, agents, and workflows under `~/.autonomic/` are correctly indexed rather than dropped.
+- **Default Index Roots**: Automatically index `~/.autonomic/rules`, `~/.autonomic/skills`, `~/.autonomic/agents`, `~/.claude/rules`, and workspace `.cursor/rules` / `.claude/rules`.
+- **OpenCode Tool Output Forwarding**: Included `tool_output` and `result` in OpenCode post-tool events to enable route gate response inspection and gate unlocking.
+- **MCP Payload Extraction**: Added unwrapping support for nested `structuredContent` and `result` payloads in tool execution responses.
+
 ## [1.0.0-rc3] - 2026-10-28
 
 ### Added

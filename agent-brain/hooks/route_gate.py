@@ -371,6 +371,14 @@ def unwrap_mcp_payload(data: object) -> dict | None:
                 if isinstance(inner, dict):
                     return inner
 
+    if isinstance(parsed.get("structuredContent"), dict):
+        return parsed["structuredContent"]
+
+    if isinstance(parsed.get("result"), dict):
+        inner = unwrap_mcp_payload(parsed["result"])
+        if inner is not None:
+            return inner
+
     if any(
         key in parsed
         for key in (
@@ -407,6 +415,7 @@ def route_response_useful(event: dict) -> bool:
             "recommended_agents",
             "applicable_rules",
             "relevant_memory",
+            "must_apply",
         ):
             value = payload.get(field)
             if isinstance(value, list) and value:
@@ -454,23 +463,31 @@ def route_attempt_failed(event: dict) -> bool:
     return disconnect_error(event)
 
 
-def enter_grace(state: dict | None = None, seconds: float | None = None) -> None:
-    state = state if state is not None else load_state()
+def enter_grace(
+    state: dict | None = None,
+    seconds: float | None = None,
+    event: dict | None = None,
+) -> None:
+    state = state if state is not None else load_state(event)
     secs = seconds if seconds is not None else GRACE_SECS
     state["route_grace_until"] = time.time() + secs
     state["needs_route"] = False
     state.pop("needs_route_since", None)
-    save_state(state)
+    save_state(state, event)
 
 
-def enter_mcp_offline(state: dict | None = None, seconds: float | None = None) -> None:
-    state = state if state is not None else load_state()
+def enter_mcp_offline(
+    state: dict | None = None,
+    seconds: float | None = None,
+    event: dict | None = None,
+) -> None:
+    state = state if state is not None else load_state(event)
     secs = seconds if seconds is not None else OFFLINE_SECS
     state["mcp_offline_until"] = time.time() + secs
     state["needs_route"] = False
     state.pop("needs_route_since", None)
     state["route_grace_until"] = time.time() + secs
-    save_state(state)
+    save_state(state, event)
 
 
 def clear_mcp_offline(state: dict) -> None:
@@ -521,14 +538,14 @@ def grace_allow_payload(state: dict) -> dict:
     }
 
 
-def update_route_context(payload: dict) -> None:
-    state = load_state()
+def update_route_context(payload: dict, event: dict | None = None) -> None:
+    state = load_state(event)
     state["route_log_id"] = payload.get("log_id")
     state["route_phase"] = payload.get("recommended_phase")
     state["must_apply"] = payload.get("must_apply", [])
     state["suggested_native_tools"] = payload.get("suggested_native_tools", [])
     state["route_context_at"] = time.time()
-    save_state(state)
+    save_state(state, event)
 
 
 def append_tool_event(record: dict) -> None:
@@ -834,7 +851,7 @@ def try_clear_route_gate(event: dict) -> None:
     ):
         payload = unwrap_mcp_payload(event.get(key))
         if payload is not None:
-            update_route_context(payload)
+            update_route_context(payload, event)
             break
     state = load_state(event)
     state["needs_route"] = False
@@ -855,9 +872,12 @@ def handle_route_outcome(event: dict) -> None:
         return
     if route_attempt_failed(event):
         if disconnect_error(event):
-            enter_mcp_offline()
+            enter_mcp_offline(event=event)
         else:
-            enter_grace()
+            enter_grace(event=event)
+        return
+    if not route_response_useful(event):
+        enter_grace(event=event)
         return
     try_clear_route_gate(event)
 
@@ -1341,6 +1361,11 @@ def normalize_tool_event(event: dict) -> dict:
         for key in ("tool_input", "arguments", "args", "input"):
             if key in event:
                 out["tool_input"] = event[key]
+                break
+    if "tool_output" not in out:
+        for key in ("tool_output", "tool_result", "result_json", "result", "output", "response"):
+            if key in event:
+                out["tool_output"] = event[key]
                 break
     if "hook_event_name" not in out:
         out["hook_event_name"] = event.get("hook_event_name", "")

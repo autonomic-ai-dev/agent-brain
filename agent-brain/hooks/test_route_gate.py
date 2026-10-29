@@ -136,6 +136,41 @@ class RouteGateTests(unittest.TestCase):
         event = {"result_json": json.dumps(payload)}
         self.assertFalse(route_response_useful(event))
 
+    def test_route_payload_with_must_apply_is_useful(self) -> None:
+        payload = {
+            "recommended_skills": [],
+            "recommended_agents": [],
+            "applicable_rules": [],
+            "relevant_memory": [],
+            "must_apply": [{"topic": "agstack-invariants", "text": "Immutability first"}],
+            "tokens_used": 0,
+        }
+        event = {"result_json": json.dumps(payload)}
+        self.assertTrue(route_response_useful(event))
+
+    def test_empty_route_response_enters_grace(self) -> None:
+        from route_gate import STATE_PATH, handle_post_tool_use, in_grace_period, load_state
+
+        STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        STATE_PATH.write_text('{"needs_route": true}', encoding="utf-8")
+        empty_payload = {
+            "recommended_skills": [],
+            "recommended_agents": [],
+            "applicable_rules": [],
+            "relevant_memory": [],
+            "tokens_used": 0,
+        }
+        handle_post_tool_use(
+            {
+                "tool_name": "mcp_agent-brain_route_task",
+                "success": True,
+                "result_json": json.dumps(empty_payload),
+            }
+        )
+        state = load_state()
+        self.assertFalse(state.get("needs_route"))
+        self.assertTrue(in_grace_period(state))
+
     def test_mcp_content_wrapper(self) -> None:
         inner = {"tokens_used": 50, "recommended_agents": [{"name": "reviewer"}]}
         wrapped = {
@@ -143,6 +178,69 @@ class RouteGateTests(unittest.TestCase):
         }
         event = {"result_json": json.dumps(wrapped)}
         self.assertTrue(route_response_useful(event))
+
+    def test_structured_content_wrapper(self) -> None:
+        inner = {"tokens_used": 50, "recommended_agents": [{"name": "reviewer"}]}
+        wrapped = {"structuredContent": inner}
+        event = {"result_json": json.dumps(wrapped)}
+        self.assertTrue(route_response_useful(event))
+
+    def test_nested_result_wrapper(self) -> None:
+        inner = {"tokens_used": 50, "recommended_agents": [{"name": "reviewer"}]}
+        wrapped = {"result": inner}
+        event = {"result_json": json.dumps(wrapped)}
+        self.assertTrue(route_response_useful(event))
+
+    def test_must_apply_only_route_clears_gate_and_allows_tools(self) -> None:
+        from route_gate import STATE_PATH, handle_before_shell_execution, handle_post_tool_use, load_state
+
+        STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        STATE_PATH.write_text('{"needs_route": true}', encoding="utf-8")
+        payload = {
+            "recommended_skills": [],
+            "recommended_agents": [],
+            "applicable_rules": [],
+            "relevant_memory": [],
+            "must_apply": [{"topic": "agstack-invariants", "text": "Mandatory invariants"}],
+            "tokens_used": 0,
+            "log_id": "test-log-123",
+        }
+        handle_post_tool_use(
+            {
+                "tool_name": "mcp_agent-brain_route_task",
+                "success": True,
+                "result_json": json.dumps(payload),
+            }
+        )
+        state = load_state()
+        self.assertFalse(state.get("needs_route"))
+        out = handle_before_shell_execution({"command": "cargo test --lib"})
+        self.assertEqual(out.get("permission"), "allow")
+
+    def test_empty_unassisted_route_enters_grace_and_allows_tools(self) -> None:
+        from route_gate import STATE_PATH, handle_before_shell_execution, handle_post_tool_use, in_grace_period, load_state
+
+        STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        STATE_PATH.write_text('{"needs_route": true}', encoding="utf-8")
+        payload = {
+            "recommended_skills": [],
+            "recommended_agents": [],
+            "applicable_rules": [],
+            "relevant_memory": [],
+            "tokens_used": 0,
+        }
+        handle_post_tool_use(
+            {
+                "tool_name": "mcp_agent-brain_route_task",
+                "success": True,
+                "result_json": json.dumps(payload),
+            }
+        )
+        state = load_state()
+        self.assertFalse(state.get("needs_route"))
+        self.assertTrue(in_grace_period(state))
+        out = handle_before_shell_execution({"command": "cargo test --lib"})
+        self.assertEqual(out.get("permission"), "allow")
 
     def test_failed_route_enters_grace(self) -> None:
         from route_gate import STATE_PATH
@@ -200,6 +298,7 @@ class RouteGateTests(unittest.TestCase):
         from route_gate import STATE_PATH
 
         STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        STATE_PATH.write_text('{"needs_route": false}', encoding="utf-8")
         enter_grace()
         handle_before_submit_prompt({})
         state = load_state()

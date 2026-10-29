@@ -192,6 +192,12 @@ impl Config {
         std::fs::create_dir_all(self.home.join("rules")).ok();
         std::fs::create_dir_all(self.home.join("skills")).ok();
         std::fs::create_dir_all(self.home.join("agents")).ok();
+        let auto_root = crate::global_workspace::autonomic_root();
+        if auto_root != self.home {
+            std::fs::create_dir_all(auto_root.join("rules")).ok();
+            std::fs::create_dir_all(auto_root.join("skills")).ok();
+            std::fs::create_dir_all(auto_root.join("agents")).ok();
+        }
         std::fs::create_dir_all(&self.data_dir).context("create data dir")?;
         std::fs::create_dir_all(&self.logs_dir).ok();
         std::fs::create_dir_all(self.home.join("export")).ok();
@@ -208,11 +214,37 @@ impl Config {
         roots.push(self.home.join("agents"));
         roots.extend(crate::packages::package_index_roots(&self.home));
 
+        let auto_root = crate::global_workspace::autonomic_root();
+        if auto_root != self.home {
+            roots.push(auto_root.join("rules"));
+            roots.push(auto_root.join("skills"));
+            roots.push(auto_root.join("agents"));
+            let agents_md = auto_root.join("AGENTS.md");
+            if agents_md.is_file() {
+                roots.push(agents_md);
+            }
+        }
+
+        if let Some(home) = dirs::home_dir() {
+            let claude_rules = home.join(".claude").join("rules");
+            if claude_rules.is_dir() {
+                roots.push(claude_rules);
+            }
+        }
+
         if let Some(cwd) = cwd {
             if let Some(repo) = find_repo_root(cwd) {
                 let agents_md = repo.join("AGENTS.md");
                 if agents_md.is_file() {
                     roots.push(agents_md);
+                }
+                let cursor_rules = repo.join(".cursor").join("rules");
+                if cursor_rules.is_dir() {
+                    roots.push(cursor_rules);
+                }
+                let claude_rules = repo.join(".claude").join("rules");
+                if claude_rules.is_dir() {
+                    roots.push(claude_rules);
                 }
             }
         }
@@ -262,4 +294,55 @@ fn env_usize(key: &str, default: usize) -> usize {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(default)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_index_roots_includes_autonomic_and_claude_roots() {
+        let temp = tempfile::tempdir().unwrap();
+        let config = Config {
+            home: temp.path().join("memory"),
+            data_dir: temp.path().join("data"),
+            logs_dir: temp.path().join("logs"),
+            db_path: temp.path().join("brain.db"),
+            vectors_path: temp.path().join("vectors.bin"),
+            turn_ttl_secs: 1800,
+            auto_capture_enabled: true,
+            session_ingest_enabled: false,
+            session_digest_enabled: false,
+            session_ingest_legacy: false,
+            session_max_age_days: 90,
+            prewarm_on_bootstrap: false,
+            bootstrap_background: false,
+            embedding_cache_enabled: false,
+            bm25_fast_path_enabled: false,
+            session_ingest_background: false,
+            turn_cache_ignore_open_files: true,
+            embedding_model: "mini".into(),
+            bootstrap_startup_delay_secs: 0,
+            bootstrap_interval_secs: 0,
+            auto_update_startup_delay_secs: 0,
+            session_ingest_delay_secs: 0,
+            session_ingest_route_interval_secs: 0,
+            ann_enabled: false,
+            ann_min_index: 0,
+            ann_top_k: 0,
+            workflow_dirs: Vec::new(),
+            route_briefing_enabled: false,
+            route_briefing_stderr: false,
+            mcp_gate_enabled: false,
+            mcp_gate_ttl_secs: 0,
+            session_stickiness_secs: 0,
+            precision_rerank_enabled: false,
+            query_decompose_enabled: false,
+            auto_trajectory_enabled: false,
+        };
+        let roots = config.default_index_roots(None);
+        assert!(roots.contains(&config.home.join("rules")));
+        assert!(roots.contains(&config.home.join("skills")));
+        assert!(roots.contains(&config.home.join("agents")));
+    }
 }
