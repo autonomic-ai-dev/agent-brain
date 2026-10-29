@@ -195,7 +195,15 @@ def simulate_claude_code_session(tmp: Path) -> None:
         log_fail(f"Expected Claude PreToolUse deny, got {claude_out}")
 
     # 3. Model routes through mcp__agent-brain__route_task
-    route_output = json.dumps({"tokens_used": 200, "recommended_skills": [{"name": "npm-test"}]})
+    route_output = json.dumps({
+        "tokens_used": 0,
+        "recommended_skills": [],
+        "recommended_agents": [],
+        "applicable_rules": [],
+        "relevant_memory": [],
+        "must_apply": [{"topic": "agstack-invariants", "text": "Mandatory invariants"}],
+        "log_id": "sim-route-claude-1",
+    })
     route_event = {
         "session_id": session_id,
         "tool_name": "mcp__agent-brain__route_task",
@@ -207,7 +215,7 @@ def simulate_claude_code_session(tmp: Path) -> None:
     raw_allowed = handle_pre_tool_use(bash_event)
     claude_allowed = adapt_hook_output("PreToolUse", raw_allowed, bash_event)
     if claude_allowed.get("hookSpecificOutput", {}).get("permissionDecision") == "allow":
-        log_pass("Claude Code PreToolUse for routed 'Bash' successfully ALLOWED")
+        log_pass("Claude Code PreToolUse for zero-token contract route successfully ALLOWED")
     else:
         log_fail(f"Expected Claude PreToolUse allow, got {claude_allowed}")
 
@@ -222,6 +230,28 @@ def simulate_claude_code_session(tmp: Path) -> None:
         log_pass("Claude Code 'FileEdit' bypasses read gate directly")
     else:
         log_fail(f"Expected allow for FileEdit, got {raw_edit}")
+
+    unassisted_session = "claude-sim-unassisted"
+    set_active_session(unassisted_session)
+    handle_before_submit_prompt({"session_id": unassisted_session})
+    empty_event = {
+        "session_id": unassisted_session,
+        "tool_name": "mcp__agent-brain__route_task",
+        "tool_output": json.dumps({"tokens_used": 0, "recommended_skills": []}),
+    }
+    handle_post_tool_use(empty_event)
+    unassisted_bash = {
+        "session_id": unassisted_session,
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {"command": "npm test"},
+    }
+    raw_unassisted = handle_pre_tool_use(unassisted_bash)
+    unassisted_allowed = adapt_hook_output("PreToolUse", raw_unassisted, unassisted_bash)
+    if unassisted_allowed.get("hookSpecificOutput", {}).get("permissionDecision") == "allow":
+        log_pass("Unassisted zero-token route enters grace and allows Bash")
+    else:
+        log_fail(f"Expected unassisted route to allow Bash via grace, got {unassisted_allowed}")
 
 
 def simulate_antigravity_gemini_session(tmp: Path) -> None:

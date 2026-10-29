@@ -331,7 +331,13 @@ fn should_skip(path: &Path) -> bool {
         || s.contains("/venv/")
         || s.contains("/.venv/")
         || s.contains("/opt/")
-        || (s.contains("/.autonomic/") && !s.contains("/packages/"))
+        || (s.contains("/.autonomic/")
+            && !s.contains("/packages/")
+            && !s.contains("/rules/")
+            && !s.contains("/skills/")
+            && !s.contains("/agents/")
+            && !s.contains("/workflows/")
+            && !s.ends_with("/AGENTS.md"))
         || s.contains("/.pytest_cache/")
         || s.contains("/dist/")
         || s.contains("/build/")
@@ -572,8 +578,18 @@ mod tests {
     }
 
     #[test]
+    fn autonomic_rules_and_skills_are_indexed() {
+        let skill = Path::new("/h/.autonomic/memory/skills/private/SKILL.md");
+        assert!(!should_skip(skill));
+        let rule = Path::new("/h/.autonomic/rules/team.md");
+        assert!(!should_skip(rule));
+    }
+
+    #[test]
     fn brain_state_under_autonomic_home_is_still_skipped() {
-        let state = Path::new("/h/.autonomic/memory/skills/private/SKILL.md");
+        let state = Path::new("/h/.autonomic/state/session.json");
         assert!(should_skip(state));
+        let log = Path::new("/h/.autonomic/memory/logs/route.log");
+        assert!(should_skip(log));
     }
 }

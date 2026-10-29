@@ -463,3 +463,79 @@ fn agstack_mode_toggle_in_config_file_enables_preference() {
         .iter()
         .any(|m| m.topic == "agstack-invariants"));
 }
+
+#[test]
+fn unassisted_route_returns_zero_tokens_and_preserves_must_apply() {
+    let dir = TempDir::new().unwrap();
+    let config = test_config(&dir);
+    let store = Arc::new(BrainStore::open(&config.db_path).unwrap());
+    let engine = Engine::new_with_store(config, store).unwrap();
+
+    let resp = engine
+        .route_task(
+            "unrelated random query with zero skill matches xyz123",
+            None,
+            &[],
+            500,
+            RouteLimits {
+                agents: 1,
+                skills: 3,
+                rules: 2,
+                memory: 2,
+            },
+            None,
+            None,
+        )
+        .unwrap();
+
+    assert_eq!(resp.tokens_used, 0);
+    assert!(resp.recommended_skills.is_empty());
+    assert!(resp.recommended_agents.is_empty());
+    assert!(resp.applicable_rules.is_empty());
+    assert!(resp.relevant_memory.is_empty());
+    assert!(!resp.must_apply.is_empty());
+    assert!(resp.must_apply.len() >= 5);
+}
+
+#[test]
+fn autonomic_rules_and_skills_are_indexed_by_engine() {
+    let dir = TempDir::new().unwrap();
+    let home = dir.path().join("autonomic");
+    let memory = home.join("memory");
+    let mut config = test_config(&dir);
+    config.home = memory.clone();
+    config.data_dir = memory.join("data");
+    config.logs_dir = memory.join("logs");
+    config.db_path = memory.join("data").join("brain.db");
+    config.vectors_path = memory.join("data").join("vectors.bin");
+
+    std::fs::create_dir_all(memory.join("rules")).unwrap();
+    std::fs::write(
+        memory.join("rules").join("team-policy.md"),
+        "# Team Policy\nAlways write tests before code.",
+    )
+    .unwrap();
+
+    std::fs::create_dir_all(memory.join("skills").join("deploy")).unwrap();
+    std::fs::write(
+        memory.join("skills").join("deploy").join("SKILL.md"),
+        "---\nname: deploy-playbook\n---\nDeploy to staging instructions",
+    )
+    .unwrap();
+
+    let store = Arc::new(BrainStore::open(&config.db_path).unwrap());
+    let engine = Arc::new(Engine::new_with_store(config, Arc::clone(&store)).unwrap());
+    let embedder = Arc::new(agent_brain::embed::Embedder::deterministic());
+    let indexed = agent_brain::index::sync_index_opts(
+        &engine.store,
+        &engine.config,
+        &embedder,
+        Some(dir.path()),
+        false,
+        false,
+    )
+    .unwrap();
+    assert!(indexed >= 2);
+    let count = store.count_indexed_items().unwrap();
+    assert!(count >= 2);
+}
