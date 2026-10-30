@@ -1250,6 +1250,10 @@ async fn main() -> Result<()> {
         }
         "help" | "--help" | "-h" => cli_help::print_root(),
         "remember" => {
+            if args[2..].iter().any(|a| a == "--help" || a == "-h") {
+                println!("{}", agent_brain::remember::USAGE);
+                return Ok(());
+            }
             let config = Config::load()?;
             let req = agent_brain::remember::parse_remember_args(&args[2..])?;
             let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
@@ -1261,6 +1265,10 @@ async fn main() -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&outcome)?);
         }
         "import-corpus" => {
+            if args[2..].iter().any(|a| a == "--help" || a == "-h") {
+                println!("{}", agent_brain::remember::IMPORT_USAGE);
+                return Ok(());
+            }
             let config = Config::load()?;
             let dir = args
                 .get(2)
@@ -1284,14 +1292,37 @@ async fn main() -> Result<()> {
         }
         "recall" => {
             let config = Config::load()?;
+            if args[2..].iter().any(|a| a == "--help" || a == "-h") {
+                println!("{}", agent_brain::recall::USAGE);
+                return Ok(());
+            }
             let query = agent_brain::recall::parse_args(&args[2..])?;
             let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
+            let now_ms = chrono::Utc::now().timestamp_millis();
+            let since_ms = query
+                .since
+                .map_or(0, |span| now_ms - span.as_millis() as i64);
             let rows = store.recall_rows(
                 &query.tags,
-                chrono::Utc::now().timestamp_millis(),
+                since_ms,
+                now_ms,
                 agent_brain::recall::CANDIDATE_CAP,
             )?;
-            let items = agent_brain::recall::rank(rows, query.text.as_deref(), query.limit);
+            let items = match (query.semantic, query.text.as_deref()) {
+                (true, Some(text)) => {
+                    let embedder = agent_brain::embed::Embedder::with_model(
+                        agent_brain::embed::parse_embedding_model(&config.embedding_model),
+                    )?;
+                    let embedding = embedder.embed_one(text)?;
+                    agent_brain::recall::rank_semantic(
+                        rows,
+                        &embedding,
+                        query.min_score,
+                        query.limit,
+                    )
+                }
+                _ => agent_brain::recall::rank(rows, query.text.as_deref(), query.limit),
+            };
             if query.json {
                 println!("{}", serde_json::to_string_pretty(&items)?);
             } else if items.is_empty() {

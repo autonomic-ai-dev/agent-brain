@@ -21,7 +21,12 @@ fn insert(store: &BrainStore, topic: &str, fact: &str) {
 fn recall(store: &BrainStore, tags: &[&str], query: Option<&str>, limit: usize) -> Vec<String> {
     let tags: Vec<String> = tags.iter().map(|tag| tag.to_string()).collect();
     let rows = store
-        .recall_rows(&tags, chrono::Utc::now().timestamp_millis(), CANDIDATE_CAP)
+        .recall_rows(
+            &tags,
+            0,
+            chrono::Utc::now().timestamp_millis(),
+            CANDIDATE_CAP,
+        )
         .unwrap();
     rank(rows, query, limit)
         .into_iter()

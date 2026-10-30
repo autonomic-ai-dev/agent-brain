@@ -1007,7 +1007,13 @@ impl BrainStore {
         })
     }
 
-    pub fn recall_rows(&self, tags: &[String], now_ms: i64, cap: usize) -> Result<Vec<RecallRow>> {
+    pub fn recall_rows(
+        &self,
+        tags: &[String],
+        since_ms: i64,
+        now_ms: i64,
+        cap: usize,
+    ) -> Result<Vec<RecallRow>> {
         self.with_conn(|conn| {
             let n = tags.len();
             let filter = if n == 0 {
@@ -1021,17 +1027,21 @@ impl BrainStore {
             };
             let sql = format!(
                 "SELECT f.id, f.topic, f.fact, f.source, f.created_at, f.updated_at, \
-                 (SELECT group_concat(tag, char(31)) FROM fact_tags WHERE fact_id = f.id) \
+                 (SELECT group_concat(tag, char(31)) FROM fact_tags WHERE fact_id = f.id), \
+                 (SELECT ii.embedding FROM indexed_items ii WHERE ii.item_type = 'memory' AND ii.content_hash = f.content_hash LIMIT 1) \
                  FROM facts f \
-                 WHERE f.superseded_by IS NULL AND (f.expires_at IS NULL OR f.expires_at > ?{now_idx}) {filter} \
+                 WHERE f.superseded_by IS NULL AND (f.expires_at IS NULL OR f.expires_at > ?{now_idx}) \
+                 AND f.created_at >= ?{since_idx} {filter} \
                  ORDER BY f.updated_at DESC LIMIT ?{limit_idx}",
                 now_idx = 2 * n + 1,
-                limit_idx = 2 * n + 2,
+                since_idx = 2 * n + 2,
+                limit_idx = 2 * n + 3,
             );
-            let mut values: Vec<rusqlite::types::Value> = Vec::with_capacity(2 * n + 2);
+            let mut values: Vec<rusqlite::types::Value> = Vec::with_capacity(2 * n + 3);
             values.extend(tags.iter().map(|tag| rusqlite::types::Value::from(tag.clone())));
             values.extend(tags.iter().map(|tag| rusqlite::types::Value::from(tag.clone())));
             values.push(now_ms.into());
+            values.push(since_ms.into());
             values.push((cap as i64).into());
             let mut stmt = conn.prepare(&sql)?;
             let rows = stmt
@@ -1045,6 +1055,7 @@ impl BrainStore {
                         tags.push(topic.clone());
                     }
                     tags.sort();
+                    let embedding: Option<Vec<u8>> = row.get(7)?;
                     Ok(RecallRow {
                         id: row.get(0)?,
                         topic,
@@ -1053,6 +1064,7 @@ impl BrainStore {
                         source: row.get(3)?,
                         created_at_ms: row.get(4)?,
                         updated_at_ms: row.get(5)?,
+                        embedding: embedding.map(|blob| bytes_to_f32(&blob)),
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -3496,6 +3508,7 @@ pub struct RecallRow {
     pub source: String,
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
+    pub embedding: Option<Vec<f32>>,
 }
 
 pub struct VerifyOutcomeRow {

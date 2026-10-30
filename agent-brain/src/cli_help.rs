@@ -48,6 +48,9 @@ Memory & Sync:
   gc            Dedup, prune, and vacuum the DB
   suggest-memory  Review hook anti-pattern suggestions
   promote       Approve or reject staged skills
+  recall        Read stored facts as JSON, by tag, query, age, or similarity
+  remember      Store one fact with tags and a source
+  import-corpus Store the paragraphs of a folder of Markdown files
 
 Ops:
   stats         Local route / latency metrics
@@ -82,6 +85,9 @@ See docs/USAGE.md for the full guide.
 /// Print detailed help for `cmd`. Returns false if the command is unknown.
 pub fn print_command(cmd: &str) -> bool {
     let text = match cmd {
+        "recall" => agent_brain::recall::USAGE,
+        "remember" => agent_brain::remember::USAGE,
+        "import-corpus" => agent_brain::remember::IMPORT_USAGE,
         "serve" => {
             "\
 Usage:  agent-brain serve

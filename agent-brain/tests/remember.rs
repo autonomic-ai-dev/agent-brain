@@ -1,6 +1,6 @@
 use agent_brain::db::store::{BrainStore, RecallRow};
 use agent_brain::embed::deterministic_embedding;
-use agent_brain::recall::{rank, CANDIDATE_CAP};
+use agent_brain::recall::{rank, rank_semantic, CANDIDATE_CAP};
 use agent_brain::remember::{import_corpus, remember, RememberRequest};
 use tempfile::tempdir;
 
@@ -19,7 +19,12 @@ fn request(text: &str, tags: &[&str], source: &str) -> RememberRequest {
 fn rows(store: &BrainStore, tags: &[&str]) -> Vec<RecallRow> {
     let tags: Vec<String> = tags.iter().map(|tag| tag.to_string()).collect();
     store
-        .recall_rows(&tags, chrono::Utc::now().timestamp_millis(), CANDIDATE_CAP)
+        .recall_rows(
+            &tags,
+            0,
+            chrono::Utc::now().timestamp_millis(),
+            CANDIDATE_CAP,
+        )
         .unwrap()
 }
 
@@ -168,4 +173,65 @@ fn import_needs_a_tag_and_a_directory() {
         &embed
     )
     .is_err());
+}
+
+#[test]
+fn semantic_match_ranks_the_same_post_first_and_min_score_drops_the_rest() {
+    let dir = tempdir().unwrap();
+    let store = BrainStore::open(&dir.path().join("brain.db")).unwrap();
+    remember(
+        &store,
+        &request(
+            "Shipped the release notes tool today.",
+            &["posted"],
+            "sha:1",
+        ),
+        &embed,
+    )
+    .unwrap();
+    remember(
+        &store,
+        &request("Gardening tips for spring tulips.", &["posted"], "sha:2"),
+        &embed,
+    )
+    .unwrap();
+
+    let query = deterministic_embedding("posted Shipped the release notes tool today.");
+    let now = chrono::Utc::now().timestamp_millis();
+    let tags = vec!["posted".to_string()];
+    let rows = store.recall_rows(&tags, 0, now, CANDIDATE_CAP).unwrap();
+    assert!(rows.iter().all(|row| row.embedding.is_some()));
+
+    let ranked = rank_semantic(rows.clone(), &query, None, 10);
+    assert_eq!(ranked[0].text, "Shipped the release notes tool today.");
+    assert!(ranked[0].score.unwrap() > 0.99);
+
+    let close_only = rank_semantic(rows, &query, Some(0.99), 10);
+    assert_eq!(close_only.len(), 1);
+    assert_eq!(close_only[0].text, "Shipped the release notes tool today.");
+}
+
+#[test]
+fn since_excludes_facts_created_before_the_bound() {
+    let dir = tempdir().unwrap();
+    let store = BrainStore::open(&dir.path().join("brain.db")).unwrap();
+    remember(
+        &store,
+        &request("A fact stored just now.", &["posted"], "cli"),
+        &embed,
+    )
+    .unwrap();
+    let now = chrono::Utc::now().timestamp_millis();
+    let tags = vec!["posted".to_string()];
+    assert_eq!(
+        store
+            .recall_rows(&tags, now - 60_000, now, CANDIDATE_CAP)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(store
+        .recall_rows(&tags, now + 60_000, now, CANDIDATE_CAP)
+        .unwrap()
+        .is_empty());
 }

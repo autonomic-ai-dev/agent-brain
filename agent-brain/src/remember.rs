@@ -7,6 +7,23 @@ use walkdir::WalkDir;
 use crate::db::store::{content_hash, looks_like_secret, BrainStore};
 
 pub const MAX_CHARS: usize = 20_000;
+
+pub const USAGE: &str = "\
+Usage: agent-brain remember --text TEXT --tag TAG [--tag TAG ...] [--source SOURCE]
+
+Store one fact. The first tag becomes its topic, and every tag is recorded.
+The text is embedded with the same model as MCP writes. Secret-shaped text and
+text over 20,000 characters are refused. Text that is already stored returns the
+existing id with deduplicated true. There is no word cap for shell writes.
+Conventional tags: voice (writing samples), posted (approved posts), project.";
+
+pub const IMPORT_USAGE: &str = "\
+Usage: agent-brain import-corpus DIR --tag TAG [--tag TAG ...]
+
+Store each paragraph of every *.md file under DIR. Paragraphs are split on blank
+lines, and each fact's source is FILE#paragraph-N. Paragraphs already stored
+(by content hash) are skipped. Secret-shaped and over-long paragraphs are
+counted in the report and not stored.";
 pub const DEFAULT_SOURCE: &str = "cli";
 const SCOPE: &str = "project";
 const CONFIDENCE: f64 = 0.9;

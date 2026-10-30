@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
@@ -10,12 +11,27 @@ pub const DEFAULT_LIMIT: usize = 20;
 pub const MAX_LIMIT: usize = 200;
 pub const CANDIDATE_CAP: usize = 5000;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+pub const USAGE: &str = "\
+Usage: agent-brain recall [QUERY WORDS] [--tag TAG ...] [--limit N] [--since 30d|12h|90m] [--semantic] [--min-score F] [--json]
+
+Read stored facts. Tags match a fact's topic or any of its tags.
+Without a query, facts come back newest first with score null.
+With a query, facts sharing a token with it come back scored by token overlap.
+With --semantic, the query is embedded and facts are scored by cosine similarity
+against their stored embeddings. Use --min-score to keep only close matches
+(for repeat checks, for example `recall \"<topic>\" --tag posted --since 30d --semantic --min-score 0.8`).
+Empty results print [] with exit 0. --limit is 1 to 200, default 20.
+Conventional tags: voice (writing samples), posted (approved posts), project.";
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct RecallQuery {
     pub text: Option<String>,
     pub tags: Vec<String>,
     pub limit: usize,
     pub json: bool,
+    pub semantic: bool,
+    pub since: Option<Duration>,
+    pub min_score: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -29,11 +45,28 @@ pub struct RecallItem {
     pub score: Option<f64>,
 }
 
+pub fn parse_duration(value: &str) -> Result<Duration> {
+    let (digits, unit) = value.split_at(value.len().saturating_sub(1));
+    let amount: u64 = digits
+        .parse()
+        .with_context(|| format!("--since must look like 30d, 12h, or 90m, got `{value}`"))?;
+    let seconds = match unit {
+        "d" => amount * 86_400,
+        "h" => amount * 3_600,
+        "m" => amount * 60,
+        _ => bail!("--since must look like 30d, 12h, or 90m, got `{value}`"),
+    };
+    Ok(Duration::from_secs(seconds))
+}
+
 pub fn parse_args(args: &[String]) -> Result<RecallQuery> {
     let mut words = Vec::new();
     let mut tags = Vec::new();
     let mut limit = DEFAULT_LIMIT;
     let mut json = false;
+    let mut semantic = false;
+    let mut since = None;
+    let mut min_score = None;
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
@@ -50,18 +83,61 @@ pub fn parse_args(args: &[String]) -> Result<RecallQuery> {
                     bail!("--limit must be between 1 and {MAX_LIMIT}");
                 }
             }
+            "--since" => {
+                let value = iter.next().context("--since needs a value")?;
+                since = Some(parse_duration(value)?);
+            }
+            "--min-score" => {
+                let value = iter.next().context("--min-score needs a value")?;
+                let parsed: f64 = value
+                    .parse()
+                    .with_context(|| format!("--min-score must be a number, got `{value}`"))?;
+                min_score = Some(parsed);
+            }
+            "--semantic" => semantic = true,
             "--json" => json = true,
             flag if flag.starts_with("--") => bail!("unknown option `{flag}`"),
             word => words.push(word.to_string()),
         }
     }
     let text = (!words.is_empty()).then(|| words.join(" "));
+    if semantic && text.is_none() {
+        bail!("--semantic needs a query");
+    }
+    if min_score.is_some() && !semantic {
+        bail!("--min-score needs --semantic");
+    }
     Ok(RecallQuery {
         text,
         tags,
         limit,
         json,
+        semantic,
+        since,
+        min_score,
     })
+}
+
+pub fn rank_semantic(
+    rows: Vec<RecallRow>,
+    query_embedding: &[f32],
+    min_score: Option<f64>,
+    limit: usize,
+) -> Vec<RecallItem> {
+    let mut scored: Vec<(f64, RecallRow)> = rows
+        .into_iter()
+        .filter_map(|row| {
+            let value = crate::embed::cosine(query_embedding, row.embedding.as_deref()?);
+            Some((value, row))
+        })
+        .filter(|(value, _)| min_score.is_none_or(|floor| *value >= floor))
+        .collect();
+    scored.sort_by(|a, b| b.0.total_cmp(&a.0));
+    scored
+        .into_iter()
+        .take(limit)
+        .map(|(value, row)| to_item(row, Some(value)))
+        .collect()
 }
 
 fn tokens(text: &str) -> HashSet<String> {
@@ -134,6 +210,7 @@ mod tests {
             source: "cli".to_string(),
             created_at_ms: updated_at_ms,
             updated_at_ms,
+            embedding: None,
         }
     }
 
@@ -199,6 +276,55 @@ mod tests {
         assert_eq!(items[0].score, None);
         assert_eq!(items[0].schema_version, SCHEMA_VERSION);
         assert_eq!(items[0].tags, strings(&["posted"]));
+    }
+
+    #[test]
+    fn parses_since_and_semantic_options() {
+        let query = parse_args(&strings(&[
+            "short",
+            "posts",
+            "--semantic",
+            "--since",
+            "30d",
+            "--min-score",
+            "0.8",
+        ]))
+        .unwrap();
+        assert!(query.semantic);
+        assert_eq!(query.since, Some(Duration::from_secs(30 * 86_400)));
+        assert_eq!(query.min_score, Some(0.8));
+    }
+
+    #[test]
+    fn duration_units_and_bad_values() {
+        assert_eq!(
+            parse_duration("12h").unwrap(),
+            Duration::from_secs(12 * 3_600)
+        );
+        assert_eq!(parse_duration("90m").unwrap(), Duration::from_secs(90 * 60));
+        assert!(parse_duration("30").is_err());
+        assert!(parse_duration("30w").is_err());
+        assert!(parse_duration("xd").is_err());
+    }
+
+    #[test]
+    fn semantic_needs_a_query_and_min_score_needs_semantic() {
+        assert!(parse_args(&strings(&["--semantic"])).is_err());
+        assert!(parse_args(&strings(&["plain", "--min-score", "0.5"])).is_err());
+        assert!(parse_args(&strings(&["--since", "soon"])).is_err());
+    }
+
+    #[test]
+    fn semantic_rank_drops_rows_without_embeddings_and_applies_the_floor() {
+        let mut close = row("close", "posted", "a", 1);
+        close.embedding = Some(vec![1.0, 0.0]);
+        let mut far = row("far", "posted", "b", 2);
+        far.embedding = Some(vec![0.0, 1.0]);
+        let missing = row("missing", "posted", "c", 3);
+        let items = rank_semantic(vec![close, far, missing], &[1.0, 0.0], Some(0.5), 10);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].id, "close");
+        assert!((items[0].score.unwrap() - 1.0).abs() < 1e-9);
     }
 
     #[test]
