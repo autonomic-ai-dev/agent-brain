@@ -10,6 +10,13 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 
+pub fn lock_identity(home: &Path) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(home.join("serve.lock"))
+        .ok()
+        .map(|meta| (meta.dev(), meta.ino()))
+}
+
 pub struct ServeLock {
     _file: File,
     path: PathBuf,
@@ -93,6 +100,19 @@ pub fn acquire(home: &Path) -> Result<Option<ServeLock>> {
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn lock_identity_changes_when_the_lock_file_is_replaced() {
+        let dir = tempdir().unwrap();
+        let held = acquire(dir.path()).expect("acquire").expect("lock");
+        let first = lock_identity(dir.path());
+        assert!(first.is_some());
+        assert_eq!(first, lock_identity(dir.path()));
+        std::fs::remove_file(dir.path().join("serve.lock")).unwrap();
+        std::fs::write(dir.path().join("serve.lock"), b"replacement").unwrap();
+        assert_ne!(first, lock_identity(dir.path()));
+        drop(held);
+    }
 
     #[test]
     fn acquire_writes_pid_and_drop_removes_lock_file() {

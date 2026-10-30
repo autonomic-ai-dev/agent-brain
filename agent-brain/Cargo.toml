@@ -1,6 +1,6 @@
 [package]
 name = "agent-brain"
-version = "1.0.0-rc5"
+version = "1.0.0-rc6"
 edition = "2021"
 description = "Fast local MCP router for agents, skills, rules, and memory"
 license = "MIT"
@@ -45,7 +45,7 @@ lru = "0.16.3"
 prost = { version = "0.13", optional = true }
 regex = "1"
 rmcp = { version = "2.1.0", features = ["server", "transport-io", "macros", "client", "transport-child-process"] }
-rusqlite = { version = "0.32", features = ["bundled-sqlcipher-vendored-openssl", "functions"] }
+rusqlite = { version = "0.32", features = ["bundled", "functions"] }
 schemars = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -53,7 +53,6 @@ serde_yaml = "0.9"
 secrecy = "0.10"
 sha2 = "0.10"
 tar = "0.4"
-async-nats = "0.50"
 thiserror = "2"
 toml = "0.8"
 tokio = { version = "1", features = ["full"] }

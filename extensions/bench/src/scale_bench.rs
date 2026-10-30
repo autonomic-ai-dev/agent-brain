@@ -2,9 +2,9 @@
 
 use anyhow::{bail, Result};
 
-use crate::ann::DEFAULT_ANN_MIN_INDEX;
+use agent_brain::ann::DEFAULT_ANN_MIN_INDEX;
 use crate::bench::{run_bench_on_engine, PercentileMs};
-use crate::fixture::{new_isolated_engine, seed_bench_fixture};
+use agent_brain::fixture::{new_isolated_engine, seed_bench_fixture};
 
 pub const SCALE_P95_THRESHOLD_MS: u64 = 50;
 

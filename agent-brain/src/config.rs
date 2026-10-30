@@ -79,7 +79,7 @@ impl Config {
             db_path: data_dir.join("brain.db"),
             vectors_path: data_dir.join("vectors.bin"),
             turn_ttl_secs: env_u64("AGENT_BRAIN_TURN_TTL_SECS", settings.routing.turn_ttl_secs),
-            auto_capture_enabled: true,
+            auto_capture_enabled: env_bool("AGENT_BRAIN_AUTO_CAPTURE", false),
             auto_trajectory_enabled: env_bool(
                 "AGENT_BRAIN_AUTO_TRAJECTORY",
                 settings.routing.auto_trajectory,

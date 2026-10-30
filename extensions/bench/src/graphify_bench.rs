@@ -8,10 +8,10 @@ use anyhow::{bail, Result};
 use serde_json::json;
 
 use crate::bench::{percentiles, PercentileMs};
-use crate::fixture::{
+use agent_brain::fixture::{
     default_route_limits, new_isolated_engine, seed_bench_fixture, BENCH_FIXTURE_SKILLS,
 };
-use crate::graphify::ingest_graph_at_path;
+use agent_brain::graphify::ingest_graph_at_path;
 
 pub const GRAPHIFY_INGEST_1K_THRESHOLD_MS: u64 = 5_000;
 pub const GRAPHIFY_ROUTE_P95_THRESHOLD_MS: u64 = 65;

@@ -58,7 +58,7 @@ impl WriteHandlerCtx {
         &self,
         payload: store_memory_payload::StoreMemoryRequest,
     ) -> Result<serde_json::Value> {
-        if !self.auto_capture {
+        if capture_blocked(self.auto_capture, &payload.topic) {
             anyhow::bail!("auto capture disabled");
         }
         if looks_like_secret(&payload.fact) {
@@ -189,6 +189,32 @@ pub fn spawn_write_handler(
         };
         ctx.handle(op);
     })
+}
+
+fn capture_blocked(auto_capture: bool, topic: &str) -> bool {
+    !auto_capture && topic == "auto-route"
+}
+
+#[cfg(test)]
+mod tests {
+    use super::capture_blocked;
+
+    #[test]
+    fn explicit_writes_are_allowed_when_auto_capture_is_off() {
+        assert!(!capture_blocked(false, "voice"));
+        assert!(!capture_blocked(false, "posted"));
+    }
+
+    #[test]
+    fn automatic_route_writes_stay_blocked_when_auto_capture_is_off() {
+        assert!(capture_blocked(false, "auto-route"));
+    }
+
+    #[test]
+    fn everything_is_allowed_when_auto_capture_is_on() {
+        assert!(!capture_blocked(true, "auto-route"));
+        assert!(!capture_blocked(true, "voice"));
+    }
 }
 
 pub fn send_and_recv<T>(

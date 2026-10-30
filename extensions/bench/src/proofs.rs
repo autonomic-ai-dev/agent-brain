@@ -7,7 +7,7 @@ use chrono::Utc;
 
 use crate::beam_eval::{assert_beam_gate, run_beam_eval_isolated, BeamEvalReport};
 use crate::bench::{assert_bench_gate, run_ci_bench, LatencyBenchReport};
-use crate::eval::{assert_ci_gate, run_ci_eval_isolated, EvalReport};
+use agent_brain::eval::{assert_ci_gate, run_ci_eval_isolated, EvalReport};
 use crate::graphify_bench::{
     assert_graphify_bench_gate, run_ci_graphify_bench, GraphifyBenchReport,
 };
@@ -15,7 +15,7 @@ use crate::scale_bench::{assert_scale_bench_gate, run_ci_scale_bench, ScaleBench
 use crate::supervisor_bench::{
     assert_supervisor_bench_gate, run_supervisor_bench, SupervisorBenchReport,
 };
-use crate::token_tools::{run_token_tools_bench, TokenToolsBenchReport};
+use agent_brain::token_tools::{run_token_tools_bench, TokenToolsBenchReport};
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ProofReport {

@@ -1,7 +1,7 @@
 //! v0.24 — learning loop: trajectories, lineage, BEAM escalation suites.
 
 #[cfg(feature = "extras")]
-use agent_brain::beam_eval::{assert_beam_gate, run_beam_eval_isolated};
+use agent_brain_bench::beam_eval::{assert_beam_gate, run_beam_eval_isolated};
 use agent_brain::db::store::BrainStore;
 use agent_brain::embed::Embedder;
 use agent_brain::observation::{run_observations, ObservationConfig};

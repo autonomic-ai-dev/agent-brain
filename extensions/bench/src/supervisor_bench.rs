@@ -8,15 +8,15 @@ use anyhow::{bail, Result};
 use tempfile::TempDir;
 
 use crate::bench::percentiles;
-use crate::config::Config;
-use crate::db::store::{content_hash, BrainStore};
-use crate::embed::deterministic_embedding;
-use crate::engine::Engine;
-use crate::fixture::{seed_bench_fixture, BENCH_FIXTURE_SKILLS};
-use crate::packages::install_bundled;
-use crate::route_briefing::token_savings;
-use crate::token_tools::{run_token_tools_bench, TokenToolsBenchReport};
-use crate::types::RouteLimits;
+use agent_brain::config::Config;
+use agent_brain::db::store::{content_hash, BrainStore};
+use agent_brain::embed::deterministic_embedding;
+use agent_brain::engine::Engine;
+use agent_brain::fixture::{seed_bench_fixture, BENCH_FIXTURE_SKILLS};
+use agent_brain::packages::install_bundled;
+use agent_brain::route_briefing::token_savings;
+use agent_brain::token_tools::{run_token_tools_bench, TokenToolsBenchReport};
+use agent_brain::types::RouteLimits;
 
 pub const SUPERVISOR_SKILL_HIT_THRESHOLD: f64 = 1.0;
 pub const MUST_APPLY_HIT_THRESHOLD: f64 = 1.0;
@@ -144,8 +144,7 @@ pub fn run_supervisor_bench_on_engine(engine: &Engine) -> Result<SupervisorBench
     let mut fast_path_eligible = 0usize;
 
     for scenario in SCENARIOS {
-        let bm25 = engine.store.bm25_prefilter(scenario.query)?;
-        let eligible = bm25.fast_path_eligible(scenario.query);
+        let eligible = engine.store.bm25_fast_path_eligible(scenario.query)?;
         if eligible {
             fast_path_eligible += 1;
         }

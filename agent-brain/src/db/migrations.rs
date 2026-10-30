@@ -330,7 +330,23 @@ pub fn run(conn: &Connection) -> rusqlite::Result<()> {
         conn.execute("UPDATE schema_version SET version = 24", [])?;
     }
 
+    if version < 25 {
+        migrate_v25(conn)?;
+        conn.execute("UPDATE schema_version SET version = 25", [])?;
+    }
+
     Ok(())
+}
+
+fn migrate_v25(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS fact_tags (
+            fact_id TEXT NOT NULL,
+            tag TEXT NOT NULL,
+            PRIMARY KEY (fact_id, tag)
+        );
+        CREATE INDEX IF NOT EXISTS idx_fact_tags_tag ON fact_tags(tag);",
+    )
 }
 
 fn migrate_v24(conn: &Connection) -> rusqlite::Result<()> {

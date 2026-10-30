@@ -15,8 +15,15 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
 
 - `verify-record-exit`: Runs a command and records its real exit code as evidence.
   - Intent: Make "tests passed" a recorded fact instead of a claim.
-  - Behaviour: `agent-brain verify [--source cli|orchestrator] -- <cmd>` runs the command, captures its output, prints it when the command finishes, and stores the exit code and source.
-  - Outcome: The exit code, source, and the summed `test result:` count (`tests_run`, schema v22, `src/verify.rs` `count_tests`) are recorded. A run without a cargo summary stores no count. It also stores `code_hash`, the hash of the code tree the run tested, which the stop gate compares with the current tree.
+  - Behaviour: `agent-brain verify [--source cli|orchestrator] [--save-artifact] -- <cmd>` runs the command, captures its output, prints it when the command finishes, and stores the exit code and source. With `--save-artifact` the captured output is also written to `${AUTONOMIC_HOME:-~/.autonomic}/artifacts/<project-folder>/<report-id>.log`, and the path is printed to stderr.
+  - Outcome: The exit code, source, and the summed `test result:` count (`tests_run`, schema v22, `src/verify.rs` `count_tests`) are recorded. A run without a cargo summary stores no count. It also stores `code_hash`, the hash of the code tree the run tested, which the stop gate compares with the current tree. A saved log lives under the artifacts folder; without the flag no log is written, and `.verify/artifacts/` is only written by project scripts.
+- `extensions`: Installs optional `agent-brain-<name>` executables from agent-registry and runs them as subcommands.
+  - Intent: Keep the core binary small by moving optional features out of it.
+  - Behaviour: `agent-brain ext list`, `ext add <name>`, `ext remove <name>`. `ext add` reads `extensions/<name>/extension.json` from the agent-registry checkout in the registry cache, downloads the build for this platform, checks its SHA-256 against the manifest, and installs it to `<brain home>/extensions/bin/agent-brain-<name>`. An unknown subcommand that matches an installed extension runs it with the remaining arguments, with `AGENT_BRAIN_HOME` and `AGENT_BRAIN_SOCKET` (the serve socket) set. Its exit code is returned.
+  - Outcome: The first extension is `bench` (`extensions/bench`), which provides `bench` (including `--beam`) and `proofs`. Extensions reach the brain through the serve socket as MCP clients, not by opening `brain.db`. `src/extensions.rs` holds the logic; tests cover name validation, SHA-256 checks, manifest loading, listing, and removal.
+- `upstream-mcp-add`: Registers an upstream MCP server that agent-brain proxies through `route_to_mcp`.
+  - Behaviour: `agent-brain mcp add <name> [--env KEY=VAL | --env=KEY=VAL] -- <command> [args...]` saves the server in `config.yaml` under `upstream_mcp`, then indexes its tools.
+  - Outcome: The server and its env are stored, and its tool count is printed. `src/mcp_cli.rs` `parse_env_flags` reads both `--env` forms. `config_warnings` prints a `warning:` line for an empty header value or a `${VAR}` placeholder that is set neither in the server env nor in the environment. Indexing only proves the tools are listed, not that calls will authenticate.
 - `verify-init-scaffold`: Creates the harness files for a repository.
   - Behaviour: `agent-brain verify init` writes `.verify/verify.toml`, an executable `run.sh`, and `README.md`.
   - Outcome: The three files exist and `run.sh` is executable.
@@ -29,7 +36,7 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
   - Outcome: The fact is stored, or queued and later flushed. A duplicate content hash returns the existing id with `deduplicated: true`, and the duplicate check and insert run under one connection lock, so concurrent identical stores persist one active fact.
 - `route-task-context`: Returns ranked skills, rules, and memory for a turn.
   - Intent: Give the agent the context it needs before it acts.
-  - Behaviour: `route_task` ranks candidates under a token budget, applies the core must-apply rules, and returns suggested tools.
+  - Behaviour: `route_task` ranks candidates under a token budget, applies the core must-apply rules, and returns suggested tools. It stores an `auto-route` memory for the previous turn only when `AGENT_BRAIN_AUTO_CAPTURE=1` is set (off by default, `src/config.rs`).
   - Outcome: A structured route result. Core ranking is proven by the core crate (see [[core-crate]]).
 - `install-and-doctor`: Installs MCP, hooks, and permissions, and checks health.
   - Behaviour: `agent-brain install --global`, `doctor`, `doctor --fix`, `index`, `briefing`.

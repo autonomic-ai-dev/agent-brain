@@ -30,6 +30,16 @@ pub struct AgentBrainSettings {
     pub routing: RoutingSettings,
     #[serde(default)]
     pub feedback_report: FeedbackReportSettings,
+    #[serde(default)]
+    pub memorable: MemorableSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct MemorableSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub capture: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -633,6 +643,7 @@ impl AgentBrainSettings {
             docs: DocsSettings::default(),
             routing: RoutingSettings::default(),
             feedback_report: FeedbackReportSettings::default(),
+            memorable: MemorableSettings::default(),
         }
     }
 

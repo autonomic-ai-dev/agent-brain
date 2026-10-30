@@ -46,16 +46,7 @@ async fn main() -> Result<()> {
     #[cfg(not(feature = "extras"))]
     if matches!(
         cmd,
-        "dataset"
-            | "digest"
-            | "eval"
-            | "fixture"
-            | "skills-sh"
-            | "bench"
-            | "proofs"
-            | "distill"
-            | "graphify"
-            | "grpc"
+        "dataset" | "digest" | "eval" | "fixture" | "skills-sh" | "distill" | "graphify" | "grpc"
     ) {
         anyhow::bail!(
             "command `{cmd}` requires a build with `--features extras`\n             rebuild: cargo install --path agent-brain --features extras"
@@ -850,11 +841,12 @@ async fn main() -> Result<()> {
                 let scenarios = flag_value(&args, "--scenarios").map(std::path::PathBuf::from);
                 let source_raw = flag_value(&args, "--source").unwrap_or_else(|| "cli".to_string());
                 let source = agent_brain::verify::VerifySource::parse(&source_raw)?;
+                let save_artifact = args.iter().any(|a| a == "--save-artifact");
                 let cmd: Vec<String> = if let Some(idx) = args.iter().position(|a| a == "--") {
                     args[idx + 1..].to_vec()
                 } else {
                     eprintln!(
-                        "Usage: agent-brain verify [--source cli|orchestrator] [--config PATH] [--scenarios DIR] [--route-log-id ID] [--cause TAG] -- <cmd> [args...]\n       agent-brain verify init [--force] [--dir DIR]\n       agent-brain verify record --exit N [--source ...] -- <cmd summary...>"
+                        "Usage: agent-brain verify [--source cli|orchestrator] [--config PATH] [--scenarios DIR] [--route-log-id ID] [--cause TAG] [--save-artifact] -- <cmd> [args...]\n       agent-brain verify init [--force] [--dir DIR]\n       agent-brain verify record --exit N [--source ...] -- <cmd summary...>"
                     );
                     std::process::exit(1);
                 };
@@ -866,6 +858,7 @@ async fn main() -> Result<()> {
                     config_path.as_deref(),
                     scenarios.as_deref(),
                     source,
+                    save_artifact,
                 )?;
                 println!("{}", serde_json::to_string_pretty(&report)?);
                 if !report.success {
@@ -1256,7 +1249,164 @@ async fn main() -> Result<()> {
             }
         }
         "help" | "--help" | "-h" => cli_help::print_root(),
+        "remember" => {
+            if args[2..].iter().any(|a| a == "--help" || a == "-h") {
+                println!("{}", agent_brain::remember::USAGE);
+                return Ok(());
+            }
+            let config = Config::load()?;
+            let req = agent_brain::remember::parse_remember_args(&args[2..])?;
+            let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
+            let embedder = agent_brain::embed::Embedder::with_model(
+                agent_brain::embed::parse_embedding_model(&config.embedding_model),
+            )?;
+            let outcome =
+                agent_brain::remember::remember(&store, &req, &|text| embedder.embed_one(text))?;
+            println!("{}", serde_json::to_string_pretty(&outcome)?);
+        }
+        "import-corpus" => {
+            if args[2..].iter().any(|a| a == "--help" || a == "-h") {
+                println!("{}", agent_brain::remember::IMPORT_USAGE);
+                return Ok(());
+            }
+            let config = Config::load()?;
+            let dir = args
+                .get(2)
+                .context("usage: agent-brain import-corpus <dir> --tag TAG [--tag TAG ...]")?;
+            let tags: Vec<String> = args
+                .windows(2)
+                .filter(|pair| pair[0] == "--tag")
+                .map(|pair| pair[1].clone())
+                .collect();
+            let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
+            let embedder = agent_brain::embed::Embedder::with_model(
+                agent_brain::embed::parse_embedding_model(&config.embedding_model),
+            )?;
+            let report = agent_brain::remember::import_corpus(
+                &store,
+                std::path::Path::new(dir),
+                &tags,
+                &|text| embedder.embed_one(text),
+            )?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        "recall" => {
+            let config = Config::load()?;
+            if args[2..].iter().any(|a| a == "--help" || a == "-h") {
+                println!("{}", agent_brain::recall::USAGE);
+                return Ok(());
+            }
+            let query = agent_brain::recall::parse_args(&args[2..])?;
+            let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
+            let now_ms = chrono::Utc::now().timestamp_millis();
+            let since_ms = query
+                .since
+                .map_or(0, |span| now_ms - span.as_millis() as i64);
+            let rows = store.recall_rows(
+                &query.tags,
+                since_ms,
+                now_ms,
+                agent_brain::recall::CANDIDATE_CAP,
+            )?;
+            let items = match (query.semantic, query.text.as_deref()) {
+                (true, Some(text)) => {
+                    let embedder = agent_brain::embed::Embedder::with_model(
+                        agent_brain::embed::parse_embedding_model(&config.embedding_model),
+                    )?;
+                    let embedding = embedder.embed_one(text)?;
+                    agent_brain::recall::rank_semantic(
+                        rows,
+                        &embedding,
+                        query.min_score,
+                        query.limit,
+                    )
+                }
+                _ => agent_brain::recall::rank(rows, query.text.as_deref(), query.limit),
+            };
+            if query.json {
+                println!("{}", serde_json::to_string_pretty(&items)?);
+            } else if items.is_empty() {
+                println!("no matches");
+            } else {
+                for item in &items {
+                    println!("{}\t{}\t{}", item.id, item.tags.join(","), item.text);
+                }
+            }
+        }
+        "memorable" => {
+            let config = Config::load()?;
+            let mut settings = settings::AgentBrainSettings::load(&config.home);
+            match args.get(2).map(String::as_str).unwrap_or("status") {
+                "enable" => {
+                    let capture = args.iter().any(|a| a == "--capture");
+                    agent_brain::memorable::enable(&mut settings, capture);
+                    agent_brain::mcp_cli::persist_brain_settings(&settings)?;
+                    if capture {
+                        println!("memorable enabled with capture: verified sessions are sent to Memorable's extraction service (`agent-brain memorable capture <trace.json>`). Run `agent-brain mcp sync` to index the read-only server.");
+                    } else {
+                        println!("memorable enabled: read-only MCP server registered. Run `agent-brain mcp sync` to index it. Sending traces to the extraction service stays off.");
+                    }
+                }
+                "capture" => {
+                    let trace = args
+                        .get(3)
+                        .context("usage: agent-brain memorable capture <trace.json>")?;
+                    let cwd = std::env::current_dir()?;
+                    let message = agent_brain::memorable::capture(
+                        &config.home,
+                        &config.db_path,
+                        &cwd,
+                        std::path::Path::new(trace),
+                    )?;
+                    println!("{message}");
+                }
+                "disable" => {
+                    agent_brain::memorable::disable(&mut settings);
+                    agent_brain::mcp_cli::persist_brain_settings(&settings)?;
+                    println!("memorable disabled: server removed");
+                }
+                "status" => println!(
+                    "memorable enabled: {}, server registered: {}",
+                    settings.memorable.enabled,
+                    agent_brain::memorable::is_registered(&settings)
+                ),
+                _ => {
+                    eprintln!("Usage: agent-brain memorable [status | enable [--capture] | capture <trace.json> | disable]");
+                    std::process::exit(1);
+                }
+            }
+        }
+        "ext" => {
+            let config = Config::load()?;
+            match args.get(2).map(String::as_str).unwrap_or("list") {
+                "list" => {
+                    for name in agent_brain::extensions::installed(&config.home)? {
+                        println!("{name}");
+                    }
+                }
+                "add" => {
+                    let name = args.get(3).context("usage: agent-brain ext add <name>")?;
+                    let path = agent_brain::extensions::install(&config.home, name)?;
+                    println!("installed {name} -> {}", path.display());
+                }
+                "remove" => {
+                    let name = args
+                        .get(3)
+                        .context("usage: agent-brain ext remove <name>")?;
+                    agent_brain::extensions::remove(&config.home, name)?;
+                    println!("removed {name}");
+                }
+                _ => {
+                    eprintln!("Usage: agent-brain ext [list | add <name> | remove <name>]");
+                    std::process::exit(1);
+                }
+            }
+        }
         _ => {
+            let home = Config::load()?.home;
+            if let Some(owner) = agent_brain::extensions::owner_of(&home, cmd)? {
+                std::process::exit(agent_brain::extensions::run(&home, &owner, &args[1..])?);
+            }
             eprintln!("Unknown command: {cmd}");
             cli_help::print_root();
             std::process::exit(1);
