@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0-rc6] - 2026-10-31
+
+### Added
+- **Shell memory**: `agent-brain recall` reads stored facts as JSON, filtered by tag, query, age (`--since 30d|12h|90m`), or similarity (`--semantic`, with `--min-score`). `agent-brain remember --text ... --tag ... --source ...` stores one fact with several tags. `agent-brain import-corpus DIR --tag ...` stores the paragraphs of a folder of Markdown files, skipping duplicates by content hash. All three have `--help`. Migration 25 adds the `fact_tags` table.
+- **Extensions**: `agent-brain ext add|list|remove` installs optional executables from a registry manifest. Installs are checked by SHA-256 and by the Developer ID team identifier. Unknown subcommands are routed to the installed extension that provides them.
+- **Benchmark extension** (`agent-brain-bench`): the `bench` and `proofs` commands now ship as an extension. `bench --beam` replaces `eval --beam`.
+- **Memorable link (opt-in, off by default)**: `agent-brain memorable enable|disable|status` registers Memorable's read-only MCP server against an unreachable API. `memorable enable --capture` and `memorable capture <trace.json>` send reduced traces to Memorable only when the repo's last verify passed.
+- **Daemon lifetime**: `serve --daemon` exits when its lock or socket is removed, and after `AGENT_BRAIN_DAEMON_IDLE_SECS` (default 3600) with no client sessions.
+
+### Changed
+- `async-nats` dependency removed (unused).
+- SQLCipher at-rest encryption (`AGENT_BRAIN_ENCRYPT_DB`) removed. A database encrypted by an earlier build fails to open with a message to restore an unencrypted copy.
+- Auto-capture is off by default (`AGENT_BRAIN_AUTO_CAPTURE`). It gates only automatic route writes.
+- `bm25_fast_path_eligible` is exposed on the store for the benchmark extension.
+
+### Fixed
+- Route stalls: when the daemon connection dropped, the stdio proxy went silent until the host timed out (1800 s). Pending requests now get a "connection was lost; retry" error, and the proxy starts a new daemon after a later loss.
+- Explicit `store_memory` writes were refused whenever auto-capture was off. Only automatic route writes are gated now.
+- Duplicate daemons: a daemon started under a temporary home outlived it. The daemon now exits when its home is removed.
+
 ## [1.0.0-rc5] - 2026-10-30
 
 ### Added
