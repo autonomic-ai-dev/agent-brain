@@ -1,3 +1,7 @@
+---
+feature: "[[../features/core-crate]]"
+---
+
 # Core crate
 
 ## What it does
@@ -36,5 +40,5 @@
 
 ## Related
 
-- Feature map: `agent-brain/.verify/features/core-crate.md`
+- Feature map: [[../features/core-crate]]
 - Routing and verify CLI: [cli-verify-and-memory](cli-verify-and-memory.md)

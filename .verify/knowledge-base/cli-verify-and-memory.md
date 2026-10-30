@@ -1,3 +1,7 @@
+---
+feature: "[[../features/cli-verify-and-memory]]"
+---
+
 # CLI, verify, and memory
 
 ## What it does
@@ -9,7 +13,7 @@ agent-brain is the routing layer every agent calls at the start of a turn. Its C
 1. **Verify.** `agent-brain verify [--source cli|orchestrator] -- <cmd>` runs the command, captures its output, prints it when the command finishes, and stores the exit code, source, and the summed `test result:` count (`tests_run`, schema v22). A run with no cargo summary stores no count.
 2. **Harness scaffold.** `agent-brain verify init` writes `.verify/verify.toml`, an executable `run.sh`, and a README.
 3. **Report.** `agent-brain verify record` and `verify report` summarize recorded exits per source.
-4. **Memory.** `agent-brain memory put` writes a durable fact. `enqueue` and `flush-pending` hold facts that could not be written yet and retry them later.
+4. **Memory.** `agent-brain memory put` writes a durable fact. `enqueue` and `flush-pending` hold facts that could not be written yet and retry them later. The MCP `store_memory` and `delete_memory` tools go through the write queue on `spawn_blocking`, so a slow write does not park an async worker.
 5. **Route.** `route_task` ranks skills, rules, and memory for a turn under a token budget, applies the must-apply rules, and returns suggested tools. Ranking lives in the core crate (see [core-crate](core-crate.md)).
 6. **Stop gate.** `agent-brain stop-gate` runs as the Stop hook. It blocks a stop when code changed in a repo and either the default verify step fails, or the feature map or knowledge base has not been updated (see below).
 7. **Install and doctor.** `agent-brain install --global` writes MCP config, hooks, and permissions. `doctor` checks health, and `doctor --fix` clears quarantine.
@@ -27,6 +31,8 @@ agent-brain is the routing layer every agent calls at the start of a turn. Its C
 - Stop gate: `agent-brain/src/stop_gate.rs` (`changed_paths`, `feature_map_missing`, `feature_map_gap`, `evaluate_stop`)
 - Host hooks: `agent-brain/src/host_hooks.rs` (`claude_code_gate_fragment` installs the `Stop` hook)
 - MCP tools: `route_task`, `store_memory`, `verify_run`, `record_verify_outcome`, `file_summary`, `grep_search`, `read_file_head`, `read_file_tail`
+- Memory write path: `agent-brain/src/mcp/server.rs` (`store_memory`, `delete_memory`), `agent-brain/src/db/write_handler.rs` (`send_and_recv`), `agent-brain/src/db/store.rs` (`store_fact_full`)
+- graphify subprocess timeouts: `agent-brain/src/graphify/process.rs` (`output_with_timeout`), used by `graphify/jobs.rs` and `graphify/query.rs`
 
 ## How to use it
 
@@ -43,6 +49,8 @@ agent-brain is the routing layer every agent calls at the start of a turn. Its C
 ## Behaviour that matters
 
 - `grep_search` accepts `query` as an alias for `pattern`, and `path` defaults to `"."`. Callers that send `query` no longer fail with a missing-field error.
+- Storing the same content twice returns the existing id with `deduplicated: true`. The dedupe check and the insert share one connection lock, so concurrent identical stores persist one active fact.
+- graphify subprocesses are bounded: a build job is killed after 30 minutes, and `query_codebase` after 60 seconds. The helper drains stdout and stderr while it waits, so large output cannot deadlock the wait.
 - The `brain_git_*` tools run `git` with the working directory set to the given path. Git does not climb past a mount boundary, so a non-repository path reports a hint to pass the repository root.
 - `GIT_DISCOVERY_ACROSS_FILESYSTEM` is deliberately not set globally. Setting it would let git find an unrelated parent repository.
 
@@ -53,8 +61,10 @@ agent-brain is the routing layer every agent calls at the start of a turn. Its C
 - `doctor --fix` clears quarantine. Run it only on this repository's build output, not on a user's installed binary.
 - Memory tests need a temporary `brain.db`. The real database is shared state.
 - The stop gate only sees a repo that git reports. A change outside git is not checked.
+- `graphify hook install` (`graphify/repos.rs`) runs with no timeout and inherited stdio, so it can wait on a prompt.
+- `sessions::digest::tests::ingests_gemini_jsonl_digest` failed once in a parallel `--all-features` library run (left 3, right 1) and passes under `--test-threads=1`. It looks like parallel-test interference, and the cause is not investigated.
 
 ## Related
 
 - Core routing logic: [core-crate](core-crate.md)
-- Feature map: `agent-brain/.verify/features/cli-verify-and-memory.md`
+- Feature map: [[../features/cli-verify-and-memory]]

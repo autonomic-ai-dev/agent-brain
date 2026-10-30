@@ -1,3 +1,10 @@
+---
+feature: core-crate
+knowledge_base: "[[../knowledge-base/core-crate]]"
+related:
+  - "[[cli-verify-and-memory]]"
+---
+
 # core-crate
 
 ## Sub-features

@@ -1,3 +1,12 @@
+---
+feature: cli-verify-and-memory
+knowledge_base: "[[../knowledge-base/cli-verify-and-memory]]"
+related:
+  - "[[core-crate]]"
+  - "[[packages]]"
+  - "[[serve-daemon-and-proxy]]"
+---
+
 # cli-verify-and-memory
 
 Summary: agent-brain is the routing layer that every agent calls at turn start. Its CLI and MCP tools run a command and record its real exit, store and retrieve durable memory, install itself into hosts, and report its health, so that an agent's claims about what passed are backed by recorded exit codes.
@@ -16,18 +25,26 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
   - Outcome: A summary of recorded exits per source.
 - `memory-put-and-flush`: Writes durable facts, with a retry queue.
   - Intent: Keep a fact even when the store is briefly unavailable.
-  - Behaviour: `agent-brain memory put`, `enqueue`, and `flush-pending`.
-  - Outcome: The fact is stored, or queued and later flushed.
+  - Behaviour: `agent-brain memory put`, `enqueue`, and `flush-pending`. The MCP `store_memory` and `delete_memory` tools send through the write queue on `spawn_blocking`, so they never park an async worker.
+  - Outcome: The fact is stored, or queued and later flushed. A duplicate content hash returns the existing id with `deduplicated: true`, and the duplicate check and insert run under one connection lock, so concurrent identical stores persist one active fact.
 - `route-task-context`: Returns ranked skills, rules, and memory for a turn.
   - Intent: Give the agent the context it needs before it acts.
   - Behaviour: `route_task` ranks candidates under a token budget, applies the core must-apply rules, and returns suggested tools.
-  - Outcome: A structured route result. Core ranking is proven by the core crate (see `core-crate.md`).
+  - Outcome: A structured route result. Core ranking is proven by the core crate (see [[core-crate]]).
 - `install-and-doctor`: Installs MCP, hooks, and permissions, and checks health.
   - Behaviour: `agent-brain install --global`, `doctor`, `doctor --fix`, `index`, `briefing`.
   - Outcome: A health report. `doctor --fix` clears quarantine without re-signing.
 - `sync-and-bootstrap`: Syncs the brain across machines.
   - Behaviour: `agent-brain sync git|cloud …` and `agent-brain bootstrap`.
   - Outcome: Memory is pushed or pulled from the sync repository.
+- `feedback-report`: Opt-in telemetry report and agent feedback request, every `feedback_report.interval_hours` (default 3).
+  - Intent: Show what the gates, hooks, and routing did, and collect the agent's own feedback on agent-brain and agent-spine.
+  - Behaviour: With `feedback_report.enabled: true` (default false), the next `route_task` writes `reports/telemetry-<ts>.md` under the brain home and adds a `feedback-report` must-apply item asking the agent to write `reports/agent-feedback-<ts>.md`. The item repeats until that file exists. agent-spine receives it through its `route_task` forwarding, so it shares this flag.
+  - Outcome: Telemetry for the window (hook events, sessions, gate denials, tool calls) and one agent feedback file per report. Settings are in `src/settings.rs`, the logic in `src/feedback_report.rs`.
+- `feature-graph`: Prints the feature maps as a JSON graph.
+  - Intent: Let an agent find the right feature map by graph search, and let Obsidian show the same links.
+  - Behaviour: `agent-brain feature-graph [DIR]` reads each map's frontmatter `feature` and `related` wikilinks, and its `## Sub-features` and `## Code` sections. It rejects a map whose `feature` differs from its file name, a `related` entry that is not a `[[wikilink]]`, and a link to an unknown feature.
+  - Outcome: JSON with `nodes` (id, sub_features, code) and `edges` (from, to). Logic is in `src/feature_graph.rs`.
 
 ## Code
 
@@ -35,6 +52,7 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
 - `agent-brain/tests`
 - `agent-brain/hooks`
 - `agent-brain/Cargo.toml`
+- `agent-brain/config.example.yaml`
 
 ## How to get to it (user POV)
 
@@ -43,7 +61,9 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
 
 ## Verification Suites (Targeted Test Commands)
 
-- **Unit Tests:** `cargo test -p agent-brain-core` (passes 11 of 11, see `.verify/artifacts/feature-map-baseline/core-unit.log`). The whole crate runs with `cargo test --all-features` (303 unit tests, 0 failed, recorded by `agent-brain verify`).
+- **Unit Tests:** `cargo test -p agent-brain-core` (passes 11 of 11, see `.verify/artifacts/feature-map-baseline/core-unit.log`). The whole crate runs with `cargo test --all-features -- --skip graphify_1k_ci_gate --skip scale_1k_passes_gate --test-threads=1`, the allowlisted command.
+- **Targeted tests for the memory and graphify fixes:** `cargo test -p agent-brain --all-features --lib -- store_and_delete_memory_round_trip concurrent_identical_stores_persist process::tests` (5 passed when run in this pass).
+- **Feature-graph and feedback-report tests:** `cargo test -p agent-brain --lib feature_graph`, `cargo test -p agent-brain --lib feedback_report`, and `cargo test -p agent-brain --bin agent-brain cli_help`.
 - **Functional API Tests (Hurl):** not yet written for the CLI or MCP surface.
 - **Allowlisted Verification:** `.verify/run.sh`, listed in `.verify/verify.toml`
 - **Preconditions:** Rust toolchain. Memory tests need a temporary `brain.db` path, not the user's `~/.autonomic/memory`.
@@ -68,3 +88,5 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
 - Plain `cargo test` in this crate does not build the `extras` tests. Any command that bypasses the allowlist must pass `--features extras` or `--all-features`.
 - `doctor --fix` clears quarantine. Run it only on this repository's build output, not on a user's installed binary.
 - Memory tests must use a temporary database path. Writing to the real `brain.db` changes shared memory.
+- graphify subprocesses run through `graphify/process.rs` `output_with_timeout`. A graph build job is killed after 30 minutes and a `query_codebase` call after 60 seconds, so a hung graphify no longer holds `JOB_LOCK` or the MCP request forever. `graphify hook install` in `graphify/repos.rs` still runs with no timeout.
+- Flaky under parallel tests: `sessions::digest::tests::ingests_gemini_jsonl_digest` failed once in a parallel `cargo test --all-features --lib` run (left 3, right 1). It passes under the allowlisted `--test-threads=1` run, which exits 0 (recorded by `agent-brain verify`). Cause not investigated.

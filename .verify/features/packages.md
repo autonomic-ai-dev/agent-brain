@@ -1,3 +1,10 @@
+---
+feature: packages
+knowledge_base: "[[../knowledge-base/packages]]"
+related:
+  - "[[cli-verify-and-memory]]"
+---
+
 # packages
 
 Summary: Installs skill packages from GitHub into the brain home, records each one in `packages.json`, and indexes their skills so the router can find them.
@@ -30,7 +37,8 @@ Summary: Installs skill packages from GitHub into the brain home, records each o
 
 ## Verification Suites (Targeted Test Commands)
 
-- **Unit Tests:** `cargo test --all-features` (whole crate; the `packages::` tests are included)
+- **Unit Tests:** `cargo test --all-features -- --skip graphify_1k_ci_gate --skip scale_1k_passes_gate --test-threads=1` (whole crate; the `packages::` tests are included)
+- **Targeted package test:** `cargo test --all-features packages::tests::package_name_includes_owner_so_same_repo_names_differ`
 - **Allowlisted Verification:** `.verify/run.sh`, listed in `.verify/verify.toml`
 - **Preconditions:** Rust toolchain and network access to GitHub for `package add`. Run install checks against a temporary `HOME`, not the user's `~/.autonomic`.
 

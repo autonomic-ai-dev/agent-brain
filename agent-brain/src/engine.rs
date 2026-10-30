@@ -1127,6 +1127,13 @@ impl Engine {
 
     fn finish_route_response(&self, mut resp: RouteTaskResponse) -> RouteTaskResponse {
         resp.must_apply.extend(crate::behavior_contract::rules());
+        if let Some(request) = crate::feedback_report::route_request(
+            &self.config.home,
+            &self.config.logs_dir,
+            chrono::Utc::now().timestamp(),
+        ) {
+            resp.must_apply.push(request);
+        }
         if resp.index_total == 0 {
             if let Ok(n) = self.store.count_indexed_items() {
                 resp.index_total = n;

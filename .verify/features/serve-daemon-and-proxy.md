@@ -1,3 +1,10 @@
+---
+feature: serve-daemon-and-proxy
+knowledge_base: "[[../knowledge-base/serve-daemon-and-proxy]]"
+related:
+  - "[[cli-verify-and-memory]]"
+---
+
 # serve-daemon-and-proxy
 
 Summary: `agent-brain serve` runs in two roles. A shared daemon holds the brain database, the embedding model, and background work on a Unix socket. Each host session starts a stdio proxy that bridges the host to that socket. This map covers the daemon, the proxy lifecycle, and the embedder's idle unload.
@@ -39,7 +46,7 @@ Summary: `agent-brain serve` runs in two roles. A shared daemon holds the brain 
 - **Unit Tests:** `cargo test --all-features embed::tests::` (6 tests, embedder loading and unload)
 - **Integration Test:** `cargo test --all-features --test proxy_lifecycle` (1 test, proxy exit with its host)
 - **Full suite:** `cargo test --all-features -- --skip graphify_1k_ci_gate --test-threads=1` (the serial gate; see `cli-verify-and-memory.md`)
-- **Functional API Tests (Hurl):** not yet written for the daemon socket.
+- **Functional tests:** not yet written for the daemon socket. The integration test above covers the proxy's exit with its host. Add a functional suite here when the daemon socket gains a documented surface.
 - **Preconditions:** Rust toolchain. The embedder tests load the ONNX model from the default cache directory, so they need the model cached or network access on first run. The proxy test binds a listener in a temporary `AGENT_BRAIN_HOME`, so it never reaches the real daemon.
 
 ### Verification Steps

@@ -3,13 +3,16 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import shutil
 import tempfile
 import time
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 _ISOLATED_HOME = tempfile.TemporaryDirectory(prefix="agent-brain-route-test-")
 os.environ["AGENT_BRAIN_HOME"] = _ISOLATED_HOME.name
@@ -1197,6 +1200,25 @@ class SessionRouteReuseTests(unittest.TestCase):
         self._prompt(self.cwd)
 
         self.assertTrue(route_gate.load_state().get("needs_route"))
+
+
+class HookEventCounterTests(unittest.TestCase):
+    def setUp(self) -> None:
+        route_gate.HOOK_EVENTS_PATH.unlink(missing_ok=True)
+
+    def test_main_appends_each_hook_event_with_its_session(self) -> None:
+        payloads = [
+            {"hook_event_name": "beforeSubmitPrompt", "prompt": "hi", "conversation_id": "s-1"},
+            {"hook_event_name": "preToolUse", "tool_name": "Read", "session_id": "s-1", "tool_input": {"path": "README.md"}},
+        ]
+        for payload in payloads:
+            with mock.patch("sys.stdin", io.StringIO(json.dumps(payload))), redirect_stdout(io.StringIO()):
+                route_gate.main()
+        records = [json.loads(line) for line in route_gate.HOOK_EVENTS_PATH.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(
+            [(record["event"], record["session"]) for record in records],
+            [("beforeSubmitPrompt", "s-1"), ("preToolUse", "s-1")],
+        )
 
 
 class TestIsolationTests(unittest.TestCase):

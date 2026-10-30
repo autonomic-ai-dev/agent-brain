@@ -28,6 +28,8 @@ pub struct AgentBrainSettings {
     pub docs: DocsSettings,
     #[serde(default)]
     pub routing: RoutingSettings,
+    #[serde(default)]
+    pub feedback_report: FeedbackReportSettings,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -196,6 +198,27 @@ impl Default for DocsSettings {
             max_chunks: default_docs_max_chunks(),
             chunk_words: default_docs_chunk_words(),
             summary_words: default_docs_summary_words(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FeedbackReportSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_feedback_report_interval_hours")]
+    pub interval_hours: u64,
+}
+
+fn default_feedback_report_interval_hours() -> u64 {
+    3
+}
+
+impl Default for FeedbackReportSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            interval_hours: default_feedback_report_interval_hours(),
         }
     }
 }
@@ -609,6 +632,7 @@ impl AgentBrainSettings {
             registry: RegistrySettings::default(),
             docs: DocsSettings::default(),
             routing: RoutingSettings::default(),
+            feedback_report: FeedbackReportSettings::default(),
         }
     }
 
