@@ -7,12 +7,12 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 
-use crate::db::store::{content_hash, BrainStore, FactTemporal};
-use crate::embed::deterministic_embedding;
-use crate::engine::Engine;
-use crate::eval::{run_ci_eval_seeded, seed_eval_fixture, EvalReport, SuiteResult};
-use crate::observation::{run_observations, ObservationConfig};
-use crate::types::{ItemType, RouteLimits, RouteTaskResponse};
+use agent_brain::db::store::{content_hash, BrainStore, FactTemporal};
+use agent_brain::embed::deterministic_embedding;
+use agent_brain::engine::Engine;
+use agent_brain::eval::{run_ci_eval_seeded, seed_eval_fixture, EvalReport, SuiteResult};
+use agent_brain::observation::{run_observations, ObservationConfig};
+use agent_brain::types::{ItemType, RouteLimits, RouteTaskResponse};
 
 pub const BEAM_THRESHOLD: f64 = 0.85;
 
@@ -58,7 +58,7 @@ fn default_true() -> bool {
 }
 
 pub fn run_beam_eval_isolated() -> Result<BeamEvalReport> {
-    let (engine, _dir) = crate::fixture::new_isolated_engine()?;
+    let (engine, _dir) = agent_brain::fixture::new_isolated_engine()?;
     run_beam_eval(&engine)
 }
 
@@ -115,7 +115,7 @@ pub fn run_beam_eval(engine: &Engine) -> Result<BeamEvalReport> {
 }
 
 pub fn assert_beam_gate(report: &BeamEvalReport) -> Result<()> {
-    crate::eval::assert_ci_gate(&report.recall)?;
+    agent_brain::eval::assert_ci_gate(&report.recall)?;
     for suite in [
         &report.temporal,
         &report.must_apply,
@@ -192,7 +192,7 @@ fn run_temporal_suite(engine: &Engine) -> Result<SuiteResult> {
     if topics.iter().any(|t| t == "beam-active-analytics") {
         passed += 1;
     } else {
-        failures.push(crate::eval::EvalFailure {
+        failures.push(agent_brain::eval::EvalFailure {
             suite: "temporal",
             query: "duckdb analytics warehouse".into(),
             expected_topics: vec!["beam-active-analytics".into()],
@@ -218,7 +218,7 @@ fn run_temporal_suite(engine: &Engine) -> Result<SuiteResult> {
     if !topics.iter().any(|t| t == "beam-expired-analytics") {
         passed += 1;
     } else {
-        failures.push(crate::eval::EvalFailure {
+        failures.push(agent_brain::eval::EvalFailure {
             suite: "temporal",
             query: "sqlite analytics legacy".into(),
             expected_topics: vec!["!beam-expired-analytics".into()],
@@ -252,7 +252,7 @@ fn run_must_apply_suite(engine: &Engine) -> Result<SuiteResult> {
         if hit {
             passed += 1;
         } else {
-            failures.push(crate::eval::EvalFailure {
+            failures.push(agent_brain::eval::EvalFailure {
                 suite: "must_apply",
                 query: query.to_string(),
                 expected_topics: vec![expected_topic.to_string()],
@@ -264,7 +264,7 @@ fn run_must_apply_suite(engine: &Engine) -> Result<SuiteResult> {
 }
 
 fn run_observation_suite(engine: &Engine) -> Result<SuiteResult> {
-    let embedder = crate::embed::Embedder::deterministic();
+    let embedder = agent_brain::embed::Embedder::deterministic();
     let report = run_observations(
         &engine.store,
         &embedder,
@@ -301,7 +301,7 @@ fn run_observation_suite(engine: &Engine) -> Result<SuiteResult> {
     let failures = if passed == 1 {
         Vec::new()
     } else {
-        vec![crate::eval::EvalFailure {
+        vec![agent_brain::eval::EvalFailure {
             suite: "observation",
             query: "observation synthesis".into(),
             expected_topics: vec!["obs/testing".into()],
@@ -353,7 +353,7 @@ fn run_task_scoped_suite(engine: &Engine) -> Result<SuiteResult> {
         if kind_ok && bundle_ok && escalate_ok && confidence_ok {
             passed += 1;
         } else {
-            failures.push(crate::eval::EvalFailure {
+            failures.push(agent_brain::eval::EvalFailure {
                 suite: "task_scoped",
                 query: case.query.clone(),
                 expected_topics: vec![
@@ -377,7 +377,7 @@ fn run_escalation_signal_suite(engine: &Engine) -> Result<SuiteResult> {
     let mut passed = 0usize;
     let mut failures = Vec::new();
 
-    let (empty_engine, _dir) = crate::fixture::new_isolated_engine()?;
+    let (empty_engine, _dir) = agent_brain::fixture::new_isolated_engine()?;
     let empty_resp = empty_engine.route_task(
         "zzzz verification noop without indexed context",
         None,
@@ -390,7 +390,7 @@ fn run_escalation_signal_suite(engine: &Engine) -> Result<SuiteResult> {
     if empty_resp.escalate_recommended {
         passed += 1;
     } else {
-        failures.push(crate::eval::EvalFailure {
+        failures.push(agent_brain::eval::EvalFailure {
             suite: "escalation_signal",
             query: "empty index verification".into(),
             expected_topics: vec!["escalate=true".into()],
@@ -413,7 +413,7 @@ fn run_escalation_signal_suite(engine: &Engine) -> Result<SuiteResult> {
     if !resp.escalate_recommended {
         passed += 1;
     } else {
-        failures.push(crate::eval::EvalFailure {
+        failures.push(agent_brain::eval::EvalFailure {
             suite: "escalation_signal",
             query: "verify BEAM proofs and eval --beam in CI before merge".into(),
             expected_topics: vec!["escalate=false".into()],
@@ -457,7 +457,7 @@ fn run_task_scoped_verification_suite(engine: &Engine) -> Result<SuiteResult> {
     if ok {
         passed += 1;
     } else {
-        failures.push(crate::eval::EvalFailure {
+        failures.push(agent_brain::eval::EvalFailure {
             suite: "task_scoped_verification",
             query: "verify BEAM proofs pass in CI".into(),
             expected_topics: vec!["agents<=1".into(), "skills<=2".into(), "memory<=3".into()],
@@ -469,7 +469,7 @@ fn run_task_scoped_verification_suite(engine: &Engine) -> Result<SuiteResult> {
         });
     }
 
-    let (empty_engine, _dir) = crate::fixture::new_isolated_engine()?;
+    let (empty_engine, _dir) = agent_brain::fixture::new_isolated_engine()?;
     let empty = empty_engine.route_task(
         "zzzz verification noop without indexed context",
         None,
@@ -482,7 +482,7 @@ fn run_task_scoped_verification_suite(engine: &Engine) -> Result<SuiteResult> {
     if empty.escalate_recommended && empty.context_bundle.is_some() {
         passed += 1;
     } else {
-        failures.push(crate::eval::EvalFailure {
+        failures.push(agent_brain::eval::EvalFailure {
             suite: "task_scoped_verification",
             query: "empty verification context".into(),
             expected_topics: vec!["escalate=true".into(), "bundle=some".into()],
@@ -539,7 +539,7 @@ fn run_jsonl_file_suite(
         if ok {
             passed += 1;
         } else {
-            failures.push(crate::eval::EvalFailure {
+            failures.push(agent_brain::eval::EvalFailure {
                 suite,
                 query: case.query.clone(),
                 expected_topics: case.expect_types.clone(),
@@ -554,7 +554,7 @@ fn suite_result(
     suite: &'static str,
     cases: usize,
     passed: usize,
-    failures: Vec<crate::eval::EvalFailure>,
+    failures: Vec<agent_brain::eval::EvalFailure>,
 ) -> SuiteResult {
     SuiteResult {
         suite,

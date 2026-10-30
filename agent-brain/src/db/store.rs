@@ -139,9 +139,9 @@ impl BrainStore {
             std::fs::create_dir_all(parent)?;
         }
         let conn = Connection::open(db_path).context("open brain.db")?;
-        crate::db::at_rest::apply_encryption_key(&conn)?;
         conn.busy_timeout(std::time::Duration::from_secs(5))?;
-        conn.pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))?;
+        conn.pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))
+            .context("open brain.db: if an earlier build encrypted it (AGENT_BRAIN_ENCRYPT_DB), it cannot be read now; restore an unencrypted copy")?;
         migrations::run(&conn).context("run migrations")?;
         let index_version = conn
             .query_row(
@@ -989,6 +989,71 @@ impl BrainStore {
                         "confidence": row.get::<_, f64>(5)?,
                         "updated_at": row.get::<_, i64>(6)?,
                     }))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
+    pub fn add_fact_tags(&self, fact_id: &str, tags: &[String]) -> Result<()> {
+        self.with_conn(|conn| {
+            for tag in tags {
+                conn.execute(
+                    "INSERT OR IGNORE INTO fact_tags (fact_id, tag) VALUES (?1, ?2)",
+                    params![fact_id, tag],
+                )?;
+            }
+            Ok(())
+        })
+    }
+
+    pub fn recall_rows(&self, tags: &[String], now_ms: i64, cap: usize) -> Result<Vec<RecallRow>> {
+        self.with_conn(|conn| {
+            let n = tags.len();
+            let filter = if n == 0 {
+                String::new()
+            } else {
+                let first = (1..=n).map(|i| format!("?{i}")).collect::<Vec<_>>().join(", ");
+                let second = (n + 1..=2 * n).map(|i| format!("?{i}")).collect::<Vec<_>>().join(", ");
+                format!(
+                    "AND (f.topic IN ({first}) OR f.id IN (SELECT fact_id FROM fact_tags WHERE tag IN ({second})))"
+                )
+            };
+            let sql = format!(
+                "SELECT f.id, f.topic, f.fact, f.source, f.created_at, f.updated_at, \
+                 (SELECT group_concat(tag, char(31)) FROM fact_tags WHERE fact_id = f.id) \
+                 FROM facts f \
+                 WHERE f.superseded_by IS NULL AND (f.expires_at IS NULL OR f.expires_at > ?{now_idx}) {filter} \
+                 ORDER BY f.updated_at DESC LIMIT ?{limit_idx}",
+                now_idx = 2 * n + 1,
+                limit_idx = 2 * n + 2,
+            );
+            let mut values: Vec<rusqlite::types::Value> = Vec::with_capacity(2 * n + 2);
+            values.extend(tags.iter().map(|tag| rusqlite::types::Value::from(tag.clone())));
+            values.extend(tags.iter().map(|tag| rusqlite::types::Value::from(tag.clone())));
+            values.push(now_ms.into());
+            values.push((cap as i64).into());
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt
+                .query_map(rusqlite::params_from_iter(values), |row| {
+                    let topic: String = row.get(1)?;
+                    let extra: Option<String> = row.get(6)?;
+                    let mut tags: Vec<String> = extra
+                        .map(|joined| joined.split('\u{1f}').map(str::to_string).collect())
+                        .unwrap_or_default();
+                    if !tags.contains(&topic) {
+                        tags.push(topic.clone());
+                    }
+                    tags.sort();
+                    Ok(RecallRow {
+                        id: row.get(0)?,
+                        topic,
+                        tags,
+                        fact: row.get(2)?,
+                        source: row.get(3)?,
+                        created_at_ms: row.get(4)?,
+                        updated_at_ms: row.get(5)?,
+                    })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(rows)
@@ -2650,6 +2715,10 @@ impl BrainStore {
         })
     }
 
+    pub fn bm25_fast_path_eligible(&self, query: &str) -> Result<bool> {
+        Ok(self.bm25_prefilter(query)?.fast_path_eligible(query))
+    }
+
     pub(crate) fn bm25_prefilter(&self, query: &str) -> Result<Bm25Prefilter> {
         let item_bm25 = self
             .bm25_search_items(query, BM25_ITEMS_TOP)
@@ -3419,6 +3488,16 @@ pub struct RecurringMemoryTopic {
 }
 
 #[derive(Debug, Clone)]
+pub struct RecallRow {
+    pub id: String,
+    pub topic: String,
+    pub tags: Vec<String>,
+    pub fact: String,
+    pub source: String,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+}
+
 pub struct VerifyOutcomeRow {
     pub id: String,
     pub route_log_id: Option<String>,

@@ -5,10 +5,10 @@ use std::time::Instant;
 use anyhow::{bail, Result};
 
 use crate::bench::{percentiles, run_ci_bench, LatencyBenchReport, PercentileMs};
-use crate::fixture::new_isolated_engine;
+use agent_brain::fixture::new_isolated_engine;
 use crate::graphify_bench::{run_ci_graphify_bench, GraphifyBenchReport};
-use crate::token_tools::{file_summary, grep_search, read_file_head, DEFAULT_MAX_BYTES};
-use crate::types::ItemType;
+use agent_brain::token_tools::{file_summary, grep_search, read_file_head, DEFAULT_MAX_BYTES};
+use agent_brain::types::ItemType;
 
 const SAMPLES: usize = 25;
 

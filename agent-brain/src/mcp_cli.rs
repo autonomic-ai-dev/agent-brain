@@ -10,7 +10,49 @@ use crate::engine::Engine;
 use crate::settings::{AgentBrainSettings, UpstreamServerConfig};
 use crate::upstream::{list_server_tools, refresh_upstream_index};
 
-fn persist_brain_settings(settings: &AgentBrainSettings) -> Result<()> {
+fn config_warnings(server: &UpstreamServerConfig) -> Vec<String> {
+    let mut warnings = Vec::new();
+    for arg in &server.args {
+        if let Some((header, value)) = arg.split_once(':') {
+            let header_name = !header.is_empty()
+                && header
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '-');
+            if header_name && value.trim().is_empty() {
+                warnings.push(format!(
+                    "header '{header}' has an empty value; set its key in the server env"
+                ));
+            }
+        }
+        for placeholder in arg.split("${").skip(1) {
+            if let Some((var, _)) = placeholder.split_once('}') {
+                if !server.env.contains_key(var) && std::env::var_os(var).is_none() {
+                    warnings.push(format!(
+                        "${{{var}}} is not set in the server env or the environment"
+                    ));
+                }
+            }
+        }
+    }
+    warnings
+}
+
+fn parse_env_flags(flags: &[String]) -> HashMap<String, String> {
+    let mut env = HashMap::new();
+    let mut tokens = flags.iter();
+    while let Some(token) = tokens.next() {
+        let pair = match token.as_str() {
+            "--env" => tokens.next().map(String::as_str),
+            other => other.strip_prefix("--env="),
+        };
+        if let Some((k, v)) = pair.and_then(|p| p.split_once('=')) {
+            env.insert(k.to_string(), v.to_string());
+        }
+    }
+    env
+}
+
+pub fn persist_brain_settings(settings: &AgentBrainSettings) -> Result<()> {
     let home = Config::load()?.home;
     let path = home.join("config.yaml");
     let yaml = serde_yaml::to_string(settings).context("serialize brain settings")?;
@@ -91,14 +133,7 @@ pub async fn handle_mcp_command(args: &[String]) -> Result<()> {
                 bail!("command cannot be empty; usage: agent-brain mcp add <name> -- <command> [args...]");
             }
 
-            let mut env = HashMap::new();
-            for chunk in flags_part {
-                if let Some(rest) = chunk.strip_prefix("--env=") {
-                    if let Some((k, v)) = rest.split_once('=') {
-                        env.insert(k.to_string(), v.to_string());
-                    }
-                }
-            }
+            let env = parse_env_flags(flags_part);
 
             let command = cmd_part[0].clone();
             let server_args = cmd_part[1..].to_vec();
@@ -138,6 +173,16 @@ pub async fn handle_mcp_command(args: &[String]) -> Result<()> {
                 .iter()
                 .filter(|t| t.server.eq_ignore_ascii_case(name))
                 .count();
+            let warnings = settings
+                .upstream_mcp
+                .servers
+                .iter()
+                .find(|s| s.name.eq_ignore_ascii_case(name))
+                .map(config_warnings)
+                .unwrap_or_default();
+            for warning in &warnings {
+                println!("warning: {warning}");
+            }
             if tools == 0 {
                 println!("{verb} '{name}': 0 tools indexed. Run `agent-brain mcp test {name}` to see why.");
             } else {
@@ -216,4 +261,76 @@ pub async fn handle_mcp_command(args: &[String]) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tokens(items: &[&str]) -> Vec<String> {
+        items.iter().map(|item| item.to_string()).collect()
+    }
+
+    #[test]
+    fn env_flag_takes_the_pair_in_the_next_token() {
+        let env = parse_env_flags(&tokens(&["--env", "GOOGLE_API_KEY=abc=1"]));
+        assert_eq!(env.get("GOOGLE_API_KEY").map(String::as_str), Some("abc=1"));
+    }
+
+    #[test]
+    fn env_flag_accepts_the_equals_form() {
+        let env = parse_env_flags(&tokens(&["--env=GOOGLE_API_KEY=abc"]));
+        assert_eq!(env.get("GOOGLE_API_KEY").map(String::as_str), Some("abc"));
+    }
+
+    fn server(args: &[&str], env: &[(&str, &str)]) -> UpstreamServerConfig {
+        UpstreamServerConfig {
+            name: "stitch".into(),
+            command: "npx".into(),
+            args: tokens(args),
+            env: env
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+            enabled: true,
+        }
+    }
+
+    #[test]
+    fn config_warns_about_an_empty_header_value() {
+        let warnings = config_warnings(&server(&["--header", "X-Goog-Api-Key: "], &[]));
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("X-Goog-Api-Key"));
+    }
+
+    #[test]
+    fn config_does_not_mistake_a_url_for_a_header() {
+        let warnings = config_warnings(&server(&["https://stitch.googleapis.com/mcp"], &[]));
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn config_warns_about_a_placeholder_with_no_value() {
+        let warnings = config_warnings(&server(
+            &["--header", "X-Goog-Api-Key: ${AB_TEST_UNSET_KEY}"],
+            &[],
+        ));
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("AB_TEST_UNSET_KEY"));
+    }
+
+    #[test]
+    fn config_accepts_a_placeholder_set_in_the_server_env() {
+        let warnings = config_warnings(&server(
+            &["--header", "X-Goog-Api-Key: ${GOOGLE_API_KEY}"],
+            &[("GOOGLE_API_KEY", "abc")],
+        ));
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn env_flag_without_a_pair_is_ignored() {
+        assert!(parse_env_flags(&tokens(&["--env"])).is_empty());
+        assert!(parse_env_flags(&tokens(&["--env", "NOVALUE"])).is_empty());
+    }
 }

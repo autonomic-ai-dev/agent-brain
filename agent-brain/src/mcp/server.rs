@@ -2203,7 +2203,10 @@ pub async fn run_proxy(socket_path: &Path) -> Result<()> {
             return Ok(());
         }
         let stream = match UnixStream::connect(socket_path).await {
-            Ok(stream) => stream,
+            Ok(stream) => {
+                spawned = false;
+                stream
+            }
             Err(err) => {
                 if !spawned {
                     spawned = true;
@@ -2236,7 +2239,7 @@ pub async fn run_proxy(socket_path: &Path) -> Result<()> {
     }
 }
 
-const PROXY_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const PROXY_REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 
 #[derive(Default)]
 struct ProxyHandshake {
@@ -2346,35 +2349,73 @@ async fn serve_one_proxy_connection(
             }
         })
     };
-    let watchdog = tokio::spawn(async move {
-        let mut tick = tokio::time::interval(Duration::from_secs(1));
-        loop {
-            tick.tick().await;
-            let expired: Vec<String> = {
-                let mut map = pending.lock().unwrap();
-                let expired: Vec<String> = map
-                    .iter()
-                    .filter(|(_, sent)| sent.elapsed() > PROXY_REQUEST_TIMEOUT)
-                    .map(|(id, _)| id.clone())
-                    .collect();
-                for id in &expired {
-                    map.remove(id);
+    let watchdog = {
+        let pending = pending.clone();
+        let out_tx = out_tx.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(Duration::from_secs(1));
+            loop {
+                tick.tick().await;
+                let expired: Vec<String> = {
+                    let mut map = pending.lock().unwrap();
+                    let expired: Vec<String> = map
+                        .iter()
+                        .filter(|(_, sent)| sent.elapsed() > PROXY_REQUEST_TIMEOUT)
+                        .map(|(id, _)| id.clone())
+                        .collect();
+                    for id in &expired {
+                        map.remove(id);
+                    }
+                    expired
+                };
+                for id in expired {
+                    let _ = out_tx.send(timeout_response(&id));
                 }
-                expired
-            };
-            for id in expired {
-                let _ = out_tx.send(timeout_response(&id));
             }
-        }
-    });
+        })
+    };
 
+    let host_abort = from_host.abort_handle();
+    let daemon_abort = from_daemon.abort_handle();
     let host_closed = tokio::select! {
         closed = from_host => closed.unwrap_or(false),
         _ = from_daemon => false,
     };
     watchdog.abort();
-    writer.abort();
+    host_abort.abort();
+    daemon_abort.abort();
+    for id in drain_pending(&pending) {
+        let _ = out_tx.send(connection_lost_response(&id));
+    }
+    drop(out_tx);
+    if tokio::time::timeout(Duration::from_secs(2), writer)
+        .await
+        .is_err()
+    {
+        tracing::warn!("proxy: writer did not finish flushing responses");
+    }
     Ok(host_closed)
+}
+
+fn drain_pending(
+    pending: &std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>,
+) -> Vec<String> {
+    let mut map = pending.lock().unwrap();
+    let ids: Vec<String> = map.keys().cloned().collect();
+    map.clear();
+    ids
+}
+
+fn connection_lost_response(id: &str) -> String {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": serde_json::from_str::<serde_json::Value>(id).unwrap_or(serde_json::Value::Null),
+        "error": {
+            "code": -32000,
+            "message": "agent-brain daemon connection was lost before this request was answered; retry the request"
+        }
+    })
+    .to_string()
 }
 
 fn request_id(line: &str) -> Option<String> {
@@ -2425,10 +2466,19 @@ pub async fn run_daemon(
         path = %socket_path.display(),
         "brain daemon listening on unix socket"
     );
+    let activity = Arc::new(crate::daemon_watchdog::DaemonActivity::new());
+    crate::daemon_watchdog::spawn(
+        engine.config.home.clone(),
+        socket_path.to_path_buf(),
+        Arc::clone(&activity),
+        crate::daemon_watchdog::idle_limit_from_env(),
+    );
     loop {
         let (stream, _peer) = listener.accept().await?;
         let engine = engine.clone();
+        let session = activity.begin_session();
         tokio::spawn(async move {
+            let _session = session;
             // `UnixStream` has no `try_clone` in tokio 1.52, so round-trip through the std
             // stream (which supports `try_clone`) to get two independent `'static` handles:
             // one for reading MCP messages, one for writing responses.
@@ -2932,6 +2982,22 @@ mod tests {
         assert_eq!(response_id(response).as_deref(), Some("7"));
         assert_eq!(response_id(request), None);
         assert_eq!(request_id("not json"), None);
+    }
+
+    #[test]
+    fn lost_connection_answers_every_pending_request_with_an_error() {
+        let pending = std::sync::Mutex::new(std::collections::HashMap::from([
+            ("1".to_string(), std::time::Instant::now()),
+            ("\"abc\"".to_string(), std::time::Instant::now()),
+        ]));
+        let mut ids = drain_pending(&pending);
+        ids.sort();
+        assert_eq!(ids, vec!["\"abc\"".to_string(), "1".to_string()]);
+        assert!(pending.lock().unwrap().is_empty());
+        let reply: serde_json::Value =
+            serde_json::from_str(&connection_lost_response("\"abc\"")).unwrap();
+        assert_eq!(reply["id"], "abc");
+        assert_eq!(reply["error"]["code"], -32000);
     }
 
     #[test]

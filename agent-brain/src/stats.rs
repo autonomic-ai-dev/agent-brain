@@ -1,13 +1,7 @@
 //! Operator-facing product metrics from retrieval_log + index composition.
 
 use std::collections::BTreeMap;
-#[cfg(feature = "extras")]
-use std::fs;
-#[cfg(feature = "extras")]
-use std::path::Path;
 
-#[cfg(feature = "extras")]
-use anyhow::Context;
 use anyhow::Result;
 use serde::Serialize;
 
@@ -64,16 +58,6 @@ pub fn collect(store: &BrainStore, config: &Config, period_days: u32) -> Result<
         value,
         adoption,
     })
-}
-
-#[cfg(feature = "extras")]
-pub fn persist_proof_snapshot(home: &Path, report: &crate::proofs::ProofReport) -> Result<()> {
-    let dir = home.join("metrics");
-    fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
-    let path = dir.join("proof-latest.json");
-    let json = serde_json::to_string_pretty(report)?;
-    fs::write(&path, format!("{json}\n")).with_context(|| format!("write {}", path.display()))?;
-    Ok(())
 }
 
 pub fn format_text(stats: &OperatorStats) -> String {

@@ -3,6 +3,7 @@
 //! Project playbooks live at `<project>/.verify/`. Hashes of verify config /
 //! scenario dirs make drift visible in `agent-brain report`.
 
+use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -587,6 +588,7 @@ pub fn run_verify(
     config_path: Option<&Path>,
     scenarios_dir: Option<&Path>,
     source: VerifySource,
+    save_artifact: bool,
 ) -> Result<VerifyReport> {
     if cmd.is_empty() {
         bail!("usage: agent-brain verify [--source cli|orchestrator] [--config PATH] [--scenarios DIR] [--route-log-id ID] [--cause TAG] -- <cmd> [args...]");
@@ -619,7 +621,36 @@ pub fn run_verify(
     if let Some(tests_run) = count_tests(&output) {
         store.set_verify_outcome_tests_run(&report.id, tests_run)?;
     }
+    if save_artifact {
+        let path = save_artifact_log(
+            &artifacts_dir(),
+            project_root.as_deref(),
+            &report.id,
+            &output,
+        )?;
+        eprintln!("artifact saved: {}", path.display());
+    }
     Ok(report)
+}
+
+fn artifacts_dir() -> PathBuf {
+    crate::global_workspace::autonomic_root().join("artifacts")
+}
+
+fn save_artifact_log(
+    root: &Path,
+    project_root: Option<&Path>,
+    report_id: &str,
+    output: &str,
+) -> Result<PathBuf> {
+    let project = project_root
+        .and_then(Path::file_name)
+        .unwrap_or_else(|| OsStr::new("unknown"));
+    let dir = root.join(project);
+    fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
+    let path = dir.join(format!("{report_id}.log"));
+    fs::write(&path, output).with_context(|| format!("write {}", path.display()))?;
+    Ok(path)
 }
 
 pub fn print_report(store: &BrainStore) -> Result<()> {
@@ -1219,6 +1250,23 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
             .load_context_weights(&["fact-item-1".to_string()])
             .unwrap();
         assert!(weights.get("fact-item-1").copied().unwrap_or(1.0) > 1.0);
+    }
+
+    #[test]
+    fn save_artifact_log_files_output_under_project_name() {
+        let root = tempdir().unwrap();
+        let project = root.path().join("my-project");
+        let path = save_artifact_log(root.path(), Some(&project), "run-1", "ok\n").unwrap();
+        assert_eq!(path, root.path().join("my-project").join("run-1.log"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "ok\n");
+    }
+
+    #[test]
+    fn save_artifact_log_uses_unknown_folder_without_project() {
+        let root = tempdir().unwrap();
+        let path = save_artifact_log(root.path(), None, "run-2", "boom").unwrap();
+        assert_eq!(path, root.path().join("unknown").join("run-2.log"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "boom");
     }
 
     fn write_verify_toml(root: &Path, body: &str) {
