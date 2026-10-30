@@ -7,7 +7,7 @@ use std::time::UNIX_EPOCH;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::config::{find_repo_root, Config};
+use crate::config::Config;
 use crate::db::store::BrainStore;
 use crate::feature_map;
 use crate::verify::{self, VerifySource};
@@ -34,8 +34,8 @@ struct BlockState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Evidence {
     pub exit_code: i32,
-    pub recorded_at: i64,
     pub source: Option<String>,
+    pub code_hash: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -44,19 +44,16 @@ pub enum Decision {
     Block(&'static str),
 }
 
-fn has_verification(edit: i64, evidence: &[Evidence]) -> bool {
+fn verified(code_hash: &str, evidence: &[Evidence]) -> bool {
     evidence.iter().any(|e| {
         e.exit_code == 0
-            && e.recorded_at >= edit
             && matches!(e.source.as_deref(), Some("cli" | "orchestrator"))
+            && e.code_hash.as_deref() == Some(code_hash)
     })
 }
 
-pub fn decide(last_edit_ms: Option<i64>, evidence: &[Evidence], blocks_so_far: u32) -> Decision {
-    let Some(edit) = last_edit_ms else {
-        return Decision::Allow;
-    };
-    if has_verification(edit, evidence) || blocks_so_far >= STOP_BLOCK_LIMIT {
+pub fn decide(verified: bool, blocks_so_far: u32) -> Decision {
+    if verified || blocks_so_far >= STOP_BLOCK_LIMIT {
         Decision::Allow
     } else {
         Decision::Block(BLOCK_REASON)
@@ -123,27 +120,8 @@ fn repo_name(repo: &Path) -> String {
         .unwrap_or_default()
 }
 
-fn repos_under(cwd: &Path) -> Vec<PathBuf> {
-    if let Some(root) = git_root(cwd) {
-        return vec![root];
-    }
-    let Ok(entries) = fs::read_dir(cwd) else {
-        return Vec::new();
-    };
-    let mut repos: Vec<PathBuf> = entries
-        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|path| path.is_dir())
-        .filter_map(|path| git_root(&path))
-        .filter(|root| !changed_paths(root).is_empty())
-        .collect();
-    repos.sort();
-    repos.dedup();
-    repos
-}
-
-fn last_edit_ms(cwd: &Path) -> Option<i64> {
-    let root = git_root(cwd)?;
-    changed_paths(&root)
+fn last_edit_ms(root: &Path) -> Option<i64> {
+    changed_paths(root)
         .iter()
         .filter_map(|path| root.join(path).metadata().ok()?.modified().ok())
         .filter_map(|modified| modified.duration_since(UNIX_EPOCH).ok())
@@ -161,14 +139,13 @@ fn markdown_names(dir: &Path) -> Vec<String> {
         .collect()
 }
 
-fn feature_gap(cwd: &Path) -> Option<String> {
-    let root = git_root(cwd)?;
+fn feature_gap(root: &Path) -> Option<String> {
     let features_dir = root.join(".verify/features");
     if !features_dir.is_dir() {
         return None;
     }
     feature_map::gap(
-        &changed_paths(&root),
+        &changed_paths(root),
         &feature_map::load(&features_dir),
         &markdown_names(&root.join(".verify/knowledge-base")),
     )
@@ -180,8 +157,8 @@ fn load_evidence(store: &BrainStore) -> Result<Vec<Evidence>> {
         .into_iter()
         .map(|row| Evidence {
             exit_code: row.exit_code,
-            recorded_at: row.recorded_at,
             source: row.source,
+            code_hash: row.code_hash,
         })
         .collect())
 }
@@ -199,10 +176,10 @@ pub fn run_stop_gate() -> Result<()> {
     let state_file = config.db_path.with_file_name(STATE_FILE);
     let session_id = input.session_id.unwrap_or_default();
     let mut reasons = Vec::new();
-    for repo in repos_under(&cwd) {
+    if let Some(root) = git_root(&cwd) {
         let repo_state =
-            state_file.with_file_name(format!("stop-gate-state-{}.json", repo_name(&repo)));
-        if let Some(reason) = evaluate_stop(&store, &repo, &session_id, &repo_state)? {
+            state_file.with_file_name(format!("stop-gate-state-{}.json", repo_name(&root)));
+        if let Some(reason) = evaluate_stop(&store, &root, &session_id, &repo_state)? {
             reasons.push(reason);
         }
     }
@@ -232,21 +209,31 @@ pub fn run_stop_gate() -> Result<()> {
 
 fn evaluate_stop(
     store: &BrainStore,
-    cwd: &Path,
+    root: &Path,
     session_id: &str,
     state_file: &Path,
 ) -> Result<Option<String>> {
-    let Some(edit) = last_edit_ms(cwd) else {
+    let Some(edit) = last_edit_ms(root) else {
         return Ok(None);
     };
+    let gap = feature_gap(root);
+    let code_changed = changed_paths(root)
+        .iter()
+        .any(|path| verify::is_code_path(path));
     let evidence = load_evidence(store)?;
-    let gap = feature_gap(cwd);
-    if has_verification(edit, &evidence) && gap.is_none() {
+    let passed = code_changed
+        && verify::code_tree_hash(root)
+            .as_deref()
+            .is_some_and(|hash| verified(hash, &evidence));
+    if (!code_changed || passed) && gap.is_none() {
         return Ok(None);
     }
     let blocks = prior_blocks(&load_state(state_file), session_id, edit);
-    let root = find_repo_root(cwd).unwrap_or_else(|| cwd.to_path_buf());
-    let step = verify::run_default_step(store, &root, VerifySource::Cli)?;
+    let step = if code_changed && !passed {
+        verify::run_default_step(store, root, VerifySource::Cli)?
+    } else {
+        None
+    };
     let reason = match (&step, &gap) {
         (Some(run), _) if !run.report.success => failure_reason(run),
         (_, Some(gap)) => gap.clone(),
@@ -256,7 +243,7 @@ fn evaluate_stop(
     let verdict = match &gap {
         Some(_) if blocks < STOP_BLOCK_LIMIT => Decision::Block(BLOCK_REASON),
         Some(_) => Decision::Allow,
-        None => decide(Some(edit), &evidence, blocks),
+        None => decide(passed, blocks),
     };
     match verdict {
         Decision::Block(_) => {
@@ -293,65 +280,70 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    fn evidence(exit_code: i32, recorded_at: i64, source: Option<&str>) -> Evidence {
+    fn evidence(exit_code: i32, source: Option<&str>, code_hash: Option<&str>) -> Evidence {
         Evidence {
             exit_code,
-            recorded_at,
             source: source.map(str::to_string),
+            code_hash: code_hash.map(str::to_string),
         }
     }
 
     #[test]
-    fn allows_stop_when_no_repo_edits() {
-        assert_eq!(decide(None, &[], 0), Decision::Allow);
+    fn blocks_code_change_without_a_run_for_its_tree() {
+        assert!(matches!(decide(false, 0), Decision::Block(_)));
     }
 
     #[test]
-    fn blocks_edits_without_verification() {
-        assert!(matches!(decide(Some(2_000), &[], 0), Decision::Block(_)));
+    fn blocks_run_recorded_for_another_tree() {
+        let ev = [evidence(0, Some("cli"), Some("old-tree"))];
+        assert!(!verified("new-tree", &ev));
     }
 
     #[test]
-    fn blocks_verification_recorded_before_last_edit() {
-        let ev = [evidence(0, 1_000, Some("cli"))];
-        assert!(matches!(decide(Some(2_000), &ev, 0), Decision::Block(_)));
+    fn blocks_failing_run_for_the_same_tree() {
+        let ev = [evidence(1, Some("cli"), Some("tree"))];
+        assert!(!verified("tree", &ev));
     }
 
     #[test]
-    fn blocks_failing_verification_after_edit() {
-        let ev = [evidence(1, 3_000, Some("cli"))];
-        assert!(matches!(decide(Some(2_000), &ev, 0), Decision::Block(_)));
+    fn blocks_run_not_from_trusted_source() {
+        let ev = [evidence(0, Some("mcp"), Some("tree"))];
+        assert!(!verified("tree", &ev));
     }
 
     #[test]
-    fn blocks_verification_not_from_trusted_source() {
-        let ev = [evidence(0, 3_000, Some("mcp"))];
-        assert!(matches!(decide(Some(2_000), &ev, 0), Decision::Block(_)));
+    fn allows_passing_cli_run_for_the_same_tree() {
+        let ev = [evidence(0, Some("cli"), Some("tree"))];
+        assert!(verified("tree", &ev));
+        assert_eq!(decide(true, 0), Decision::Allow);
     }
 
     #[test]
-    fn allows_passing_cli_verification_after_last_edit() {
-        let ev = [evidence(0, 3_000, Some("cli"))];
-        assert_eq!(decide(Some(2_000), &ev, 0), Decision::Allow);
-    }
-
-    #[test]
-    fn allows_orchestrator_verification_after_last_edit() {
-        let ev = [evidence(0, 3_000, Some("orchestrator"))];
-        assert_eq!(decide(Some(2_000), &ev, 0), Decision::Allow);
+    fn allows_passing_orchestrator_run_for_the_same_tree() {
+        let ev = [evidence(0, Some("orchestrator"), Some("tree"))];
+        assert!(verified("tree", &ev));
     }
 
     #[test]
     fn keeps_blocking_below_the_block_limit() {
         assert!(matches!(
-            decide(Some(2_000), &[], STOP_BLOCK_LIMIT - 1),
+            decide(false, STOP_BLOCK_LIMIT - 1),
             Decision::Block(_)
         ));
     }
 
     #[test]
     fn allows_stop_once_block_limit_is_reached_without_verification() {
-        assert_eq!(decide(Some(2_000), &[], STOP_BLOCK_LIMIT), Decision::Allow);
+        assert_eq!(decide(false, STOP_BLOCK_LIMIT), Decision::Allow);
+    }
+
+    #[test]
+    fn only_code_paths_need_a_verification_run() {
+        assert!(verify::is_code_path("agent-brain/src/engine.rs"));
+        assert!(verify::is_code_path("agent-brain/hooks/route_gate.py"));
+        assert!(verify::is_code_path("agent-brain/Cargo.toml"));
+        assert!(!verify::is_code_path("agent-brain/.verify/features/x.md"));
+        assert!(!verify::is_code_path("agent-brain/README.md"));
     }
 
     #[test]
@@ -402,6 +394,13 @@ mod tests {
             fs::create_dir_all(dir.join(".verify")).unwrap();
             fs::write(dir.join(".verify/verify.toml"), body).unwrap();
         }
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::write(dir.join("src/changed.rs"), b"fn changed() {}").unwrap();
+    }
+
+    fn doc_edited_repo(dir: &Path, verify_toml: &str) {
+        edited_repo(dir, Some(verify_toml));
+        fs::remove_file(dir.join("src/changed.rs")).unwrap();
         fs::write(dir.join("changed.txt"), b"edit").unwrap();
     }
 
@@ -478,6 +477,56 @@ mod tests {
     }
 
     #[test]
+    fn doc_only_edit_runs_no_verify_step() {
+        let dir = TempDir::new().unwrap();
+        let aux = TempDir::new().unwrap();
+        let store = gate_store(aux.path());
+        doc_edited_repo(
+            dir.path(),
+            "[verify]\ncommands = [\"sh -c\"]\n\n[verify.default]\ncommand = [\"sh\", \"-c\", \"exit 1\"]\n",
+        );
+        let state = aux.path().join("state.json");
+        assert_eq!(
+            evaluate_stop(&store, dir.path(), "s1", &state).unwrap(),
+            None
+        );
+        assert!(store.list_verify_outcomes(10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn code_tree_hash_moves_on_code_edits_and_not_on_doc_edits() {
+        let dir = TempDir::new().unwrap();
+        edited_repo(dir.path(), None);
+        let before = verify::code_tree_hash(dir.path()).unwrap();
+        fs::write(dir.path().join("changed.txt"), b"doc edit").unwrap();
+        assert_eq!(verify::code_tree_hash(dir.path()).unwrap(), before);
+        fs::write(dir.path().join("src/changed.rs"), b"fn edited() {}").unwrap();
+        assert_ne!(verify::code_tree_hash(dir.path()).unwrap(), before);
+    }
+
+    #[test]
+    fn code_edit_after_a_passing_run_needs_another_run() {
+        let dir = TempDir::new().unwrap();
+        let aux = TempDir::new().unwrap();
+        let store = gate_store(aux.path());
+        edited_repo(
+            dir.path(),
+            Some("[verify]\ncommands = [\"sh -c\"]\n\n[verify.default]\ncommand = [\"sh\", \"-c\", \"true\"]\n"),
+        );
+        let state = aux.path().join("state.json");
+        assert_eq!(
+            evaluate_stop(&store, dir.path(), "s1", &state).unwrap(),
+            None
+        );
+        fs::write(dir.path().join("src/changed.rs"), b"fn changed_again() {}").unwrap();
+        assert_eq!(
+            evaluate_stop(&store, dir.path(), "s1", &state).unwrap(),
+            None
+        );
+        assert_eq!(store.list_verify_outcomes(10).unwrap().len(), 2);
+    }
+
+    #[test]
     fn unclaimed_code_blocks_even_after_verification_passes() {
         let dir = TempDir::new().unwrap();
         let aux = TempDir::new().unwrap();
@@ -491,7 +540,7 @@ mod tests {
         let reason = evaluate_stop(&store, dir.path(), "s1", &state)
             .unwrap()
             .expect("unclaimed code must block");
-        assert!(reason.contains("`changed.txt`"));
+        assert!(reason.contains("`src/changed.rs`"));
     }
 
     #[test]
@@ -506,7 +555,7 @@ mod tests {
         fs::create_dir_all(dir.path().join(".verify/features")).unwrap();
         fs::write(
             dir.path().join(".verify/features/gate.md"),
-            b"# gate\n\n## Code\n\n- `changed.txt`\n",
+            b"# gate\n\n## Code\n\n- `src/changed.rs`\n",
         )
         .unwrap();
         fs::create_dir_all(dir.path().join(".verify/knowledge-base")).unwrap();
@@ -818,24 +867,21 @@ mod tests {
     }
 
     #[test]
-    fn workspace_root_checks_only_the_child_repos_with_changes() {
+    fn hook_outside_a_repo_checks_no_child_repos() {
         let root = TempDir::new().unwrap();
         let changed = root.path().join("changed");
-        let clean = root.path().join("clean");
-        for repo in [&changed, &clean] {
-            fs::create_dir_all(repo).unwrap();
-            Command::new("git")
-                .arg("-C")
-                .arg(repo)
-                .args(["init", "-q"])
-                .status()
-                .unwrap();
-        }
+        fs::create_dir_all(&changed).unwrap();
+        Command::new("git")
+            .arg("-C")
+            .arg(&changed)
+            .args(["init", "-q"])
+            .status()
+            .unwrap();
         fs::write(changed.join("a.rs"), "fn a() {}").unwrap();
-        let names: Vec<String> = repos_under(root.path())
-            .iter()
-            .map(|repo| repo_name(repo))
-            .collect();
-        assert_eq!(names, vec!["changed".to_string()]);
+        assert!(git_root(root.path()).is_none());
+        assert_eq!(
+            git_root(&changed).map(|root| repo_name(&root)),
+            Some("changed".to_string())
+        );
     }
 }

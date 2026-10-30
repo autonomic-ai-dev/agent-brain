@@ -16,7 +16,7 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
 - `verify-record-exit`: Runs a command and records its real exit code as evidence.
   - Intent: Make "tests passed" a recorded fact instead of a claim.
   - Behaviour: `agent-brain verify [--source cli|orchestrator] -- <cmd>` runs the command, captures its output, prints it when the command finishes, and stores the exit code and source.
-  - Outcome: The exit code, source, and the summed `test result:` count (`tests_run`, schema v22, `src/verify.rs` `count_tests`) are recorded. A run without a cargo summary stores no count.
+  - Outcome: The exit code, source, and the summed `test result:` count (`tests_run`, schema v22, `src/verify.rs` `count_tests`) are recorded. A run without a cargo summary stores no count. It also stores `code_hash`, the hash of the code tree the run tested, which the stop gate compares with the current tree.
 - `verify-init-scaffold`: Creates the harness files for a repository.
   - Behaviour: `agent-brain verify init` writes `.verify/verify.toml`, an executable `run.sh`, and `README.md`.
   - Outcome: The three files exist and `run.sh` is executable.
@@ -94,4 +94,5 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
 - `doctor --fix` clears quarantine. Run it only on this repository's build output, not on a user's installed binary.
 - Memory tests must use a temporary database path. Writing to the real `brain.db` changes shared memory.
 - graphify subprocesses run through `graphify/process.rs` `output_with_timeout`. A graph build job is killed after 30 minutes and a `query_codebase` call after 60 seconds, so a hung graphify no longer holds `JOB_LOCK` or the MCP request forever. `graphify hook install` in `graphify/repos.rs` still runs with no timeout.
+- Stop gate scope: only code paths need a passing run, and a run counts only for the code tree it tested (`code_hash`, from `src/verify.rs` `code_tree_hash`). Doc-only changes get the feature-map and knowledge-base owner check. The gate does not parse feature-graph frontmatter, because frontmatter is optional.
 - Flaky under parallel tests: `sessions::digest::tests::ingests_gemini_jsonl_digest` failed once in a parallel `cargo test --all-features --lib` run (left 3, right 1). It passes under the allowlisted `--test-threads=1` run, which exits 0 (recorded by `agent-brain verify`). Cause not investigated.

@@ -1447,6 +1447,16 @@ impl BrainStore {
         })
     }
 
+    pub fn set_verify_outcome_code_hash(&self, id: &str, code_hash: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE verify_outcomes SET code_hash = ?1 WHERE id = ?2",
+                params![code_hash, id],
+            )?;
+            Ok(())
+        })
+    }
+
     pub fn verify_outcome_tests_run(&self, id: &str) -> Result<Option<i64>> {
         self.with_conn(|conn| {
             Ok(conn.query_row(
@@ -1460,7 +1470,7 @@ impl BrainStore {
     pub fn list_verify_outcomes(&self, limit: usize) -> Result<Vec<VerifyOutcomeRow>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                r#"SELECT id, route_log_id, exit_code, cause_tag, verify_config_hash, scenario_dir_hash, cmd, device_id, recorded_at, source
+                r#"SELECT id, route_log_id, exit_code, cause_tag, verify_config_hash, scenario_dir_hash, cmd, device_id, recorded_at, source, code_hash
                    FROM verify_outcomes ORDER BY recorded_at DESC LIMIT ?1"#,
             )?;
             let rows = stmt
@@ -1477,7 +1487,7 @@ impl BrainStore {
     ) -> Result<Vec<VerifyOutcomeRow>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                r#"SELECT id, route_log_id, exit_code, cause_tag, verify_config_hash, scenario_dir_hash, cmd, device_id, recorded_at, source
+                r#"SELECT id, route_log_id, exit_code, cause_tag, verify_config_hash, scenario_dir_hash, cmd, device_id, recorded_at, source, code_hash
                    FROM verify_outcomes WHERE project_key = ?1 ORDER BY recorded_at DESC LIMIT ?2"#,
             )?;
             let rows = stmt
@@ -3183,6 +3193,7 @@ fn map_verify_outcome_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<VerifyOut
         device_id: row.get(7)?,
         recorded_at: row.get(8)?,
         source: row.get(9)?,
+        code_hash: row.get(10)?,
     })
 }
 
@@ -3419,6 +3430,7 @@ pub struct VerifyOutcomeRow {
     pub device_id: Option<String>,
     pub recorded_at: i64,
     pub source: Option<String>,
+    pub code_hash: Option<String>,
 }
 
 pub struct StoreFactResult {

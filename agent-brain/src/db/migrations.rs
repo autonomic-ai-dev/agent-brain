@@ -325,6 +325,18 @@ pub fn run(conn: &Connection) -> rusqlite::Result<()> {
         conn.execute("UPDATE schema_version SET version = 23", [])?;
     }
 
+    if version < 24 {
+        migrate_v24(conn)?;
+        conn.execute("UPDATE schema_version SET version = 24", [])?;
+    }
+
+    Ok(())
+}
+
+fn migrate_v24(conn: &Connection) -> rusqlite::Result<()> {
+    if !column_exists(conn, "verify_outcomes", "code_hash")? {
+        conn.execute("ALTER TABLE verify_outcomes ADD COLUMN code_hash TEXT", [])?;
+    }
     Ok(())
 }
 

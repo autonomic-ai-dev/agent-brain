@@ -414,6 +414,12 @@ pub fn record_from_result(
         source.as_str(),
         project_key.as_deref(),
     )?;
+    if let Some(hash) = cwd
+        .and_then(crate::config::find_repo_root)
+        .and_then(|root| code_tree_hash(&root))
+    {
+        store.set_verify_outcome_code_hash(&id, &hash)?;
+    }
 
     let outcome_str = if success { "success" } else { "failure" };
     let clean_cmd = cmd.split_whitespace().next().unwrap_or("verify");
@@ -671,6 +677,51 @@ pub fn print_report(store: &BrainStore) -> Result<()> {
 fn hash_path(path: &Path) -> Result<String> {
     let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
     Ok(format!("{:x}", Sha256::digest(&bytes)))
+}
+
+pub fn is_code_path(path: &str) -> bool {
+    let segments: Vec<&str> = path.split('/').collect();
+    if segments.contains(&".verify") {
+        return false;
+    }
+    let file = segments.last().copied().unwrap_or_default();
+    segments
+        .iter()
+        .any(|segment| matches!(*segment, "src" | "crates" | "tests" | "hooks"))
+        || file.starts_with("Cargo.")
+        || file == "build.rs"
+}
+
+pub fn code_tree_hash(root: &Path) -> Option<String> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["status", "--porcelain", "--untracked-files=all"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let mut paths: Vec<String> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|line| line.get(3..))
+        .filter_map(|path| path.rsplit(" -> ").next())
+        .filter(|path| is_code_path(path))
+        .map(str::to_string)
+        .collect();
+    paths.sort();
+    paths.dedup();
+    let mut hasher = Sha256::new();
+    for path in paths {
+        hasher.update(path.as_bytes());
+        hasher.update([0]);
+        match fs::read(root.join(&path)) {
+            Ok(bytes) => hasher.update(&bytes),
+            Err(_) => hasher.update(b"<deleted>"),
+        }
+        hasher.update([0]);
+    }
+    Some(format!("{:x}", hasher.finalize()))
 }
 
 fn hash_tree(dir: &Path) -> Result<String> {
