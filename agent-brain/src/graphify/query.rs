@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 use std::path::Path;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
 use sha2::{Digest, Sha256};
+
+use super::process::output_with_timeout;
 
 static QUERY_CACHE: Mutex<Option<QueryCache>> = Mutex::new(None);
 
@@ -14,6 +16,7 @@ struct QueryCache {
 }
 
 const CACHE_TTL: Duration = Duration::from_secs(300);
+const QUERY_TIMEOUT: Duration = Duration::from_secs(60);
 
 pub fn query_codebase(
     repo_root: &Path,
@@ -32,10 +35,12 @@ pub fn query_codebase(
     if let Some(cached) = cache_get(&key) {
         return Ok(cached);
     }
-    let output = Command::new(graphify_bin)
-        .args(["query", question, "--budget", &budget.to_string()])
+    let mut cmd = Command::new(graphify_bin);
+    cmd.args(["query", question, "--budget", &budget.to_string()])
         .current_dir(repo_root)
-        .output()
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output = output_with_timeout(&mut cmd, QUERY_TIMEOUT)
         .with_context(|| format!("run {graphify_bin} query"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

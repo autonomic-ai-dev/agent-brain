@@ -16,6 +16,7 @@ use tokio::time::sleep;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
+use crate::db::send_and_recv;
 use crate::db::store::{looks_like_secret, word_count};
 use crate::db::write_queue::{store_memory_payload, WriteOp};
 use crate::engine::Engine;
@@ -864,11 +865,10 @@ impl BrainMcp {
 
         let polarity = p.polarity.or_else(|| infer_memory_polarity(&p.fact));
 
-        let (tx, rx) = std::sync::mpsc::channel();
-        self.engine
-            .write_queue()
-            .send(WriteOp::StoreMemory {
-                resp_tx: tx,
+        let engine = self.engine.clone();
+        let value = tokio::task::spawn_blocking(move || {
+            send_and_recv(engine.write_queue(), |resp_tx| WriteOp::StoreMemory {
+                resp_tx,
                 payload: store_memory_payload::StoreMemoryRequest {
                     topic: p.topic,
                     fact: p.fact,
@@ -885,12 +885,10 @@ impl BrainMcp {
                     invalid_at: p.invalid_at,
                 },
             })
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-
-        let value = rx
-            .recv()
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        })
+        .await
+        .map_err(|e| McpError::internal_error(format!("{e}"), None))?
+        .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         json_result(value)
     }
 
@@ -1064,21 +1062,19 @@ impl BrainMcp {
         self.require_route("delete_memory")?;
         let _req = self.engine.mcp_activity.begin_request();
         let p = params.0;
-        let (tx, rx) = std::sync::mpsc::channel();
-        self.engine
-            .write_queue()
-            .send(WriteOp::DeleteMemory {
-                resp_tx: tx,
+        let engine = self.engine.clone();
+        let value = tokio::task::spawn_blocking(move || {
+            send_and_recv(engine.write_queue(), |resp_tx| WriteOp::DeleteMemory {
+                resp_tx,
                 id: p.id,
                 topic: p.topic,
                 scope: p.scope,
                 scope_key: p.scope_key,
             })
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-        let value = rx
-            .recv()
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        })
+        .await
+        .map_err(|e| McpError::internal_error(format!("{e}"), None))?
+        .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         json_result(value)
     }
 
@@ -2684,6 +2680,39 @@ mod tests {
             .await;
 
         assert!(result.is_err());
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn store_and_delete_memory_round_trip_through_the_write_queue() {
+        let dir = TempDir::new().expect("tempdir");
+        let server = skill_test_server(&dir, &[]);
+        server.route_gate.record_route("remember the release steps");
+
+        let stored = server
+            .store_memory(Parameters(
+                serde_json::from_value::<StoreMemoryParams>(serde_json::json!({
+                    "topic": "release",
+                    "fact": "Run cargo test before tagging a release",
+                    "scope": "global"
+                }))
+                .expect("store params"),
+            ))
+            .await
+            .expect("store_memory");
+        let stored = json_body(stored);
+        assert_eq!(stored["stored"], true);
+        let id = stored["id"].as_str().expect("stored id").to_string();
+
+        let deleted = server
+            .delete_memory(Parameters(DeleteMemoryParams {
+                id: Some(id),
+                topic: None,
+                scope: None,
+                scope_key: None,
+            }))
+            .await
+            .expect("delete_memory");
+        assert_eq!(json_body(deleted)["deleted"], 1);
     }
 
     #[tokio::test]
