@@ -45,6 +45,10 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
   - Intent: Let an agent find the right feature map by graph search, and let Obsidian show the same links.
   - Behaviour: `agent-brain feature-graph [DIR]` reads each map's frontmatter `feature` and `related` wikilinks, and its `## Sub-features` and `## Code` sections. It rejects a map whose `feature` differs from its file name, a `related` entry that is not a `[[wikilink]]`, and a link to an unknown feature.
   - Outcome: JSON with `nodes` (id, sub_features, code) and `edges` (from, to). Logic is in `src/feature_graph.rs`.
+- `hook-event-counter`: Records each host hook event so hook invocations per session can be counted.
+  - Intent: Measure how often the route gate runs before changing its configuration.
+  - Behaviour: `hooks/route_gate.py` appends `{timestamp, event, session}` to `hook_events.jsonl` in the brain home for every event that reaches `main()`. Events skipped by the disabled path are not counted.
+  - Outcome: One JSON line per hook event, read by the feedback report. Logic is in `hooks/route_gate.py` and tests in `hooks/test_route_gate.py`.
 
 ## Code
 
@@ -85,6 +89,7 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
 
 - Resolved (2026-10-24): the adapter test targets `tests/v0_23.rs` and `tests/v0_30.rs` did not compile under plain `cargo test`. The cause was a feature gate, not missing code. The `graphify`, `grpc`, and `BrainStore` code-graph methods are behind `#[cfg(feature = "extras")]`, and `Cargo.toml` says CI and local proofs use `--features extras`. The allowlist ran plain `cargo test`, so the tests never compiled there. The allowlist now runs `cargo test --all-features`, which matches `.verify/playbooks/verify_full_suite.sh`. The recorded run passes 303 unit tests and every integration target, with 0 failed.
 - Behaviour change (2026-10-24): `verify --` no longer streams the command's output live. Output is printed in full after the command ends, so long runs show nothing until they finish.
+- The hook tests in `hooks/test_route_gate.py` run inside `.verify/playbooks/verify_multi_agent_enforcement.sh` with `python3 agent-brain/hooks/test_route_gate.py`, which `.verify/run.sh` calls. A passing `.verify/run.sh` therefore covers the Python hook.
 - Plain `cargo test` in this crate does not build the `extras` tests. Any command that bypasses the allowlist must pass `--features extras` or `--all-features`.
 - `doctor --fix` clears quarantine. Run it only on this repository's build output, not on a user's installed binary.
 - Memory tests must use a temporary database path. Writing to the real `brain.db` changes shared memory.

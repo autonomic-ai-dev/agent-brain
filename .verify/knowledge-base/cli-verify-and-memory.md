@@ -18,6 +18,9 @@ agent-brain is the routing layer every agent calls at the start of a turn. Its C
 6. **Stop gate.** `agent-brain stop-gate` runs as the Stop hook. It blocks a stop when code changed in a repo and either the default verify step fails, or the feature map or knowledge base has not been updated (see below).
 7. **Install and doctor.** `agent-brain install --global` writes MCP config, hooks, and permissions. `doctor` checks health, and `doctor --fix` clears quarantine.
 8. **Sync.** `agent-brain sync git|cloud` and `bootstrap` move memory between machines.
+9. **Feedback report.** Opt-in with `feedback_report.enabled` (default false, interval `interval_hours`, default 3). When a report is due, `route_task` writes `reports/telemetry-<ts>.md` under the brain home and adds a `feedback-report` must-apply item asking the agent to write `reports/agent-feedback-<ts>.md`. The item includes why agstack-mode was not applied, and it repeats until that file exists. `src/feedback_report.rs` holds the logic.
+10. **Hook events.** `hooks/route_gate.py` appends each host hook event to `hooks/hook_events.jsonl` with its session ID. The feedback report reads this file.
+11. **Feature graph.** `agent-brain feature-graph [DIR]` prints the feature maps as JSON nodes and edges, built from frontmatter and the `## Sub-features` and `## Code` sections. `src/feature_graph.rs` holds the logic.
 
 ### Stop gate rules
 
