@@ -67,6 +67,7 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
 
 - **Unit Tests:** `cargo test -p agent-brain-core` (passes 11 of 11, see `.verify/artifacts/feature-map-baseline/core-unit.log`). The whole crate runs with `cargo test --all-features -- --skip graphify_1k_ci_gate --skip scale_1k_passes_gate --test-threads=1`, the allowlisted command.
 - **Targeted tests for the memory and graphify fixes:** `cargo test -p agent-brain --all-features --lib -- store_and_delete_memory_round_trip concurrent_identical_stores_persist process::tests` (5 passed when run in this pass).
+- **Stop-gate tests:** `cargo test -p agent-brain --lib stop_gate` covers the scope, the code-tree hash, the block limit, and the matrix of owned and unclaimed code.
 - **Feature-graph and feedback-report tests:** `cargo test -p agent-brain --lib feature_graph`, `cargo test -p agent-brain --lib feedback_report`, and `cargo test -p agent-brain --bin agent-brain cli_help`.
 - **Functional API Tests (Hurl):** not yet written for the CLI or MCP surface.
 - **Allowlisted Verification:** `.verify/run.sh`, listed in `.verify/verify.toml`

@@ -26,6 +26,7 @@ agent-brain is the routing layer every agent calls at the start of a turn. Its C
 
 - A passing run counts only for the code tree it tested. The gate hashes the changed code paths (under `src/`, `crates/`, `tests/`, or `hooks/`, or a `Cargo.*` file, never under `.verify/`) and compares that hash with the `code_hash` stored on each verify run. Editing docs does not invalidate a run.
 - Only the repo the hook runs in is checked. A workspace folder that is not a repo is not scanned for child repos.
+- The stop-gate unit tests run with `cargo test -p agent-brain --lib stop_gate`, which is on the allowlist in `.verify/verify.toml` and can be run as a targeted check.
 - A doc-only change runs no verify step. The feature-map and knowledge-base rules still apply to it.
 - A repo with changed files needs a passing `agent-brain verify` run recorded after the last edit. Only `cli` and `orchestrator` sources count.
 - If the repo has `.verify/features/`, a code change also needs a changed file under `.verify/features/` and one under `.verify/knowledge-base/`. A passing verify run does not lift this block.
