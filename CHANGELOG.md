@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0-rc5] - 2026-10-30
+
+### Added
+- **Feedback Report (opt-in)**: `feedback_report.enabled` (default `false`) writes a telemetry report every `interval_hours` (default 3) and asks the agent for feedback on agent-brain and agent-spine, including why agstack-mode was not applied.
+- **Feature Graph**: `agent-brain feature-graph [DIR]` prints the feature maps as JSON nodes and edges, built from frontmatter and the `## Sub-features` and `## Code` sections.
+- **Hook Event Log**: the route gate records each host hook event in `hooks/hook_events.jsonl` with its session ID.
+
+### Changed
+- **Stop Gate Scope**: only code paths (`src/`, `crates/`, `tests/`, `hooks/`, `Cargo.*`) need a passing verify run. A run counts only for the code tree it tested (`code_hash`, migration v24). Only the repo the hook runs in is checked.
+
+### Fixed
+- Concurrent identical `store_memory` calls persist one active fact: the duplicate check and insert run under one connection lock.
+- `store_memory` and `delete_memory` run through the write queue on `spawn_blocking`.
+- Graphify subprocesses run with timeouts, so a hung call no longer holds the job lock or the MCP request.
+- Hook tests no longer write `__pycache__` into `hooks/`.
+
 ## [1.0.0-rc4] - 2026-10-29
 
 ### Fixed

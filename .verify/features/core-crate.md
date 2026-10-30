@@ -65,4 +65,4 @@ related:
 - The boundary check is a denylist of crate names. A new IO crate that is not on the list will pass the check. Extend the list in `.verify/checks/core_boundary.sh` when a new IO dependency is added.
 - `commit_gate` reads stdin, so it stays in the adapter crate. It is not covered by the core boundary.
 - The re-exports in `src/lib.rs` keep the old `agent_brain::<module>` paths valid. Removing a re-export is a breaking change for any caller that uses the old path.
-- Earlier work on this branch is uncommitted. The split and its checks are not yet committed on their own.
+- Version: 1.0.0-rc5, set in `agent-brain/crates/agent-brain-core/Cargo.toml`. See CHANGELOG.md for the release contents.

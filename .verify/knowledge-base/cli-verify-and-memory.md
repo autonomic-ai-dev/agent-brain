@@ -6,6 +6,8 @@ feature: "[[../features/cli-verify-and-memory]]"
 
 ## What it does
 
+Version 1.0.0-rc5 (`agent-brain/Cargo.toml`). See CHANGELOG.md for the release contents.
+
 agent-brain is the routing layer every agent calls at the start of a turn. Its CLI and MCP tools run a command and record its real exit code as evidence. They also store and retrieve durable memory, install themselves into hosts, and report their own health.
 
 ## How it works
