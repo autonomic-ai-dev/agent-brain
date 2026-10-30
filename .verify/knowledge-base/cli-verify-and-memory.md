@@ -10,7 +10,7 @@ agent-brain is the routing layer every agent calls at the start of a turn. Its C
 
 ## How it works
 
-1. **Verify.** `agent-brain verify [--source cli|orchestrator] -- <cmd>` runs the command, captures its output, prints it when the command finishes, and stores the exit code, source, and the summed `test result:` count (`tests_run`, schema v22). A run with no cargo summary stores no count.
+1. **Verify.** `agent-brain verify [--source cli|orchestrator] -- <cmd>` runs the command, captures its output, prints it when the command finishes, and stores the exit code, source, the summed `test result:` count (`tests_run`, schema v22), and `code_hash` (schema v24), the hash of the code tree the run tested. A run with no cargo summary stores no count.
 2. **Harness scaffold.** `agent-brain verify init` writes `.verify/verify.toml`, an executable `run.sh`, and a README.
 3. **Report.** `agent-brain verify record` and `verify report` summarize recorded exits per source.
 4. **Memory.** `agent-brain memory put` writes a durable fact. `enqueue` and `flush-pending` hold facts that could not be written yet and retry them later. The MCP `store_memory` and `delete_memory` tools go through the write queue on `spawn_blocking`, so a slow write does not park an async worker.
