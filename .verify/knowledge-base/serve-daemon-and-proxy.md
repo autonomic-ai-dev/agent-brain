@@ -1,3 +1,7 @@
+---
+feature: "[[../features/serve-daemon-and-proxy]]"
+---
+
 # Serve daemon and stdio proxy
 
 ## What it does
@@ -18,4 +22,4 @@ Every agent host session starts `agent-brain serve` as an MCP server. One of tho
 - `agent-brain/src/engine.rs`: `spawn_embedder_idle_unload`.
 - `agent-brain/src/embed.rs`: `Embedder::unload_if_idle`, `is_loaded`, and `IDLE_UNLOAD_AFTER`.
 - `agent-brain/tests/proxy_lifecycle.rs`: the regression test for proxy exit.
-- The feature map is [serve-daemon-and-proxy](../features/serve-daemon-and-proxy.md).
+- The feature map is [[../features/serve-daemon-and-proxy]].

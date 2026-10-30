@@ -1,3 +1,7 @@
+---
+feature: "[[../features/packages]]"
+---
+
 # packages knowledge base
 
 ## Owned code
@@ -12,5 +16,6 @@
 
 ## Verification
 
-- `cargo test --all-features` covers the `packages::` unit tests, including `package_name_includes_owner_so_same_repo_names_differ`.
+- `cargo test --all-features -- --skip graphify_1k_ci_gate --skip scale_1k_passes_gate --test-threads=1` covers the `packages::` unit tests, including `package_name_includes_owner_so_same_repo_names_differ`.
 - Not covered by tests: the real `package add` network clone and the stale-directory reuse path.
+- The feature map is [[../features/packages]].

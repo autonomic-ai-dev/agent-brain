@@ -384,6 +384,11 @@ async fn main() -> Result<()> {
         "version" => {
             println!("agent-brain {}", env!("CARGO_PKG_VERSION"));
         }
+        "feature-graph" => {
+            let dir = args.get(2).map_or(".verify/features", String::as_str);
+            let graph = agent_brain::feature_graph::build(std::path::Path::new(dir))?;
+            println!("{}", serde_json::to_string_pretty(&graph)?);
+        }
         "briefing" => {
             let config = Config::load()?;
             let path = config.logs_dir.join("last-route.md");

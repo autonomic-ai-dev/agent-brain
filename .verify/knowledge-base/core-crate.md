@@ -1,6 +1,12 @@
+---
+feature: "[[../features/core-crate]]"
+---
+
 # Core crate
 
 ## What it does
+
+Version 1.0.0-rc5 (`agent-brain/crates/agent-brain-core/Cargo.toml`). See CHANGELOG.md for the release contents.
 
 `agent-brain-core` holds the pure routing logic of agent-brain: the behavior-contract rules, retrieval ranking, query decomposition, and memory decay. It has no storage, runtime, or IO dependency, so the logic can be tested with no database, daemon, or network.
 
@@ -36,5 +42,5 @@
 
 ## Related
 
-- Feature map: `agent-brain/.verify/features/core-crate.md`
+- Feature map: [[../features/core-crate]]
 - Routing and verify CLI: [cli-verify-and-memory](cli-verify-and-memory.md)

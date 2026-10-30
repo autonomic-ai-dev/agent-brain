@@ -121,6 +121,7 @@ PYTHON_DENY_AGENT = (
 )
 BLOCKED_PATH_SEGMENTS = ("dist", "node_modules", "target", "build", ".git", ".next", "coverage")
 TOOL_EVENTS_PATH = STATE_PATH.parent / "tool_events.jsonl"
+HOOK_EVENTS_PATH = STATE_PATH.parent / "hook_events.jsonl"
 
 
 def disabled() -> bool:
@@ -551,6 +552,13 @@ def update_route_context(payload: dict, event: dict | None = None) -> None:
 def append_tool_event(record: dict) -> None:
     TOOL_EVENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
     with TOOL_EVENTS_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record) + "\n")
+
+
+def append_hook_event(event_name: str, session_id: str) -> None:
+    HOOK_EVENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    record = {"timestamp": int(time.time() * 1000), "event": event_name, "session": session_id}
+    with HOOK_EVENTS_PATH.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record) + "\n")
 
 
@@ -1403,6 +1411,7 @@ def main() -> int:
     raw_name = str(event.get("hook_event_name", ""))
     event = normalize_tool_event(event)
     set_active_session(session_id_from_event(event))
+    append_hook_event(raw_name, session_id_from_event(event))
     name = normalize_event_name(raw_name)
 
     if name == "beforeSubmitPrompt":

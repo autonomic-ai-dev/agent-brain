@@ -11,6 +11,7 @@ use crate::db::store::BrainStore;
 use crate::engine::Engine;
 
 use super::ingest::ingest_repo;
+use super::process::output_with_timeout;
 use super::types::GraphifyJobStatus;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,6 +70,8 @@ impl JobMode {
 }
 
 static JOB_LOCK: Mutex<()> = Mutex::new(());
+
+const GRAPHIFY_JOB_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
 pub fn enqueue_job(
     engine: &Arc<Engine>,
@@ -173,8 +176,7 @@ fn run_graphify_then_ingest(
         cmd.arg("--update");
     }
     cmd.arg(".");
-    let output = cmd
-        .output()
+    let output = output_with_timeout(&mut cmd, GRAPHIFY_JOB_TIMEOUT)
         .with_context(|| format!("run {graphify_bin}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

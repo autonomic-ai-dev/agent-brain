@@ -859,26 +859,18 @@ impl BrainStore {
         let expires = now + 90 * 24 * 3600 * 1000;
         let id = Uuid::new_v4().to_string();
 
-        let existing: Option<String> = self.with_conn(|conn| {
-            Ok(conn
+        let deduplicated = self.with_conn(|conn| {
+            let existing: Option<String> = conn
                 .query_row(
                     "SELECT id FROM facts WHERE content_hash = ?1 AND scope = ?2 AND IFNULL(scope_key,'') = IFNULL(?3,'') AND superseded_by IS NULL",
                     params![content_hash, scope, scope_key],
                     |r| r.get(0),
                 )
-                .optional()?)
-        })?;
-
-        if let Some(existing_id) = existing {
-            return Ok(StoreFactResult {
-                id: existing_id,
-                stored: false,
-                deduplicated: true,
-            });
-        }
-
-        let prior: Option<String> = self.with_conn(|conn| {
-            Ok(conn
+                .optional()?;
+            if let Some(existing_id) = existing {
+                return Ok(Some(existing_id));
+            }
+            let prior: Option<String> = conn
                 .query_row(
                     &format!(
                         "SELECT id FROM facts WHERE topic = ?1 AND scope = ?2 AND IFNULL(scope_key,'') = IFNULL(?3,'') AND superseded_by IS NULL AND {}",
@@ -887,10 +879,7 @@ impl BrainStore {
                     params![topic, scope, scope_key, now],
                     |r| r.get(0),
                 )
-                .optional()?)
-        })?;
-
-        self.with_conn(|conn| {
+                .optional()?;
             conn.execute(
                 r#"INSERT INTO facts (id, topic, fact, scope, scope_key, source, confidence, created_at, updated_at, expires_at, content_hash, polarity, apply_when, valid_from, invalid_at)
                    VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?8,?9,?10,?11,?12,?13,?14)"#,
@@ -914,8 +903,16 @@ impl BrainStore {
             if let Some(old_id) = &prior {
                 crate::temporal::link_fact_evolution(conn, &id, old_id, "evolved_from", now)?;
             }
-            Ok(())
+            Ok(None)
         })?;
+
+        if let Some(existing_id) = deduplicated {
+            return Ok(StoreFactResult {
+                id: existing_id,
+                stored: false,
+                deduplicated: true,
+            });
+        }
 
         let blob: Vec<u8> = normalize_embedding(embedding.to_vec())
             .iter()
@@ -1450,6 +1447,16 @@ impl BrainStore {
         })
     }
 
+    pub fn set_verify_outcome_code_hash(&self, id: &str, code_hash: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE verify_outcomes SET code_hash = ?1 WHERE id = ?2",
+                params![code_hash, id],
+            )?;
+            Ok(())
+        })
+    }
+
     pub fn verify_outcome_tests_run(&self, id: &str) -> Result<Option<i64>> {
         self.with_conn(|conn| {
             Ok(conn.query_row(
@@ -1463,7 +1470,7 @@ impl BrainStore {
     pub fn list_verify_outcomes(&self, limit: usize) -> Result<Vec<VerifyOutcomeRow>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                r#"SELECT id, route_log_id, exit_code, cause_tag, verify_config_hash, scenario_dir_hash, cmd, device_id, recorded_at, source
+                r#"SELECT id, route_log_id, exit_code, cause_tag, verify_config_hash, scenario_dir_hash, cmd, device_id, recorded_at, source, code_hash
                    FROM verify_outcomes ORDER BY recorded_at DESC LIMIT ?1"#,
             )?;
             let rows = stmt
@@ -1480,7 +1487,7 @@ impl BrainStore {
     ) -> Result<Vec<VerifyOutcomeRow>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                r#"SELECT id, route_log_id, exit_code, cause_tag, verify_config_hash, scenario_dir_hash, cmd, device_id, recorded_at, source
+                r#"SELECT id, route_log_id, exit_code, cause_tag, verify_config_hash, scenario_dir_hash, cmd, device_id, recorded_at, source, code_hash
                    FROM verify_outcomes WHERE project_key = ?1 ORDER BY recorded_at DESC LIMIT ?2"#,
             )?;
             let rows = stmt
@@ -3186,6 +3193,7 @@ fn map_verify_outcome_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<VerifyOut
         device_id: row.get(7)?,
         recorded_at: row.get(8)?,
         source: row.get(9)?,
+        code_hash: row.get(10)?,
     })
 }
 
@@ -3274,6 +3282,44 @@ mod tests {
             .with_conn(|conn| Ok(conn.query_row("PRAGMA journal_mode", [], |row| row.get(0))?))
             .unwrap();
         assert_eq!(mode, "wal");
+    }
+
+    #[test]
+    fn concurrent_identical_stores_persist_one_active_fact() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = Arc::new(BrainStore::open(&tmp.path().join("race_brain.db")).unwrap());
+        let stored = std::thread::scope(|s| {
+            let handles: Vec<_> = (0..8)
+                .map(|_| {
+                    let store = Arc::clone(&store);
+                    s.spawn(move || {
+                        store
+                            .store_fact_full(
+                                "topic",
+                                "same fact",
+                                "global",
+                                None,
+                                0.9,
+                                "agent",
+                                "hash-same",
+                                &[0.1f32, 0.2],
+                                "positive",
+                                None,
+                                None,
+                            )
+                            .unwrap()
+                            .stored
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|h| h.join().unwrap())
+                .filter(|stored| *stored)
+                .count()
+        });
+        assert_eq!(stored, 1);
+        assert_eq!(store.count_active_facts().unwrap(), 1);
     }
 
     #[test]
@@ -3384,6 +3430,7 @@ pub struct VerifyOutcomeRow {
     pub device_id: Option<String>,
     pub recorded_at: i64,
     pub source: Option<String>,
+    pub code_hash: Option<String>,
 }
 
 pub struct StoreFactResult {

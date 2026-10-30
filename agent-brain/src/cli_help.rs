@@ -56,6 +56,7 @@ Ops:
   learn         Ingest allowlisted docs into skills + memory
   log           Print or follow a named log file
   verify        Execute allowlisted check and record trusted outcome
+  feature-graph Print the feature-map graph as JSON
 
 Extras (build with `--features extras`):
   dataset       Export trajectories as training JSONL
@@ -160,6 +161,14 @@ Usage:  agent-brain briefing
 
 Print the last human-readable route summary
 (~/.agent_brain/logs/last-route.md).
+"
+        }
+        "feature-graph" => {
+            "\
+Usage:  agent-brain feature-graph [DIR]
+
+Print the feature maps as a JSON graph of nodes, sub-features, code
+paths, and [[wikilink]] edges. DIR defaults to .verify/features.
 "
         }
         "onboarding" => {

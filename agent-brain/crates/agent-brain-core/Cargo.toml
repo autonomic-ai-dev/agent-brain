@@ -1,6 +1,6 @@
 [package]
 name = "agent-brain-core"
-version = "1.0.0-rc4"
+version = "1.0.0-rc5"
 edition = "2021"
 license = "MIT"
 description = "Pure routing types and scoring logic for agent-brain; no storage, process, or network IO"

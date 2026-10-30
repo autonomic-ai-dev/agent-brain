@@ -4,6 +4,7 @@
 mod cli;
 mod ingest;
 mod jobs;
+mod process;
 mod query;
 mod repos;
 mod types;
