@@ -22,7 +22,7 @@ pub struct ModuleSummary {
     pub fact_count: usize,
 }
 
-pub fn distill(store: &crate::db::store::BrainStore) -> Result<DistilledArch> {
+pub fn distill(store: &agent_brain::db::store::BrainStore) -> Result<DistilledArch> {
     let rows = store.list_export_facts()?;
     let total_facts = rows.len();
 
@@ -113,12 +113,13 @@ pub struct ClusterStats {
 }
 
 pub fn cluster_and_summarize(
-    store: &crate::db::store::BrainStore,
+    store: &agent_brain::db::store::BrainStore,
     threshold: f64,
     dry_run: bool,
 ) -> Result<ClusterStats> {
     let items = store.load_searchable_items()?;
-    let mut by_topic: HashMap<String, Vec<(usize, &crate::db::store::SearchRow)>> = HashMap::new();
+    let mut by_topic: HashMap<String, Vec<(usize, &agent_brain::db::store::SearchRow)>> =
+        HashMap::new();
 
     for (idx, item) in items.iter().enumerate() {
         if item.embedding.is_none() {
@@ -142,7 +143,7 @@ pub fn cluster_and_summarize(
 
         let embeds: Vec<Vec<f32>> = group
             .iter()
-            .map(|(_, item)| crate::db::store::bytes_to_f32(item.embedding.as_ref().unwrap()))
+            .map(|(_, item)| agent_brain::db::store::bytes_to_f32(item.embedding.as_ref().unwrap()))
             .collect();
 
         let n = group.len();
@@ -164,7 +165,7 @@ pub fn cluster_and_summarize(
 
         for i in 0..n {
             for j in (i + 1)..n {
-                let sim = crate::embed::cosine(&embeds[i], &embeds[j]);
+                let sim = agent_brain::embed::cosine(&embeds[i], &embeds[j]);
                 if sim >= threshold {
                     union(&mut parent, i, j);
                 }
@@ -188,7 +189,7 @@ pub fn cluster_and_summarize(
                 continue;
             }
 
-            let member_rows: Vec<&crate::db::store::SearchRow> =
+            let member_rows: Vec<&agent_brain::db::store::SearchRow> =
                 members.iter().map(|&i| group[i].1).collect();
 
             let combined: Vec<&str> = member_rows

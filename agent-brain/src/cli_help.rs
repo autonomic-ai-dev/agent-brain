@@ -62,15 +62,15 @@ Ops:
   feature-graph Print the feature-map graph as JSON
 
 Extras (build with `--features extras`):
-  dataset       Export trajectories as training JSONL
-  digest        Weekly operator digest
-  eval          Recall gates (fixture / skills.sh / beam)
-  fixture       Build committed fixture DBs
-  skills-sh     Refresh skills.sh snapshot
+  dataset       Export trajectories as training JSONL (extras extension)
+  digest        Weekly operator digest (extras extension)
+  eval          Recall gates (bench extension)
+  fixture       Build committed fixture DBs (extras extension)
+  skills-sh     Refresh skills.sh snapshot (extras extension)
   proofs        CI proof aggregate
-  distill       Architecture distill / clusters
-  graphify      Codebase graph enable / ingest / query
-  grpc          Orchestrator bridge API (gRPC)
+  distill       Architecture distill / clusters (extras extension)
+  graphify      Codebase graph (graphify extension: agent-brain ext add graphify)
+  grpc          Orchestrator bridge API (gRPC, extras extension)
 
 Global Options:
   -h, --help       Show help
@@ -498,9 +498,9 @@ Commands:
         "digest" => "Requires: --weekly\n",
         "eval" => {
             "\
+Provided by the bench extension (`agent-brain ext add bench`).
 Options:
   --ci [--live]              Recall@3 gate
-  --beam                     BEAM memory+routing harness
   --skills-sh [--fixture-db PATH] [--seed] [--write PATH]
 "
         }

@@ -9,15 +9,15 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::db::store::{content_hash, BrainStore};
-use crate::embed::deterministic_embedding;
 use crate::eval::seed_filler_skills;
 use crate::fixture::{
     export_fixture_db, new_isolated_engine, open_fixture_engine, stamp_fixture_meta,
     FixtureBuildReport, FIXTURE_DB_KIND_SKILLS_SH,
 };
-use crate::index::skill_index_text;
-use crate::types::{ItemType, RouteLimits};
+use agent_brain::db::store::{content_hash, BrainStore};
+use agent_brain::embed::deterministic_embedding;
+use agent_brain::index::skill_index_text;
+use agent_brain::types::{ItemType, RouteLimits};
 
 pub const SKILLS_SH_RECALL_THRESHOLD: f64 = 0.80;
 pub const SKILLS_SH_SIMULATED_INDEX: usize = 2000;
@@ -300,7 +300,7 @@ struct DownloadFile {
 
 fn benchmark_path(rel: &str) -> PathBuf {
     if let Ok(cwd) = std::env::current_dir() {
-        if let Some(repo) = crate::config::find_repo_root(&cwd) {
+        if let Some(repo) = agent_brain::config::find_repo_root(&cwd) {
             return repo.join(rel);
         }
     }
@@ -833,7 +833,7 @@ pub fn build_fixture_db(
 ) -> Result<FixtureBuildReport> {
     let snapshot = load_snapshot(snapshot_path)?;
     let dir = tempfile::tempdir()?;
-    let config = crate::config::Config::isolated(dir.path().to_path_buf());
+    let config = agent_brain::config::Config::isolated(dir.path().to_path_buf());
     config.ensure_dirs()?;
     let db_path = config.db_path.clone();
     let store = Arc::new(BrainStore::open(&db_path)?);
@@ -862,7 +862,7 @@ pub fn build_fixture_db(
 }
 
 fn run_skills_sh_eval_on_engine(
-    engine: &crate::engine::Engine,
+    engine: &agent_brain::engine::Engine,
     golden: &SkillsShGoldenFile,
     snapshot_skills: usize,
     index_size: usize,

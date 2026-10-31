@@ -1,0 +1,15 @@
+[package]
+name = "agent-brain-graphify"
+version = "1.0.0-rc6"
+edition = "2021"
+description = "agent-brain extension: codebase graph (enable, ingest, query)"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "agent-brain-graphify"
+path = "src/main.rs"
+
+[dependencies]
+agent-brain = { path = "../../agent-brain", features = ["extras"] }
+anyhow = "1"

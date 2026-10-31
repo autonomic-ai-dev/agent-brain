@@ -8,11 +8,11 @@ use std::path::Path;
 use anyhow::{bail, Result};
 
 use agent_brain::engine::Engine;
-use agent_brain::fixture::{
+use crate::fixture::{
     default_fixture_2k_path, open_fixture_engine_with_onnx, seed_bench_fixture,
     BENCH_FIXTURE_SKILLS,
 };
-use agent_brain::fixture::{default_route_limits, new_isolated_engine};
+use crate::fixture::{default_route_limits, new_isolated_engine};
 
 pub const TURN_CACHE_HIT_P95_THRESHOLD_MS: u64 = 30;
 pub const WARM_ROUTE_P95_THRESHOLD_MS: u64 = 100;
@@ -66,14 +66,14 @@ pub fn run_ci_bench() -> Result<LatencyBenchReport> {
 }
 
 pub fn run_onnx_fixture_bench(fixture_path: &Path) -> Result<OnnxBenchReport> {
-    let meta = agent_brain::fixture::read_fixture_meta(fixture_path)?;
+    let meta = crate::fixture::read_fixture_meta(fixture_path)?;
     let breakdown = {
         let dir = tempfile::tempdir()?;
         let config = agent_brain::config::Config::isolated(dir.path().to_path_buf());
         config.ensure_dirs()?;
         std::fs::copy(fixture_path, &config.db_path)?;
         let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
-        agent_brain::fixture::fixture_db_breakdown(&store)?
+        crate::fixture::fixture_db_breakdown(&store)?
     };
     let (engine, _dir) = open_fixture_engine_with_onnx(fixture_path, true)?;
     let embedder = engine.embedder.model_id.to_string();

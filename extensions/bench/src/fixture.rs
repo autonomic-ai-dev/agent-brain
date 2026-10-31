@@ -7,12 +7,12 @@ use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
 
-use crate::config::Config;
-use crate::db::store::BrainStore;
-use crate::embed::{parse_embedding_model, Embedder};
-use crate::engine::Engine;
 use crate::eval::seed_eval_fixture;
-use crate::types::RouteLimits;
+use agent_brain::config::Config;
+use agent_brain::db::store::BrainStore;
+use agent_brain::embed::{parse_embedding_model, Embedder};
+use agent_brain::engine::Engine;
+use agent_brain::types::RouteLimits;
 
 pub const BENCH_FIXTURE_SKILLS: usize = 500;
 
@@ -27,6 +27,17 @@ pub fn new_isolated_engine() -> Result<(Engine, TempDir)> {
     config.ensure_dirs()?;
     let store = Arc::new(BrainStore::open(&config.db_path)?);
     let engine = Engine::new_with_store(config, store)?;
+    Ok((engine, dir))
+}
+
+pub fn new_isolated_engine_with_model() -> Result<(Engine, TempDir)> {
+    let dir = tempfile::tempdir()?;
+    let config = Config::isolated(dir.path().to_path_buf());
+    config.ensure_dirs()?;
+    let store = Arc::new(BrainStore::open(&config.db_path)?);
+    let model = parse_embedding_model(&config.embedding_model);
+    let embedder = Arc::new(Embedder::with_model(model)?);
+    let engine = Engine::new_with_store_and_embedder(config, store, embedder)?;
     Ok((engine, dir))
 }
 
@@ -57,7 +68,7 @@ pub fn open_fixture_engine_with_onnx(fixture_path: &Path, onnx: bool) -> Result<
 
 fn benchmark_path(rel: &str) -> PathBuf {
     if let Ok(cwd) = std::env::current_dir() {
-        if let Some(repo) = crate::config::find_repo_root(&cwd) {
+        if let Some(repo) = agent_brain::config::find_repo_root(&cwd) {
             return repo.join(rel);
         }
     }

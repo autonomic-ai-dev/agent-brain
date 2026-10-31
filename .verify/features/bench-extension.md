@@ -8,7 +8,7 @@ related:
 
 # bench-extension
 
-Summary: The benchmark and CI-proof harness, shipped as the optional `agent-brain-bench` extension instead of inside the core binary. It provides the `bench` and `proofs` subcommands.
+Summary: The benchmark and CI-proof harness, shipped as the optional `agent-brain-bench` extension instead of inside the core binary. It provides the `bench`, `proofs`, `eval`, `fixture`, and `skills-sh` subcommands. It also owns the eval gate, fixture builder, and skills.sh modules (`src/eval.rs`, `src/fixture.rs`, `src/skills_sh.rs`), which moved out of the core library.
 
 ## Sub-features
 
@@ -18,6 +18,10 @@ Summary: The benchmark and CI-proof harness, shipped as the optional `agent-brai
 - `proofs-command`: Aggregates the CI proofs.
   - Behaviour: `agent-brain proofs --ci [--write PATH]`. It also writes `metrics/proof-latest.json` under the brain home.
   - Outcome: The aggregate report, and a nonzero exit when a proof fails.
+
+- `eval-command`: Runs the Recall@3 gates for memory and skills.
+  - Behaviour: `agent-brain eval --ci [--live]` runs the memory and skill gate on an isolated temp DB, with the deterministic embedder, or with the real model under `--live`. `agent-brain eval --skills-sh [--fixture-db PATH] [--seed] [--write PATH]` runs the skills.sh gate.
+  - Outcome: A JSON report and an exit code from the gate. The core library keeps the eval logic (`agent-brain/src/eval.rs`). The core binary no longer has an `eval` command.
 
 ## Code
 

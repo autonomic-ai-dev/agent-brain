@@ -16,6 +16,8 @@ commands = [
   "cargo check",
   "sh .verify/checks/require_tests.sh --all-features -- --test-threads=1",
   "cargo test -p agent-brain-core",
+  "cargo test -p agent-brain-extras",
+  "cargo test -p agent-brain-bench --all-features -- --test-threads=1",
   ".verify/checks/core_boundary.sh",
   ".verify/run.sh",
   ".verify/playbooks/verify_usage_telemetry.sh",

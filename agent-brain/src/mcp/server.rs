@@ -74,11 +74,9 @@ impl BrainMcp {
     }
 
     fn resolve_graphify_repo(&self, cwd: Option<&str>) -> Result<PathBuf, McpError> {
-        let path = self
-            .resolve_cwd(cwd)
-            .ok_or_else(|| {
-                McpError::invalid_params("current_working_directory required".to_string(), None)
-            })?;
+        let path = self.resolve_cwd(cwd).ok_or_else(|| {
+            McpError::invalid_params("current_working_directory required".to_string(), None)
+        })?;
         std::fs::canonicalize(&path)
             .map_err(|e| McpError::invalid_params(format!("resolve repo root: {e}"), None))
     }
@@ -816,7 +814,7 @@ impl BrainMcp {
     }
 
     #[tool(
-        description = "REQUIRED at task end for durable decisions. Max 50 words. No secrets. Optional valid_from/invalid_at (unix ms). Requires route_task first in this turn."
+        description = "REQUIRED at task end for durable decisions. One line, 10 to 50 words, no secrets. Say what was decided or learned, why, and where it applies (file, command, or scope), e.g. 'Use Vitest for component tests because Jest is not configured; applies to web/ tests.' Optional valid_from/invalid_at (unix ms). Requires route_task first in this turn."
     )]
     async fn store_memory(
         &self,
@@ -906,7 +904,11 @@ impl BrainMcp {
             .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
         let config_path = p.config_path.as_ref().map(PathBuf::from);
         let scenarios = p.scenarios_dir.as_ref().map(PathBuf::from);
-        let cwd = p.cwd.as_ref().map(PathBuf::from).or_else(|| self.active_cwd());
+        let cwd = p
+            .cwd
+            .as_ref()
+            .map(PathBuf::from)
+            .or_else(|| self.active_cwd());
         let report = crate::verify::record_from_result(
             &self.engine.store,
             p.exit_code,
@@ -1976,11 +1978,7 @@ impl BrainMcp {
         let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
         let fallback = PathBuf::from(".");
         let target = cwd.as_deref().unwrap_or(&fallback);
-        match crate::git_tools::git_log(
-            target,
-            p.range.as_deref(),
-            p.max_count,
-        ) {
+        match crate::git_tools::git_log(target, p.range.as_deref(), p.max_count) {
             Ok(entries) => json_result(entries),
             Err(e) => Err(McpError::internal_error(e, None)),
         }
@@ -1999,11 +1997,7 @@ impl BrainMcp {
         let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
         let fallback = PathBuf::from(".");
         let target = cwd.as_deref().unwrap_or(&fallback);
-        match crate::git_tools::git_diff(
-            target,
-            &p.range,
-            p.path.as_deref(),
-        ) {
+        match crate::git_tools::git_diff(target, &p.range, p.path.as_deref()) {
             Ok(result) => json_result(result),
             Err(e) => Err(McpError::internal_error(e, None)),
         }
@@ -2022,11 +2016,7 @@ impl BrainMcp {
         let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
         let fallback = PathBuf::from(".");
         let target = cwd.as_deref().unwrap_or(&fallback);
-        match crate::git_tools::git_tags(
-            target,
-            p.pattern.as_deref(),
-            p.max_count,
-        ) {
+        match crate::git_tools::git_tags(target, p.pattern.as_deref(), p.max_count) {
             Ok(tags) => json_result(tags),
             Err(e) => Err(McpError::internal_error(e, None)),
         }
@@ -2045,11 +2035,7 @@ impl BrainMcp {
         let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
         let fallback = PathBuf::from(".");
         let target = cwd.as_deref().unwrap_or(&fallback);
-        match crate::git_tools::git_compare(
-            target,
-            &p.base,
-            &p.head,
-        ) {
+        match crate::git_tools::git_compare(target, &p.base, &p.head) {
             Ok(result) => json_result(result),
             Err(e) => Err(McpError::internal_error(e, None)),
         }
@@ -2742,7 +2728,7 @@ mod tests {
             .store_memory(Parameters(
                 serde_json::from_value::<StoreMemoryParams>(serde_json::json!({
                     "topic": "release",
-                    "fact": "Run cargo test before tagging a release",
+                    "fact": "Run cargo test before tagging a release so the tagged build is verified",
                     "scope": "global"
                 }))
                 .expect("store params"),

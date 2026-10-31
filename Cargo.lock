@@ -76,7 +76,6 @@ dependencies = [
  "libc",
  "lru",
  "opendal",
- "prost",
  "rayon",
  "regex",
  "rmcp",
@@ -92,8 +91,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "toml 0.8.23",
- "tonic",
- "tonic-build",
  "tracing",
  "tracing-subscriber",
  "tree-sitter",
@@ -117,6 +114,8 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tracing",
+ "ureq 3.3.0",
 ]
 
 [[package]]
@@ -126,6 +125,31 @@ dependencies = [
  "schemars",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "agent-brain-extras"
+version = "1.0.0-rc6"
+dependencies = [
+ "agent-brain",
+ "anyhow",
+ "chrono",
+ "prost",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tonic",
+ "tonic-build",
+ "tracing",
+]
+
+[[package]]
+name = "agent-brain-graphify"
+version = "1.0.0-rc6"
+dependencies = [
+ "agent-brain",
+ "anyhow",
 ]
 
 [[package]]

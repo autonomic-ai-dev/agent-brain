@@ -1,9 +1,9 @@
-use crate::global_workspace::{ensure_dirs, executions_dir, memory_dir};
+use agent_brain::global_workspace::{ensure_dirs, executions_dir, memory_dir};
 use anyhow::{Context, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
-use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 
 use crate::dataset::DatasetEntry;
@@ -40,9 +40,7 @@ pub struct IngestReport {
 }
 
 pub fn default_dataset_path() -> PathBuf {
-    memory_dir()
-        .join("datasets")
-        .join("spine.jsonl")
+    memory_dir().join("datasets").join("spine.jsonl")
 }
 
 pub fn ingest_executions(
@@ -151,42 +149,6 @@ pub fn ingest_executions(
 
     writer.flush()?;
     Ok(report)
-}
-
-/// Merge spine-ingested JSONL with SQLite trajectory export (dedupe by instruction hash).
-pub fn merge_jsonl_files(paths: &[PathBuf], out: &Path) -> Result<u64> {
-    let mut seen = std::collections::HashSet::new();
-    let mut writer = BufWriter::new(File::create(out)?);
-    let mut count = 0u64;
-
-    for path in paths {
-        if !path.exists() {
-            continue;
-        }
-        let file = File::open(path)?;
-        for line in BufReader::new(file).lines() {
-            let line = line?;
-            if line.trim().is_empty() {
-                continue;
-            }
-            let key = format!("{:x}", md5_hash(&line));
-            if seen.insert(key) {
-                writeln!(writer, "{line}")?;
-                count += 1;
-            }
-        }
-    }
-
-    writer.flush()?;
-    Ok(count)
-}
-
-fn md5_hash(input: &str) -> u64 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut hasher = DefaultHasher::new();
-    input.hash(&mut hasher);
-    hasher.finish()
 }
 
 #[cfg(test)]

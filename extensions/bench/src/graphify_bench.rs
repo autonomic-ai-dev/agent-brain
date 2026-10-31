@@ -8,7 +8,7 @@ use anyhow::{bail, Result};
 use serde_json::json;
 
 use crate::bench::{percentiles, PercentileMs};
-use agent_brain::fixture::{
+use crate::fixture::{
     default_route_limits, new_isolated_engine, seed_bench_fixture, BENCH_FIXTURE_SKILLS,
 };
 use agent_brain::graphify::ingest_graph_at_path;

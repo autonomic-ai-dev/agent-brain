@@ -4,7 +4,7 @@ use crate::grpc::pb::{
     RouteWarning as PbRouteWarning, RuleRec as PbRuleRec, SkillRec as PbSkillRec,
     TaskKind as PbTaskKind,
 };
-use crate::types::{
+use agent_brain::types::{
     AgentRec, ContextBundle, MemoryRec, MustApply, RouteLimits,
     RouteTaskResponse as RustRouteResponse, RouteWarning, RuleRec, SkillRec, TaskKind,
 };
@@ -46,8 +46,8 @@ pub fn limits_from_proto(limits: Option<PbRouteLimits>) -> RouteLimits {
     .normalize()
 }
 
-pub fn route_request_from_proto(req: RouteTaskRequest) -> crate::bridge::BridgeRouteRequest {
-    crate::bridge::BridgeRouteRequest {
+pub fn route_request_from_proto(req: RouteTaskRequest) -> agent_brain::bridge::BridgeRouteRequest {
+    agent_brain::bridge::BridgeRouteRequest {
         user_message: req.user_message,
         cwd: req.current_working_directory,
         open_files: req.open_files,

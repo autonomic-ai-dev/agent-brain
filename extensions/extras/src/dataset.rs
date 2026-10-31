@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::db::store::BrainStore;
+use agent_brain::db::store::BrainStore;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DatasetEntry {

@@ -151,10 +151,12 @@ fn feature_gap(root: &Path) -> Option<String> {
     )
 }
 
-fn load_evidence(store: &BrainStore) -> Result<Vec<Evidence>> {
+fn load_evidence(store: &BrainStore, root: &Path) -> Result<Vec<Evidence>> {
+    let has_harness = root.join(".verify").is_dir();
     Ok(store
         .list_verify_outcomes(EVIDENCE_LIMIT)?
         .into_iter()
+        .filter(|row| !has_harness || verify::repo_artifact_path(root, &row.id).is_file())
         .map(|row| Evidence {
             exit_code: row.exit_code,
             source: row.source,
@@ -220,7 +222,7 @@ fn evaluate_stop(
     let code_changed = changed_paths(root)
         .iter()
         .any(|path| verify::is_code_path(path));
-    let evidence = load_evidence(store)?;
+    let evidence = load_evidence(store, root)?;
     let passed = code_changed
         && verify::code_tree_hash(root)
             .as_deref()

@@ -17,6 +17,8 @@ feature: "[[../features/bench-extension]]"
 ## Where the code is
 
 - Crate: `extensions/bench` (`src/lib.rs`, `src/main.rs`, `src/cli.rs`, and the benchmark modules)
+- Moved here from core: `src/eval.rs` (Recall@3 gates), `src/fixture.rs` (fixture DBs), `src/skills_sh.rs` (skills.sh snapshot). The core `eval` gate test is now `extensions/bench/tests/eval_gate.rs`.
+- Commands moved here: `fixture` and `skills-sh` (in `src/cli.rs`, with `eval`, `bench`, and `proofs`)
 - Integration tests: `extensions/bench/tests/v0_23.rs`, `extensions/bench/tests/v0_24.rs`
 - Workspace member: `Cargo.toml` at the repo root
 - Dispatch and install: `agent-brain/src/extensions.rs`, `src/main.rs` (the fallback arm)
@@ -26,6 +28,7 @@ feature: "[[../features/bench-extension]]"
 
 - `agent-brain ext add bench`
 - `agent-brain bench --ci`, `agent-brain bench --beam`, `agent-brain proofs --ci --write PATH`
+- `agent-brain eval --ci` and `agent-brain eval --ci --live` run the recall gate. Before the extension moved this command, `eval` was in the core binary and `--live` seeded the user's live store. The core binary now has no `eval` command, and `eval` routes to the installed extension.
 
 ## How it is verified
 

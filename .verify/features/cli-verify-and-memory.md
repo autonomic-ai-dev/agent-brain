@@ -16,8 +16,9 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
 - `verify-record-exit`: Runs a command and records its real exit code as evidence.
   - Intent: Make "tests passed" a recorded fact instead of a claim.
   - Behaviour: `agent-brain verify [--source cli|orchestrator] [--save-artifact] -- <cmd>` runs the command, captures its output, prints it when the command finishes, and stores the exit code and source. With `--save-artifact` the captured output is also written to `${AUTONOMIC_HOME:-~/.autonomic}/artifacts/<project-folder>/<report-id>.log`, and the path is printed to stderr.
+  - Repo artifacts: when the repo has a `.verify/` directory, every run also writes its captured output to `.verify/artifacts/<report-id>.log`. The stop gate counts a passing run only when that log exists (`src/stop_gate.rs` `load_evidence`, `src/verify.rs` `repo_artifact_path`). Runs recorded before this rule have no log and no longer count.
   - Outcome: The exit code, source, and the summed `test result:` count (`tests_run`, schema v22, `src/verify.rs` `count_tests`) are recorded. A run without a cargo summary stores no count. It also stores `code_hash`, the hash of the code tree the run tested, which the stop gate compares with the current tree. A saved log lives under the artifacts folder; without the flag no log is written, and `.verify/artifacts/` is only written by project scripts.
-- `extensions`: Installs optional `agent-brain-<name>` executables from agent-registry and runs them as subcommands.
+- `extensions` (bench, graphify, and extras are the first three; see [[graphify-extension]] and [[extras-extension]]): Installs optional `agent-brain-<name>` executables from agent-registry and runs them as subcommands.
   - Intent: Keep the core binary small by moving optional features out of it.
   - Behaviour: `agent-brain ext list`, `ext add <name>`, `ext remove <name>`. `ext add` reads `extensions/<name>/extension.json` from the agent-registry checkout in the registry cache, downloads the build for this platform, checks its SHA-256 against the manifest, and installs it to `<brain home>/extensions/bin/agent-brain-<name>`. An unknown subcommand that matches an installed extension runs it with the remaining arguments, with `AGENT_BRAIN_HOME` and `AGENT_BRAIN_SOCKET` (the serve socket) set. Its exit code is returned.
   - Outcome: The first extension is `bench` (`extensions/bench`), which provides `bench` (including `--beam`) and `proofs`. Extensions reach the brain through the serve socket as MCP clients, not by opening `brain.db`. `src/extensions.rs` holds the logic; tests cover name validation, SHA-256 checks, manifest loading, listing, and removal.
@@ -33,11 +34,16 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
 - `memory-put-and-flush`: Writes durable facts, with a retry queue.
   - Intent: Keep a fact even when the store is briefly unavailable.
   - Behaviour: `agent-brain memory put`, `enqueue`, and `flush-pending`. The MCP `store_memory` and `delete_memory` tools send through the write queue on `spawn_blocking`, so they never park an async worker.
+  - Validation: `store_memory` takes a lowercase slug topic of at most 60 characters and a one-line fact of at least 10 words (and at most 50). The tool description asks for what was decided, why, and where it applies. Guardrails reject a fact that reads as an instruction to the agent (for example "ignore previous instructions" or "system:") and a fact that is an automatic digest or transcript line (for example "session digest" or "shell trace shows"), because stored facts are returned to later agents as context. Observation runs are off by default (`observation.enabled: false`), so stored facts no longer produce `obs/*` rows.
   - Outcome: The fact is stored, or queued and later flushed. A duplicate content hash returns the existing id with `deduplicated: true`, and the duplicate check and insert run under one connection lock, so concurrent identical stores persist one active fact.
 - `route-task-context`: Returns ranked skills, rules, and memory for a turn.
   - Intent: Give the agent the context it needs before it acts.
   - Behaviour: `route_task` ranks candidates under a token budget, applies the core must-apply rules, and returns suggested tools. It stores an `auto-route` memory for the previous turn only when `AGENT_BRAIN_AUTO_CAPTURE=1` is set (off by default, `src/config.rs`).
   - Outcome: A structured route result. Core ranking is proven by the core crate (see [[core-crate]]).
+- `memory-recall-eval`: Measures whether the right memory and skill come back for a query.
+  - Intent: Give retrieval changes a number to move, instead of a claim that it got better.
+  - Behaviour: `agent-brain eval --ci`, now provided by the bench extension (see [[bench-extension]]), seeds golden memory and skill rows into an isolated temp DB with the deterministic embedder and reports Recall@3. `agent-brain eval --ci --live` does the same with the real embedding model. Golden rows are embedded with the same embedder the route query uses, and neither mode writes to the user's `brain.db`.
+  - Outcome: A JSON report with memory and skill Recall@3 and the failing queries. The CI gate fails below 0.85 for either suite. The deterministic run only exercises lexical matching, so a pass there does not show semantic accuracy.
 - `install-and-doctor`: Installs MCP, hooks, and permissions, and checks health.
   - Behaviour: `agent-brain install --global`, `doctor`, `doctor --fix`, `index`, `briefing`.
   - Outcome: A health report. `doctor --fix` clears quarantine without re-signing.
@@ -75,6 +81,7 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
 
 - **Unit Tests:** `cargo test -p agent-brain-core` (passes 11 of 11, see `.verify/artifacts/feature-map-baseline/core-unit.log`). The whole crate runs with `cargo test --all-features -- --skip graphify_1k_ci_gate --skip scale_1k_passes_gate --test-threads=1`, the allowlisted command.
 - **Targeted tests for the memory and graphify fixes:** `cargo test -p agent-brain --all-features --lib -- store_and_delete_memory_round_trip concurrent_identical_stores_persist process::tests` (5 passed when run in this pass).
+- **Recall-eval tests:** `cargo test -p agent-brain --features extras --lib eval` (5 passed in this pass). Live check: `agent-brain eval --ci --live`, which needs the cached all-MiniLM-L6-v2 model.
 - **Stop-gate tests:** `cargo test -p agent-brain --lib stop_gate` covers the scope, the code-tree hash, the block limit, and the matrix of owned and unclaimed code.
 - **Feature-graph and feedback-report tests:** `cargo test -p agent-brain --lib feature_graph`, `cargo test -p agent-brain --lib feedback_report`, and `cargo test -p agent-brain --bin agent-brain cli_help`.
 - **Functional API Tests (Hurl):** not yet written for the CLI or MCP surface.

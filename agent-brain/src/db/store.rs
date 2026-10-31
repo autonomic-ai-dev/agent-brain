@@ -3464,7 +3464,10 @@ mod tests {
     fn test_word_count_boundaries() {
         assert_eq!(word_count(""), 0);
         assert_eq!(word_count("   "), 0);
-        let fifty = (1..=50).map(|i| format!("w{i}")).collect::<Vec<_>>().join(" ");
+        let fifty = (1..=50)
+            .map(|i| format!("w{i}"))
+            .collect::<Vec<_>>()
+            .join(" ");
         assert_eq!(word_count(&fifty), 50);
         let fifty_one = format!("{fifty} w51");
         assert_eq!(word_count(&fifty_one), 51);
@@ -3709,7 +3712,7 @@ fn phase_match_boost(phase: &str, topic: &str, text: &str) -> f64 {
     }
 }
 
-pub(crate) fn bytes_to_f32(blob: &[u8]) -> Vec<f32> {
+pub fn bytes_to_f32(blob: &[u8]) -> Vec<f32> {
     blob.chunks_exact(4)
         .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
         .collect()
