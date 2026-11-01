@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
-use super::types::GraphifyRepoRecord;
+use crate::types::GraphifyRepoRecord;
 
 const REPOS_FILE: &str = "graphify/repos.json";
 

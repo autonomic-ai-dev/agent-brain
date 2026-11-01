@@ -8,7 +8,7 @@ related:
 
 # bench-extension
 
-Summary: The benchmark and CI-proof harness, shipped as the optional `agent-brain-bench` extension instead of inside the core binary. It provides the `bench`, `proofs`, `eval`, `fixture`, and `skills-sh` subcommands. It also owns the eval gate, fixture builder, and skills.sh modules (`src/eval.rs`, `src/fixture.rs`, `src/skills_sh.rs`), which moved out of the core library.
+Summary: The benchmark and CI-proof harness, shipped as the optional `agent-brain-bench` extension instead of inside the core binary. It provides the `bench`, `proofs`, `eval`, `fixture`, and `skills-sh` subcommands. Its graph benchmark (`graphify_bench.rs`) uses the graphify extension's ingest through the `agent_brain_graphify` library, so bench depends on that extension. It also owns the eval gate, fixture builder, and skills.sh modules (`src/eval.rs`, `src/fixture.rs`, `src/skills_sh.rs`), which moved out of the core library.
 
 ## Sub-features
 

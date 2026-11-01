@@ -64,6 +64,8 @@ Summary: `agent-brain serve` runs in two roles. A shared daemon holds the brain 
 
 ## Gotchas
 
+- The MCP graph tools in `mcp/server.rs` (`query_codebase`, `trigger_deep_analysis`, `graphify_job_status`) call the graphify extension through `graphify::rpc`. They no longer run the graph engine in the serve process, so they need the extension installed.
+
 - The daemon is shared and outlives the proxy that started it. It is not an orphan, and nothing ends it when its last proxy exits.
 - A proxy captures its parent PID when it starts. If the host exits before the proxy captures it, the proxy records the new parent (PID 1) and the parent check never fires. The host-stdin path still ends the proxy once a daemon connection exists. A proxy that never connects to a daemon, and whose host dies before it starts, is still a known gap.
 - The proxy test binds a listener that never accepts, so the proxy connects without starting a daemon. Do not point `AGENT_BRAIN_HOME` at the real home in a test.

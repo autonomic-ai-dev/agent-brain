@@ -4,36 +4,52 @@ knowledge_base: "[[../knowledge-base/graphify-extension]]"
 related:
   - "[[cli-verify-and-memory]]"
   - "[[bench-extension]]"
+  - "[[extras-extension]]"
 ---
 
 # graphify-extension
 
-Summary: The codebase graph command (`graphify enable | disable | status | ingest | run | query`), shipped as the optional `agent-brain-graphify` extension instead of inside the core binary. The graph engine itself still lives in the core library, so the MCP graph tools and route code context are unchanged.
+Summary: The codebase graph engine, shipped as the optional `agent-brain-graphify` extension. The extension owns graph ingest, background graph builds, repo registration, the `graphify` CLI, and the heavy graph queries. Core keeps only the cheap read path that adds code context to routes, plus the row types and the store accessors it reads, so routing stays fast without the extension.
 
 ## Sub-features
 
-- `graphify-command`: Runs the codebase graph commands from the extension binary.
-  - Behaviour: `agent-brain graphify <sub> [--repo PATH] [--trigger T] [--mode M] [--id ID] [--budget N]`, where `query` takes its question as the next argument or `--question`. The extension loads the config, opens the engine, and calls the core `graphify::run_cli`.
-  - Outcome: The same output as before the move. An unknown subcommand prints the usage line and exits nonzero.
+- `graphify-command`: The codebase graph CLI.
+  - Behaviour: `agent-brain graphify <enable|disable|status|ingest|run|query> ...`. The extension runs the subcommand against the core store.
+  - Outcome: The same output as before the move.
+- `graphify-query-tool`: The `query_codebase` MCP tool, served on demand.
+  - Behaviour: The core MCP server keeps the tool name and its route gate. It calls the installed extension with `agent-brain-graphify rpc query_codebase <json>`, which prints one JSON line with the answer.
+  - Outcome: The same answer as before. The first call pays the extension's startup cost.
+- `graphify-job-tools`: The `trigger_deep_analysis` and `graphify_job_status` MCP tools.
+  - Behaviour: The core server calls `agent-brain-graphify rpc trigger_deep_analysis <json>`, which prints the job id and keeps running the build until it finishes. The core server reads only the first line and does not wait. `graphify_job_status` reads the job row through the extension.
+  - Outcome: A queued build survives after the core call returns.
+- `graphify-route-context`: Graph context in route responses (stays in core).
+  - Behaviour: `route_code_context` reads the graph tables through core store accessors. No extension process runs on the route path.
+  - Outcome: Route code context works without the extension installed. Graph data is only refreshed by the extension.
 
 ## Code
 
 - `extensions/graphify`
+- `agent-brain/src/graphify/mod.rs`
+- `agent-brain/src/graphify/rows.rs`
+- `agent-brain/src/db/graph_store.rs`
 - `Cargo.toml`
 
 ## How to get to it (user POV)
 
 - `agent-brain ext add graphify`, then `agent-brain graphify status`
+- Graph MCP tools need the extension installed. Without it they return an error that names the install command.
 - Developers can run `./target/debug/agent-brain-graphify graphify status` after `cargo build -p agent-brain-graphify`.
 
 ## Verification Suites (Targeted Test Commands)
 
 - **Build:** `cargo build -p agent-brain-graphify`
-- **Smoke:** `./target/debug/agent-brain-graphify graphify status` prints a JSON list and exits 0.
-- **Allowlisted:** `.verify/run.sh`, which runs the workspace suite including this crate.
+- **Smoke:** `./target/debug/agent-brain-graphify graphify status` prints a JSON list; `./target/debug/agent-brain-graphify rpc graphify_job_status '{"job_id":"none"}'` prints an error line.
+- **Allowlisted:** `cargo test -p agent-brain-graphify` (in `.verify/verify.toml`).
 
 ## Gotchas
 
-- The extension links the whole core library with `extras`, so its binary is about as large as the core binary.
-- The core binary no longer has a `graphify` command. `agent-brain graphify` routes to the installed extension, and without it the command is unknown.
-- The MCP tools `query_codebase`, `graphify_job_status`, and the job enqueue path, plus route code context, still run in the core binary. Moving them is a later slice.
+- Core keeps the `AstCodeNodeRow`, `AstEdgeRow`, `CodeGraphNodeRow`, `CodeGraphEdgeRow`, and `LocalGraphEdge` types, because `index.rs` writes AST rows and a core test uses them.
+- Core keeps the `BrainStore` graph accessors in `agent-brain/src/db/graph_store.rs`, because route and index code call them. `GraphifyJobRecord` lives there and is re-exported by the extension.
+- `rpc` is a single-line JSON protocol. Any extra stdout output from a tool breaks the core reader.
+- The extension must be rebuilt with the core, since it links the core library.
+- Graph MCP calls now run outside the core process, so their logs are not in the core log.

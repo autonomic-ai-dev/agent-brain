@@ -17,6 +17,7 @@ feature: "[[../features/bench-extension]]"
 ## Where the code is
 
 - Crate: `extensions/bench` (`src/lib.rs`, `src/main.rs`, `src/cli.rs`, and the benchmark modules)
+- Graph benchmark: `src/graphify_bench.rs` calls `agent_brain_graphify::ingest::ingest_graph_at_path`, so bench depends on `extensions/graphify` (see [[graphify-extension]]).
 - Moved here from core: `src/eval.rs` (Recall@3 gates), `src/fixture.rs` (fixture DBs), `src/skills_sh.rs` (skills.sh snapshot). The core `eval` gate test is now `extensions/bench/tests/eval_gate.rs`.
 - Commands moved here: `fixture` and `skills-sh` (in `src/cli.rs`, with `eval`, `bench`, and `proofs`)
 - Integration tests: `extensions/bench/tests/v0_23.rs`, `extensions/bench/tests/v0_24.rs`

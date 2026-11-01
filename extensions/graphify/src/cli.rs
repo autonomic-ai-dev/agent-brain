@@ -3,12 +3,12 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 
-use crate::engine::Engine;
+use agent_brain::engine::Engine;
 
-use super::ingest::ingest_repo;
-use super::jobs::{enqueue_job, job_status, JobMode, JobTrigger};
-use super::repos::{disable_repo, enable_repo, list_repos, repo_status};
-use super::settings_or_default;
+use crate::ingest::ingest_repo;
+use crate::jobs::{enqueue_job, job_status, JobMode, JobTrigger};
+use crate::repos::{disable_repo, enable_repo, list_repos, repo_status};
+use crate::settings_or_default;
 
 #[derive(Debug, Clone)]
 pub struct GraphifyCli {
@@ -81,7 +81,7 @@ pub fn run_cli(engine: &Arc<Engine>, cli: GraphifyCli) -> Result<()> {
                 .question
                 .as_deref()
                 .context("--question required for graphify query")?;
-            let text = super::query_codebase(&repo, question, cli.budget, &graphify_bin)?;
+            let text = crate::query::query_codebase(&repo, question, cli.budget, &graphify_bin)?;
             print!("{text}");
         }
         other => bail!("unknown graphify subcommand: {other}"),

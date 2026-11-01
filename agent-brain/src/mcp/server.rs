@@ -1594,29 +1594,23 @@ impl BrainMcp {
     )]
     async fn query_codebase(
         &self,
-        #[allow(unused_variables)] params: Parameters<QueryCodebaseParams>,
+        params: Parameters<QueryCodebaseParams>,
     ) -> Result<CallToolResult, McpError> {
-        #[cfg(not(feature = "extras"))]
-        {
-            return Err(missing_extras_mcp("query_codebase"));
-        }
-
-        #[cfg(feature = "extras")]
-        {
-            self.require_route("query_codebase")?;
-            let _req = self.engine.mcp_activity.begin_request();
-            let p = params.0;
-            let repo = self.resolve_graphify_repo(p.current_working_directory.as_deref())?;
-            let settings = crate::settings::AgentBrainSettings::load(&self.engine.config.home);
-            let text = crate::graphify::query_codebase(
-                &repo,
-                &p.question,
-                p.max_tokens,
-                &settings.graphify.graphify_bin,
-            )
-            .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
-            json_result(serde_json::json!({ "answer": text }))
-        }
+        self.require_route("query_codebase")?;
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let repo = self.resolve_graphify_repo(p.current_working_directory.as_deref())?;
+        let answer = crate::graphify::rpc(
+            &self.engine.config.home,
+            "query_codebase",
+            &serde_json::json!({
+                "repo": repo.display().to_string(),
+                "question": p.question,
+                "max_tokens": p.max_tokens,
+            }),
+        )
+        .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        json_result(answer)
     }
 
     #[tool(
@@ -1624,59 +1618,40 @@ impl BrainMcp {
     )]
     async fn trigger_deep_analysis(
         &self,
-        #[allow(unused_variables)] params: Parameters<TriggerDeepAnalysisParams>,
+        params: Parameters<TriggerDeepAnalysisParams>,
     ) -> Result<CallToolResult, McpError> {
-        #[cfg(not(feature = "extras"))]
-        {
-            return Err(missing_extras_mcp("trigger_deep_analysis"));
-        }
-
-        #[cfg(feature = "extras")]
-        {
-            self.require_route("trigger_deep_analysis")?;
-            let _req = self.engine.mcp_activity.begin_request();
-            let p = params.0;
-            let repo = self.resolve_graphify_repo(p.repo_root.as_deref())?;
-            let settings = crate::settings::AgentBrainSettings::load(&self.engine.config.home);
-            let mode = match p.mode.as_deref() {
-                Some("full") => crate::graphify::JobMode::Full,
-                _ => crate::graphify::JobMode::Update,
-            };
-            let job_id = crate::graphify::enqueue_job(
-                &self.engine,
-                &repo,
-                crate::graphify::JobTrigger::Agent,
-                mode,
-                &settings.graphify.graphify_bin,
-            )
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-            json_result(serde_json::json!({
-                "job_id": job_id,
-                "status": "queued",
+        self.require_route("trigger_deep_analysis")?;
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let repo = self.resolve_graphify_repo(p.repo_root.as_deref())?;
+        let queued = crate::graphify::rpc(
+            &self.engine.config.home,
+            "trigger_deep_analysis",
+            &serde_json::json!({
+                "repo": repo.display().to_string(),
+                "mode": p.mode,
                 "reason": p.reason,
-            }))
-        }
+            }),
+        )
+        .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        json_result(queued)
     }
 
     #[tool(description = "Poll status for trigger_deep_analysis job.")]
     async fn graphify_job_status(
         &self,
-        #[allow(unused_variables)] params: Parameters<GraphifyJobStatusParams>,
+        params: Parameters<GraphifyJobStatusParams>,
     ) -> Result<CallToolResult, McpError> {
-        #[cfg(not(feature = "extras"))]
-        {
-            return Err(missing_extras_mcp("graphify_job_status"));
-        }
-
-        #[cfg(feature = "extras")]
-        {
-            self.require_route("graphify_job_status")?;
-            let _req = self.engine.mcp_activity.begin_request();
-            let p = params.0;
-            let status = crate::graphify::job_status(&self.engine, &p.job_id)
-                .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
-            json_result(status)
-        }
+        self.require_route("graphify_job_status")?;
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let status = crate::graphify::rpc(
+            &self.engine.config.home,
+            "graphify_job_status",
+            &serde_json::json!({ "job_id": p.job_id }),
+        )
+        .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        json_result(status)
     }
 
     #[tool(

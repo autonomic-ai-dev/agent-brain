@@ -109,6 +109,7 @@ name = "agent-brain-bench"
 version = "1.0.0-rc5"
 dependencies = [
  "agent-brain",
+ "agent-brain-graphify",
  "anyhow",
  "chrono",
  "serde",
@@ -150,6 +151,13 @@ version = "1.0.0-rc6"
 dependencies = [
  "agent-brain",
  "anyhow",
+ "chrono",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

@@ -8,7 +8,6 @@ pub mod bootstrap_device;
 pub mod bridge;
 pub mod cache;
 pub mod capabilities;
-#[cfg(feature = "extras")]
 pub use agent_brain_core::code_nav;
 pub mod command_policy;
 pub mod command_rules;
@@ -16,9 +15,7 @@ pub mod commit_gate;
 pub mod config;
 pub use agent_brain_core::cross_encoder_rerank;
 pub mod dashboard;
-#[cfg(feature = "extras")]
 pub mod db;
-#[cfg(feature = "extras")]
 pub mod docs;
 pub mod doctor;
 pub mod embed;

@@ -1,30 +1,13 @@
-//! Orchestrate [graphify](https://github.com/safishamsi/graphify): ingest `graph.json` into `brain.db`,
-//! background jobs, and `query_codebase` for deep navigation.
 
-mod cli;
-mod ingest;
-mod jobs;
-mod process;
-mod query;
-mod repos;
-mod types;
+use std::path::Path;
+
+use crate::code_nav::CodeContext;
+use crate::db::store::BrainStore;
+
+mod rows;
 
 pub use crate::code_nav::{ScratchpadEntry, SymbolMatch};
-pub use cli::{run_cli, GraphifyCli};
-pub use ingest::{
-    ingest_graph_at_path, ingest_repo, AstCodeNodeRow, AstEdgeRow, CodeGraphEdgeRow,
-    CodeGraphNodeRow, LocalGraphEdge,
-};
-pub use jobs::{enqueue_job, job_status, JobMode, JobTrigger};
-pub use query::query_codebase;
-pub use repos::{disable_repo, enable_repo, list_repos, repo_status, ReposRegistry};
-pub use types::{
-    CodeContext, CodeContextNode, GraphifyJobRecord, GraphifyJobStatus, GraphifyRepoRecord,
-};
-
-use crate::db::store::BrainStore;
-use crate::settings::GraphifySettings;
-use std::path::Path;
+pub use rows::{AstCodeNodeRow, AstEdgeRow, CodeGraphEdgeRow, CodeGraphNodeRow, LocalGraphEdge};
 
 pub fn route_code_context(
     store: &BrainStore,
@@ -82,6 +65,34 @@ pub fn route_code_context(
     Some(ctx)
 }
 
-pub fn settings_or_default(home: &Path) -> GraphifySettings {
-    crate::settings::AgentBrainSettings::load(home).graphify
+pub fn rpc(home: &Path, tool: &str, args: &serde_json::Value) -> anyhow::Result<serde_json::Value> {
+    use anyhow::{bail, Context};
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+
+    let bin = crate::extensions::bin_dir(home).join("agent-brain-graphify");
+    let mut child = Command::new(&bin)
+        .arg("rpc")
+        .arg(tool)
+        .arg(args.to_string())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .with_context(|| {
+            format!(
+                "graphify extension is not installed ({}); install it with ext add graphify",
+                bin.display()
+            )
+        })?;
+    let stdout = child.stdout.take().context("graphify extension stdout")?;
+    let mut line = String::new();
+    BufReader::new(stdout).read_line(&mut line)?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    if line.trim().is_empty() {
+        bail!("graphify extension returned no output for {tool}");
+    }
+    Ok(serde_json::from_str(line.trim())?)
 }
