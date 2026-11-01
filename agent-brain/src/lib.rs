@@ -21,14 +21,10 @@ pub mod doctor;
 pub mod embed;
 pub mod engine;
 pub mod extensions;
-#[cfg(feature = "extras")]
-#[cfg(feature = "extras")]
 pub mod gc;
 pub mod git_tools;
 pub mod global_workspace;
-#[cfg(feature = "extras")]
 pub mod graphify;
-#[cfg(feature = "extras")]
 pub mod host_hooks;
 pub mod host_install;
 pub mod index;
@@ -49,7 +45,6 @@ pub mod node_context;
 pub mod observability;
 pub mod observation;
 pub mod onboarding;
-#[cfg(feature = "extras")]
 pub mod packages;
 pub use agent_brain_core::behavior_contract;
 pub mod project_key;
@@ -68,8 +63,6 @@ pub mod serve_meta;
 pub mod sessions;
 pub mod settings;
 pub mod skill_registry;
-#[cfg(feature = "extras")]
-#[cfg(feature = "extras")]
 pub mod stats;
 pub mod feature_graph;
 pub mod feature_map;
