@@ -37,6 +37,7 @@ feature: "[[../features/bench-extension]]"
 - The allowlisted workspace suite through `agent-brain verify`
 
 ## Known limits
+- Merged with master PR #156: the bench layout on this branch is the one kept. Master bench changes were path-only and are preserved as in-crate `crate::` paths.
 
 - The release binary is about 44 MB, since it links the core with `extras`.
 - Install trust is the manifest SHA-256 plus the Developer ID team check (see [[cli-verify-and-memory]]).

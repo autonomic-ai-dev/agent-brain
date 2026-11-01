@@ -38,6 +38,7 @@ Summary: The benchmark and CI-proof harness, shipped as the optional `agent-brai
 - **Allowlisted:** `.verify/run.sh`, which runs the workspace suite including this crate.
 
 ## Gotchas
+- Merged with master PR #156, which had moved bench to this folder with `crate::` paths. Conflicts resolved to the branch layout; master path-only edits are kept as `crate::eval`, `crate::fixture`, and `crate::skills_sh` in this crate.
 
 - The extension links the whole core library with `extras`, so its release binary is about as large as the core binary (44 MB at rc5). Installing it adds that much.
 - `eval --beam` moved to `bench --beam`. Scripts that call the old form now get the eval usage text.

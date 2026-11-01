@@ -87,7 +87,7 @@ fn write_telemetry(
 ) -> Result<PathBuf> {
     let gates = window_records(&logs_dir.join("gate-events.jsonl"), "ts", 1, start, end);
     let hooks = window_records(
-        &home.join("hooks/tool_events.jsonl"),
+        &home.join("hooks/hook_events.jsonl"),
         "timestamp",
         1000,
         start,
@@ -294,7 +294,7 @@ mod tests {
             (NOW - 5) * 1000
         );
         fs::write(
-            home.path().join("hooks/tool_events.jsonl"),
+            home.path().join("hooks/hook_events.jsonl"),
             format!("{hook}\n"),
         )
         .expect("hooks");
@@ -324,7 +324,7 @@ mod tests {
             (NOW - 5) * 1000
         );
         fs::write(
-            home.path().join("hooks/tool_events.jsonl"),
+            home.path().join("hooks/hook_events.jsonl"),
             format!("{hook}\n"),
         )
         .expect("hooks");
