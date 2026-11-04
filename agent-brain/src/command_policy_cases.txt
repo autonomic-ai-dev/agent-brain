@@ -233,3 +233,7 @@ warn rm -rf /tmp/probe-dir
 warn rm -rf build
 warn rm -rf build/cache
 warn source ./env.sh
+allow for f in a b; do echo $f; done
+allow export GOFLAGS=-mod=mod
+allow set -e
+allow true

@@ -65,6 +65,7 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
   - Intent: Measure how often the route gate runs before changing its configuration.
   - Behaviour: `hooks/route_gate.py` appends `{timestamp, event, session}` to `hook_events.jsonl` in the brain home for every event that reaches `main()`. Events skipped by the disabled path are not counted.
   - Outcome: One JSON line per hook event, read by the feedback report. Logic is in `hooks/route_gate.py` and tests in `hooks/test_route_gate.py`.
+  - Bash gate: shell keywords and builtins (`for`, `export`, `set`, `echo`, `true`, and similar) are allowed without a warning (`SHELL_BUILTINS` in `src/command_policy.rs`, cases in `src/command_policy_cases.txt`). Commands with no default rule still warn.
 
 ## Code
 
