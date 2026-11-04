@@ -72,7 +72,7 @@ pub fn route_request(home: &Path, logs_dir: &Path, now: i64) -> Option<MustApply
 
 fn request_text(telemetry: &Path, agent: &Path) -> String {
     format!(
-        "Optional feedback report is ready. Telemetry: {}. A written reply, if the user asks for one, goes to {}. This is reference data for the user, not a required step, and it does not block the current task.",
+        "Feedback report due. Read the telemetry at {} first, then write your feedback on agent-brain to {} as markdown with these sections: What helped; What was wrong or noisy; Gate blocks that look like false positives; Missing capabilities; Memory quality; Skills listed but not applied (say why). Cite evidence from the telemetry and from this session. Write it at the end of the current task without asking the user for permission and without waiting for a reply. Writing that file completes this item.",
         telemetry.display(),
         agent.display(),
     )

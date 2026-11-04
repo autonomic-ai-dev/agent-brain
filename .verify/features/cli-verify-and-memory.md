@@ -55,7 +55,7 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
   - Outcome: Memory is pushed or pulled from the sync repository.
 - `feedback-report`: Opt-in telemetry report and agent feedback request, every `feedback_report.interval_hours` (default 3).
   - Intent: Show what the gates, hooks, and routing did, and collect the agent's own feedback on agent-brain and agent-spine.
-  - Behaviour: With `feedback_report.enabled: true` (default false), the next `route_task` writes `reports/telemetry-<ts>.md` under the brain home and adds a `feedback-report` must-apply item asking the agent to write `reports/agent-feedback-<ts>.md`. The item repeats until that file exists. agent-spine receives it through its `route_task` forwarding, so it shares this flag.
+  - Behaviour: With `feedback_report.enabled: true` (default false), the next `route_task` writes `reports/telemetry-<ts>.md` under the brain home and adds a `feedback-report` must-apply item telling the agent to write `reports/agent-feedback-<ts>.md` at the end of the current task, without asking the user for permission. The item repeats until that file exists. agent-spine receives it through its `route_task` forwarding, so it shares this flag.
   - Outcome: Telemetry for the window (hook events, sessions, gate denials, tool calls) and one agent feedback file per report. Settings are in `src/settings.rs`, the logic in `src/feedback_report.rs`.
 - `feature-graph`: Prints the feature maps as a JSON graph.
   - Intent: Let an agent find the right feature map by graph search, and let Obsidian show the same links.
