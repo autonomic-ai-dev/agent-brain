@@ -7,7 +7,7 @@ use chrono::Utc;
 
 use crate::beam_eval::{assert_beam_gate, run_beam_eval_isolated, BeamEvalReport};
 use crate::bench::{assert_bench_gate, run_ci_bench, LatencyBenchReport};
-use agent_brain::eval::{assert_ci_gate, run_ci_eval_isolated, EvalReport};
+use crate::eval::{assert_ci_gate, run_ci_eval_isolated, EvalReport};
 use crate::graphify_bench::{
     assert_graphify_bench_gate, run_ci_graphify_bench, GraphifyBenchReport,
 };

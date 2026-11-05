@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Context, Result};
 use sha2::{Digest, Sha256};
 
-use super::process::output_with_timeout;
+use crate::process::output_with_timeout;
 
 static QUERY_CACHE: Mutex<Option<QueryCache>> = Mutex::new(None);
 

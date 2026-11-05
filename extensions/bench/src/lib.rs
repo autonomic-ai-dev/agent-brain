@@ -7,3 +7,6 @@ pub mod proofs;
 pub mod proofs_reb_baseline;
 pub mod scale_bench;
 pub mod supervisor_bench;
+pub mod eval;
+pub mod fixture;
+pub mod skills_sh;

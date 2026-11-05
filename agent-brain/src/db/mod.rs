@@ -1,3 +1,4 @@
+pub mod graph_store;
 pub mod latency;
 pub mod migrations;
 pub mod scratchpad;

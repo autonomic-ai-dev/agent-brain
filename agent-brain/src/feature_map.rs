@@ -37,11 +37,10 @@ pub fn parse_code_section(text: &str) -> Vec<String> {
         if line.starts_with("## ") {
             in_code = line.trim_end() == CODE_HEADING;
         } else if in_code {
-            if let Some(path) = line
-                .strip_prefix("- `")
-                .and_then(|rest| rest.strip_suffix('`'))
-            {
-                paths.push(path.trim_end_matches('/').to_string());
+            if let Some(rest) = line.strip_prefix("- `") {
+                if let Some(end) = rest.find('`') {
+                    paths.push(rest[..end].trim_end_matches('/').to_string());
+                }
             }
         }
     }
@@ -156,10 +155,14 @@ mod tests {
 
     #[test]
     fn parses_only_the_bullets_under_the_code_heading() {
-        let text = "# gate\n\n## Sub-features\n\n- `not/code.rs`\n\n## Code\n\n- `agent-x/src/a.rs`\n- `agent-x/src/b/`\n- plain prose\n\n## Gotchas\n\n- `also/not/code.rs`\n";
+        let text = "# gate\n\n## Sub-features\n\n- `not/code.rs`\n\n## Code\n\n- `agent-x/src/a.rs`\n- `agent-x/src/b/`\n- `agent-x/src/c.rs` (note after the path)\n- plain prose\n\n## Gotchas\n\n- `also/not/code.rs`\n";
         assert_eq!(
             parse_code_section(text),
-            vec!["agent-x/src/a.rs".to_string(), "agent-x/src/b".to_string()]
+            vec![
+                "agent-x/src/a.rs".to_string(),
+                "agent-x/src/b".to_string(),
+                "agent-x/src/c.rs".to_string(),
+            ]
         );
     }
 

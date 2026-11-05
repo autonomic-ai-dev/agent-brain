@@ -84,12 +84,14 @@ impl Config {
                 "AGENT_BRAIN_AUTO_TRAJECTORY",
                 settings.routing.auto_trajectory,
             ),
-            session_ingest_enabled: std::env::var("AGENT_BRAIN_SESSION_INGEST")
-                .map(|v| v != "0" && v != "false")
-                .unwrap_or(true),
-            session_digest_enabled: std::env::var("AGENT_BRAIN_SESSION_DIGEST")
-                .map(|v| v != "0" && v != "false")
-                .unwrap_or(true),
+            session_ingest_enabled: env_flag(
+                std::env::var("AGENT_BRAIN_SESSION_INGEST").ok(),
+                false,
+            ),
+            session_digest_enabled: env_flag(
+                std::env::var("AGENT_BRAIN_SESSION_DIGEST").ok(),
+                false,
+            ),
             session_ingest_legacy: std::env::var("AGENT_BRAIN_SESSION_INGEST_LEGACY")
                 .map(|v| v == "1" || v == "true")
                 .unwrap_or(false),
@@ -294,6 +296,27 @@ fn env_usize(key: &str, default: usize) -> usize {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(default)
+}
+
+fn env_flag(value: Option<String>, default: bool) -> bool {
+    value.map(|v| v != "0" && v != "false").unwrap_or(default)
+}
+
+#[cfg(test)]
+mod env_flag_tests {
+    use super::env_flag;
+
+    #[test]
+    fn session_flags_default_off_when_unset() {
+        assert!(!env_flag(None, false));
+    }
+
+    #[test]
+    fn session_flags_turn_on_only_when_set_to_a_true_value() {
+        assert!(env_flag(Some("1".into()), false));
+        assert!(!env_flag(Some("0".into()), false));
+        assert!(!env_flag(Some("false".into()), false));
+    }
 }
 
 #[cfg(test)]

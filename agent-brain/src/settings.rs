@@ -88,7 +88,7 @@ fn default_observation_window_days() -> u32 {
 impl Default for ObservationSettings {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             min_facts_per_topic: default_observation_min_facts(),
             window_days: default_observation_window_days(),
         }

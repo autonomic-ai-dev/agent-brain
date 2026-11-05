@@ -39,20 +39,6 @@ async fn main() -> Result<()> {
 
     let cmd = args.get(1).map(String::as_str).unwrap_or("serve");
 
-    #[cfg(feature = "extras")]
-    if agent_brain::cli_extras::is_extras_command(cmd) {
-        return agent_brain::cli_extras::dispatch(cmd, &args);
-    }
-    #[cfg(not(feature = "extras"))]
-    if matches!(
-        cmd,
-        "dataset" | "digest" | "eval" | "fixture" | "skills-sh" | "distill" | "graphify" | "grpc"
-    ) {
-        anyhow::bail!(
-            "command `{cmd}` requires a build with `--features extras`\n             rebuild: cargo install --path agent-brain --features extras"
-        );
-    }
-
     match cmd {
         "serve" => {
             let config = Config::load()?;
@@ -91,25 +77,6 @@ async fn main() -> Result<()> {
                 // Unix socket; reconnects if the daemon restarts.
                 mcp::run_proxy(&socket_path).await?;
             }
-        }
-        #[cfg(feature = "extras")]
-        "grpc" => {
-            let sub = args.get(2).map(String::as_str).unwrap_or("serve");
-            if sub != "serve" {
-                anyhow::bail!("usage: agent-brain grpc serve [--addr HOST:PORT]");
-            }
-            let addr = flag_value(&args, "--addr").unwrap_or_else(|| "127.0.0.1:7842".to_string());
-            let addr: std::net::SocketAddr = addr.parse().context("invalid --addr")?;
-            let config = Config::load()?;
-            let engine = Arc::new(Engine::new(config)?);
-            if engine.config.bootstrap_background {
-                engine.spawn_bootstrap(None);
-            } else {
-                let n = engine.bootstrap(None)?;
-                let total = engine.store.count_indexed_items().unwrap_or(0);
-                tracing::info!("indexed {}", install::format_new_index_count(n, total));
-            }
-            agent_brain::grpc::serve(engine, addr).await?;
         }
         "index" => {
             let changed_only = args.iter().any(|a| a == "--changed-only" || a == "-c");
@@ -428,32 +395,6 @@ async fn main() -> Result<()> {
                     std::process::exit(1);
                 }
             }
-        }
-        #[cfg(feature = "extras")]
-        "graphify" => {
-            let config = Config::load()?;
-            let engine = Arc::new(Engine::new(config)?);
-            let sub = args
-                .get(2)
-                .map(String::as_str)
-                .unwrap_or("status")
-                .to_string();
-            let cli = agent_brain::graphify::GraphifyCli {
-                sub: sub.clone(),
-                repo: flag_value(&args, "--repo").map(std::path::PathBuf::from),
-                trigger: flag_value(&args, "--trigger"),
-                mode: flag_value(&args, "--mode"),
-                job_id: flag_value(&args, "--id"),
-                question: flag_value(&args, "--question").or_else(|| {
-                    args.get(3)
-                        .filter(|_| matches!(sub.as_str(), "query"))
-                        .cloned()
-                }),
-                budget: flag_value(&args, "--budget")
-                    .and_then(|s| s.parse().ok())
-                    .unwrap_or(1500),
-            };
-            agent_brain::graphify::run_cli(&engine, cli)?;
         }
         "suggest-memory" => {
             let config = Config::load()?;
@@ -1360,6 +1301,19 @@ async fn main() -> Result<()> {
                     )?;
                     println!("{message}");
                 }
+                "capture-transcript" => {
+                    let transcript = args.get(3).context(
+                        "usage: agent-brain memorable capture-transcript <session.jsonl>",
+                    )?;
+                    let cwd = std::env::current_dir()?;
+                    let message = agent_brain::memorable::capture_transcript(
+                        &config.home,
+                        &config.db_path,
+                        &cwd,
+                        std::path::Path::new(transcript),
+                    )?;
+                    println!("{message}");
+                }
                 "disable" => {
                     agent_brain::memorable::disable(&mut settings);
                     agent_brain::mcp_cli::persist_brain_settings(&settings)?;
@@ -1371,7 +1325,7 @@ async fn main() -> Result<()> {
                     agent_brain::memorable::is_registered(&settings)
                 ),
                 _ => {
-                    eprintln!("Usage: agent-brain memorable [status | enable [--capture] | capture <trace.json> | disable]");
+                    eprintln!("Usage: agent-brain memorable [status | enable [--capture] | capture <trace.json> | capture-transcript <session.jsonl> | disable]");
                     std::process::exit(1);
                 }
             }

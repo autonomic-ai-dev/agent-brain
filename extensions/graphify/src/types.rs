@@ -10,18 +10,7 @@ pub struct GraphifyRepoRecord {
     pub last_graph_mtime: Option<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct GraphifyJobRecord {
-    pub id: String,
-    pub repo_root: String,
-    pub trigger: String,
-    pub mode: String,
-    pub status: String,
-    pub started_at: Option<i64>,
-    pub finished_at: Option<i64>,
-    pub error: Option<String>,
-    pub result_json: Option<String>,
-}
+pub use agent_brain::db::graph_store::GraphifyJobRecord;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphifyJobStatus {
@@ -35,7 +24,7 @@ pub struct GraphifyJobStatus {
     pub result: Option<serde_json::Value>,
 }
 
-pub use crate::code_nav::{CodeContext, CodeContextNode};
+pub use agent_brain::code_nav::{CodeContext, CodeContextNode};
 
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct GraphJson {

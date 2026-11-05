@@ -1,153 +1,15 @@
-use crate::code_nav::SymbolMatch;
-use std::fs;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-use anyhow::{bail, Context, Result};
+use anyhow::Result;
 use rusqlite::params;
-use serde::Serialize;
 use uuid::Uuid;
 
+use crate::code_nav::{CodeContextNode, SymbolMatch};
 use crate::db::store::BrainStore;
-
-use super::repos::touch_ingest;
-use super::types::{
-    node_id_str, CodeContextNode, GraphJson, GraphJsonEdge, GraphJsonNode, GraphifyAnalysis,
+use crate::graphify::{
+    AstCodeNodeRow, AstEdgeRow, CodeGraphEdgeRow, CodeGraphNodeRow, LocalGraphEdge,
 };
-
-pub fn ingest_repo(store: &BrainStore, home: &Path, repo_root: &Path) -> Result<IngestReport> {
-    let report = ingest_graph_at_path(store, repo_root)?;
-    let graph_path = repo_root.join("graphify-out").join("graph.json");
-    let graph_mtime = graph_path
-        .metadata()
-        .ok()
-        .and_then(|m| m.modified().ok())
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|d| d.as_millis() as i64);
-    touch_ingest(home, repo_root, graph_mtime)?;
-    Ok(report)
-}
-
-/// Parse `graphify-out/graph.json` and upsert into `brain.db` (no repos.json update).
-pub fn ingest_graph_at_path(store: &BrainStore, repo_root: &Path) -> Result<IngestReport> {
-    let graph_path = repo_root.join("graphify-out").join("graph.json");
-    if !graph_path.is_file() {
-        bail!(
-            "no graph at {} — run graphify in the repo first",
-            graph_path.display()
-        );
-    }
-    let raw = fs::read_to_string(&graph_path)
-        .with_context(|| format!("read {}", graph_path.display()))?;
-    let graph: GraphJson = serde_json::from_str(&raw).context("parse graph.json")?;
-    let gods = load_god_nodes(repo_root);
-    let now = chrono::Utc::now().timestamp();
-    let repo_str = repo_root.display().to_string();
-
-    let nodes = normalize_nodes(&graph.nodes, &gods);
-    let edges = normalize_edges(&graph.links, &graph.edges);
-
-    store.replace_code_graph(&repo_str, &nodes, &edges, now)?;
-    store.bump_index_version()?;
-
-    Ok(IngestReport {
-        nodes: nodes.len(),
-        edges: edges.len(),
-        god_nodes: gods.len(),
-    })
-}
-
-#[derive(Debug, Clone)]
-pub struct IngestReport {
-    pub nodes: usize,
-    pub edges: usize,
-    pub god_nodes: usize,
-}
-
-fn load_god_nodes(repo_root: &Path) -> Vec<String> {
-    let path = repo_root
-        .join("graphify-out")
-        .join(".graphify_analysis.json");
-    let Ok(raw) = fs::read_to_string(path) else {
-        return Vec::new();
-    };
-    serde_json::from_str::<GraphifyAnalysis>(&raw)
-        .map(|a| a.gods)
-        .unwrap_or_default()
-}
-
-#[derive(Debug, Clone)]
-pub struct CodeGraphNodeRow {
-    pub graphify_id: String,
-    pub label: String,
-    pub community_id: Option<i64>,
-    pub is_god_node: bool,
-    pub source_file: Option<String>,
-    pub file_type: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct AstCodeNodeRow {
-    pub repo_root: String,
-    pub symbol_name: String,
-    pub symbol_kind: String,
-    pub content: String,
-    pub source_file: String,
-    pub start_line: usize,
-    pub end_line: usize,
-    pub language: String,
-    pub doc_comment: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct CodeGraphEdgeRow {
-    pub source_id: String,
-    pub target_id: String,
-    pub relation: String,
-    pub confidence: Option<String>,
-    pub confidence_score: Option<f64>,
-}
-
-fn normalize_nodes(nodes: &[GraphJsonNode], gods: &[String]) -> Vec<CodeGraphNodeRow> {
-    nodes
-        .iter()
-        .map(|n| {
-            let graphify_id = node_id_str(&n.id);
-            let label = n.label.clone().unwrap_or_else(|| graphify_id.clone());
-            let community_id = n.community.or(n.community_id);
-            let is_god_node = gods.iter().any(|g| g == &label || g == &graphify_id);
-            CodeGraphNodeRow {
-                graphify_id,
-                label,
-                community_id,
-                is_god_node,
-                source_file: n.source_file.clone(),
-                file_type: n.file_type.clone(),
-            }
-        })
-        .collect()
-}
-
-fn normalize_edges(links: &[GraphJsonEdge], edges: &[GraphJsonEdge]) -> Vec<CodeGraphEdgeRow> {
-    let mut out = Vec::new();
-    for e in links.iter().chain(edges.iter()) {
-        out.push(edge_row(e));
-    }
-    out
-}
-
-fn edge_row(e: &GraphJsonEdge) -> CodeGraphEdgeRow {
-    CodeGraphEdgeRow {
-        source_id: node_id_str(&e.source),
-        target_id: node_id_str(&e.target),
-        relation: e
-            .relation
-            .clone()
-            .or_else(|| e.key.clone())
-            .unwrap_or_else(|| "related".into()),
-        confidence: e.confidence.clone(),
-        confidence_score: e.confidence_score,
-    }
-}
 
 impl BrainStore {
     /// Upsert AST-derived symbol nodes into code_graph_nodes.
@@ -297,7 +159,7 @@ impl BrainStore {
         repo_root: &Path,
         query: &str,
         limit: usize,
-    ) -> Result<Vec<super::types::CodeContextNode>> {
+    ) -> Result<Vec<crate::code_nav::CodeContextNode>> {
         let repo_str = repo_root.display().to_string();
         let pattern = format!("%{}%", query.split_whitespace().next().unwrap_or(query));
         self.with_conn(|conn| {
@@ -312,7 +174,7 @@ impl BrainStore {
                 "#,
             )?;
             let rows = stmt.query_map(rusqlite::params![repo_str, pattern, limit as i64], |r| {
-                Ok(super::types::CodeContextNode {
+                Ok(crate::code_nav::CodeContextNode {
                     label: r.get(0)?,
                     relation: r.get(1)?,
                     target: r.get(2)?,
@@ -553,16 +415,6 @@ impl BrainStore {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct AstEdgeRow {
-    pub repo_root: String,
-    pub source_id: String,
-    pub target_id: String,
-    pub relation: String,
-    pub source_file: String,
-    pub start_line: usize,
-}
-
 impl BrainStore {
     /// Upsert AST-derived edges into code_graph_edges.
     /// Uses INSERT OR IGNORE to avoid duplicates on (repo_root, source_id, target_id, relation).
@@ -780,30 +632,100 @@ impl BrainStore {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct LocalGraphEdge {
-    pub source_id: String,
-    pub target_id: String,
-    pub relation: String,
-    pub source_label: Option<String>,
-    pub target_label: Option<String>,
+impl BrainStore {
+    pub fn insert_graphify_job(
+        &self,
+        id: &str,
+        repo_root: &str,
+        trigger: &str,
+        mode: &str,
+        status: &str,
+        started_at: Option<i64>,
+        finished_at: Option<i64>,
+        error: Option<&str>,
+    ) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                r#"
+                INSERT INTO graphify_jobs (
+                    id, repo_root, trigger, mode, status, started_at, finished_at, error, result_json
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL)
+                "#,
+                rusqlite::params![
+                    id,
+                    repo_root,
+                    trigger,
+                    mode,
+                    status,
+                    started_at,
+                    finished_at,
+                    error
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn update_graphify_job(
+        &self,
+        id: &str,
+        status: &str,
+        started_at: Option<i64>,
+        finished_at: Option<i64>,
+        error: Option<&str>,
+        result_json: Option<&str>,
+    ) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                r#"
+                UPDATE graphify_jobs
+                SET status = ?2,
+                    started_at = COALESCE(?3, started_at),
+                    finished_at = COALESCE(?4, finished_at),
+                    error = COALESCE(?5, error),
+                    result_json = COALESCE(?6, result_json)
+                WHERE id = ?1
+                "#,
+                rusqlite::params![id, status, started_at, finished_at, error, result_json],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn get_graphify_job(&self, id: &str) -> Result<Option<GraphifyJobRecord>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, repo_root, trigger, mode, status, started_at, finished_at, error, result_json FROM graphify_jobs WHERE id = ?1",
+            )?;
+            let mut rows = stmt.query([id])?;
+            if let Some(row) = rows.next()? {
+                Ok(Some(GraphifyJobRecord {
+                    id: row.get(0)?,
+                    repo_root: row.get(1)?,
+                    trigger: row.get(2)?,
+                    mode: row.get(3)?,
+                    status: row.get(4)?,
+                    started_at: row.get(5)?,
+                    finished_at: row.get(6)?,
+                    error: row.get(7)?,
+                    result_json: row.get(8)?,
+                }))
+            } else {
+                Ok(None)
+            }
+        })
+    }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_networkx_style_graph() {
-        let raw = r#"{
-            "nodes": [{"id": "Auth", "label": "AuthModule"}],
-            "links": [{"source": "Auth", "target": "Db", "relation": "calls"}]
-        }"#;
-        let g: GraphJson = serde_json::from_str(raw).unwrap();
-        let nodes = normalize_nodes(&g.nodes, &["AuthModule".into()]);
-        assert_eq!(nodes.len(), 1);
-        assert!(nodes[0].is_god_node);
-        let edges = normalize_edges(&g.links, &g.edges);
-        assert_eq!(edges[0].relation, "calls");
-    }
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GraphifyJobRecord {
+    pub id: String,
+    pub repo_root: String,
+    pub trigger: String,
+    pub mode: String,
+    pub status: String,
+    pub started_at: Option<i64>,
+    pub finished_at: Option<i64>,
+    pub error: Option<String>,
+    pub result_json: Option<String>,
 }

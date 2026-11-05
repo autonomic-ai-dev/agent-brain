@@ -74,11 +74,9 @@ impl BrainMcp {
     }
 
     fn resolve_graphify_repo(&self, cwd: Option<&str>) -> Result<PathBuf, McpError> {
-        let path = self
-            .resolve_cwd(cwd)
-            .ok_or_else(|| {
-                McpError::invalid_params("current_working_directory required".to_string(), None)
-            })?;
+        let path = self.resolve_cwd(cwd).ok_or_else(|| {
+            McpError::invalid_params("current_working_directory required".to_string(), None)
+        })?;
         std::fs::canonicalize(&path)
             .map_err(|e| McpError::invalid_params(format!("resolve repo root: {e}"), None))
     }
@@ -816,7 +814,7 @@ impl BrainMcp {
     }
 
     #[tool(
-        description = "REQUIRED at task end for durable decisions. Max 50 words. No secrets. Optional valid_from/invalid_at (unix ms). Requires route_task first in this turn."
+        description = "REQUIRED at task end for durable decisions. One line, 10 to 50 words, no secrets. Say what was decided or learned, why, and where it applies (file, command, or scope), e.g. 'Use Vitest for component tests because Jest is not configured; applies to web/ tests.' Optional valid_from/invalid_at (unix ms). Requires route_task first in this turn."
     )]
     async fn store_memory(
         &self,
@@ -906,7 +904,11 @@ impl BrainMcp {
             .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
         let config_path = p.config_path.as_ref().map(PathBuf::from);
         let scenarios = p.scenarios_dir.as_ref().map(PathBuf::from);
-        let cwd = p.cwd.as_ref().map(PathBuf::from).or_else(|| self.active_cwd());
+        let cwd = p
+            .cwd
+            .as_ref()
+            .map(PathBuf::from)
+            .or_else(|| self.active_cwd());
         let report = crate::verify::record_from_result(
             &self.engine.store,
             p.exit_code,
@@ -1592,29 +1594,23 @@ impl BrainMcp {
     )]
     async fn query_codebase(
         &self,
-        #[allow(unused_variables)] params: Parameters<QueryCodebaseParams>,
+        params: Parameters<QueryCodebaseParams>,
     ) -> Result<CallToolResult, McpError> {
-        #[cfg(not(feature = "extras"))]
-        {
-            return Err(missing_extras_mcp("query_codebase"));
-        }
-
-        #[cfg(feature = "extras")]
-        {
-            self.require_route("query_codebase")?;
-            let _req = self.engine.mcp_activity.begin_request();
-            let p = params.0;
-            let repo = self.resolve_graphify_repo(p.current_working_directory.as_deref())?;
-            let settings = crate::settings::AgentBrainSettings::load(&self.engine.config.home);
-            let text = crate::graphify::query_codebase(
-                &repo,
-                &p.question,
-                p.max_tokens,
-                &settings.graphify.graphify_bin,
-            )
-            .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
-            json_result(serde_json::json!({ "answer": text }))
-        }
+        self.require_route("query_codebase")?;
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let repo = self.resolve_graphify_repo(p.current_working_directory.as_deref())?;
+        let answer = crate::graphify::rpc(
+            &self.engine.config.home,
+            "query_codebase",
+            &serde_json::json!({
+                "repo": repo.display().to_string(),
+                "question": p.question,
+                "max_tokens": p.max_tokens,
+            }),
+        )
+        .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        json_result(answer)
     }
 
     #[tool(
@@ -1622,59 +1618,40 @@ impl BrainMcp {
     )]
     async fn trigger_deep_analysis(
         &self,
-        #[allow(unused_variables)] params: Parameters<TriggerDeepAnalysisParams>,
+        params: Parameters<TriggerDeepAnalysisParams>,
     ) -> Result<CallToolResult, McpError> {
-        #[cfg(not(feature = "extras"))]
-        {
-            return Err(missing_extras_mcp("trigger_deep_analysis"));
-        }
-
-        #[cfg(feature = "extras")]
-        {
-            self.require_route("trigger_deep_analysis")?;
-            let _req = self.engine.mcp_activity.begin_request();
-            let p = params.0;
-            let repo = self.resolve_graphify_repo(p.repo_root.as_deref())?;
-            let settings = crate::settings::AgentBrainSettings::load(&self.engine.config.home);
-            let mode = match p.mode.as_deref() {
-                Some("full") => crate::graphify::JobMode::Full,
-                _ => crate::graphify::JobMode::Update,
-            };
-            let job_id = crate::graphify::enqueue_job(
-                &self.engine,
-                &repo,
-                crate::graphify::JobTrigger::Agent,
-                mode,
-                &settings.graphify.graphify_bin,
-            )
-            .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
-            json_result(serde_json::json!({
-                "job_id": job_id,
-                "status": "queued",
+        self.require_route("trigger_deep_analysis")?;
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let repo = self.resolve_graphify_repo(p.repo_root.as_deref())?;
+        let queued = crate::graphify::rpc(
+            &self.engine.config.home,
+            "trigger_deep_analysis",
+            &serde_json::json!({
+                "repo": repo.display().to_string(),
+                "mode": p.mode,
                 "reason": p.reason,
-            }))
-        }
+            }),
+        )
+        .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
+        json_result(queued)
     }
 
     #[tool(description = "Poll status for trigger_deep_analysis job.")]
     async fn graphify_job_status(
         &self,
-        #[allow(unused_variables)] params: Parameters<GraphifyJobStatusParams>,
+        params: Parameters<GraphifyJobStatusParams>,
     ) -> Result<CallToolResult, McpError> {
-        #[cfg(not(feature = "extras"))]
-        {
-            return Err(missing_extras_mcp("graphify_job_status"));
-        }
-
-        #[cfg(feature = "extras")]
-        {
-            self.require_route("graphify_job_status")?;
-            let _req = self.engine.mcp_activity.begin_request();
-            let p = params.0;
-            let status = crate::graphify::job_status(&self.engine, &p.job_id)
-                .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
-            json_result(status)
-        }
+        self.require_route("graphify_job_status")?;
+        let _req = self.engine.mcp_activity.begin_request();
+        let p = params.0;
+        let status = crate::graphify::rpc(
+            &self.engine.config.home,
+            "graphify_job_status",
+            &serde_json::json!({ "job_id": p.job_id }),
+        )
+        .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
+        json_result(status)
     }
 
     #[tool(
@@ -1976,11 +1953,7 @@ impl BrainMcp {
         let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
         let fallback = PathBuf::from(".");
         let target = cwd.as_deref().unwrap_or(&fallback);
-        match crate::git_tools::git_log(
-            target,
-            p.range.as_deref(),
-            p.max_count,
-        ) {
+        match crate::git_tools::git_log(target, p.range.as_deref(), p.max_count) {
             Ok(entries) => json_result(entries),
             Err(e) => Err(McpError::internal_error(e, None)),
         }
@@ -1999,11 +1972,7 @@ impl BrainMcp {
         let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
         let fallback = PathBuf::from(".");
         let target = cwd.as_deref().unwrap_or(&fallback);
-        match crate::git_tools::git_diff(
-            target,
-            &p.range,
-            p.path.as_deref(),
-        ) {
+        match crate::git_tools::git_diff(target, &p.range, p.path.as_deref()) {
             Ok(result) => json_result(result),
             Err(e) => Err(McpError::internal_error(e, None)),
         }
@@ -2022,11 +1991,7 @@ impl BrainMcp {
         let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
         let fallback = PathBuf::from(".");
         let target = cwd.as_deref().unwrap_or(&fallback);
-        match crate::git_tools::git_tags(
-            target,
-            p.pattern.as_deref(),
-            p.max_count,
-        ) {
+        match crate::git_tools::git_tags(target, p.pattern.as_deref(), p.max_count) {
             Ok(tags) => json_result(tags),
             Err(e) => Err(McpError::internal_error(e, None)),
         }
@@ -2045,11 +2010,7 @@ impl BrainMcp {
         let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
         let fallback = PathBuf::from(".");
         let target = cwd.as_deref().unwrap_or(&fallback);
-        match crate::git_tools::git_compare(
-            target,
-            &p.base,
-            &p.head,
-        ) {
+        match crate::git_tools::git_compare(target, &p.base, &p.head) {
             Ok(result) => json_result(result),
             Err(e) => Err(McpError::internal_error(e, None)),
         }
@@ -2742,7 +2703,7 @@ mod tests {
             .store_memory(Parameters(
                 serde_json::from_value::<StoreMemoryParams>(serde_json::json!({
                     "topic": "release",
-                    "fact": "Run cargo test before tagging a release",
+                    "fact": "Run cargo test before tagging a release so the tagged build is verified",
                     "scope": "global"
                 }))
                 .expect("store params"),

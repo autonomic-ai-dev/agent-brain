@@ -3,7 +3,7 @@
 use anyhow::Result;
 use serde::Serialize;
 
-use crate::db::store::BrainStore;
+use agent_brain::db::store::BrainStore;
 
 #[derive(Debug, Serialize)]
 pub struct WeeklyDigest {
@@ -136,4 +136,22 @@ pub fn format_weekly_digest(digest: &WeeklyDigest) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::weekly_digest;
+    use agent_brain::config::Config;
+    use agent_brain::db::store::BrainStore;
+    use tempfile::TempDir;
+
+    #[test]
+    fn weekly_digest_empty_db() {
+        let dir = TempDir::new().unwrap();
+        let config = Config::isolated(dir.path().to_path_buf());
+        config.ensure_dirs().unwrap();
+        let store = BrainStore::open(&config.db_path).unwrap();
+        let digest = weekly_digest(&store, 7).unwrap();
+        assert_eq!(digest.route_calls, 0);
+    }
 }

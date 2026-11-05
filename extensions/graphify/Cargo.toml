@@ -1,0 +1,26 @@
+[package]
+name = "agent-brain-graphify"
+version = "1.0.0-rc7"
+edition = "2021"
+description = "agent-brain extension: codebase graph (enable, ingest, query, and on-demand MCP tools)"
+license = "MIT"
+publish = false
+
+[lib]
+name = "agent_brain_graphify"
+path = "src/lib.rs"
+
+[[bin]]
+name = "agent-brain-graphify"
+path = "src/main.rs"
+
+[dependencies]
+sha2 = "0.10"
+agent-brain = { path = "../../agent-brain", features = ["extras"] }
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+rusqlite = { version = "0.32", features = ["bundled", "functions"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+uuid = { version = "1", features = ["v4", "v7"] }

@@ -40,14 +40,20 @@ pub fn route_request(home: &Path, logs_dir: &Path, now: i64) -> Option<MustApply
         state.pending = None;
     }
     let mut changed = answered;
+    let mut created = None;
     if state.pending.is_none() && now - state.last_run >= interval {
         match write_telemetry(home, logs_dir, &reports, now - interval, now) {
             Ok(telemetry) => {
                 state.last_run = now;
-                state.pending = Some(PendingReport {
+                let pending = PendingReport {
                     telemetry,
                     agent: reports.join(format!("agent-feedback-{now}.md")),
+                };
+                created = Some(MustApply {
+                    topic: TOPIC.into(),
+                    text: request_text(&pending.telemetry, &pending.agent),
                 });
+                state.pending = Some(pending);
                 changed = true;
             }
             Err(err) => {
@@ -61,15 +67,12 @@ pub fn route_request(home: &Path, logs_dir: &Path, now: i64) -> Option<MustApply
             tracing::warn!(error = %err, "feedback report state not saved");
         }
     }
-    state.pending.as_ref().map(|pending| MustApply {
-        topic: TOPIC.into(),
-        text: request_text(&pending.telemetry, &pending.agent),
-    })
+    created
 }
 
 fn request_text(telemetry: &Path, agent: &Path) -> String {
     format!(
-        "Feedback report due. Read the telemetry at {} first, then write your feedback on agent-brain and agent-spine to {} as markdown: what helped, what was wrong or noisy, gate blocks that were false positives, missing capabilities, and memory quality. If agstack-mode or another agstack skill was listed but not applied, say why: for example, it was not read, it ranked low, or it conflicted with the repository harness. This request stays open until that file exists.",
+        "Feedback report due. Read the telemetry at {} first, then write your feedback on agent-brain to {} as markdown with these sections: What helped; What was wrong or noisy; Gate blocks that look like false positives; Missing capabilities; Memory quality; Skills listed but not applied (say why). Cite evidence from the telemetry and from this session. Write it at the end of the current task without asking the user for permission and without waiting for a reply. Writing that file completes this item.",
         telemetry.display(),
         agent.display(),
     )
@@ -130,9 +133,13 @@ fn telemetry_markdown(
         .iter()
         .filter_map(|record| record["session"].as_str())
         .collect();
+    let sessions_seen = if sessions.is_empty() {
+        "unknown (hook events carry no session id)".to_string()
+    } else {
+        sessions.len().to_string()
+    };
     let mut out = format!(
-        "# agent-brain telemetry report\n\nWindow: {start} to {end} (unix seconds)\n\nSessions seen: {}\n",
-        sessions.len(),
+        "# agent-brain telemetry report\n\nWindow: {start} to {end} (unix seconds)\n\nSessions seen: {sessions_seen}\n",
     );
     section(
         &mut out,
@@ -236,8 +243,8 @@ mod tests {
         let agent_file = reports.join(format!("agent-feedback-{NOW}.md"));
         assert!(first.text.contains(&agent_file.display().to_string()));
 
-        let repeated = route_request(home.path(), &logs, NOW + 60).expect("request stays open");
-        assert_eq!(repeated.text, first.text);
+        assert!(route_request(home.path(), &logs, NOW + 60).is_none());
+        assert!(reports.join("state.json").exists());
 
         fs::write(&agent_file, "# feedback").expect("write agent feedback");
         assert!(route_request(home.path(), &logs, NOW + 120).is_none());
@@ -305,5 +312,33 @@ mod tests {
         assert!(body.contains("| bash-block: force push | 1 |"));
         assert!(!body.contains("old"));
         assert!(body.contains("Sessions seen: 1"));
+    }
+
+    #[test]
+    fn sessions_are_unknown_when_hook_events_carry_no_session_id() {
+        let home = enabled_home(3);
+        let logs = home.path().join("logs");
+        fs::create_dir_all(home.path().join("hooks")).expect("hooks dir");
+        let hook = format!(
+            "{{\"timestamp\":{},\"tool_name\":\"bash\"}}",
+            (NOW - 5) * 1000
+        );
+        fs::write(
+            home.path().join("hooks/hook_events.jsonl"),
+            format!("{hook}\n"),
+        )
+        .expect("hooks");
+
+        let telemetry = write_telemetry(
+            home.path(),
+            &logs,
+            &home.path().join("reports"),
+            NOW - 3 * 3600,
+            NOW,
+        )
+        .expect("telemetry");
+        let body = fs::read_to_string(telemetry).expect("read telemetry");
+
+        assert!(body.contains("Sessions seen: unknown"));
     }
 }

@@ -4,11 +4,7 @@ use agent_brain::config::Config;
 use agent_brain::db::store::{content_hash, BrainStore};
 use agent_brain::embed::deterministic_embedding;
 use agent_brain::engine::Engine;
-#[cfg(feature = "extras")]
-use agent_brain::eval::{assert_ci_gate, run_ci_eval, RECALL_AT_3_THRESHOLD};
 use agent_brain::memory_gc::run_memory_gc;
-#[cfg(feature = "extras")]
-use agent_brain::operator_digest::weekly_digest;
 use agent_brain::promote::{approve_staging, promote_fact_to_skill, reject_staging};
 use tempfile::TempDir;
 
@@ -274,30 +270,6 @@ fn memory_gc_report_buckets_protected_negative() {
     );
 }
 
-#[cfg(feature = "extras")]
-#[test]
-fn weekly_digest_empty_db() {
-    let dir = TempDir::new().unwrap();
-    let config = test_config(&dir);
-    config.ensure_dirs().unwrap();
-    let store = BrainStore::open(&config.db_path).unwrap();
-    let digest = weekly_digest(&store, 7).unwrap();
-    assert_eq!(digest.route_calls, 0);
-}
-
-#[cfg(feature = "extras")]
-#[test]
-fn eval_ci_meets_recall_gate() {
-    let dir = TempDir::new().unwrap();
-    let config = test_config(&dir);
-    config.ensure_dirs().unwrap();
-    let store = Arc::new(BrainStore::open(&config.db_path).unwrap());
-    let engine = Engine::new_with_store(config, store).unwrap();
-    let report = run_ci_eval(&engine).unwrap();
-    assert!(report.recall_at_3 >= RECALL_AT_3_THRESHOLD, "{report:?}");
-    assert_ci_gate(&report).unwrap();
-}
-
 #[test]
 fn stats_collects_token_savings_from_retrieval_log() {
     use agent_brain::stats;
@@ -500,7 +472,7 @@ fn suggest_memory_approve_stores_negative_with_apply_when() {
     let state = serde_json::json!({
         "anti_pattern_suggestion": {
             "topic": "no-read-dist",
-            "fact": "Never read /app/dist/bundle.js whole — use grep_search.",
+            "fact": "Never read /app/dist/bundle.js whole in one call; use grep_search to find the needed lines.",
             "polarity": "negative",
             "path": "/app/dist/bundle.js",
             "reason": "blocked path"

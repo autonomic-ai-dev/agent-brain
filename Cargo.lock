@@ -63,7 +63,7 @@ dependencies = [
 
 [[package]]
 name = "agent-brain"
-version = "1.0.0-rc6"
+version = "1.0.0-rc7"
 dependencies = [
  "age",
  "agent-brain-core",
@@ -76,7 +76,6 @@ dependencies = [
  "libc",
  "lru",
  "opendal",
- "prost",
  "rayon",
  "regex",
  "rmcp",
@@ -92,8 +91,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "toml 0.8.23",
- "tonic",
- "tonic-build",
  "tracing",
  "tracing-subscriber",
  "tree-sitter",
@@ -112,20 +109,55 @@ name = "agent-brain-bench"
 version = "1.0.0-rc5"
 dependencies = [
  "agent-brain",
+ "agent-brain-graphify",
  "anyhow",
  "chrono",
  "serde",
  "serde_json",
  "tempfile",
+ "tracing",
+ "ureq 3.3.0",
 ]
 
 [[package]]
 name = "agent-brain-core"
-version = "1.0.0-rc6"
+version = "1.0.0-rc7"
 dependencies = [
  "schemars",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "agent-brain-extras"
+version = "1.0.0-rc7"
+dependencies = [
+ "agent-brain",
+ "anyhow",
+ "chrono",
+ "prost",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tonic",
+ "tonic-build",
+ "tracing",
+]
+
+[[package]]
+name = "agent-brain-graphify"
+version = "1.0.0-rc7"
+dependencies = [
+ "agent-brain",
+ "anyhow",
+ "chrono",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -3446,9 +3478,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.45"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "log",
  "once_cell",
@@ -3920,7 +3952,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",

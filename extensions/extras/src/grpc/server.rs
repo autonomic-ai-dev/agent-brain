@@ -3,10 +3,10 @@ use std::sync::Arc;
 
 use tonic::{Request, Response, Status};
 
-use crate::engine::Engine;
 use crate::grpc::convert::{route_request_from_proto, route_response_to_proto};
 use crate::grpc::pb::routing_service_server::{RoutingService, RoutingServiceServer};
 use crate::grpc::pb::{HealthRequest, HealthResponse, RouteTaskRequest, RouteTaskResponse};
+use agent_brain::engine::Engine;
 
 pub struct RoutingGrpc {
     engine: Arc<Engine>,

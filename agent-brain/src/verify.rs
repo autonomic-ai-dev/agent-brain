@@ -630,7 +630,26 @@ pub fn run_verify(
         )?;
         eprintln!("artifact saved: {}", path.display());
     }
+    if let Some(root) = project_root
+        .as_deref()
+        .filter(|root| root.join(".verify").is_dir())
+    {
+        save_repo_artifact(root, &report.id, &output)?;
+    }
     Ok(report)
+}
+
+pub fn repo_artifact_path(root: &Path, report_id: &str) -> PathBuf {
+    root.join(".verify")
+        .join("artifacts")
+        .join(format!("{report_id}.log"))
+}
+
+fn save_repo_artifact(root: &Path, report_id: &str, output: &str) -> Result<PathBuf> {
+    let path = repo_artifact_path(root, report_id);
+    fs::create_dir_all(path.parent().context("artifact has a parent")?)?;
+    fs::write(&path, output).with_context(|| format!("write {}", path.display()))?;
+    Ok(path)
 }
 
 fn artifacts_dir() -> PathBuf {
@@ -1259,6 +1278,15 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
         let path = save_artifact_log(root.path(), Some(&project), "run-1", "ok\n").unwrap();
         assert_eq!(path, root.path().join("my-project").join("run-1.log"));
         assert_eq!(fs::read_to_string(&path).unwrap(), "ok\n");
+    }
+
+    #[test]
+    fn repo_artifact_is_written_under_the_harness_folder() {
+        let root = tempfile::tempdir().unwrap();
+        let path = save_repo_artifact(root.path(), "run-3", "passed\n").unwrap();
+        assert_eq!(path, repo_artifact_path(root.path(), "run-3"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "passed\n");
+        assert!(path.starts_with(root.path().join(".verify").join("artifacts")));
     }
 
     #[test]

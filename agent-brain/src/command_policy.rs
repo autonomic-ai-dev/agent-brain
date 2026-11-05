@@ -53,6 +53,11 @@ const INTERPRETERS: &[&str] = &[
     "lua",
     "osascript",
 ];
+const SHELL_BUILTINS: &[&str] = &[
+    "for", "while", "until", "if", "then", "else", "elif", "fi", "do", "done", "case", "esac",
+    "export", "unset", "set", "local", "readonly", "declare", "typeset", "return", "break",
+    "continue", "shift", "true", "false", "test", "[", "[[", "read", "echo", "printf", "exit",
+];
 const DESTRUCTIVE_CODE: &[&str] = &[
     "unlink",
     "rmtree",
@@ -212,6 +217,7 @@ fn segment_verdict(
             script_verdict(first, ctx, dir.as_deref()).unwrap_or(Verdict::Allow),
             rule_verdict(name, args, ctx, dir.as_deref(), true),
         ),
+        name if SHELL_BUILTINS.contains(&name) => Verdict::Allow,
         name => rule_verdict(name, args, ctx, dir.as_deref(), true),
     }
 }
@@ -231,7 +237,7 @@ fn rule_verdict(
     if rules.is_empty() {
         return if warn_unknown {
             Verdict::Warn(format!(
-                "unrecognised command {name}; allow it or add a rule with agent-brain rules add"
+                "unrecognised command {name}; ask the user to allow it with agent-brain rules add"
             ))
         } else {
             Verdict::Allow

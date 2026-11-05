@@ -17,6 +17,9 @@ feature: "[[../features/bench-extension]]"
 ## Where the code is
 
 - Crate: `extensions/bench` (`src/lib.rs`, `src/main.rs`, `src/cli.rs`, and the benchmark modules)
+- Graph benchmark: `src/graphify_bench.rs` calls `agent_brain_graphify::ingest::ingest_graph_at_path`, so bench depends on `extensions/graphify` (see [[graphify-extension]]).
+- Moved here from core: `src/eval.rs` (Recall@3 gates), `src/fixture.rs` (fixture DBs), `src/skills_sh.rs` (skills.sh snapshot). The core `eval` gate test is now `extensions/bench/tests/eval_gate.rs`.
+- Commands moved here: `fixture` and `skills-sh` (in `src/cli.rs`, with `eval`, `bench`, and `proofs`)
 - Integration tests: `extensions/bench/tests/v0_23.rs`, `extensions/bench/tests/v0_24.rs`
 - Workspace member: `Cargo.toml` at the repo root
 - Dispatch and install: `agent-brain/src/extensions.rs`, `src/main.rs` (the fallback arm)
@@ -26,6 +29,7 @@ feature: "[[../features/bench-extension]]"
 
 - `agent-brain ext add bench`
 - `agent-brain bench --ci`, `agent-brain bench --beam`, `agent-brain proofs --ci --write PATH`
+- `agent-brain eval --ci` and `agent-brain eval --ci --live` run the recall gate. Before the extension moved this command, `eval` was in the core binary and `--live` seeded the user's live store. The core binary now has no `eval` command, and `eval` routes to the installed extension.
 
 ## How it is verified
 
@@ -33,6 +37,7 @@ feature: "[[../features/bench-extension]]"
 - The allowlisted workspace suite through `agent-brain verify`
 
 ## Known limits
+- Merged with master PR #156: the bench layout on this branch is the one kept. Master bench changes were path-only and are preserved as in-crate `crate::` paths.
 
 - The release binary is about 44 MB, since it links the core with `extras`.
 - Install trust is the manifest SHA-256 plus the Developer ID team check (see [[cli-verify-and-memory]]).

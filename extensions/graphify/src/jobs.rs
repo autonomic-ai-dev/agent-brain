@@ -7,12 +7,11 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 use uuid::Uuid;
 
-use crate::db::store::BrainStore;
-use crate::engine::Engine;
+use agent_brain::engine::Engine;
 
-use super::ingest::ingest_repo;
-use super::process::output_with_timeout;
-use super::types::GraphifyJobStatus;
+use crate::ingest::ingest_repo;
+use crate::process::output_with_timeout;
+use crate::types::GraphifyJobStatus;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JobTrigger {
@@ -80,6 +79,16 @@ pub fn enqueue_job(
     mode: JobMode,
     graphify_bin: &str,
 ) -> Result<String> {
+    enqueue_job_detached(engine, repo_root, trigger, mode, graphify_bin).map(|(job_id, _)| job_id)
+}
+
+pub fn enqueue_job_detached(
+    engine: &Arc<Engine>,
+    repo_root: &Path,
+    trigger: JobTrigger,
+    mode: JobMode,
+    graphify_bin: &str,
+) -> Result<(String, thread::JoinHandle<()>)> {
     let job_id = Uuid::new_v4().to_string();
     let repo_str = repo_root.display().to_string();
     engine.store.insert_graphify_job(
@@ -96,12 +105,12 @@ pub fn enqueue_job(
     let repo = repo_root.to_path_buf();
     let bin = graphify_bin.to_string();
     let job_id_spawn = job_id.clone();
-    thread::spawn(move || {
+    let handle = thread::spawn(move || {
         if let Err(err) = run_job(&engine, &job_id_spawn, &repo, trigger, mode, &bin) {
             tracing::warn!(job_id = %job_id_spawn, error = %err, "graphify job failed");
         }
     });
-    Ok(job_id)
+    Ok((job_id, handle))
 }
 
 fn run_job(
@@ -157,7 +166,7 @@ fn run_job(
     Ok(())
 }
 
-fn run_ingest_only(engine: &Engine, repo_root: &Path) -> Result<super::ingest::IngestReport> {
+fn run_ingest_only(engine: &Engine, repo_root: &Path) -> Result<crate::ingest::IngestReport> {
     ingest_repo(&engine.store, &engine.config.home, repo_root)
 }
 
@@ -166,7 +175,7 @@ fn run_graphify_then_ingest(
     repo_root: &Path,
     graphify_bin: &str,
     incremental: bool,
-) -> Result<super::ingest::IngestReport> {
+) -> Result<crate::ingest::IngestReport> {
     let graph_path = repo_root.join("graphify-out").join("graph.json");
     let mut cmd = Command::new(graphify_bin);
     cmd.current_dir(repo_root)
@@ -213,89 +222,4 @@ pub fn job_status(engine: &Engine, job_id: &str) -> Result<GraphifyJobStatus> {
         error: rec.error,
         result,
     })
-}
-
-impl BrainStore {
-    pub fn insert_graphify_job(
-        &self,
-        id: &str,
-        repo_root: &str,
-        trigger: &str,
-        mode: &str,
-        status: &str,
-        started_at: Option<i64>,
-        finished_at: Option<i64>,
-        error: Option<&str>,
-    ) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute(
-                r#"
-                INSERT INTO graphify_jobs (
-                    id, repo_root, trigger, mode, status, started_at, finished_at, error, result_json
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL)
-                "#,
-                rusqlite::params![
-                    id,
-                    repo_root,
-                    trigger,
-                    mode,
-                    status,
-                    started_at,
-                    finished_at,
-                    error
-                ],
-            )?;
-            Ok(())
-        })
-    }
-
-    pub fn update_graphify_job(
-        &self,
-        id: &str,
-        status: &str,
-        started_at: Option<i64>,
-        finished_at: Option<i64>,
-        error: Option<&str>,
-        result_json: Option<&str>,
-    ) -> Result<()> {
-        self.with_conn(|conn| {
-            conn.execute(
-                r#"
-                UPDATE graphify_jobs
-                SET status = ?2,
-                    started_at = COALESCE(?3, started_at),
-                    finished_at = COALESCE(?4, finished_at),
-                    error = COALESCE(?5, error),
-                    result_json = COALESCE(?6, result_json)
-                WHERE id = ?1
-                "#,
-                rusqlite::params![id, status, started_at, finished_at, error, result_json],
-            )?;
-            Ok(())
-        })
-    }
-
-    pub fn get_graphify_job(&self, id: &str) -> Result<Option<super::types::GraphifyJobRecord>> {
-        self.with_conn(|conn| {
-            let mut stmt = conn.prepare(
-                "SELECT id, repo_root, trigger, mode, status, started_at, finished_at, error, result_json FROM graphify_jobs WHERE id = ?1",
-            )?;
-            let mut rows = stmt.query([id])?;
-            if let Some(row) = rows.next()? {
-                Ok(Some(super::types::GraphifyJobRecord {
-                    id: row.get(0)?,
-                    repo_root: row.get(1)?,
-                    trigger: row.get(2)?,
-                    mode: row.get(3)?,
-                    status: row.get(4)?,
-                    started_at: row.get(5)?,
-                    finished_at: row.get(6)?,
-                    error: row.get(7)?,
-                    result_json: row.get(8)?,
-                }))
-            } else {
-                Ok(None)
-            }
-        })
-    }
 }

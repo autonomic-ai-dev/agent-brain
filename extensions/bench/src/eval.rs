@@ -6,10 +6,10 @@ use std::sync::Arc;
 
 use anyhow::{bail, Result};
 
-use crate::db::store::{content_hash, BrainStore};
-use crate::embed::deterministic_embedding;
-use crate::engine::Engine;
-use crate::types::{ItemType, RouteLimits};
+use agent_brain::db::store::{content_hash, BrainStore};
+use agent_brain::embed::Embedder;
+use agent_brain::engine::Engine;
+use agent_brain::types::{ItemType, RouteLimits};
 
 pub const RECALL_AT_3_THRESHOLD: f64 = 0.85;
 
@@ -182,13 +182,18 @@ const SKILL_DECOYS: &[(&str, &str)] = &[
 ];
 
 pub fn run_ci_eval(engine: &Engine) -> Result<EvalReport> {
-    seed_eval_fixture(&engine.store)?;
+    seed_eval_fixture_with(&engine.store, &engine.embedder)?;
     run_ci_eval_seeded(engine)
 }
 
 /// Isolated temp DB with deterministic embeddings — used by CI and published proofs.
 pub fn run_ci_eval_isolated() -> Result<EvalReport> {
     let (engine, _dir) = crate::fixture::new_isolated_engine()?;
+    run_ci_eval(&engine)
+}
+
+pub fn run_ci_eval_live() -> Result<EvalReport> {
+    let (engine, _dir) = crate::fixture::new_isolated_engine_with_model()?;
     run_ci_eval(&engine)
 }
 
@@ -278,7 +283,7 @@ fn run_suite<F>(
     got_topics: F,
 ) -> Result<SuiteResult>
 where
-    F: Fn(&crate::types::RouteTaskResponse) -> Vec<String>,
+    F: Fn(&agent_brain::types::RouteTaskResponse) -> Vec<String>,
 {
     let golden: Vec<(&str, &str)> = if suite == "memory" {
         MEMORY_GOLDEN.iter().map(|c| (c.query, c.topic)).collect()
@@ -324,9 +329,9 @@ where
     })
 }
 
-fn seed_golden_facts(store: &Arc<BrainStore>) -> Result<()> {
+fn seed_golden_facts(store: &Arc<BrainStore>, embedder: &Embedder) -> Result<()> {
     for case in MEMORY_GOLDEN {
-        let emb = deterministic_embedding(case.fact);
+        let emb = embedder.embed_one(case.fact)?;
         let hash = content_hash(case.fact);
         store.store_fact(
             case.topic, case.fact, "global", None, 0.95, "eval", &hash, &emb, "positive",
@@ -336,12 +341,12 @@ fn seed_golden_facts(store: &Arc<BrainStore>) -> Result<()> {
     Ok(())
 }
 
-fn seed_golden_skills(store: &Arc<BrainStore>) -> Result<()> {
+fn seed_golden_skills(store: &Arc<BrainStore>, embedder: &Embedder) -> Result<()> {
     for case in SKILL_GOLDEN {
-        upsert_skill(store, case.topic, case.text)?;
+        upsert_skill(store, embedder, case.topic, case.text)?;
     }
     for (topic, text) in SKILL_DECOYS {
-        upsert_skill(store, topic, text)?;
+        upsert_skill(store, embedder, topic, text)?;
     }
     store.bump_index_version()?;
     Ok(())
@@ -349,25 +354,35 @@ fn seed_golden_skills(store: &Arc<BrainStore>) -> Result<()> {
 
 /// Golden memory + skill decoys for eval and bench proofs.
 pub fn seed_eval_fixture(store: &Arc<BrainStore>) -> Result<()> {
-    seed_golden_facts(store)?;
-    seed_golden_skills(store)?;
+    seed_eval_fixture_with(store, &Embedder::deterministic())
+}
+
+fn seed_eval_fixture_with(store: &Arc<BrainStore>, embedder: &Embedder) -> Result<()> {
+    seed_golden_facts(store, embedder)?;
+    seed_golden_skills(store, embedder)?;
     Ok(())
 }
 
 /// Filler skills to reach a target index size for latency benchmarks.
 pub fn seed_filler_skills(store: &Arc<BrainStore>, count: usize) -> Result<()> {
+    let embedder = Embedder::deterministic();
     for i in 0..count {
         let topic = format!("bench-filler-{i:04}");
         let text = format!(
             "Generic documentation and utility patterns for module {i}; unrelated to pull requests, testing, or deployment"
         );
-        upsert_skill(store, &topic, &text)?;
+        upsert_skill(store, &embedder, &topic, &text)?;
     }
     Ok(())
 }
 
-fn upsert_skill(store: &Arc<BrainStore>, topic: &str, text: &str) -> Result<()> {
-    let emb = deterministic_embedding(&format!("{topic} {text}"));
+fn upsert_skill(
+    store: &Arc<BrainStore>,
+    embedder: &Embedder,
+    topic: &str,
+    text: &str,
+) -> Result<()> {
+    let emb = embedder.embed_one(&format!("{topic} {text}"))?;
     let hash = content_hash(text);
     store.upsert_indexed_item(
         ItemType::Skill,
