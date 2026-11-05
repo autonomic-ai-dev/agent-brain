@@ -65,7 +65,15 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
   - Intent: Measure how often the route gate runs before changing its configuration.
   - Behaviour: `hooks/route_gate.py` appends `{timestamp, event, session}` to `hook_events.jsonl` in the brain home for every event that reaches `main()`. Events skipped by the disabled path are not counted.
   - Outcome: One JSON line per hook event, read by the feedback report. Logic is in `hooks/route_gate.py` and tests in `hooks/test_route_gate.py`.
-  - Bash gate: shell keywords and builtins (`for`, `export`, `set`, `echo`, `true`, and similar) are allowed without a warning (`SHELL_BUILTINS` in `src/command_policy.rs`, cases in `src/command_policy_cases.txt`). Commands with no default rule still warn.
+  - Bash gate: shell keywords and builtins (`for`, `export`, `set`, `echo`, `true`, and similar) are allowed without a warning (`SHELL_BUILTINS` in `src/command_policy.rs`, cases in `src/command_policy_cases.txt`). Commands with no default rule still warn. The warning asks the user to allow the command with `agent-brain rules add`, because the bash gate blocks agents from changing command rules.
+- `hook-event-ingest`: Merges hook tool events into the stats database.
+  - Intent: Count tool calls in `stats` and the route window without consuming the file that the feedback report reads.
+  - Behaviour: `ingest_hook_events_since` (`src/tool_events.rs`) reads `hooks/tool_events.jsonl`, inserts each record at or after the window start into `tool_log`, and leaves the file in place. Each row's id is the SHA-256 of its JSON line and inserts use `INSERT OR IGNORE`, so re-reading the file or overlapping windows never double count.
+  - Outcome: Tool calls per window are counted once. Records outside a window stay in the file for a wider window. Regression tests: `tool_events::tests` (the log survives ingest, repeated ingest does not double count, a narrow window keeps events for a wider one).
+- `stop-gate-repo-name`: The stop-gate block names the repo it blocks.
+  - Intent: A block raised while working in one repo must not look like it belongs to another.
+  - Behaviour: `run_stop_gate` prefixes each block reason with `Repo <name> is blocked:` (`named_reason` in `src/stop_gate.rs`). The gate evaluates only the git root of the session's cwd.
+  - Outcome: The block headline names the repo. Regression test: `stop_gate::tests::blocking_reason_names_the_repo`.
 
 ## Code
 

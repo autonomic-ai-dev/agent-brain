@@ -1,6 +1,6 @@
 [package]
 name = "agent-brain-extras"
-version = "1.0.0-rc6"
+version = "1.0.0-rc7"
 edition = "2021"
 description = "agent-brain extension: dataset, digest, fixture, skills-sh, distill, and the gRPC bridge"
 license = "MIT"

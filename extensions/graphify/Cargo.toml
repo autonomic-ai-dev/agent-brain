@@ -1,6 +1,6 @@
 [package]
 name = "agent-brain-graphify"
-version = "1.0.0-rc6"
+version = "1.0.0-rc7"
 edition = "2021"
 description = "agent-brain extension: codebase graph (enable, ingest, query, and on-demand MCP tools)"
 license = "MIT"

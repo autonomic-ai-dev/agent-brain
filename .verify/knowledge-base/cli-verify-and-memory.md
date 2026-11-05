@@ -6,7 +6,7 @@ feature: "[[../features/cli-verify-and-memory]]"
 
 ## What it does
 
-Version 1.0.0-rc5 (`agent-brain/Cargo.toml`). See CHANGELOG.md for the release contents.
+Version 1.0.0-rc7 (`agent-brain/Cargo.toml`). See CHANGELOG.md for the release contents.
 
 agent-brain is the routing layer every agent calls at the start of a turn. Its CLI and MCP tools run a command and record its real exit code as evidence. They also store and retrieve durable memory, install themselves into hosts, and report their own health.
 
@@ -22,7 +22,7 @@ agent-brain is the routing layer every agent calls at the start of a turn. Its C
 8. **Sync.** `agent-brain sync git|cloud` and `bootstrap` move memory between machines.
 9. **Feedback report.** Opt-in with `feedback_report.enabled` (default false, interval `interval_hours`, default 3). When a report is due, `route_task` writes `reports/telemetry-<ts>.md` under the brain home and adds a `feedback-report` must-apply item telling the agent to write `reports/agent-feedback-<ts>.md` at the end of the current task, without asking the user for permission. The item covers what helped, what was wrong or noisy, likely false-positive blocks, missing capabilities, memory quality, and why listed skills were not applied, and it repeats until that file exists. `src/feedback_report.rs` holds the logic.
 10. **Hook events.** `hooks/route_gate.py` appends each host hook event to `hooks/hook_events.jsonl` with its session ID. The feedback report reads this file. The hook script is compiled into the binary, so the file appears only after the hooks are reinstalled from a build of this source (`agent-brain install --claude-code --global`). An older installed hook never writes it, and the report then shows zero sessions.
-- **Bash gate builtins.** Shell keywords and builtins (`SHELL_BUILTINS` in `src/command_policy.rs`) are allowed without an "unrecognised command" warning. Cases are in `src/command_policy_cases.txt`.
+- **Bash gate builtins.** Shell keywords and builtins (`SHELL_BUILTINS` in `src/command_policy.rs`) are allowed without an "unrecognised command" warning. Cases are in `src/command_policy_cases.txt`. An unknown command warns that the user should allow it with `agent-brain rules add`, since agents are blocked from running that command. `rules` is compiled into the source build, but the installed binary at `~/.local/bin/agent-brain` (built 2026-11-04) predates it, so `rules add` only works after that binary is reinstalled.
 11. **Feature graph.** `agent-brain feature-graph [DIR]` prints the feature maps as JSON nodes and edges, built from frontmatter and the `## Sub-features` and `## Code` sections. `src/feature_graph.rs` holds the logic.
 
 ### Stop gate rules
@@ -58,6 +58,9 @@ agent-brain is the routing layer every agent calls at the start of a turn. Its C
 
 ## Behaviour that matters
 
+- Hook tool events (2026-11-05): `ingest_hook_events_since` (`src/tool_events.rs`) no longer renames `hooks/tool_events.jsonl` after ingest. The rename hid the file from the feedback report, which read it directly and so showed 0 tool calls, and it dropped events outside a window for any later, wider window. Each row's id is the SHA-256 of its line and the insert is `INSERT OR IGNORE` (`src/db/store.rs` `insert_tool_log`), so repeated reads are idempotent. The ingest return value counts lines read in the window, duplicates included. Regression tests: `tool_events::tests`. `sessions::digest::tests::distills_session_trajectories_into_procedure_edges` fails in a full parallel `cargo test --lib` run and passes alone; it fails the same way on the code before this change, so it is a pre-existing, order-dependent failure, probably the shared `AGENT_BRAIN_SESSION_HOME` env var it sets.
+- Stop block message (2026-11-05): `run_stop_gate` prefixes every block with `Repo <name> is blocked:` (`named_reason`, `src/stop_gate.rs`), so a block raised for agentrun is not read as an agent-brain block. An earlier block reported `internal/container/args.go` as unclaimed. It came from agentrun's feature map before its `## Code` section listed `internal/container/`; the current map claims it and the gate allows that repo.
+- Release 1.0.0-rc7 (2026-11-05): `rustls` is bumped to 0.23.46 for four Dependabot advisories (`Cargo.lock`). Its transitive `getrandom` moves to 0.4.2.
 - Extensions: the first one is `bench`, built from `extensions/bench` in this repo (`agent-brain-bench`, provides `bench` and `proofs`). Its manifest is in agent-registry PR #14 and its aarch64 build is a prerelease asset. `ext add bench` reads the registry's default branch, so it reports "not in the agent-registry cache" until PR #14 is merged. Test the install path against a seeded cache before that.
 - The benchmark move: `eval --beam` is now `bench --beam`. `bench`, `proofs`, and the beam harness left the core binary. `persist_proof_snapshot` moved with `proofs`. The store exposes `bm25_fast_path_eligible` so the supervisor benchmark can read the BM25 fast-path decision.
 - Extension trust: an install needs the manifest's SHA-256 to match and `codesign --verify --strict` to pass with TeamIdentifier `9HSMVVUMVX`. A failed check removes the download. Only macOS builds are accepted.

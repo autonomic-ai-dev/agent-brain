@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0-rc7] - 2026-11-05
+
+### Added
+- **Feedback report** (opt-in, `feedback_report.enabled`): every `interval_hours`, `route_task` writes a telemetry report and asks the agent to write its own feedback file under the brain home.
+- **Feature graph**: `agent-brain feature-graph [DIR]` prints the feature maps as JSON nodes and edges.
+- **Code-scoped stop gate**: a stop is blocked only when code changed and a passing verify run does not cover that code tree, or when a feature map owning changed code was not updated. The block message names the repo.
+- **Bash gate builtins**: shell keywords and builtins (`for`, `export`, `echo`, `true`, and similar) no longer produce an unrecognised-command warning.
+
+### Changed
+- Core modules are split from extensions: graphify and the extras commands ship as separate extension binaries.
+- The unrecognised-command warning asks the user to allow the command with `agent-brain rules add`, since agents cannot change command rules.
+- `rustls` is 0.23.46 (fixes four advisories: ECH rejection, key-exchange poisoning, session Debug output exposing secrets, Brotli certificate allocation).
+
+### Fixed
+- Hook tool events were renamed away on ingest, so the feedback report and later stats windows lost them and tool-call counts showed 0. The log now stays in place, and each row's id is the SHA-256 of its line, so re-reads never double count.
+
 ## [1.0.0-rc6] - 2026-10-31
 
 ### Added
