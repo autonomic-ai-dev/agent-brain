@@ -120,6 +120,10 @@ fn repo_name(repo: &Path) -> String {
         .unwrap_or_default()
 }
 
+fn named_reason(root: &Path, reason: &str) -> String {
+    format!("Repo {} is blocked: {reason}", repo_name(root))
+}
+
 fn last_edit_ms(root: &Path) -> Option<i64> {
     changed_paths(root)
         .iter()
@@ -182,7 +186,7 @@ pub fn run_stop_gate() -> Result<()> {
         let repo_state =
             state_file.with_file_name(format!("stop-gate-state-{}.json", repo_name(&root)));
         if let Some(reason) = evaluate_stop(&store, &root, &session_id, &repo_state)? {
-            reasons.push(reason);
+            reasons.push(named_reason(&root, &reason));
         }
     }
     if !reasons.is_empty() {
@@ -884,6 +888,15 @@ mod tests {
         assert_eq!(
             git_root(&changed).map(|root| repo_name(&root)),
             Some("changed".to_string())
+        );
+    }
+
+    #[test]
+    fn blocking_reason_names_the_repo() {
+        let reason = named_reason(Path::new("/work/agentrun"), "Verification is missing.");
+        assert_eq!(
+            reason,
+            "Repo agentrun is blocked: Verification is missing."
         );
     }
 }

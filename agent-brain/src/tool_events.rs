@@ -5,6 +5,7 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use sha2::{Digest, Sha256};
 
 use crate::db::store::{BrainStore, ToolEventRecord};
 
@@ -48,7 +49,7 @@ pub fn ingest_hook_events_since(store: &BrainStore, home: &Path, since_ms: i64) 
         if record.timestamp < since_ms {
             continue;
         }
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = format!("{:x}", Sha256::digest(line.as_bytes()));
         store.insert_tool_log(
             &id,
             &record.tool_name,
@@ -63,8 +64,77 @@ pub fn ingest_hook_events_since(store: &BrainStore, home: &Path, since_ms: i64) 
         )?;
         ingested += 1;
     }
-    if ingested > 0 {
-        let _ = fs::rename(&path, path.with_extension("jsonl.ingested"));
-    }
     Ok(ingested)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DAY_MS: i64 = 24 * 3600 * 1000;
+
+    fn record(timestamp: i64) -> ToolEventRecord {
+        ToolEventRecord {
+            timestamp,
+            tool_name: "read_file_head".into(),
+            path: Some("src/lib.rs".into()),
+            detail: None,
+            tokens_used: 120,
+            tokens_saved: Some(480),
+            savings_pct: Some(80.0),
+            must_apply_active: false,
+            phase: None,
+        }
+    }
+
+    fn open_store(home: &Path) -> BrainStore {
+        BrainStore::open(&home.join("brain.db")).unwrap()
+    }
+
+    fn tool_calls_since(store: &BrainStore, since_ms: i64) -> usize {
+        store.tool_log_stats_since(since_ms).unwrap().0
+    }
+
+    #[test]
+    fn ingest_leaves_hook_log_for_other_readers() {
+        let home = tempfile::tempdir().unwrap();
+        let store = open_store(home.path());
+        let now = chrono::Utc::now().timestamp_millis();
+        append_hook_event(home.path(), &record(now)).unwrap();
+
+        assert_eq!(
+            ingest_hook_events_since(&store, home.path(), now - DAY_MS).unwrap(),
+            1
+        );
+
+        let remaining = fs::read_to_string(hook_events_path(home.path())).unwrap();
+        assert_eq!(remaining.lines().count(), 1);
+    }
+
+    #[test]
+    fn repeated_ingest_does_not_double_count_tool_calls() {
+        let home = tempfile::tempdir().unwrap();
+        let store = open_store(home.path());
+        let now = chrono::Utc::now().timestamp_millis();
+        append_hook_event(home.path(), &record(now)).unwrap();
+
+        ingest_hook_events_since(&store, home.path(), now - DAY_MS).unwrap();
+        ingest_hook_events_since(&store, home.path(), now - DAY_MS).unwrap();
+
+        assert_eq!(tool_calls_since(&store, now - DAY_MS), 1);
+    }
+
+    #[test]
+    fn narrow_window_ingest_keeps_events_for_wider_window() {
+        let home = tempfile::tempdir().unwrap();
+        let store = open_store(home.path());
+        let now = chrono::Utc::now().timestamp_millis();
+        append_hook_event(home.path(), &record(now - 3 * DAY_MS)).unwrap();
+        append_hook_event(home.path(), &record(now)).unwrap();
+
+        ingest_hook_events_since(&store, home.path(), now - DAY_MS).unwrap();
+        ingest_hook_events_since(&store, home.path(), now - 7 * DAY_MS).unwrap();
+
+        assert_eq!(tool_calls_since(&store, now - 7 * DAY_MS), 2);
+    }
 }

@@ -2186,7 +2186,7 @@ impl BrainStore {
         let now = chrono::Utc::now().timestamp_millis();
         self.with_conn(|conn| {
             conn.execute(
-                r#"INSERT INTO tool_log (id, timestamp, tool_name, path, detail, tokens_used, tokens_saved, savings_pct, must_apply_active, phase, route_log_id)
+                r#"INSERT OR IGNORE INTO tool_log (id, timestamp, tool_name, path, detail, tokens_used, tokens_saved, savings_pct, must_apply_active, phase, route_log_id)
                    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"#,
                 params![
                     id,
