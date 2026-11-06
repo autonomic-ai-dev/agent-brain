@@ -77,7 +77,7 @@ Global Options:
   -V, --version    Print version and quit
 
 Run 'agent-brain COMMAND --help' for more information on a command.
-See docs/USAGE.md for the full guide.
+See README.md for the full guide.
 "
     );
 }
