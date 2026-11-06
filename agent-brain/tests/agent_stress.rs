@@ -7,7 +7,7 @@ use tempfile::TempDir;
 use agent_brain::config::Config;
 use agent_brain::db::store::{content_hash, BrainStore};
 use agent_brain::embed::deterministic_embedding;
-use agent_brain::engine::Engine;
+use agent_brain::engine::{Engine, RouteRequest};
 use agent_brain::settings::{AgentBrainSettings, UpstreamMcpSettings, UpstreamServerConfig};
 use agent_brain::types::{ItemType, RouteLimits};
 use agent_brain::upstream::IndexedUpstreamTool;
@@ -201,20 +201,20 @@ fn agents_pick_expected_skills_and_mcp_tools() {
 
     for (query, expected_skill_or_none, expected_tool) in test_cases {
         let resp = engine
-            .route_task(
-                query,
-                None,
-                &[],
-                500,
-                RouteLimits {
+            .route_task(RouteRequest {
+                user_message: query,
+                cwd: None,
+                open_files: &[],
+                max_tokens: 500,
+                limits: RouteLimits {
                     agents: 2,
                     skills: 3,
                     rules: 2,
                     memory: 2,
                 },
-                None,
-                None,
-            )
+                explicit_phase: None,
+                explicit_task_kind: None,
+            })
             .unwrap();
 
         assert!(
@@ -269,20 +269,20 @@ fn concurrent_stress_test_routing_and_memory_storage() {
             for i in 0..iterations_per_thread {
                 let query = queries[(thread_id + i) % queries.len()];
                 let resp = eng
-                    .route_task(
-                        query,
-                        None,
-                        &[],
-                        500,
-                        RouteLimits {
+                    .route_task(RouteRequest {
+                        user_message: query,
+                        cwd: None,
+                        open_files: &[],
+                        max_tokens: 500,
+                        limits: RouteLimits {
                             agents: 1,
                             skills: 2,
                             rules: 1,
                             memory: 2,
                         },
-                        None,
-                        None,
-                    )
+                        explicit_phase: None,
+                        explicit_task_kind: None,
+                    })
                     .unwrap();
 
                 assert!(resp

@@ -73,7 +73,7 @@ pub fn format_text(stats: &OperatorStats) -> String {
         stats.index.total_indexed, stats.index.active_memories
     ));
     if !stats.index.by_type.is_empty() {
-        out.push_str("\n");
+        out.push('\n');
         for (item_type, count) in &stats.index.by_type {
             out.push_str(&format!("- {item_type}: {count}\n"));
         }

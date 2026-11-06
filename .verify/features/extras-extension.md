@@ -50,3 +50,4 @@ Summary: The dataset export, weekly digest, architecture distill, and gRPC bridg
 - The gRPC code is generated at build time from `proto/agent_brain/v1/routing.proto` by this extension's `build.rs`. The core crate no longer generates it, and no longer depends on tonic or prost.
 - The extension is a binary crate, so its unit tests live in its modules. It has no library target for integration tests.
 - The extension depends on the core library at the same version, so it must be rebuilt with the core.
+- The gRPC `route_task` handler (`src/grpc/server.rs`) maps the request fields into `agent_brain::engine::RouteRequest` before calling `route_task`. Field names in `routing.proto` must match that struct when either changes.

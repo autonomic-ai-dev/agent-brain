@@ -20,6 +20,7 @@ feature: "[[../features/bench-extension]]"
 - Graph benchmark: `src/graphify_bench.rs` calls `agent_brain_graphify::ingest::ingest_graph_at_path`, so bench depends on `extensions/graphify` (see [[graphify-extension]]).
 - Moved here from core: `src/eval.rs` (Recall@3 gates), `src/fixture.rs` (fixture DBs), `src/skills_sh.rs` (skills.sh snapshot). The core `eval` gate test is now `extensions/bench/tests/eval_gate.rs`.
 - Commands moved here: `fixture` and `skills-sh` (in `src/cli.rs`, with `eval`, `bench`, and `proofs`)
+- Route calls: `bench.rs`, `beam_eval.rs`, `eval.rs`, `graphify_bench.rs`, `skills_sh.rs`, and `supervisor_bench.rs` build an `agent_brain::engine::RouteRequest` for each `route_task` call. The struct replaced the seven positional arguments, with no change to what each benchmark measures.
 - Integration tests: `extensions/bench/tests/v0_23.rs`, `extensions/bench/tests/v0_24.rs`
 - Workspace member: `Cargo.toml` at the repo root
 - Dispatch and install: `agent-brain/src/extensions.rs`, `src/main.rs` (the fallback arm)

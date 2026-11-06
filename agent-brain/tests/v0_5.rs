@@ -3,7 +3,7 @@ use std::sync::Arc;
 use agent_brain::config::Config;
 use agent_brain::db::store::{content_hash, BrainStore};
 use agent_brain::embed::{deterministic_embedding, Embedder};
-use agent_brain::engine::Engine;
+use agent_brain::engine::{Engine, RouteRequest};
 use agent_brain::sync::{export_bundle, import_bundle, MergePolicy};
 use agent_brain::types::{ItemType, RouteLimits};
 use tempfile::TempDir;
@@ -79,20 +79,20 @@ fn apply_when_surfaces_in_must_apply_when_phase_matches() {
 
     let engine = test_engine(&config, Arc::clone(&store));
     let resp = engine
-        .route_task(
-            "debug async race condition in handler",
-            None,
-            &[],
-            500,
-            RouteLimits {
+        .route_task(RouteRequest {
+            user_message: "debug async race condition in handler",
+            cwd: None,
+            open_files: &[],
+            max_tokens: 500,
+            limits: RouteLimits {
                 agents: 0,
                 skills: 0,
                 rules: 0,
                 memory: 5,
             },
-            Some("debugging"),
-            None,
-        )
+            explicit_phase: Some("debugging"),
+            explicit_task_kind: None,
+        })
         .unwrap();
 
     assert!(
@@ -138,20 +138,20 @@ fn global_vs_project_conflict_emits_warning() {
 
     let engine = test_engine(&config, Arc::clone(&store));
     let resp = engine
-        .route_task(
-            "format code indentation style",
-            Some(std::path::Path::new("/repo")),
-            &[],
-            500,
-            RouteLimits {
+        .route_task(RouteRequest {
+            user_message: "format code indentation style",
+            cwd: Some(std::path::Path::new("/repo")),
+            open_files: &[],
+            max_tokens: 500,
+            limits: RouteLimits {
                 agents: 0,
                 skills: 0,
                 rules: 0,
                 memory: 5,
             },
-            None,
-            None,
-        )
+            explicit_phase: None,
+            explicit_task_kind: None,
+        })
         .unwrap();
 
     assert!(

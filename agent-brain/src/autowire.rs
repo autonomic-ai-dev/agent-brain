@@ -67,7 +67,7 @@ fn patch_mcp_config(config_path: &Path, new_binary: &str) -> Result<bool> {
     let servers = config.mcp_servers.as_mut().or(config.servers.as_mut());
 
     if let Some(servers) = servers {
-        for (_name, server) in servers.iter_mut() {
+        for server in servers.values_mut() {
             if server.command != new_binary {
                 tracing::info!(
                     "Patching MCP server command: {} -> {}",

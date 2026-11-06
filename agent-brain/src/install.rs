@@ -55,10 +55,8 @@ pub fn run(
         return Ok(());
     }
 
-    if matches!(target, HostTarget::Cursor { global: true }) || reload {
-        if reload && !matches!(target, HostTarget::Cursor { .. } | HostTarget::All) && verbose {
-            eprintln!("Note: --reload only applies to Cursor MCP config.");
-        }
+    if reload && !matches!(target, HostTarget::Cursor { .. } | HostTarget::All) && verbose {
+        eprintln!("Note: --reload only applies to Cursor MCP config.");
     }
 
     let is_tty = std::io::stdout().is_terminal() && !verbose && !quiet;
@@ -87,7 +85,7 @@ pub fn run(
         print!("  => [2/4] Configuring host integrations...\r");
         let _ = std::io::stdout().flush();
     }
-    let paths = host_install::install_host(target.clone(), &mcp_exe, !verbose)?;
+    let paths = host_install::install_host(target, &mcp_exe, !verbose)?;
     if verbose {
         println!("agent-brain MCP configured for {}", target.label());
         println!("Binary: {}", exe.display());

@@ -39,6 +39,28 @@ flowchart LR
 
 ---
 
+## Why teams adopt it
+
+**1. Proof on day one.** `agent-brain dashboard` writes a local HTML page with total tokens saved by routing and bounded reads, route counts and latency. Run it after your first session:
+
+```bash
+agent-brain dashboard --days 7
+```
+
+`agent-brain stats` prints the route, cache and token-tool counters in the terminal. It does not print a tokens-saved total; the dashboard does.
+
+**2. One install for every host.** One binary configures Claude Code, Cursor, Codex, Gemini CLI and OpenCode:
+
+```bash
+agent-brain install --all --global
+```
+
+Antigravity and VS Code are available per host (`--antigravity`, `--vscode`). Hook enforcement is not available on every host; see the Supported Runtimes table below.
+
+**3. Local and private.** Routing, memory, verification and the token budget run on your machine against a local SQLite database. The route path makes no network calls. Outbound network happens only for the one-time embedding model download on first use, and for commands you run yourself: `learn`, `package add`, extension install and `sync cloud`. Nothing is sent to a hosted service by default.
+
+---
+
 ## Supported Runtimes
 
 | Runtime | Hook Mode | Integration Type |
@@ -130,6 +152,8 @@ Verified test runs executed through `agent-brain verify -- <cmd>` are recorded w
 | `agent-brain install --global` | Configure MCP server, host hooks, and runtime permissions |
 | `agent-brain doctor` / `--fix` | Diagnostic health check (validates binary, hooks, SQLite store) |
 | `agent-brain briefing` | Summarizes last `route_task` decision and active token budget |
+| `agent-brain stats` | Route, cache, token-tool and memory counters for the last period |
+| `agent-brain dashboard [--days N]` | Writes the local HTML page with total tokens saved |
 | `agent-brain index` | Indexes local skills, rules, and workspace memory into SQLite |
 | `agent-brain verify -- <cmd>` | Execute and record verified command with trusted exit attribution |
 | `agent-brain remember --text TEXT --tag TAG` | Store one durable fact or architectural decision |

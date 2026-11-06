@@ -416,7 +416,7 @@ async fn main() -> Result<()> {
                     agent_brain::suggest_memory::reject_pending(&config.home)?;
                     println!("Dismissed pending memory suggestion");
                 }
-                "show" | _ => match agent_brain::route_briefing::read_pending_memory_suggestion(
+                _ => match agent_brain::route_briefing::read_pending_memory_suggestion(
                     &Config::load()?.home,
                 ) {
                     Some(suggestion) => {
@@ -764,12 +764,14 @@ async fn main() -> Result<()> {
                     &store,
                     exit_code,
                     &cmd.join(" "),
-                    route_log_id.as_deref(),
-                    cause.as_deref(),
-                    config_path.as_deref(),
-                    scenarios.as_deref(),
-                    None,
-                    source,
+                    agent_brain::verify::VerifyRecord {
+                        route_log_id: route_log_id.as_deref(),
+                        cause_tag: cause.as_deref(),
+                        config_path: config_path.as_deref(),
+                        scenarios_dir: scenarios.as_deref(),
+                        cwd: None,
+                        source,
+                    },
                 )?;
                 println!("{}", serde_json::to_string_pretty(&report)?);
                 if !report.success {
@@ -794,12 +796,14 @@ async fn main() -> Result<()> {
                 let report = agent_brain::verify::run_verify(
                     &store,
                     &cmd,
-                    route_log_id.as_deref(),
-                    cause.as_deref(),
-                    config_path.as_deref(),
-                    scenarios.as_deref(),
-                    source,
-                    save_artifact,
+                    agent_brain::verify::VerifyRun {
+                        route_log_id: route_log_id.as_deref(),
+                        cause_tag: cause.as_deref(),
+                        config_path: config_path.as_deref(),
+                        scenarios_dir: scenarios.as_deref(),
+                        source,
+                        save_artifact,
+                    },
                 )?;
                 println!("{}", serde_json::to_string_pretty(&report)?);
                 if !report.success {

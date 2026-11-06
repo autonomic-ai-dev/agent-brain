@@ -53,3 +53,4 @@ Summary: The codebase graph engine, shipped as the optional `agent-brain-graphif
 - `rpc` is a single-line JSON protocol. Any extra stdout output from a tool breaks the core reader.
 - The extension must be rebuilt with the core, since it links the core library.
 - Graph MCP calls now run outside the core process, so their logs are not in the core log.
+- Job rows are written through `BrainStore::insert_graphify_job(GraphifyJobInsert { .. })` in `agent-brain/src/db/graph_store.rs`. The extension's `jobs.rs` queues a job with status `queued`, and the struct replaces the old nine-argument call.

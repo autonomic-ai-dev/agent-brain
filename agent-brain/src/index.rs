@@ -263,7 +263,7 @@ pub fn sync_index_opts(
             .map(|ub| format!("{} {}", ub.item.topic, ub.item.text))
             .collect();
         let embeddings = embedder.embed_batch(&texts)?;
-        for (ub, embedding) in chunk.iter().zip(embeddings.into_iter()) {
+        for (ub, embedding) in chunk.iter().zip(embeddings) {
             db_items.push(IndexBatchItem {
                 id: Uuid::new_v4().to_string(),
                 item_type: ub.item.item_type,

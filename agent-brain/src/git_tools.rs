@@ -63,7 +63,7 @@ pub fn git_log(
     range: Option<&str>,
     max_count: usize,
 ) -> Result<Vec<GitLogEntry>, String> {
-    let max_flag = format!("--max-count={}", max_count.max(1).min(500));
+    let max_flag = format!("--max-count={}", max_count.clamp(1, 500));
     let mut args = vec!["log", "--oneline", "--format=%H|%an|%ad|%s", &*max_flag];
     if let Some(r) = range {
         args.push(r);
@@ -133,7 +133,7 @@ pub fn git_tags(
     }
     Ok(raw
         .lines()
-        .take(max_count.max(1).min(200))
+        .take(max_count.clamp(1, 200))
         .filter_map(|line| {
             let parts: Vec<&str> = line.splitn(4, '|').collect();
             if parts.len() < 2 {

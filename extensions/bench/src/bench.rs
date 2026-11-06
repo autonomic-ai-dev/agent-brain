@@ -7,7 +7,7 @@ use std::path::Path;
 
 use anyhow::{bail, Result};
 
-use agent_brain::engine::Engine;
+use agent_brain::engine::{Engine, RouteRequest};
 use crate::fixture::{
     default_fixture_2k_path, open_fixture_engine_with_onnx, seed_bench_fixture,
     BENCH_FIXTURE_SKILLS,
@@ -128,19 +128,43 @@ pub fn run_bench_on_engine(
 
     for i in 0..warmup_routes {
         let q = format!("{query} warmup {i}");
-        engine.route_task(&q, None, &[], 500, limits, Some("implementing"), None)?;
+        engine.route_task(RouteRequest {
+            user_message: &q,
+            cwd: None,
+            open_files: &[],
+            max_tokens: 500,
+            limits,
+            explicit_phase: Some("implementing"),
+            explicit_task_kind: None,
+        })?;
     }
 
     let mut cache_hits = Vec::with_capacity(SAMPLES);
     for _ in 0..SAMPLES {
-        let resp = engine.route_task(query, None, &[], 500, limits, Some("implementing"), None)?;
+        let resp = engine.route_task(RouteRequest {
+            user_message: query,
+            cwd: None,
+            open_files: &[],
+            max_tokens: 500,
+            limits,
+            explicit_phase: Some("implementing"),
+            explicit_task_kind: None,
+        })?;
         cache_hits.push(resp.latency_ms);
     }
 
     let mut warm_routes = Vec::with_capacity(SAMPLES);
     for i in 0..SAMPLES {
         let q = format!("implement rust backend service module {i} with error handling");
-        let resp = engine.route_task(&q, None, &[], 500, limits, Some("implementing"), None)?;
+        let resp = engine.route_task(RouteRequest {
+            user_message: &q,
+            cwd: None,
+            open_files: &[],
+            max_tokens: 500,
+            limits,
+            explicit_phase: Some("implementing"),
+            explicit_task_kind: None,
+        })?;
         warm_routes.push(resp.latency_ms);
     }
 

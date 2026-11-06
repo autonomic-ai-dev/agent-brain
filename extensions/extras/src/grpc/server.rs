@@ -6,7 +6,7 @@ use tonic::{Request, Response, Status};
 use crate::grpc::convert::{route_request_from_proto, route_response_to_proto};
 use crate::grpc::pb::routing_service_server::{RoutingService, RoutingServiceServer};
 use crate::grpc::pb::{HealthRequest, HealthResponse, RouteTaskRequest, RouteTaskResponse};
-use agent_brain::engine::Engine;
+use agent_brain::engine::{Engine, RouteRequest};
 
 pub struct RoutingGrpc {
     engine: Arc<Engine>,
@@ -28,15 +28,15 @@ impl RoutingService for RoutingGrpc {
         let cwd = req.cwd.as_deref().map(std::path::Path::new);
         let resp = self
             .engine
-            .route_task(
-                &req.user_message,
+            .route_task(RouteRequest {
+                user_message: &req.user_message,
                 cwd,
-                &req.open_files,
-                req.max_tokens,
-                req.limits,
-                req.phase.as_deref(),
-                req.task_kind.as_deref(),
-            )
+                open_files: &req.open_files,
+                max_tokens: req.max_tokens,
+                limits: req.limits,
+                explicit_phase: req.phase.as_deref(),
+                explicit_task_kind: req.task_kind.as_deref(),
+            })
             .map_err(|e| Status::internal(e.to_string()))?;
         Ok(Response::new(route_response_to_proto(resp)))
     }

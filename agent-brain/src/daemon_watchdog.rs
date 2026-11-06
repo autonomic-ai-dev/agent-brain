@@ -42,6 +42,12 @@ impl DaemonActivity {
     }
 }
 
+impl Default for DaemonActivity {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub struct SessionGuard {
     activity: Arc<DaemonActivity>,
 }

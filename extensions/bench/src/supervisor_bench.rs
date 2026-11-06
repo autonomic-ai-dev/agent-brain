@@ -11,7 +11,7 @@ use crate::bench::percentiles;
 use agent_brain::config::Config;
 use agent_brain::db::store::{content_hash, BrainStore};
 use agent_brain::embed::deterministic_embedding;
-use agent_brain::engine::Engine;
+use agent_brain::engine::{Engine, RouteRequest};
 use crate::fixture::{seed_bench_fixture, BENCH_FIXTURE_SKILLS};
 use agent_brain::packages::install_bundled;
 use agent_brain::route_briefing::token_savings;
@@ -132,7 +132,15 @@ pub fn run_supervisor_bench_on_engine(engine: &Engine) -> Result<SupervisorBench
 
     for i in 0..WARMUP_ROUTES {
         let q = format!("supervisor warmup route {i}");
-        engine.route_task(&q, None, &[], 500, limits, Some("implementing"), None)?;
+        engine.route_task(RouteRequest {
+            user_message: &q,
+            cwd: None,
+            open_files: &[],
+            max_tokens: 500,
+            limits,
+            explicit_phase: Some("implementing"),
+            explicit_task_kind: None,
+        })?;
     }
 
     let mut scenarios = Vec::with_capacity(SCENARIOS.len());
@@ -149,15 +157,15 @@ pub fn run_supervisor_bench_on_engine(engine: &Engine) -> Result<SupervisorBench
             fast_path_eligible += 1;
         }
 
-        let resp = engine.route_task(
-            scenario.query,
-            None,
-            &[],
-            500,
+        let resp = engine.route_task(RouteRequest {
+            user_message: scenario.query,
+            cwd: None,
+            open_files: &[],
+            max_tokens: 500,
             limits,
-            Some("implementing"),
-            None,
-        )?;
+            explicit_phase: Some("implementing"),
+            explicit_task_kind: None,
+        })?;
 
         let saved_pct = token_savings(&resp).map(|s| s.saved_pct).unwrap_or(0);
         saved_pcts.push(saved_pct);
@@ -199,7 +207,15 @@ pub fn run_supervisor_bench_on_engine(engine: &Engine) -> Result<SupervisorBench
     let mut warm_latencies = Vec::with_capacity(LATENCY_SAMPLES);
     for i in 0..LATENCY_SAMPLES {
         let q = format!("grep rg token efficient large log file scenario {i}");
-        let resp = engine.route_task(&q, None, &[], 500, limits, Some("implementing"), None)?;
+        let resp = engine.route_task(RouteRequest {
+            user_message: &q,
+            cwd: None,
+            open_files: &[],
+            max_tokens: 500,
+            limits,
+            explicit_phase: Some("implementing"),
+            explicit_task_kind: None,
+        })?;
         warm_latencies.push(resp.latency_ms);
     }
     let warm_route_p95_ms = percentiles(&warm_latencies).p95_ms;

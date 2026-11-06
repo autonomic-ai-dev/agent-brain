@@ -34,6 +34,7 @@ Summary: `agent-brain serve` runs in two roles. A shared daemon holds the brain 
 - `agent-brain/src/mcp/server.rs` (`run_proxy`, `serve_one_proxy_connection`)
 - `agent-brain/src/engine.rs` (`spawn_embedder_idle_unload`)
 - `agent-brain/src/embed.rs` (`Embedder::unload_if_idle`, `is_loaded`, `IDLE_UNLOAD_AFTER`)
+- `agent-brain/src/daemon_watchdog.rs` (`DaemonActivity` implements `Default`, delegating to `new`)
 - `agent-brain/tests/proxy_lifecycle.rs`
 
 ## How to get to it (user POV)

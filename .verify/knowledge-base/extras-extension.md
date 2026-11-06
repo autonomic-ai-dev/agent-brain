@@ -24,6 +24,7 @@ Dataset export, the weekly digest, architecture distill, and the gRPC bridge are
 - Weekly digest: `extensions/extras/src/operator_digest.rs`
 - gRPC bridge: `extensions/extras/src/grpc/` and `extensions/extras/proto/`
 - Build: `extensions/extras/build.rs` and `Cargo.toml`
+- Route handler: `extensions/extras/src/grpc/server.rs` builds `agent_brain::engine::RouteRequest` from the proto request. The core's `route_task` takes that struct, not positional arguments.
 
 ## How it is verified
 

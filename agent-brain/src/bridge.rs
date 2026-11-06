@@ -21,26 +21,26 @@ pub fn limits_for_task_kind(kind: TaskKind, base: RouteLimits) -> RouteLimits {
         TaskKind::Verification => RouteLimits {
             agents: base.agents.min(1),
             skills: base.skills.min(2),
-            rules: base.rules.max(3).min(5),
+            rules: base.rules.clamp(3, 5),
             memory: base.memory.min(3),
         },
         TaskKind::Architecture => RouteLimits {
-            agents: base.agents.max(2).min(4),
-            skills: base.skills.max(2).min(5),
-            rules: base.rules.max(2).min(5),
+            agents: base.agents.clamp(2, 4),
+            skills: base.skills.clamp(2, 5),
+            rules: base.rules.clamp(2, 5),
             memory: base.memory.min(3),
         },
         TaskKind::Review => RouteLimits {
             agents: base.agents.min(2),
             skills: base.skills.min(2),
-            rules: base.rules.max(2).min(5),
+            rules: base.rules.clamp(2, 5),
             memory: base.memory.min(4),
         },
         TaskKind::Debugging => RouteLimits {
             agents: base.agents.min(2),
             skills: base.skills.min(3),
             rules: base.rules.min(3),
-            memory: base.memory.max(3).min(6),
+            memory: base.memory.clamp(3, 6),
         },
         TaskKind::Implementing => base,
     }

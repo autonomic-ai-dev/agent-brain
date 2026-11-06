@@ -9,7 +9,7 @@ use anyhow::{bail, Context, Result};
 
 use agent_brain::db::store::{content_hash, BrainStore, FactTemporal};
 use agent_brain::embed::deterministic_embedding;
-use agent_brain::engine::Engine;
+use agent_brain::engine::{Engine, RouteRequest};
 use crate::eval::{run_ci_eval_seeded, seed_eval_fixture, EvalReport, SuiteResult};
 use agent_brain::observation::{run_observations, ObservationConfig};
 use agent_brain::types::{ItemType, RouteLimits, RouteTaskResponse};
@@ -174,15 +174,15 @@ fn run_temporal_suite(engine: &Engine) -> Result<SuiteResult> {
     let mut passed = 0usize;
     let mut failures = Vec::new();
 
-    let resp = engine.route_task(
-        "duckdb analytics warehouse for this project",
-        None,
-        &[],
-        500,
+    let resp = engine.route_task(RouteRequest {
+        user_message: "duckdb analytics warehouse for this project",
+        cwd: None,
+        open_files: &[],
+        max_tokens: 500,
         limits,
-        Some("implementing"),
-        None,
-    )?;
+        explicit_phase: Some("implementing"),
+        explicit_task_kind: None,
+    })?;
     let topics: Vec<String> = resp
         .relevant_memory
         .iter()
@@ -200,15 +200,15 @@ fn run_temporal_suite(engine: &Engine) -> Result<SuiteResult> {
         });
     }
 
-    let resp = engine.route_task(
-        "sqlite analytics warehouse legacy setup",
-        None,
-        &[],
-        500,
+    let resp = engine.route_task(RouteRequest {
+        user_message: "sqlite analytics warehouse legacy setup",
+        cwd: None,
+        open_files: &[],
+        max_tokens: 500,
         limits,
-        Some("implementing"),
-        None,
-    )?;
+        explicit_phase: Some("implementing"),
+        explicit_task_kind: None,
+    })?;
     let topics: Vec<String> = resp
         .relevant_memory
         .iter()
@@ -243,7 +243,15 @@ fn run_must_apply_suite(engine: &Engine) -> Result<SuiteResult> {
     let mut passed = 0usize;
     let mut failures = Vec::new();
     for (query, expected_topic) in cases {
-        let resp = engine.route_task(query, None, &[], 500, limits, Some("debugging"), None)?;
+        let resp = engine.route_task(RouteRequest {
+            user_message: query,
+            cwd: None,
+            open_files: &[],
+            max_tokens: 500,
+            limits,
+            explicit_phase: Some("debugging"),
+            explicit_task_kind: None,
+        })?;
         let hit = resp.must_apply.iter().any(|m| m.topic == expected_topic)
             || resp
                 .relevant_memory
@@ -279,15 +287,15 @@ fn run_observation_suite(engine: &Engine) -> Result<SuiteResult> {
         memory: 5,
     };
     let passed = if report.synthesized > 0 {
-        let resp = engine.route_task(
-            "add vitest tests for react components",
-            None,
-            &[],
-            500,
+        let resp = engine.route_task(RouteRequest {
+            user_message: "add vitest tests for react components",
+            cwd: None,
+            open_files: &[],
+            max_tokens: 500,
             limits,
-            Some("implementing"),
-            None,
-        )?;
+            explicit_phase: Some("implementing"),
+            explicit_task_kind: None,
+        })?;
         // Synthesis is the product signal; MCP no longer re-injects obs/* into the bundle.
         let leaked = resp.must_apply.iter().any(|m| m.topic.starts_with("obs/"))
             || resp
@@ -332,15 +340,15 @@ fn run_task_scoped_suite(engine: &Engine) -> Result<SuiteResult> {
     let mut passed = 0usize;
     let mut failures = Vec::new();
     for case in &cases {
-        let resp = engine.route_task(
-            &case.query,
-            None,
-            &[],
-            500,
+        let resp = engine.route_task(RouteRequest {
+            user_message: &case.query,
+            cwd: None,
+            open_files: &[],
+            max_tokens: 500,
             limits,
-            None,
-            case.task_kind.as_deref(),
-        )?;
+            explicit_phase: None,
+            explicit_task_kind: case.task_kind.as_deref(),
+        })?;
         let kind_ok = resp.task_kind.as_deref() == Some(case.expect_task_kind.as_str());
         let bundle_ok = !case.expect_bundle || resp.context_bundle.is_some();
         let escalate_ok = case
@@ -378,15 +386,15 @@ fn run_escalation_signal_suite(engine: &Engine) -> Result<SuiteResult> {
     let mut failures = Vec::new();
 
     let (empty_engine, _dir) = crate::fixture::new_isolated_engine()?;
-    let empty_resp = empty_engine.route_task(
-        "zzzz verification noop without indexed context",
-        None,
-        &[],
-        500,
-        RouteLimits::default(),
-        None,
-        Some("verification"),
-    )?;
+    let empty_resp = empty_engine.route_task(RouteRequest {
+        user_message: "zzzz verification noop without indexed context",
+        cwd: None,
+        open_files: &[],
+        max_tokens: 500,
+        limits: RouteLimits::default(),
+        explicit_phase: None,
+        explicit_task_kind: Some("verification"),
+    })?;
     if empty_resp.escalate_recommended {
         passed += 1;
     } else {
@@ -401,15 +409,15 @@ fn run_escalation_signal_suite(engine: &Engine) -> Result<SuiteResult> {
         });
     }
 
-    let resp = engine.route_task(
-        "verify BEAM proofs and eval --beam in CI before merge",
-        None,
-        &[],
-        500,
-        RouteLimits::default(),
-        None,
-        Some("verification"),
-    )?;
+    let resp = engine.route_task(RouteRequest {
+        user_message: "verify BEAM proofs and eval --beam in CI before merge",
+        cwd: None,
+        open_files: &[],
+        max_tokens: 500,
+        limits: RouteLimits::default(),
+        explicit_phase: None,
+        explicit_task_kind: Some("verification"),
+    })?;
     if !resp.escalate_recommended {
         passed += 1;
     } else {
@@ -441,15 +449,15 @@ fn run_task_scoped_verification_suite(engine: &Engine) -> Result<SuiteResult> {
     };
     let mut passed = 0usize;
     let mut failures = Vec::new();
-    let resp = engine.route_task(
-        "verify BEAM proofs and eval --beam in CI before merge",
-        None,
-        &[],
-        500,
+    let resp = engine.route_task(RouteRequest {
+        user_message: "verify BEAM proofs and eval --beam in CI before merge",
+        cwd: None,
+        open_files: &[],
+        max_tokens: 500,
         limits,
-        None,
-        Some("verification"),
-    )?;
+        explicit_phase: None,
+        explicit_task_kind: Some("verification"),
+    })?;
     let ok = resp.task_kind.as_deref() == Some("verification")
         && resp.recommended_agents.len() <= 1
         && resp.recommended_skills.len() <= 2
@@ -470,15 +478,15 @@ fn run_task_scoped_verification_suite(engine: &Engine) -> Result<SuiteResult> {
     }
 
     let (empty_engine, _dir) = crate::fixture::new_isolated_engine()?;
-    let empty = empty_engine.route_task(
-        "zzzz verification noop without indexed context",
-        None,
-        &[],
-        500,
-        RouteLimits::default(),
-        None,
-        Some("verification"),
-    )?;
+    let empty = empty_engine.route_task(RouteRequest {
+        user_message: "zzzz verification noop without indexed context",
+        cwd: None,
+        open_files: &[],
+        max_tokens: 500,
+        limits: RouteLimits::default(),
+        explicit_phase: None,
+        explicit_task_kind: Some("verification"),
+    })?;
     if empty.escalate_recommended && empty.context_bundle.is_some() {
         passed += 1;
     } else {
@@ -522,15 +530,15 @@ fn run_jsonl_file_suite(
     let mut passed = 0usize;
     let mut failures = Vec::new();
     for case in &cases {
-        let resp = engine.route_task(
-            &case.query,
-            None,
-            &[],
-            500,
+        let resp = engine.route_task(RouteRequest {
+            user_message: &case.query,
+            cwd: None,
+            open_files: &[],
+            max_tokens: 500,
             limits,
-            Some("implementing"),
-            None,
-        )?;
+            explicit_phase: Some("implementing"),
+            explicit_task_kind: None,
+        })?;
         let present = response_types(&resp);
         let ok = case
             .expect_types

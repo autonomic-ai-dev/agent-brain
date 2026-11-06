@@ -23,12 +23,13 @@ pub fn run_gc(
     min_confidence: f64,
     _max_age_days: u64,
 ) -> Result<GcStats> {
-    let mut stats = GcStats::default();
-
-    stats.facts_deduped = dedup_facts(store)?;
-    stats.index_items_deduped = dedup_indexed_items(store)?;
-    stats.facts_removed = prune_low_confidence(store, min_confidence)?;
-    stats.index_items_removed = prune_stale_index(store)?;
+    let mut stats = GcStats {
+        facts_deduped: dedup_facts(store)?,
+        index_items_deduped: dedup_indexed_items(store)?,
+        facts_removed: prune_low_confidence(store, min_confidence)?,
+        index_items_removed: prune_stale_index(store)?,
+        ..GcStats::default()
+    };
 
     let before = db_file_size(store)?;
     store.checkpoint_wal()?;
@@ -51,7 +52,7 @@ fn dedup_facts(store: &crate::db::store::BrainStore) -> Result<u64> {
     }
 
     let mut count = 0u64;
-    for (_topic, group) in &by_topic {
+    for group in by_topic.values() {
         if group.len() < 2 {
             continue;
         }
@@ -93,7 +94,7 @@ fn dedup_indexed_items(store: &crate::db::store::BrainStore) -> Result<u64> {
     }
 
     let mut count = 0u64;
-    for (_topic, indices) in &topic_groups {
+    for indices in topic_groups.values() {
         if indices.len() < 2 {
             continue;
         }

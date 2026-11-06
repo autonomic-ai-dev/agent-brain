@@ -43,3 +43,4 @@ Summary: The benchmark and CI-proof harness, shipped as the optional `agent-brai
 - The extension links the whole core library with `extras`, so its release binary is about as large as the core binary (44 MB at rc5). Installing it adds that much.
 - `eval --beam` moved to `bench --beam`. Scripts that call the old form now get the eval usage text.
 - The core exposes `bm25_fast_path_eligible` on the store for the supervisor benchmark. Changing that method breaks the extension.
+- Every benchmark routes through `Engine::route_task(RouteRequest { .. })` (`agent_brain::engine::RouteRequest`), so a new routing argument is added to that struct, not to the call sites.

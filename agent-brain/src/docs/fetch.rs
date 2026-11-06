@@ -4,7 +4,7 @@ use anyhow::{bail, Context, Result};
 use regex::Regex;
 
 pub fn fetch_url(url: &str, max_bytes: usize) -> Result<Vec<u8>> {
-    let max_bytes = max_bytes.max(4096).min(5_000_000);
+    let max_bytes = max_bytes.clamp(4096, 5_000_000);
     let response = ureq::get(url)
         .header(
             "User-Agent",

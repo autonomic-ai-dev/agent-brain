@@ -23,7 +23,7 @@ Summary: An opt-in, read-only link to the Memorable procedural-memory CLI. It is
 
 - `agent-brain/src/memorable.rs`
 - `agent-brain/src/settings.rs` (the `memorable` section and its default)
-- `agent-brain/src/mcp_cli.rs` (`persist_brain_settings`, now public)
+- `agent-brain/src/mcp_cli.rs` (`persist_brain_settings`, now public; the `mcp list` header now prints a literal `COMMAND` label, with the same output)
 - `agent-brain/src/main.rs` (the `memorable` command arm)
 
 ## How to get to it (user POV)

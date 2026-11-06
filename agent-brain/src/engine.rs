@@ -30,6 +30,16 @@ use crate::workspace::{
 
 type RouteQueryParallelResult = (Vec<ScoredItem>, usize, usize, u64, u64, bool, bool);
 
+pub struct RouteRequest<'a> {
+    pub user_message: &'a str,
+    pub cwd: Option<&'a Path>,
+    pub open_files: &'a [String],
+    pub max_tokens: usize,
+    pub limits: RouteLimits,
+    pub explicit_phase: Option<&'a str>,
+    pub explicit_task_kind: Option<&'a str>,
+}
+
 pub struct Engine {
     pub config: Config,
     pub store: Arc<BrainStore>,
@@ -489,12 +499,14 @@ impl Engine {
             scored = self.apply_query_decompose_fusion(
                 user_message,
                 scored,
-                repo_root,
-                tags,
-                boost_agents,
-                phase,
-                open_files,
-                use_bm25_fast_path,
+                FusionScope {
+                    repo_root,
+                    tags,
+                    boost_agents,
+                    phase,
+                    open_files,
+                    use_bm25_fast_path,
+                },
             )?;
         }
         if self.config.precision_rerank_enabled {
@@ -523,13 +535,16 @@ impl Engine {
         &self,
         user_message: &str,
         primary: Vec<crate::types::ScoredItem>,
-        repo_root: Option<&str>,
-        tags: &[String],
-        boost_agents: bool,
-        phase: &str,
-        open_files: &[String],
-        use_bm25_fast_path: bool,
+        scope: FusionScope<'_>,
     ) -> anyhow::Result<Vec<crate::types::ScoredItem>> {
+        let FusionScope {
+            repo_root,
+            tags,
+            boost_agents,
+            phase,
+            open_files,
+            use_bm25_fast_path,
+        } = scope;
         let parts = crate::query_decompose::decompose_query(user_message);
         if parts.len() <= 1 {
             return Ok(primary);
@@ -636,16 +651,16 @@ impl Engine {
         }
     }
 
-    pub fn route_task(
-        &self,
-        user_message: &str,
-        cwd: Option<&Path>,
-        open_files: &[String],
-        max_tokens: usize,
-        limits: RouteLimits,
-        explicit_phase: Option<&str>,
-        explicit_task_kind: Option<&str>,
-    ) -> Result<RouteTaskResponse> {
+    pub fn route_task(&self, request: RouteRequest<'_>) -> Result<RouteTaskResponse> {
+        let RouteRequest {
+            user_message,
+            cwd,
+            open_files,
+            max_tokens,
+            limits,
+            explicit_phase,
+            explicit_task_kind,
+        } = request;
         self.maybe_spawn_session_ingest();
 
         // Auto-store memory for the previous turn if MCP tools were used since last route_task.
@@ -937,10 +952,12 @@ impl Engine {
         let mut resp = build_route_response(
             &scored,
             &limits,
-            &phase,
-            elastic_budget,
-            project_key_opt,
-            ws.repo_root.as_deref(),
+            RouteContext {
+                phase: &phase,
+                max_tokens: elastic_budget,
+                project_key: project_key_opt,
+                repo_root: ws.repo_root.as_deref(),
+            },
             &ws.tags,
             user_message,
             prefer_agstack,
@@ -1444,17 +1461,38 @@ fn is_domain_incompatible(
     false
 }
 
+#[derive(Clone, Copy)]
+struct FusionScope<'a> {
+    repo_root: Option<&'a str>,
+    tags: &'a [String],
+    boost_agents: bool,
+    phase: &'a str,
+    open_files: &'a [String],
+    use_bm25_fast_path: bool,
+}
+
+#[derive(Clone, Copy)]
+struct RouteContext<'a> {
+    phase: &'a str,
+    max_tokens: usize,
+    project_key: Option<&'a str>,
+    repo_root: Option<&'a str>,
+}
+
 fn build_route_response(
     scored: &[ScoredItem],
     limits: &RouteLimits,
-    phase: &str,
-    max_tokens: usize,
-    project_key: Option<&str>,
-    repo_root: Option<&str>,
+    ctx: RouteContext<'_>,
     ws_tags: &[String],
     user_message: &str,
     prefer_agstack: bool,
 ) -> RouteTaskResponse {
+    let RouteContext {
+        phase,
+        max_tokens,
+        project_key,
+        repo_root,
+    } = ctx;
     let mut resp = RouteTaskResponse {
         recommended_phase: phase.to_string(),
         tokens_budget: max_tokens,
@@ -1526,17 +1564,19 @@ fn build_route_response(
                 && (i.topic == "agstack-mode"
                     || i.source_path
                         .as_deref()
-                        .map_or(false, |p| p.contains("agstack-mode")))
+                        .is_some_and(|p| p.contains("agstack-mode")))
         }) {
             try_add_route_item(
                 &mut resp,
                 &mut state,
                 agstack_mode_item,
                 limits,
-                phase,
-                pass1_max_tokens,
-                project_key,
-                repo_root,
+                RouteContext {
+                    phase,
+                    max_tokens: pass1_max_tokens,
+                    project_key,
+                    repo_root,
+                },
             );
         }
     }
@@ -1572,7 +1612,7 @@ fn build_route_response(
                     && item
                         .source_path
                         .as_deref()
-                        .map_or(false, |p| p.contains("agstack"));
+                        .is_some_and(|p| p.contains("agstack"));
 
                 if crate::retrieval::is_conversational_or_meta(user_message) {
                     continue;
@@ -1642,11 +1682,10 @@ fn build_route_response(
                     }
                 }
             }
-            ItemType::Workflow => {
-                if resp.suggested_workflow.is_some() {
+            ItemType::Workflow
+                if resp.suggested_workflow.is_some() => {
                     continue;
                 }
-            }
             _ => {}
         }
 
@@ -1655,10 +1694,12 @@ fn build_route_response(
             &mut state,
             item,
             limits,
-            phase,
-            pass1_max_tokens,
-            project_key,
-            repo_root,
+            RouteContext {
+                phase,
+                max_tokens: pass1_max_tokens,
+                project_key,
+                repo_root,
+            },
         );
     }
 
@@ -1675,33 +1716,37 @@ fn build_route_response(
                 && (i.topic == "agstack-mode"
                     || i.source_path
                         .as_deref()
-                        .map_or(false, |p| p.contains("agstack-mode")))
+                        .is_some_and(|p| p.contains("agstack-mode")))
         }) {
             try_add_route_item(
                 &mut resp,
                 &mut state,
                 agstack_item,
                 limits,
-                phase,
-                pass1_max_tokens,
-                project_key,
-                repo_root,
+                RouteContext {
+                    phase,
+                    max_tokens: pass1_max_tokens,
+                    project_key,
+                    repo_root,
+                },
             );
         } else if let Some(agstack_fallback) = scored.iter().find(|i| {
             matches!(i.item_type, ItemType::Skill)
                 && i.source_path
                     .as_deref()
-                    .map_or(false, |p| p.contains("agstack"))
+                    .is_some_and(|p| p.contains("agstack"))
         }) {
             try_add_route_item(
                 &mut resp,
                 &mut state,
                 agstack_fallback,
                 limits,
-                phase,
-                pass1_max_tokens,
-                project_key,
-                repo_root,
+                RouteContext {
+                    phase,
+                    max_tokens: pass1_max_tokens,
+                    project_key,
+                    repo_root,
+                },
             );
         }
     }
@@ -1733,10 +1778,12 @@ fn build_route_response(
             &mut state,
             item,
             limits,
-            phase,
-            max_tokens,
-            project_key,
-            repo_root,
+            RouteContext {
+                phase,
+                max_tokens,
+                project_key,
+                repo_root,
+            },
         );
     }
 
@@ -1752,10 +1799,12 @@ fn build_route_response(
                 &mut state,
                 fallback_mem,
                 limits,
-                phase,
-                max_tokens,
-                project_key,
-                repo_root,
+                RouteContext {
+                    phase,
+                    max_tokens,
+                    project_key,
+                    repo_root,
+                },
             );
         }
     }
@@ -1774,11 +1823,14 @@ fn try_add_route_item(
     state: &mut RouteBuildState,
     item: &ScoredItem,
     limits: &RouteLimits,
-    phase: &str,
-    max_tokens: usize,
-    project_key: Option<&str>,
-    repo_root: Option<&str>,
+    ctx: RouteContext<'_>,
 ) {
+    let RouteContext {
+        phase,
+        max_tokens,
+        project_key,
+        repo_root,
+    } = ctx;
     enum PendingRec {
         Agent(AgentRec),
         Skill(SkillRec),
@@ -2131,10 +2183,12 @@ mod tests {
         let resp = build_route_response(
             &scored,
             &limits,
-            "implementing",
-            800,
-            None,
-            None,
+            RouteContext {
+                phase: "implementing",
+                max_tokens: 800,
+                project_key: None,
+                repo_root: None,
+            },
             &[],
             "",
             true,
@@ -2181,10 +2235,12 @@ mod tests {
         let resp = build_route_response(
             &scored,
             &limits,
-            "implementing",
-            800,
-            Some("project-a"),
-            None,
+            RouteContext {
+                phase: "implementing",
+                max_tokens: 800,
+                project_key: Some("project-a"),
+                repo_root: None,
+            },
             &[],
             "",
             true,
@@ -2278,7 +2334,19 @@ mod tests {
             memory: 0,
         };
         let resp =
-            build_route_response(&scored, &limits, "planning", 800, None, None, &[], "", true);
+            build_route_response(
+                &scored,
+                &limits,
+                RouteContext {
+                    phase: "planning",
+                    max_tokens: 800,
+                    project_key: None,
+                    repo_root: None,
+                },
+                &[],
+                "",
+                true,
+            );
         assert_eq!(resp.recommended_skills.len(), 1);
         assert_eq!(resp.recommended_skills[0].name, "rust-patterns");
     }
@@ -2300,10 +2368,12 @@ mod tests {
         let resp = build_route_response(
             &scored,
             &limits,
-            "implementing",
-            800,
-            None,
-            None,
+            RouteContext {
+                phase: "implementing",
+                max_tokens: 800,
+                project_key: None,
+                repo_root: None,
+            },
             &ws_tags,
             "implement tests for engine",
             true,
@@ -2315,10 +2385,12 @@ mod tests {
         let resp_explicit = build_route_response(
             &scored,
             &limits,
-            "implementing",
-            800,
-            None,
-            None,
+            RouteContext {
+                phase: "implementing",
+                max_tokens: 800,
+                project_key: None,
+                repo_root: None,
+            },
             &ws_tags,
             "refactor react frontend",
             true,
@@ -2346,10 +2418,12 @@ mod tests {
         let resp = build_route_response(
             &scored,
             &limits,
-            "implementing",
-            800,
-            None,
-            None,
+            RouteContext {
+                phase: "implementing",
+                max_tokens: 800,
+                project_key: None,
+                repo_root: None,
+            },
             &["rust".to_string()],
             "refactor rust code",
             true,
@@ -2427,10 +2501,12 @@ mod tests {
         let resp = build_route_response(
             &scored,
             &limits,
-            "implementing",
-            800,
-            None,
-            None,
+            RouteContext {
+                phase: "implementing",
+                max_tokens: 800,
+                project_key: None,
+                repo_root: None,
+            },
             &ws_tags,
             "verify safety gates before release",
             true,
@@ -2444,10 +2520,12 @@ mod tests {
         let resp_explicit = build_route_response(
             &scored,
             &limits,
-            "implementing",
-            800,
-            None,
-            None,
+            RouteContext {
+                phase: "implementing",
+                max_tokens: 800,
+                project_key: None,
+                repo_root: None,
+            },
             &ws_tags,
             "run react component pipeline",
             true,
@@ -2478,10 +2556,12 @@ mod tests {
         let resp = build_route_response(
             &scored,
             &limits,
-            "implementing",
-            800,
-            None,
-            None,
+            RouteContext {
+                phase: "implementing",
+                max_tokens: 800,
+                project_key: None,
+                repo_root: None,
+            },
             &ws_tags,
             "design rust architecture",
             true,
@@ -2512,10 +2592,12 @@ mod tests {
         let resp = build_route_response(
             &scored,
             &limits,
-            "implementing",
-            500,
-            None,
-            None,
+            RouteContext {
+                phase: "implementing",
+                max_tokens: 500,
+                project_key: None,
+                repo_root: None,
+            },
             &[],
             "",
             true,
@@ -2543,10 +2625,12 @@ mod tests {
         let resp = build_route_response(
             &scored,
             &limits,
-            "implementing",
-            500,
-            None,
-            None,
+            RouteContext {
+                phase: "implementing",
+                max_tokens: 500,
+                project_key: None,
+                repo_root: None,
+            },
             &[],
             "write rust code",
             true,
@@ -2576,10 +2660,12 @@ mod tests {
         let resp_enabled = build_route_response(
             &scored,
             &limits,
-            "implementing",
-            500,
-            None,
-            None,
+            RouteContext {
+                phase: "implementing",
+                max_tokens: 500,
+                project_key: None,
+                repo_root: None,
+            },
             &[],
             "write rust code",
             true,
@@ -2589,10 +2675,12 @@ mod tests {
         let resp_disabled = build_route_response(
             &scored,
             &limits,
-            "implementing",
-            500,
-            None,
-            None,
+            RouteContext {
+                phase: "implementing",
+                max_tokens: 500,
+                project_key: None,
+                repo_root: None,
+            },
             &[],
             "write rust code",
             false,
