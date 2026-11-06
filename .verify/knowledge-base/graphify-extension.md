@@ -19,7 +19,7 @@ The codebase graph moved out of the core binary into the `agent-brain-graphify` 
 
 - Extension engine: `extensions/graphify/src/` (`ingest.rs`, `jobs.rs`, `repos.rs`, `query.rs`, `process.rs`, `cli.rs`, `types.rs`, `rpc.rs`, `main.rs`, `lib.rs`)
 - Core route path: `agent-brain/src/graphify/mod.rs` (`route_code_context`, `rpc`), `agent-brain/src/graphify/rows.rs`
-- Core store accessors: `agent-brain/src/db/graph_store.rs`
+- Core store accessors: `agent-brain/src/db/graph_store.rs` (`insert_graphify_job` takes a `GraphifyJobInsert` struct; the extension's `jobs.rs` builds one per queued job)
 - Core MCP handlers: `agent-brain/src/mcp/server.rs` (`query_codebase`, `trigger_deep_analysis`, `graphify_job_status`)
 - Bench consumer: `extensions/bench/src/graphify_bench.rs` (depends on the `agent_brain_graphify` library)
 

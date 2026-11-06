@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use agent_brain::db::store::{content_hash, BrainStore, FactTemporal};
 use agent_brain::embed::{deterministic_embedding, Embedder};
-use agent_brain::engine::Engine;
+use agent_brain::engine::{Engine, RouteRequest};
 use agent_brain::observation::{run_observations, ObservationConfig};
 use agent_brain::types::RouteLimits;
 use agent_brain::{config::Config, temporal};
@@ -156,20 +156,20 @@ fn observation_does_not_bind_must_apply_or_memory() {
 
     let engine = Engine::new_with_store(config.clone(), Arc::clone(&store)).unwrap();
     let resp = engine
-        .route_task(
-            "add vitest tests for react components",
-            None,
-            &[],
-            500,
-            RouteLimits {
+        .route_task(RouteRequest {
+            user_message: "add vitest tests for react components",
+            cwd: None,
+            open_files: &[],
+            max_tokens: 500,
+            limits: RouteLimits {
                 agents: 0,
                 skills: 0,
                 rules: 0,
                 memory: 5,
             },
-            Some("implementing"),
-            None,
-        )
+            explicit_phase: Some("implementing"),
+            explicit_task_kind: None,
+        })
         .unwrap();
 
     // Observations are indexed for inspect/tooling but must not bind or fill route memory.

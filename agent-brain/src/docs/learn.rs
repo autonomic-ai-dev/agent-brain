@@ -161,8 +161,8 @@ fn chunk_words(text: &str, chunk_words: usize, max_chunks: usize) -> Vec<String>
     if words.is_empty() {
         return Vec::new();
     }
-    let chunk_words = chunk_words.max(80).min(600);
-    let max_chunks = max_chunks.max(1).min(12);
+    let chunk_words = chunk_words.clamp(80, 600);
+    let max_chunks = max_chunks.clamp(1, 12);
     let mut chunks = Vec::new();
     for chunk in words.chunks(chunk_words).take(max_chunks) {
         chunks.push(chunk.join(" "));

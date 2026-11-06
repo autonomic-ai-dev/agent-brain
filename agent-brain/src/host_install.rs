@@ -94,7 +94,7 @@ pub fn install_host(target: HostTarget, exe: &Path, quiet: bool) -> Result<Vec<P
             ];
 
             for (target, name) in hosts {
-                match install_host(target.clone(), exe, true) {
+                match install_host(*target, exe, true) {
                     Ok(p) => {
                         paths.extend(p);
                         ok_hosts.push(*name);
@@ -154,11 +154,11 @@ pub fn claude_desktop_config_path() -> Result<PathBuf> {
     let home = dirs::home_dir().context("home directory")?;
     #[cfg(target_os = "macos")]
     {
-        return Ok(home
+        Ok(home
             .join("Library")
             .join("Application Support")
             .join("Claude")
-            .join("claude_desktop_config.json"));
+            .join("claude_desktop_config.json"))
     }
     #[cfg(target_os = "windows")]
     {
@@ -756,11 +756,7 @@ fn toml_string(value: &str) -> String {
 pub fn merge_codex_config_toml(content: &str, mcp_block: &str) -> String {
     let lines: Vec<&str> = content.lines().collect();
     if let Some((start, end)) = find_toml_section_range(&lines, "mcp_servers.agent-brain") {
-        let mut out: Vec<String> = lines[..start]
-            .to_vec()
-            .into_iter()
-            .map(str::to_string)
-            .collect();
+        let mut out: Vec<String> = lines[..start].iter().map(|line| line.to_string()).collect();
         if start > 0 && lines[start - 1].trim() == CODEX_MCP_MARKER {
             out.pop();
         }

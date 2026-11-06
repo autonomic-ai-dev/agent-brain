@@ -154,7 +154,7 @@ fn build_operator(settings: &CloudSyncSettings) -> Result<Operator> {
                 .context("build local cloud operator")?
                 .finish())
         }
-        "s3" | _ => {
+        _ => {
             let mut builder = S3::default().bucket(&settings.bucket);
             if !settings.region.is_empty() {
                 builder = builder.region(&settings.region);

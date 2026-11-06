@@ -111,6 +111,10 @@ impl AnnIndex {
         self.ids.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.ids.is_empty()
+    }
+
     pub fn is_active(&self, min_index: usize) -> bool {
         self.len() >= min_index
     }

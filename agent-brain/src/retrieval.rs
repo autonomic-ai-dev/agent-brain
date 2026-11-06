@@ -99,7 +99,7 @@ pub fn significant_terms(query: &str) -> Vec<String> {
     query
         .to_lowercase()
         .split(|c: char| !c.is_alphanumeric())
-        .filter(|w| w.len() >= 2 && !STOPWORDS.contains(&w))
+        .filter(|w| w.len() >= 2 && !STOPWORDS.contains(w))
         .map(str::to_string)
         .collect()
 }
@@ -114,7 +114,7 @@ pub fn expanded_terms(query: &str) -> Vec<String> {
     }
     for term in &base {
         for group in SYNONYM_GROUPS {
-            if group.iter().any(|g| *g == term.as_str()) {
+            if group.contains(&term.as_str()) {
                 for g in *group {
                     out.insert((*g).to_string());
                 }
@@ -578,10 +578,9 @@ pub fn recall_procedures(
         return Ok(Vec::new());
     }
 
-    let mut groups: std::collections::HashMap<
-        (String, String),
-        (usize, usize, Option<String>, Option<String>),
-    > = std::collections::HashMap::new();
+    type GroupKey = (String, String);
+    type GroupStats = (usize, usize, Option<String>, Option<String>);
+    let mut groups: std::collections::HashMap<GroupKey, GroupStats> = std::collections::HashMap::new();
 
     for t in &all {
         let key = (t.workflow_id.clone(), t.node_id.clone());

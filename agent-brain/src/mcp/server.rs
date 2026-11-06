@@ -19,7 +19,7 @@ use serde::Deserialize;
 use crate::db::send_and_recv;
 use crate::db::store::{looks_like_secret, word_count};
 use crate::db::write_queue::{store_memory_payload, WriteOp};
-use crate::engine::Engine;
+use crate::engine::{Engine, RouteRequest};
 use crate::gc;
 use crate::mcp::route_gate::McpRouteGate;
 use crate::skill_registry::{read_skill_file, search_terms, MAX_SKILL_RESULTS};
@@ -741,15 +741,15 @@ impl BrainMcp {
         let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
         let resp = self
             .engine
-            .route_task(
-                &p.user_message,
-                cwd.as_deref(),
-                &p.open_files,
-                p.max_tokens,
-                p.limits.normalize(),
-                p.phase.as_deref(),
-                p.task_kind.as_deref(),
-            )
+            .route_task(RouteRequest {
+                user_message: &p.user_message,
+                cwd: cwd.as_deref(),
+                open_files: &p.open_files,
+                max_tokens: p.max_tokens,
+                limits: p.limits.normalize(),
+                explicit_phase: p.phase.as_deref(),
+                explicit_task_kind: p.task_kind.as_deref(),
+            })
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         self.route_gate.record_route(&p.user_message);
         json_result(resp)
@@ -913,12 +913,14 @@ impl BrainMcp {
             &self.engine.store,
             p.exit_code,
             &p.cmd,
-            p.route_log_id.as_deref(),
-            p.cause_tag.as_deref(),
-            config_path.as_deref(),
-            scenarios.as_deref(),
-            cwd.as_deref(),
-            source,
+            crate::verify::VerifyRecord {
+                route_log_id: p.route_log_id.as_deref(),
+                cause_tag: p.cause_tag.as_deref(),
+                config_path: config_path.as_deref(),
+                scenarios_dir: scenarios.as_deref(),
+                cwd: cwd.as_deref(),
+                source,
+            },
         )
         .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
         json_result(serde_json::json!({ "verify": report }))
@@ -1313,13 +1315,15 @@ impl BrainMcp {
 
             if let Err(err) = crate::observability::log_upstream_call(
                 &self.engine.store,
-                &log_id,
-                &server.name,
-                &format!("batch({})", count),
-                truncated.tokens_used,
-                truncated.truncated,
-                is_any_error,
-                latency_ms,
+                crate::observability::UpstreamCall {
+                    log_id: &log_id,
+                    server: &server.name,
+                    tool: &format!("batch({})", count),
+                    tokens_used: truncated.tokens_used,
+                    truncated: truncated.truncated,
+                    is_error: is_any_error,
+                    latency_ms,
+                },
             ) {
                 tracing::warn!(error = %err, "upstream retrieval log write failed");
             }
@@ -1356,13 +1360,15 @@ impl BrainMcp {
         let latency_ms = started.elapsed().as_millis() as u64;
         if let Err(err) = crate::observability::log_upstream_call(
             &self.engine.store,
-            &log_id,
-            &server.name,
-            &tool_name,
-            truncated.tokens_used,
-            truncated.truncated,
-            is_error,
-            latency_ms,
+            crate::observability::UpstreamCall {
+                log_id: &log_id,
+                server: &server.name,
+                tool: &tool_name,
+                tokens_used: truncated.tokens_used,
+                truncated: truncated.truncated,
+                is_error,
+                latency_ms,
+            },
         ) {
             tracing::warn!(error = %err, "upstream retrieval log write failed");
         }
@@ -1680,14 +1686,16 @@ impl BrainMcp {
             route_context_from_state(&self.engine.config.home);
         if let Err(err) = crate::observability::log_native_tool_use(
             &self.engine.store,
-            tool_name,
-            path,
-            resp.tokens_used,
-            resp.tokens_saved_vs_full_read,
-            resp.savings_pct_vs_full_read,
-            must_apply_active,
-            phase.as_deref(),
-            route_log_id.as_deref(),
+            crate::observability::NativeToolUse {
+                tool_name,
+                path,
+                tokens_used: resp.tokens_used,
+                tokens_saved: resp.tokens_saved_vs_full_read,
+                savings_pct: resp.savings_pct_vs_full_read,
+                must_apply_active,
+                phase: phase.as_deref(),
+                route_log_id: route_log_id.as_deref(),
+            },
         ) {
             tracing::warn!(error = %err, tool = tool_name, "tool_log write failed");
         }
@@ -1703,14 +1711,16 @@ impl BrainMcp {
             route_context_from_state(&self.engine.config.home);
         if let Err(err) = crate::observability::log_native_tool_use(
             &self.engine.store,
-            tool_name,
-            path,
-            resp.tokens_used,
-            resp.tokens_saved_vs_full_read,
-            resp.savings_pct_vs_full_read,
-            must_apply_active,
-            phase.as_deref(),
-            route_log_id.as_deref(),
+            crate::observability::NativeToolUse {
+                tool_name,
+                path,
+                tokens_used: resp.tokens_used,
+                tokens_saved: resp.tokens_saved_vs_full_read,
+                savings_pct: resp.savings_pct_vs_full_read,
+                must_apply_active,
+                phase: phase.as_deref(),
+                route_log_id: route_log_id.as_deref(),
+            },
         ) {
             tracing::warn!(error = %err, tool = tool_name, "tool_log write failed");
         }

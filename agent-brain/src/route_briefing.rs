@@ -27,11 +27,7 @@ pub fn token_savings(resp: &RouteTaskResponse) -> Option<TokenSavings> {
         .index_total
         .saturating_mul(NAIVE_TOKENS_PER_INDEXED_ITEM);
     let saved_tokens = naive_tokens.saturating_sub(resp.tokens_used);
-    let saved_pct = if naive_tokens > 0 {
-        saved_tokens.saturating_mul(100) / naive_tokens
-    } else {
-        0
-    };
+    let saved_pct = saved_tokens.saturating_mul(100).checked_div(naive_tokens).unwrap_or(0);
     Some(TokenSavings {
         index_total: resp.index_total,
         naive_tokens,

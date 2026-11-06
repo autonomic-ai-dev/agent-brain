@@ -7,6 +7,7 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 use uuid::Uuid;
 
+use agent_brain::db::graph_store::GraphifyJobInsert;
 use agent_brain::engine::Engine;
 
 use crate::ingest::ingest_repo;
@@ -91,16 +92,16 @@ pub fn enqueue_job_detached(
 ) -> Result<(String, thread::JoinHandle<()>)> {
     let job_id = Uuid::new_v4().to_string();
     let repo_str = repo_root.display().to_string();
-    engine.store.insert_graphify_job(
-        &job_id,
-        &repo_str,
-        trigger.as_str(),
-        mode.as_str(),
-        "queued",
-        None,
-        None,
-        None,
-    )?;
+    engine.store.insert_graphify_job(GraphifyJobInsert {
+        id: &job_id,
+        repo_root: &repo_str,
+        trigger: trigger.as_str(),
+        mode: mode.as_str(),
+        status: "queued",
+        started_at: None,
+        finished_at: None,
+        error: None,
+    })?;
     let engine = Arc::clone(engine);
     let repo = repo_root.to_path_buf();
     let bin = graphify_bin.to_string();

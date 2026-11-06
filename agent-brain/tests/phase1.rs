@@ -7,7 +7,7 @@ use agent_brain::cache::{
 use agent_brain::config::Config;
 use agent_brain::db::store::{content_hash, looks_like_secret, BrainStore};
 use agent_brain::embed::{deterministic_embedding, Embedder};
-use agent_brain::engine::Engine;
+use agent_brain::engine::{Engine, RouteRequest};
 use agent_brain::tokens::estimate_tokens;
 use agent_brain::types::{ItemType, RouteLimits, RouteTaskResponse};
 use tempfile::TempDir;
@@ -275,20 +275,20 @@ fn route_task_respects_max_tokens() {
     let engine = Engine::new_with_store(config, Arc::new(store)).unwrap();
 
     let resp = engine
-        .route_task(
-            "implement rust backend",
-            Some(PathBuf::from(".").as_path()),
-            &[],
-            20,
-            RouteLimits {
+        .route_task(RouteRequest {
+            user_message: "implement rust backend",
+            cwd: Some(PathBuf::from(".").as_path()),
+            open_files: &[],
+            max_tokens: 20,
+            limits: RouteLimits {
                 agents: 5,
                 skills: 5,
                 rules: 5,
                 memory: 5,
             },
-            None,
-            None,
-        )
+            explicit_phase: None,
+            explicit_task_kind: None,
+        })
         .unwrap();
 
     assert!(resp.tokens_used <= resp.tokens_budget);
@@ -323,20 +323,20 @@ fn routes_skill_with_matching_description_over_unrelated_skill() {
 
     let engine = Engine::new_with_store(config, Arc::new(store)).unwrap();
     let resp = engine
-        .route_task(
-            query,
-            None,
-            &[],
-            500,
-            RouteLimits {
+        .route_task(RouteRequest {
+            user_message: query,
+            cwd: None,
+            open_files: &[],
+            max_tokens: 500,
+            limits: RouteLimits {
                 agents: 0,
                 skills: 3,
                 rules: 0,
                 memory: 0,
             },
-            None,
-            None,
-        )
+            explicit_phase: None,
+            explicit_task_kind: None,
+        })
         .unwrap();
 
     let top = resp
@@ -395,20 +395,20 @@ fn dedupes_duplicate_skill_names_in_route_task() {
     let engine = Engine::new_with_store(config, Arc::new(store)).unwrap();
 
     let resp = engine
-        .route_task(
-            query,
-            None,
-            &[],
-            500,
-            RouteLimits {
+        .route_task(RouteRequest {
+            user_message: query,
+            cwd: None,
+            open_files: &[],
+            max_tokens: 500,
+            limits: RouteLimits {
                 agents: 0,
                 skills: 3,
                 rules: 0,
                 memory: 0,
             },
-            None,
-            None,
-        )
+            explicit_phase: None,
+            explicit_task_kind: None,
+        })
         .unwrap();
 
     let skill_names: Vec<_> = resp
@@ -549,20 +549,20 @@ fn route_task_with_all_zero_limits_returns_skills() {
     let engine = Engine::new_with_store(config, Arc::new(store)).unwrap();
 
     let resp = engine
-        .route_task(
-            "write spring boot integration tests with mockmvc",
-            None,
-            &[],
-            500,
-            RouteLimits {
+        .route_task(RouteRequest {
+            user_message: "write spring boot integration tests with mockmvc",
+            cwd: None,
+            open_files: &[],
+            max_tokens: 500,
+            limits: RouteLimits {
                 agents: 0,
                 skills: 0,
                 rules: 0,
                 memory: 0,
             },
-            None,
-            None,
-        )
+            explicit_phase: None,
+            explicit_task_kind: None,
+        })
         .unwrap();
 
     assert!(
@@ -632,20 +632,20 @@ fn unrelated_query_in_tagged_workspace_yields_zero_skills() {
     let engine = Engine::new_with_store(config, Arc::new(store)).unwrap();
 
     let unrelated = engine
-        .route_task(
-            "currently getting many false positive skill suggestions, need to rethink how the suggestion is working.",
-            Some(ws_dir.path()),
-            &[],
-            500,
-            RouteLimits {
+        .route_task(RouteRequest {
+            user_message: "currently getting many false positive skill suggestions, need to rethink how the suggestion is working.",
+            cwd: Some(ws_dir.path()),
+            open_files: &[],
+            max_tokens: 500,
+            limits: RouteLimits {
                 agents: 0,
                 skills: 3,
                 rules: 0,
                 memory: 0,
             },
-            None,
-            None,
-        )
+            explicit_phase: None,
+            explicit_task_kind: None,
+        })
         .unwrap();
 
     assert!(
@@ -655,20 +655,20 @@ fn unrelated_query_in_tagged_workspace_yields_zero_skills() {
     );
 
     let related = engine
-        .route_task(
-            "write unit tests with cargo test",
-            Some(ws_dir.path()),
-            &[],
-            500,
-            RouteLimits {
+        .route_task(RouteRequest {
+            user_message: "write unit tests with cargo test",
+            cwd: Some(ws_dir.path()),
+            open_files: &[],
+            max_tokens: 500,
+            limits: RouteLimits {
                 agents: 0,
                 skills: 3,
                 rules: 0,
                 memory: 0,
             },
-            None,
-            None,
-        )
+            explicit_phase: None,
+            explicit_task_kind: None,
+        })
         .unwrap();
 
     assert!(
@@ -804,20 +804,20 @@ fn large_scale_isolated_routing_benchmark_intent_vs_context() {
 
     for query in &negative_queries {
         let res = engine
-            .route_task(
-                query,
-                Some(ws_dir.path()),
-                &[],
-                500,
-                RouteLimits {
+            .route_task(RouteRequest {
+                user_message: query,
+                cwd: Some(ws_dir.path()),
+                open_files: &[],
+                max_tokens: 500,
+                limits: RouteLimits {
                     agents: 0,
                     skills: 3,
                     rules: 0,
                     memory: 0,
                 },
-                None,
-                None,
-            )
+                explicit_phase: None,
+                explicit_task_kind: None,
+            })
             .unwrap();
 
         assert!(
@@ -883,20 +883,20 @@ fn large_scale_isolated_routing_benchmark_intent_vs_context() {
     let mut positive_hits = 0;
     for (query, expected_skill) in positive_cases {
         let res = engine
-            .route_task(
-                query,
-                Some(ws_dir.path()),
-                &[],
-                500,
-                RouteLimits {
+            .route_task(RouteRequest {
+                user_message: query,
+                cwd: Some(ws_dir.path()),
+                open_files: &[],
+                max_tokens: 500,
+                limits: RouteLimits {
                     agents: 0,
                     skills: 3,
                     rules: 0,
                     memory: 0,
                 },
-                None,
-                None,
-            )
+                explicit_phase: None,
+                explicit_task_kind: None,
+            })
             .unwrap();
 
         let hit = res

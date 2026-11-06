@@ -4,7 +4,7 @@ use tempfile::TempDir;
 use agent_brain::config::Config;
 use agent_brain::db::store::{content_hash, BrainStore};
 use agent_brain::embed::deterministic_embedding;
-use agent_brain::engine::Engine;
+use agent_brain::engine::{Engine, RouteRequest};
 use agent_brain::types::{ItemType, RouteLimits};
 
 fn test_config(dir: &TempDir) -> Config {
@@ -427,20 +427,20 @@ fn jailbreak_200_complex_intent_queries() {
 
     for (query, expectation) in cases {
         let res = engine
-            .route_task(
-                query,
-                Some(ws_dir.path()),
-                &[],
-                500,
-                RouteLimits {
+            .route_task(RouteRequest {
+                user_message: query,
+                cwd: Some(ws_dir.path()),
+                open_files: &[],
+                max_tokens: 500,
+                limits: RouteLimits {
                     agents: 0,
                     skills: 3,
                     rules: 0,
                     memory: 0,
                 },
-                None,
-                None,
-            )
+                explicit_phase: None,
+                explicit_task_kind: None,
+            })
             .unwrap();
 
         match expectation {

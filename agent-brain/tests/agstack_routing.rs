@@ -4,7 +4,7 @@ use tempfile::TempDir;
 use agent_brain::config::Config;
 use agent_brain::db::store::{content_hash, BrainStore};
 use agent_brain::embed::deterministic_embedding;
-use agent_brain::engine::Engine;
+use agent_brain::engine::{Engine, RouteRequest};
 use agent_brain::types::{ItemType, RouteLimits};
 
 fn test_config(dir: &TempDir) -> Config {
@@ -64,20 +64,20 @@ fn agstack_mandatory_invariants_always_present_in_must_apply() {
 
     for q in queries {
         let resp = engine
-            .route_task(
-                q,
-                None,
-                &[],
-                500,
-                RouteLimits {
+            .route_task(RouteRequest {
+                user_message: q,
+                cwd: None,
+                open_files: &[],
+                max_tokens: 500,
+                limits: RouteLimits {
                     agents: 1,
                     skills: 3,
                     rules: 2,
                     memory: 2,
                 },
-                None,
-                None,
-            )
+                explicit_phase: None,
+                explicit_task_kind: None,
+            })
             .unwrap();
 
         let invariant = resp
@@ -136,20 +136,20 @@ fn agstack_skill_applied_as_fallback_when_no_domain_skill_matches() {
     let engine = Engine::new_with_store(config, store).unwrap();
 
     let resp = engine
-        .route_task(
-            "implement generic state transition pipeline in the backend service",
-            None,
-            &[],
-            500,
-            RouteLimits {
+        .route_task(RouteRequest {
+            user_message: "implement generic state transition pipeline in the backend service",
+            cwd: None,
+            open_files: &[],
+            max_tokens: 500,
+            limits: RouteLimits {
                 agents: 0,
                 skills: 3,
                 rules: 0,
                 memory: 0,
             },
-            None,
-            None,
-        )
+            explicit_phase: None,
+            explicit_task_kind: None,
+        })
         .unwrap();
 
     assert!(
@@ -198,20 +198,20 @@ fn agstack_skill_yields_to_specialized_domain_skill() {
     let engine = Engine::new_with_store(config, store).unwrap();
 
     let resp = engine
-        .route_task(
-            "write unit tests with cargo test",
-            None,
-            &[],
-            500,
-            RouteLimits {
+        .route_task(RouteRequest {
+            user_message: "write unit tests with cargo test",
+            cwd: None,
+            open_files: &[],
+            max_tokens: 500,
+            limits: RouteLimits {
                 agents: 0,
                 skills: 3,
                 rules: 0,
                 memory: 0,
             },
-            None,
-            None,
-        )
+            explicit_phase: None,
+            explicit_task_kind: None,
+        })
         .unwrap();
 
     assert_eq!(
@@ -246,20 +246,20 @@ fn conversational_turns_suppress_agstack_skill_while_preserving_invariants() {
     let engine = Engine::new_with_store(config, store).unwrap();
 
     let resp = engine
-        .route_task(
-            "thanks, got it! sounds good.",
-            None,
-            &[],
-            500,
-            RouteLimits {
+        .route_task(RouteRequest {
+            user_message: "thanks, got it! sounds good.",
+            cwd: None,
+            open_files: &[],
+            max_tokens: 500,
+            limits: RouteLimits {
                 agents: 0,
                 skills: 3,
                 rules: 0,
                 memory: 0,
             },
-            None,
-            None,
-        )
+            explicit_phase: None,
+            explicit_task_kind: None,
+        })
         .unwrap();
 
     assert!(
@@ -304,20 +304,20 @@ fn agstack_project_rule_is_applied_to_applicable_rules() {
     let engine = Engine::new_with_store(config, store).unwrap();
 
     let resp = engine
-        .route_task(
-            "refactor payment service handler",
-            Some(ws_dir.path()),
-            &[],
-            500,
-            RouteLimits {
+        .route_task(RouteRequest {
+            user_message: "refactor payment service handler",
+            cwd: Some(ws_dir.path()),
+            open_files: &[],
+            max_tokens: 500,
+            limits: RouteLimits {
                 agents: 0,
                 skills: 0,
                 rules: 3,
                 memory: 0,
             },
-            None,
-            None,
-        )
+            explicit_phase: None,
+            explicit_task_kind: None,
+        })
         .unwrap();
 
     assert!(
@@ -372,20 +372,20 @@ fn agstack_mode_toggle_in_config_file_disables_preference() {
 
     let engine = Engine::new_with_store(config, store).unwrap();
     let resp = engine
-        .route_task(
-            "general software development task",
-            None,
-            &[],
-            500,
-            RouteLimits {
+        .route_task(RouteRequest {
+            user_message: "general software development task",
+            cwd: None,
+            open_files: &[],
+            max_tokens: 500,
+            limits: RouteLimits {
                 agents: 0,
                 skills: 1,
                 rules: 0,
                 memory: 0,
             },
-            None,
-            None,
-        )
+            explicit_phase: None,
+            explicit_task_kind: None,
+        })
         .unwrap();
 
     assert!(resp
@@ -441,20 +441,20 @@ fn agstack_mode_toggle_in_config_file_enables_preference() {
 
     let engine = Engine::new_with_store(config, store).unwrap();
     let resp = engine
-        .route_task(
-            "general software development task",
-            None,
-            &[],
-            500,
-            RouteLimits {
+        .route_task(RouteRequest {
+            user_message: "general software development task",
+            cwd: None,
+            open_files: &[],
+            max_tokens: 500,
+            limits: RouteLimits {
                 agents: 0,
                 skills: 2,
                 rules: 0,
                 memory: 0,
             },
-            None,
-            None,
-        )
+            explicit_phase: None,
+            explicit_task_kind: None,
+        })
         .unwrap();
 
     assert_eq!(resp.recommended_skills[0].name, "agstack-mode");
@@ -472,20 +472,20 @@ fn unassisted_route_returns_zero_tokens_and_preserves_must_apply() {
     let engine = Engine::new_with_store(config, store).unwrap();
 
     let resp = engine
-        .route_task(
-            "unrelated random query with zero skill matches xyz123",
-            None,
-            &[],
-            500,
-            RouteLimits {
+        .route_task(RouteRequest {
+            user_message: "unrelated random query with zero skill matches xyz123",
+            cwd: None,
+            open_files: &[],
+            max_tokens: 500,
+            limits: RouteLimits {
                 agents: 1,
                 skills: 3,
                 rules: 2,
                 memory: 2,
             },
-            None,
-            None,
-        )
+            explicit_phase: None,
+            explicit_task_kind: None,
+        })
         .unwrap();
 
     assert_eq!(resp.tokens_used, 0);

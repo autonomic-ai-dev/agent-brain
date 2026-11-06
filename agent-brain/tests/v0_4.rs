@@ -3,7 +3,7 @@ use std::sync::Arc;
 use agent_brain::config::Config;
 use agent_brain::db::store::{content_hash, BrainStore};
 use agent_brain::embed::deterministic_embedding;
-use agent_brain::engine::Engine;
+use agent_brain::engine::{Engine, RouteRequest};
 use agent_brain::types::{ItemType, RouteLimits};
 use tempfile::TempDir;
 
@@ -73,20 +73,20 @@ fn negative_memory_surfaces_in_must_apply() {
     let engine = Engine::new_with_store(config.clone(), Arc::clone(&store)).unwrap();
 
     let resp = engine
-        .route_task(
-            "configure vitest for react testing",
-            None,
-            &[],
-            500,
-            RouteLimits {
+        .route_task(RouteRequest {
+            user_message: "configure vitest for react testing",
+            cwd: None,
+            open_files: &[],
+            max_tokens: 500,
+            limits: RouteLimits {
                 agents: 0,
                 skills: 0,
                 rules: 0,
                 memory: 5,
             },
-            Some("implementing"),
-            None,
-        )
+            explicit_phase: Some("implementing"),
+            explicit_task_kind: None,
+        })
         .unwrap();
 
     assert!(
@@ -160,15 +160,15 @@ fn retrieval_log_persisted_on_route() {
     let engine = Engine::new_with_store(config.clone(), Arc::clone(&store)).unwrap();
 
     let resp = engine
-        .route_task(
-            "implement rust backend with actix",
-            None,
-            &[],
-            500,
-            RouteLimits::default(),
-            None,
-            None,
-        )
+        .route_task(RouteRequest {
+            user_message: "implement rust backend with actix",
+            cwd: None,
+            open_files: &[],
+            max_tokens: 500,
+            limits: RouteLimits::default(),
+            explicit_phase: None,
+            explicit_task_kind: None,
+        })
         .unwrap();
 
     let row = store.get_retrieval_log(&resp.log_id).unwrap();

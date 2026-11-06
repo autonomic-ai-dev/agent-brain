@@ -222,12 +222,14 @@ pub fn run_default_step(
         store,
         exit_code,
         &joined,
-        None,
-        None,
-        None,
-        None,
-        Some(project_root),
-        source,
+        VerifyRecord {
+            route_log_id: None,
+            cause_tag: None,
+            config_path: None,
+            scenarios_dir: None,
+            cwd: Some(project_root),
+            source,
+        },
     )?;
     Ok(Some(StepRun {
         report,
@@ -351,18 +353,39 @@ fn resolve_scenarios_dir(
     Ok((None, None))
 }
 
+pub struct VerifyRecord<'a> {
+    pub route_log_id: Option<&'a str>,
+    pub cause_tag: Option<&'a str>,
+    pub config_path: Option<&'a Path>,
+    pub scenarios_dir: Option<&'a Path>,
+    pub cwd: Option<&'a Path>,
+    pub source: VerifySource,
+}
+
+pub struct VerifyRun<'a> {
+    pub route_log_id: Option<&'a str>,
+    pub cause_tag: Option<&'a str>,
+    pub config_path: Option<&'a Path>,
+    pub scenarios_dir: Option<&'a Path>,
+    pub source: VerifySource,
+    pub save_artifact: bool,
+}
+
 /// Record an already-known exit code (no command spawn).
 pub fn record_from_result(
     store: &BrainStore,
     exit_code: i32,
     cmd: &str,
-    route_log_id: Option<&str>,
-    cause_tag: Option<&str>,
-    config_path: Option<&Path>,
-    scenarios_dir: Option<&Path>,
-    cwd: Option<&Path>,
-    source: VerifySource,
+    record: VerifyRecord<'_>,
 ) -> Result<VerifyReport> {
+    let VerifyRecord {
+        route_log_id,
+        cause_tag,
+        config_path,
+        scenarios_dir,
+        cwd,
+        source,
+    } = record;
     if cmd.trim().is_empty() {
         bail!("verify record requires a non-empty cmd summary after --");
     }
@@ -580,16 +603,15 @@ Discovered by `agent-brain verify` and `agent-brain report`.
     Ok(verify_dir)
 }
 
-pub fn run_verify(
-    store: &BrainStore,
-    cmd: &[String],
-    route_log_id: Option<&str>,
-    cause_tag: Option<&str>,
-    config_path: Option<&Path>,
-    scenarios_dir: Option<&Path>,
-    source: VerifySource,
-    save_artifact: bool,
-) -> Result<VerifyReport> {
+pub fn run_verify(store: &BrainStore, cmd: &[String], run: VerifyRun<'_>) -> Result<VerifyReport> {
+    let VerifyRun {
+        route_log_id,
+        cause_tag,
+        config_path,
+        scenarios_dir,
+        source,
+        save_artifact,
+    } = run;
     if cmd.is_empty() {
         bail!("usage: agent-brain verify [--source cli|orchestrator] [--config PATH] [--scenarios DIR] [--route-log-id ID] [--cause TAG] -- <cmd> [args...]");
     }
@@ -611,12 +633,14 @@ pub fn run_verify(
         store,
         exit_code,
         &cmd.join(" "),
-        route_log_id,
-        cause_tag,
-        config_path,
-        scenarios_dir,
-        cwd.as_deref(),
-        source,
+        VerifyRecord {
+            route_log_id,
+            cause_tag,
+            config_path,
+            scenarios_dir,
+            cwd: cwd.as_deref(),
+            source,
+        },
     )?;
     if let Some(tests_run) = count_tests(&output) {
         store.set_verify_outcome_tests_run(&report.id, tests_run)?;
@@ -936,12 +960,14 @@ mod tests {
             &store,
             0,
             "cargo test --all-features",
-            None,
-            None,
-            None,
-            None,
-            Some(dir.path()),
-            VerifySource::Cli,
+            VerifyRecord {
+                route_log_id: None,
+                cause_tag: None,
+                config_path: None,
+                scenarios_dir: None,
+                cwd: Some(dir.path()),
+                source: VerifySource::Cli,
+            },
         )
         .unwrap();
         assert_eq!(store.verify_outcome_tests_run(&report.id).unwrap(), None);
@@ -966,12 +992,14 @@ mod tests {
             &store,
             0,
             "cargo test",
-            None,
-            None,
-            None,
-            None,
-            Some(dir.path()),
-            VerifySource::Hook,
+            VerifyRecord {
+                route_log_id: None,
+                cause_tag: None,
+                config_path: None,
+                scenarios_dir: None,
+                cwd: Some(dir.path()),
+                source: VerifySource::Hook,
+            },
         )
         .unwrap();
         assert_eq!(report.source, "hook");
@@ -1254,12 +1282,14 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
             &store,
             0,
             "cargo test",
-            Some(log_id),
-            None,
-            None,
-            None,
-            Some(dir.path()),
-            VerifySource::Cli,
+            VerifyRecord {
+                route_log_id: Some(log_id),
+                cause_tag: None,
+                config_path: None,
+                scenarios_dir: None,
+                cwd: Some(dir.path()),
+                source: VerifySource::Cli,
+            },
         )
         .unwrap();
         assert!(report.success);

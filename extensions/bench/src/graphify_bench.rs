@@ -11,6 +11,7 @@ use crate::bench::{percentiles, PercentileMs};
 use crate::fixture::{
     default_route_limits, new_isolated_engine, seed_bench_fixture, BENCH_FIXTURE_SKILLS,
 };
+use agent_brain::engine::RouteRequest;
 use agent_brain_graphify::ingest::ingest_graph_at_path;
 
 pub const GRAPHIFY_INGEST_1K_THRESHOLD_MS: u64 = 5_000;
@@ -71,30 +72,30 @@ pub fn run_graphify_tier(node_count: usize) -> Result<GraphifyBenchTier> {
     let query_base = "navigate authentication module database calls";
     for i in 0..ROUTE_WARMUP {
         let q = format!("{query_base} warmup {i}");
-        engine.route_task(
-            &q,
-            Some(&repo),
-            &[],
-            500,
+        engine.route_task(RouteRequest {
+            user_message: &q,
+            cwd: Some(&repo),
+            open_files: &[],
+            max_tokens: 500,
             limits,
-            Some("implementing"),
-            None,
-        )?;
+            explicit_phase: Some("implementing"),
+            explicit_task_kind: None,
+        })?;
     }
 
     let mut samples = Vec::with_capacity(ROUTE_SAMPLES);
     let mut hits = 0usize;
     for i in 0..ROUTE_SAMPLES {
         let q = format!("{query_base} trace flow {i}");
-        let resp = engine.route_task(
-            &q,
-            Some(&repo),
-            &[],
-            500,
+        let resp = engine.route_task(RouteRequest {
+            user_message: &q,
+            cwd: Some(&repo),
+            open_files: &[],
+            max_tokens: 500,
             limits,
-            Some("implementing"),
-            None,
-        )?;
+            explicit_phase: Some("implementing"),
+            explicit_task_kind: None,
+        })?;
         if resp.code_context.is_some() {
             hits += 1;
         }

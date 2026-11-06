@@ -18,6 +18,7 @@ Memorable is a procedural-memory CLI. Its MCP server reads procedures that are s
 
 - `agent-brain/src/memorable.rs`: `enable`, `disable`, and `is_registered`, with unit tests
 - `agent-brain/src/settings.rs`: the `memorable` section, defaulting to `enabled: false`
+- `agent-brain/src/mcp_cli.rs`: `persist_brain_settings` is public. This turn's change to the file only replaced a format argument in the `mcp list` header with a literal, so memorable behavior is unchanged.
 - `agent-brain/src/main.rs`: the `memorable` command
 
 ## How it is verified

@@ -53,7 +53,7 @@ pub fn flush_outbox_to_bundle(store: &BrainStore, bundle_root: &Path) -> Result<
     let sha = format!("{:x}", Sha256::digest(&body));
     let event_count = BufReader::new(fs::File::open(&events_path)?)
         .lines()
-        .filter_map(|l| l.ok())
+        .map_while(Result::ok)
         .filter(|l| !l.trim().is_empty())
         .count();
 
@@ -154,7 +154,7 @@ pub fn import_v2_bundle(
         let cursor = store.get_sync_cursor(&device_id)?;
         let mut lines: Vec<EventEnvelope> = BufReader::new(body.as_slice())
             .lines()
-            .filter_map(|l| l.ok())
+            .map_while(Result::ok)
             .filter(|l| !l.trim().is_empty())
             .filter_map(|l| serde_json::from_str(&l).ok())
             .collect();
@@ -210,7 +210,7 @@ fn apply_event(
             let apply_when = p
                 .apply_when
                 .as_ref()
-                .map(|v| serde_json::to_string(v))
+                .map(serde_json::to_string)
                 .transpose()?;
             let hash = if p.content_hash.is_empty() {
                 content_hash(&p.fact)

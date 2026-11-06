@@ -8,7 +8,7 @@ use anyhow::{bail, Result};
 
 use agent_brain::db::store::{content_hash, BrainStore};
 use agent_brain::embed::Embedder;
-use agent_brain::engine::Engine;
+use agent_brain::engine::{Engine, RouteRequest};
 use agent_brain::types::{ItemType, RouteLimits};
 
 pub const RECALL_AT_3_THRESHOLD: f64 = 0.85;
@@ -295,7 +295,15 @@ where
     let mut failures = Vec::new();
 
     for (query, expected_topic) in golden {
-        let resp = engine.route_task(query, None, &[], 500, limits, Some("implementing"), None)?;
+        let resp = engine.route_task(RouteRequest {
+            user_message: query,
+            cwd: None,
+            open_files: &[],
+            max_tokens: 500,
+            limits,
+            explicit_phase: Some("implementing"),
+            explicit_task_kind: None,
+        })?;
         let topics = got_topics(&resp);
         if topics.iter().any(|t| t == expected_topic) {
             passed += 1;

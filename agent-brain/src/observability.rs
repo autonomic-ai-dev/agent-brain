@@ -75,29 +75,30 @@ pub fn log_route(
     crate::adoption::record_first_route(store)
 }
 
-pub fn log_native_tool_use(
-    store: &BrainStore,
-    tool_name: &str,
-    path: Option<&str>,
-    tokens_used: usize,
-    tokens_saved: Option<usize>,
-    savings_pct: Option<f64>,
-    must_apply_active: bool,
-    phase: Option<&str>,
-    route_log_id: Option<&str>,
-) -> Result<()> {
+pub struct NativeToolUse<'a> {
+    pub tool_name: &'a str,
+    pub path: Option<&'a str>,
+    pub tokens_used: usize,
+    pub tokens_saved: Option<usize>,
+    pub savings_pct: Option<f64>,
+    pub must_apply_active: bool,
+    pub phase: Option<&'a str>,
+    pub route_log_id: Option<&'a str>,
+}
+
+pub fn log_native_tool_use(store: &BrainStore, call: NativeToolUse<'_>) -> Result<()> {
     let id = uuid::Uuid::new_v4().to_string();
     store.insert_tool_log(
         &id,
-        tool_name,
-        path,
+        call.tool_name,
+        call.path,
         None,
-        tokens_used,
-        tokens_saved,
-        savings_pct,
-        must_apply_active,
-        phase,
-        route_log_id,
+        call.tokens_used,
+        call.tokens_saved,
+        call.savings_pct,
+        call.must_apply_active,
+        call.phase,
+        call.route_log_id,
     )
 }
 
@@ -137,31 +138,32 @@ pub fn format_inspect_log(row: &crate::db::store::RetrievalLogRow) -> String {
     )
 }
 
-pub fn log_upstream_call(
-    store: &BrainStore,
-    log_id: &str,
-    server: &str,
-    tool: &str,
-    tokens_used: usize,
-    truncated: bool,
-    is_error: bool,
-    latency_ms: u64,
-) -> Result<()> {
+pub struct UpstreamCall<'a> {
+    pub log_id: &'a str,
+    pub server: &'a str,
+    pub tool: &'a str,
+    pub tokens_used: usize,
+    pub truncated: bool,
+    pub is_error: bool,
+    pub latency_ms: u64,
+}
+
+pub fn log_upstream_call(store: &BrainStore, call: UpstreamCall<'_>) -> Result<()> {
     let items = serde_json::json!([{
         "type": "upstream_call",
-        "server": server,
-        "tool": tool,
-        "is_error": is_error,
+        "server": call.server,
+        "tool": call.tool,
+        "is_error": call.is_error,
     }]);
     store.insert_retrieval_log(
-        log_id,
+        call.log_id,
         "upstream",
         "upstream_call",
         &items.to_string(),
-        tokens_used,
-        truncated,
+        call.tokens_used,
+        call.truncated,
         false,
-        latency_ms,
+        call.latency_ms,
         None,
         None,
         None,

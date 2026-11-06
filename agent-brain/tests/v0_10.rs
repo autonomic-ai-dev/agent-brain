@@ -3,7 +3,7 @@ use std::sync::Arc;
 use agent_brain::config::Config;
 use agent_brain::db::store::{content_hash, BrainStore};
 use agent_brain::embed::deterministic_embedding;
-use agent_brain::engine::Engine;
+use agent_brain::engine::{Engine, RouteRequest};
 use agent_brain::memory_gc::run_memory_gc;
 use agent_brain::promote::{approve_staging, promote_fact_to_skill, reject_staging};
 use tempfile::TempDir;
@@ -344,20 +344,20 @@ fn supervisor_bundle_routes_token_efficient_skill() {
     assert!(n >= 3, "expected supervisor skills/rules indexed, got {n}");
 
     let resp = engine
-        .route_task(
-            "grep before cat a large log file token efficient",
-            None,
-            &[],
-            500,
-            RouteLimits {
+        .route_task(RouteRequest {
+            user_message: "grep before cat a large log file token efficient",
+            cwd: None,
+            open_files: &[],
+            max_tokens: 500,
+            limits: RouteLimits {
                 agents: 0,
                 skills: 3,
                 rules: 2,
                 memory: 0,
             },
-            Some("implementing"),
-            None,
-        )
+            explicit_phase: Some("implementing"),
+            explicit_task_kind: None,
+        })
         .unwrap();
     let skill_names: Vec<_> = resp
         .recommended_skills
@@ -405,20 +405,20 @@ fn must_apply_promoted_without_memory_budget() {
     engine.bootstrap(None).unwrap();
 
     let resp = engine
-        .route_task(
-            "read frontend build artifacts from dist folder deployment",
-            None,
-            &[],
-            10,
-            RouteLimits {
+        .route_task(RouteRequest {
+            user_message: "read frontend build artifacts from dist folder deployment",
+            cwd: None,
+            open_files: &[],
+            max_tokens: 10,
+            limits: RouteLimits {
                 agents: 0,
                 skills: 0,
                 rules: 0,
                 memory: 1,
             },
-            Some("implementing"),
-            None,
-        )
+            explicit_phase: Some("implementing"),
+            explicit_task_kind: None,
+        })
         .unwrap();
     assert!(
         resp.must_apply.iter().any(|m| m.topic == "no-read-dist"),
@@ -441,15 +441,15 @@ fn route_task_suggests_native_token_tools_for_file_queries() {
     engine.bootstrap(None).unwrap();
 
     let resp = engine
-        .route_task(
-            "grep before cat a large log file for errors",
-            None,
-            &[],
-            500,
-            RouteLimits::default(),
-            Some("debugging"),
-            None,
-        )
+        .route_task(RouteRequest {
+            user_message: "grep before cat a large log file for errors",
+            cwd: None,
+            open_files: &[],
+            max_tokens: 500,
+            limits: RouteLimits::default(),
+            explicit_phase: Some("debugging"),
+            explicit_task_kind: None,
+        })
         .unwrap();
     assert!(
         resp.suggested_native_tools

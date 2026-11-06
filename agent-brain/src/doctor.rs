@@ -618,7 +618,7 @@ pub fn macos_has_quarantine_attrs(path: &Path) -> bool {
     #[cfg(target_os = "macos")]
     {
         Command::new("xattr")
-            .arg(&path.display().to_string())
+            .arg(path.display().to_string())
             .output()
             .map(|o| {
                 let out = String::from_utf8_lossy(&o.stdout);

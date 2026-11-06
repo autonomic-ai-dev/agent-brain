@@ -68,10 +68,10 @@ pub fn explain_pending_traces(
         .unwrap_or(0);
     let _ = tool_events::ingest_hook_events_since(store, home, since_ms)?;
     let rows = store.list_pending_tool_traces(500)?;
-    Ok(rows
+    rows
         .iter()
         .map(|row| explain_trace_row(store, row))
-        .collect::<Result<Vec<_>>>()?)
+        .collect::<Result<Vec<_>>>()
 }
 
 pub fn run_trace_extract(

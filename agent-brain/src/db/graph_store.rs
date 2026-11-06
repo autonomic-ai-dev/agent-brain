@@ -632,18 +632,19 @@ impl BrainStore {
     }
 }
 
+pub struct GraphifyJobInsert<'a> {
+    pub id: &'a str,
+    pub repo_root: &'a str,
+    pub trigger: &'a str,
+    pub mode: &'a str,
+    pub status: &'a str,
+    pub started_at: Option<i64>,
+    pub finished_at: Option<i64>,
+    pub error: Option<&'a str>,
+}
+
 impl BrainStore {
-    pub fn insert_graphify_job(
-        &self,
-        id: &str,
-        repo_root: &str,
-        trigger: &str,
-        mode: &str,
-        status: &str,
-        started_at: Option<i64>,
-        finished_at: Option<i64>,
-        error: Option<&str>,
-    ) -> Result<()> {
+    pub fn insert_graphify_job(&self, job: GraphifyJobInsert<'_>) -> Result<()> {
         self.with_conn(|conn| {
             conn.execute(
                 r#"
@@ -652,14 +653,14 @@ impl BrainStore {
                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL)
                 "#,
                 rusqlite::params![
-                    id,
-                    repo_root,
-                    trigger,
-                    mode,
-                    status,
-                    started_at,
-                    finished_at,
-                    error
+                    job.id,
+                    job.repo_root,
+                    job.trigger,
+                    job.mode,
+                    job.status,
+                    job.started_at,
+                    job.finished_at,
+                    job.error
                 ],
             )?;
             Ok(())
