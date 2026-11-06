@@ -43,6 +43,7 @@ agent-brain is the routing layer every agent calls at the start of a turn. Its C
 - MCP tools: `route_task`, `store_memory`, `verify_run`, `record_verify_outcome`, `file_summary`, `grep_search`, `read_file_head`, `read_file_tail`
 - Memory write path: `agent-brain/src/mcp/server.rs` (`store_memory`, `delete_memory`), `agent-brain/src/db/write_handler.rs` (`send_and_recv`), `agent-brain/src/db/store.rs` (`store_fact_full`)
 - graphify subprocess timeouts: `agent-brain/src/graphify/process.rs` (`output_with_timeout`), used by `graphify/jobs.rs` and `graphify/query.rs`
+- Session digest tests: `agent-brain/src/sessions/digest.rs` tests that set `AGENT_BRAIN_SESSION_HOME` serialize on `SESSION_HOME_ENV`, because the variable is process-wide and the test harness runs tests in parallel.
 - Tool and upstream log writers: `agent-brain/src/observability.rs` (`log_native_tool_use` takes a `NativeToolUse` struct, `log_upstream_call` takes an `UpstreamCall` struct), called from `mcp/server.rs`
 
 ## How to use it

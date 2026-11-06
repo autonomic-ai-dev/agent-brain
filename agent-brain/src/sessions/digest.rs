@@ -252,6 +252,8 @@ mod tests {
     use crate::embed::Embedder;
     use tempfile::TempDir;
 
+    static SESSION_HOME_ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     fn test_config(dir: &TempDir) -> Config {
         let home = dir.path().to_path_buf();
         Config {
@@ -310,6 +312,7 @@ mod tests {
 
     #[test]
     fn ingests_gemini_jsonl_digest() {
+        let _env = SESSION_HOME_ENV.lock().unwrap_or_else(|e| e.into_inner());
         let dir = TempDir::new().unwrap();
         std::env::set_var("AGENT_BRAIN_SESSION_HOME", dir.path());
         let config = test_config(&dir);
@@ -340,6 +343,7 @@ mod tests {
 
     #[test]
     fn distills_session_trajectories_into_procedure_edges() {
+        let _env = SESSION_HOME_ENV.lock().unwrap_or_else(|e| e.into_inner());
         let dir = TempDir::new().unwrap();
         std::env::set_var("AGENT_BRAIN_SESSION_HOME", dir.path());
         let config = test_config(&dir);
