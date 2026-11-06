@@ -406,7 +406,10 @@ pub fn discover_package_roots(package_root: &Path) -> Vec<PathBuf> {
     roots.dedup();
     let mut filtered: Vec<PathBuf> = Vec::new();
     for r in roots {
-        if !filtered.iter().any(|existing| r.starts_with(existing) && &r != existing) {
+        if !filtered
+            .iter()
+            .any(|existing| r.starts_with(existing) && &r != existing)
+        {
             filtered.push(r);
         }
     }
@@ -558,13 +561,25 @@ mod tests {
     fn discovers_nested_and_non_standard_package_roots() {
         let dir = tempfile::tempdir().unwrap();
         fs::create_dir_all(dir.path().join(".claude/skills/ui-ux")).unwrap();
-        fs::write(dir.path().join(".claude/skills/ui-ux/SKILL.md"), "---\nname: ui-ux\n---\nUI skill").unwrap();
+        fs::write(
+            dir.path().join(".claude/skills/ui-ux/SKILL.md"),
+            "---\nname: ui-ux\n---\nUI skill",
+        )
+        .unwrap();
         fs::create_dir_all(dir.path().join("sub/custom/tools")).unwrap();
-        fs::write(dir.path().join("sub/custom/tools/SKILL.md"), "---\nname: tool\n---\nTool skill").unwrap();
+        fs::write(
+            dir.path().join("sub/custom/tools/SKILL.md"),
+            "---\nname: tool\n---\nTool skill",
+        )
+        .unwrap();
 
         let roots = discover_package_roots(dir.path());
-        assert!(roots.iter().any(|p| p.ends_with(".claude/skills") || p.ends_with("skills")));
-        assert!(roots.iter().any(|p| p.ends_with("sub/custom/tools") || p.ends_with("tools")));
+        assert!(roots
+            .iter()
+            .any(|p| p.ends_with(".claude/skills") || p.ends_with("skills")));
+        assert!(roots
+            .iter()
+            .any(|p| p.ends_with("sub/custom/tools") || p.ends_with("tools")));
     }
 
     #[test]

@@ -614,7 +614,11 @@ pub fn install_agent_brain_modes(user: bool, quiet: bool) -> Result<()> {
     let home = dirs::home_dir().context("home directory")?;
     let brain_home = home.join(".agent_brain");
 
-    write_agent_brain_mode_file(&crate::global_workspace::agents_md_path(), quiet, "canonical")?;
+    write_agent_brain_mode_file(
+        &crate::global_workspace::agents_md_path(),
+        quiet,
+        "canonical",
+    )?;
     write_cursor_agent_brain_mode_mdc(&brain_home, quiet)?;
 
     if !quiet {

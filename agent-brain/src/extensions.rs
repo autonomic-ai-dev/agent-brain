@@ -62,7 +62,10 @@ pub fn load_manifest(home: &Path, name: &str) -> Result<Manifest> {
         .join(name)
         .join("extension.json");
     let raw = fs::read_to_string(&path).with_context(|| {
-        format!("extension `{name}` is not in the agent-registry cache ({})", path.display())
+        format!(
+            "extension `{name}` is not in the agent-registry cache ({})",
+            path.display()
+        )
     })?;
     let manifest: Manifest =
         serde_json::from_str(&raw).with_context(|| format!("parse {}", path.display()))?;
@@ -107,7 +110,10 @@ fn verify_signature(path: &Path) -> Result<()> {
         .context("run codesign -dv")?;
     let text = String::from_utf8_lossy(&details.stderr);
     if !team_id_matches(&text, TRUSTED_TEAM_ID) {
-        bail!("{} is not signed by the trusted team {TRUSTED_TEAM_ID}", path.display());
+        bail!(
+            "{} is not signed by the trusted team {TRUSTED_TEAM_ID}",
+            path.display()
+        );
     }
     Ok(())
 }
@@ -141,7 +147,10 @@ pub fn install(home: &Path, name: &str) -> Result<PathBuf> {
     let manifest = load_manifest(home, name)?;
     let target = current_target()?;
     let artifact = manifest.binaries.get(target).with_context(|| {
-        format!("extension `{name}` {} has no build for {target}", manifest.version)
+        format!(
+            "extension `{name}` {} has no build for {target}",
+            manifest.version
+        )
     })?;
     let bytes = download(&artifact.url)?;
     verify_sha256(&bytes, &artifact.sha256)?;
@@ -264,10 +273,17 @@ mod tests {
     #[test]
     fn manifest_loads_from_the_registry_checkout() {
         let home = tempdir().unwrap();
-        write_manifest(home.path(), "bench", &manifest_json("bench", &["bench", "proofs"]));
+        write_manifest(
+            home.path(),
+            "bench",
+            &manifest_json("bench", &["bench", "proofs"]),
+        );
         let manifest = load_manifest(home.path(), "bench").unwrap();
         assert_eq!(manifest.version, "0.1.0");
-        assert_eq!(manifest.subcommands, vec!["bench".to_string(), "proofs".to_string()]);
+        assert_eq!(
+            manifest.subcommands,
+            vec!["bench".to_string(), "proofs".to_string()]
+        );
         assert!(manifest.binaries.contains_key("aarch64-apple-darwin"));
     }
 
@@ -299,7 +315,10 @@ mod tests {
     fn owner_of_finds_the_extension_that_provides_a_subcommand() {
         let home = tempdir().unwrap();
         record_installed(home.path(), "bench", &["bench", "proofs"]);
-        assert_eq!(owner_of(home.path(), "proofs").unwrap(), Some("bench".to_string()));
+        assert_eq!(
+            owner_of(home.path(), "proofs").unwrap(),
+            Some("bench".to_string())
+        );
         assert_eq!(owner_of(home.path(), "nosuch").unwrap(), None);
     }
 

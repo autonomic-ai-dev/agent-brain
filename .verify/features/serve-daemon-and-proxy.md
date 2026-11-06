@@ -71,3 +71,5 @@ Summary: `agent-brain serve` runs in two roles. A shared daemon holds the brain 
 - A proxy captures its parent PID when it starts. If the host exits before the proxy captures it, the proxy records the new parent (PID 1) and the parent check never fires. The host-stdin path still ends the proxy once a daemon connection exists. A proxy that never connects to a daemon, and whose host dies before it starts, is still a known gap.
 - The proxy test binds a listener that never accepts, so the proxy connects without starting a daemon. Do not point `AGENT_BRAIN_HOME` at the real home in a test.
 - Installed binaries keep the old behaviour until they are rebuilt and reinstalled from a merged `master`. Restart host sessions after reinstalling, or their old proxies keep running.
+
+- Formatting pass (rustfmt, 2026-11-07): line breaks and spacing only, no behaviour change.

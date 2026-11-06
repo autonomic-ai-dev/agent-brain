@@ -106,3 +106,5 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 
 - Core routing logic: [core-crate](core-crate.md)
 - Feature map: [[../features/cli-verify-and-memory]]
+
+- Formatting pass (rustfmt, 2026-11-07): line breaks and spacing only, no behaviour change.

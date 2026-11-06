@@ -130,3 +130,5 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
 - Flaky under parallel tests: `sessions::digest::tests::ingests_gemini_jsonl_digest` failed once in a parallel `cargo test --all-features --lib` run (left 3, right 1). It passes under the allowlisted `--test-threads=1` run, which exits 0 (recorded by `agent-brain verify`). Cause not investigated.
 - Fixed: `sessions::digest::tests::distills_session_trajectories_into_procedure_edges` failed in parallel runs because it and `ingests_gemini_jsonl_digest` both set the process-wide `AGENT_BRAIN_SESSION_HOME`. Both now take a shared test-only lock (`SESSION_HOME_ENV` in `src/sessions/digest.rs`). The full `--lib` suite passed three runs in a row.
 - Log writers take structs: `observability::log_native_tool_use(store, NativeToolUse { .. })` and `observability::log_upstream_call(store, UpstreamCall { .. })`. The MCP server builds them at each call site.
+
+- Formatting pass (rustfmt, 2026-11-07): line breaks and spacing only, no behaviour change.

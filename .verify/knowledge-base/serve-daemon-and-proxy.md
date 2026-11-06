@@ -25,3 +25,5 @@ Every agent host session starts `agent-brain serve` as an MCP server. One of tho
 - `agent-brain/tests/proxy_lifecycle.rs`: the regression test for proxy exit.
 - `agent-brain/src/mcp/server.rs`: the graph tools (`query_codebase`, `trigger_deep_analysis`, `graphify_job_status`) call the graphify extension through `graphify::rpc` instead of the in-process engine. The extension must be installed for them to work.
 - The feature map is [[../features/serve-daemon-and-proxy]].
+
+- Formatting pass (rustfmt, 2026-11-07): line breaks and spacing only, no behaviour change.

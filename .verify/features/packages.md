@@ -55,3 +55,5 @@ Summary: Installs skill packages from GitHub into the brain home, records each o
 - Installs made before the owner prefix keep their old names (for example `skills`). Remove and re-add them to get the new name.
 - The Homebrew binary at `/opt/homebrew/bin/agent-brain` must be rebuilt or reinstalled before `package add` uses the owner-prefixed name globally.
 - `package remove` deletes the checkout directory. Re-add to restore it.
+
+- Formatting pass (rustfmt, 2026-11-07): line breaks and spacing only, no behaviour change.

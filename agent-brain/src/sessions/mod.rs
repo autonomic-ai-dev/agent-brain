@@ -90,12 +90,7 @@ pub fn ingest_legacy_sessions(
     embedder: &Embedder,
     config: &Config,
 ) -> Result<usize> {
-    ingest_legacy_sessions_filtered(
-        store,
-        embedder,
-        config,
-        &[],
-    )
+    ingest_legacy_sessions_filtered(store, embedder, config, &[])
 }
 
 fn ingest_legacy_sessions_filtered(

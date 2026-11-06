@@ -7,12 +7,12 @@ use std::path::Path;
 
 use anyhow::{bail, Result};
 
-use agent_brain::engine::{Engine, RouteRequest};
 use crate::fixture::{
     default_fixture_2k_path, open_fixture_engine_with_onnx, seed_bench_fixture,
     BENCH_FIXTURE_SKILLS,
 };
 use crate::fixture::{default_route_limits, new_isolated_engine};
+use agent_brain::engine::{Engine, RouteRequest};
 
 pub const TURN_CACHE_HIT_P95_THRESHOLD_MS: u64 = 30;
 pub const WARM_ROUTE_P95_THRESHOLD_MS: u64 = 100;

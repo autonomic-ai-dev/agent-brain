@@ -253,7 +253,8 @@ mod tests {
     #[test]
     fn git_compare_outside_repo_returns_informative_error() {
         let dir = tempfile::TempDir::new().expect("temp dir");
-        let err = git_compare(dir.path(), "HEAD~1", "HEAD").expect_err("temp dir is not a repository");
+        let err =
+            git_compare(dir.path(), "HEAD~1", "HEAD").expect_err("temp dir is not a repository");
         assert!(err.to_lowercase().contains("not a git repository"), "{err}");
     }
 }

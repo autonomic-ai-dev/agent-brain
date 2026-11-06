@@ -1682,10 +1682,9 @@ fn build_route_response(
                     }
                 }
             }
-            ItemType::Workflow
-                if resp.suggested_workflow.is_some() => {
-                    continue;
-                }
+            ItemType::Workflow if resp.suggested_workflow.is_some() => {
+                continue;
+            }
             _ => {}
         }
 
@@ -2333,20 +2332,19 @@ mod tests {
             rules: 0,
             memory: 0,
         };
-        let resp =
-            build_route_response(
-                &scored,
-                &limits,
-                RouteContext {
-                    phase: "planning",
-                    max_tokens: 800,
-                    project_key: None,
-                    repo_root: None,
-                },
-                &[],
-                "",
-                true,
-            );
+        let resp = build_route_response(
+            &scored,
+            &limits,
+            RouteContext {
+                phase: "planning",
+                max_tokens: 800,
+                project_key: None,
+                repo_root: None,
+            },
+            &[],
+            "",
+            true,
+        );
         assert_eq!(resp.recommended_skills.len(), 1);
         assert_eq!(resp.recommended_skills[0].name, "rust-patterns");
     }

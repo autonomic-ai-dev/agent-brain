@@ -7,10 +7,10 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 
+use crate::eval::{run_ci_eval_seeded, seed_eval_fixture, EvalReport, SuiteResult};
 use agent_brain::db::store::{content_hash, BrainStore, FactTemporal};
 use agent_brain::embed::deterministic_embedding;
 use agent_brain::engine::{Engine, RouteRequest};
-use crate::eval::{run_ci_eval_seeded, seed_eval_fixture, EvalReport, SuiteResult};
 use agent_brain::observation::{run_observations, ObservationConfig};
 use agent_brain::types::{ItemType, RouteLimits, RouteTaskResponse};
 

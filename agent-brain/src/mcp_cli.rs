@@ -70,10 +70,7 @@ pub async fn handle_mcp_command(args: &[String]) -> Result<()> {
 
     match sub {
         "list" | "ls" => {
-            println!(
-                "{:<18} {:<10} {:<8} COMMAND",
-                "SERVER", "STATUS", "TOOLS"
-            );
+            println!("{:<18} {:<10} {:<8} COMMAND", "SERVER", "STATUS", "TOOLS");
             println!("{:-<18} {:-<10} {:-<8} {:-<30}", "", "", "", "");
 
             let engine = Engine::new(config)?;
