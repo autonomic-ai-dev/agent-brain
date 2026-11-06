@@ -83,6 +83,8 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
 - `agent-brain/Cargo.toml`
 - `agent-brain/config.example.yaml`
 - `Cargo.lock`
+- `README.md`
+- `LICENSE`
 
 ## How to get to it (user POV)
 

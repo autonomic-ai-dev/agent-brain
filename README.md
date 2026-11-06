@@ -2,9 +2,9 @@
 
 > **Local-First Cognitive Governor, Turn Router & Procedure Graph for Coding Agents.**
 
-[![Version](https://img.shields.io/badge/version-1.0.0--rc3-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.0.0--rc7-blue.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey.svg)](https://autonomic-ai.dev)
+[![Platform](https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon)-lightgrey.svg)](https://autonomic-ai.dev)
 [![Documentation](https://img.shields.io/badge/docs-autonomic--ai.dev-black.svg)](https://autonomic-ai.dev)
 
 Part of [Autonomic AI](https://autonomic-ai.dev), alongside [agent-spine](https://github.com/autonomic-ai-dev/agent-spine). Operates locally via standard stdio MCP and native host hooks across **Claude Code**, **Cursor**, **Antigravity (AGY)**, **OpenCode**, **Codex**, **Gemini CLI**, and **VS Code**.
@@ -18,7 +18,7 @@ flowchart LR
     Host["AI Agent / IDE Host"] --> Gate{"route_gate<br/>(Host Pre-Tool Hook)"}
     Gate --> Engine[("SQLite + HNSW Engine<br/>Local Store")]
     Engine --> Context["Dynamic Knapsack (~500 Tok)<br/>Skills · Rules · Invariants"]
-    Engine --> Graph[("Procedure Graph<br/>Schema v23 Recursive CTEs")]
+    Engine --> Graph[("Procedure Graph<br/>Schema v25 Recursive CTEs")]
     Context --> Host
     Host --> Verify["agent-brain verify -- <cmd>"]
     Verify --> Trajectory[("Automatic Trajectory Capture<br/>& Outcome Attribution")]
@@ -30,12 +30,12 @@ flowchart LR
 
 | Challenge in Coding Agent Tooling | agent-brain Solution | Verified Mechanism |
 | :--- | :--- | :--- |
-| **Context Window Bloat (100k+ tokens)** | Turn router dynamically packs top-ranked skills and rules into a strict ~500-token budget | Knapsack token packer; zero context pollution |
-| **Instruction Drift & Ignored Prompts** | Host pre-tool hooks enforce `route_task` and sandwich policy anchors on every turn | Multi-host `route_gate` (250/250 adversarial test cases passed) |
+| **Context Window Bloat (100k+ tokens)** | Turn router packs the top-ranked skills, rules and memory into a fixed per-task token budget (350–700 tokens) | Knapsack token packer with a 120-token memory reservation (`engine.rs`) |
+| **Instruction Drift & Ignored Prompts** | Host pre-tool hooks enforce `route_task` and sandwich policy anchors on every turn | Routing regression suite (`agent-brain/tests/jailbreak_routing.rs`, 250 cases) passes |
 | **Destructive Shell Hazards** | Real-time AST and bash parser blocks dangerous operations before execution | Deterministic `bash-gate` (fail-closed security) |
-| **Repetitive Execution Amnesia** | Procedure Graph (`recall_procedures`) stores structured, multi-step execution graphs | Schema v23 SQLite recursive CTEs (`procedure_edges`) |
+| **Repetitive Execution Amnesia** | Procedure Graph (`recall_procedures`) stores structured, multi-step execution graphs | Schema v25 SQLite recursive CTEs (`procedure_edges`) |
 | **Discarded Verification Evidence** | Automatic trajectory capture and outcome attribution (exit 0 vs non-zero) | `verify.rs` & `trajectory.rs` closed loop |
-| **High Prompt Turn Latency** | In-memory cache + session stickiness yield sub-millisecond warm hits | Micro-benchmark p95 ≤ 24ms, local SQLite |
+| **High Prompt Turn Latency** | Turn cache and session stickiness reuse recent routing decisions | `routing.turn_ttl_secs`, `routing.session_stickiness_secs` (`config.rs`) |
 
 ---
 
@@ -97,7 +97,7 @@ agent-brain install --all --global
 
 ## Core Pillars
 
-### 1. Dynamic Cognitive Governor (~500-Token Knapsack)
+### 1. Dynamic Cognitive Governor (Token Knapsack)
 Instead of dumping full documentation trees into your agent's system prompt, `agent-brain` intercepts each turn and calculates an exact token knapsack. Token budgets scale elastically by task kind:
 - **Verification**: 350 tokens
 - **Code Review**: 550 tokens
@@ -108,7 +108,7 @@ Instead of dumping full documentation trees into your agent's system prompt, `ag
 A dedicated 120-token reservation prevents memory starvation, ensuring durable project learnings are never crowded out by active rules.
 
 ### 2. Procedure Graph & Associative Memory
-Built on local SQLite with schema v23 migrations, `recall_procedures` queries multi-step engineering recipes. Connected downstream procedures and dependent execution nodes are dynamically hydrated using SQLite recursive Common Table Expressions (`procedure_edges`), ranked by task similarity and historical pass rate.
+Built on local SQLite with schema v25 migrations, `recall_procedures` queries multi-step engineering recipes. Connected downstream procedures and dependent execution nodes are dynamically hydrated using SQLite recursive Common Table Expressions (`procedure_edges`), ranked by task similarity and historical pass rate.
 
 ### 3. Deterministic Security & Host Hook Enforcement (`bash-gate`)
 Agent execution is governed by fail-closed hooks:
@@ -132,7 +132,7 @@ Verified test runs executed through `agent-brain verify -- <cmd>` are recorded w
 | `agent-brain briefing` | Summarizes last `route_task` decision and active token budget |
 | `agent-brain index` | Indexes local skills, rules, and workspace memory into SQLite |
 | `agent-brain verify -- <cmd>` | Execute and record verified command with trusted exit attribution |
-| `agent-brain memory put <text>` | Ingest durable fact or architectural decision directly to store |
+| `agent-brain remember --text TEXT --tag TAG` | Store one durable fact or architectural decision |
 | `agent-brain package add <pkg>` | Install skill packages from registry (e.g. `@supervisor`, `@matt-skills`) |
 | `agent-brain sync git\|cloud` | Synchronize memory graph and skills across development machines |
 
@@ -151,7 +151,7 @@ routing:
 ```
 
 - **Default Database**: `~/.autonomic/memory/brain.db` (override with `AGENT_BRAIN_HOME`).
-- **Embedding Model**: Downloads a lightweight local embedding model (~90MB) on initial start; unloads after 10 minutes of inactivity.
+- **Embedding Model**: Uses the local `all-MiniLM-L6-v2` model, loaded on first use and unloaded after 10 minutes of inactivity (`IDLE_UNLOAD_AFTER`, `embed.rs`).
 
 ---
 

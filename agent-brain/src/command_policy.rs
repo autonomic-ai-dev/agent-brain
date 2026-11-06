@@ -237,7 +237,7 @@ fn rule_verdict(
     if rules.is_empty() {
         return if warn_unknown {
             Verdict::Warn(format!(
-                "unrecognised command {name}; ask the user to allow it with agent-brain rules add"
+                "unrecognised command {name}; ask the user to allow it in the command rules"
             ))
         } else {
             Verdict::Allow
