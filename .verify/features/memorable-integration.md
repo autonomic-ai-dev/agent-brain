@@ -39,3 +39,5 @@ Summary: An opt-in, read-only link to the Memorable procedural-memory CLI. It is
 - Memorable's `ingest` and `record` send traces to its extraction API. Nothing in this feature calls them, and the `memorable enable` output says so.
 - The `memorable` binary must be on PATH for the server to start. Otherwise `mcp sync` fails for that server.
 - The blackholed API URL stops the server from reaching the cloud even if credentials are added later. Its recall is then exact and lexical only.
+
+- Formatting pass (rustfmt, 2026-11-07): line breaks and spacing only, no behaviour change.

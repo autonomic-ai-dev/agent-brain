@@ -1,10 +1,10 @@
 //! v0.23 — gRPC bridge, BEAM eval harness, and trace extraction.
 
-#[cfg(feature = "extras")]
-use agent_brain_bench::beam_eval::{assert_beam_gate, run_beam_eval_isolated};
 use agent_brain::db::store::BrainStore;
 use agent_brain::embed::Embedder;
 use agent_brain::trace_extract::{run_trace_extract, TraceExtractConfig};
+#[cfg(feature = "extras")]
+use agent_brain_bench::beam_eval::{assert_beam_gate, run_beam_eval_isolated};
 use tempfile::TempDir;
 
 #[cfg(feature = "extras")]
@@ -52,4 +52,3 @@ fn trace_extract_creates_fact_from_shell_trace() {
     let facts = store.list_facts(10).unwrap();
     assert!(facts.iter().any(|f| f["topic"] == "deps-vitest"));
 }
-

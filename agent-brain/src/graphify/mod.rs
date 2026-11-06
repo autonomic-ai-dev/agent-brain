@@ -1,4 +1,3 @@
-
 use std::path::Path;
 
 use crate::code_nav::CodeContext;

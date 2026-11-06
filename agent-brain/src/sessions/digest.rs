@@ -92,10 +92,7 @@ struct DiscoveredStep {
     notes: String,
 }
 
-fn distill_session_trajectories(
-    store: &BrainStore,
-    session: &SessionTranscript,
-) -> Result<usize> {
+fn distill_session_trajectories(store: &BrainStore, session: &SessionTranscript) -> Result<usize> {
     let Some(path) = &session.jsonl_path else {
         return Ok(0);
     };
@@ -110,13 +107,18 @@ fn distill_session_trajectories(
     use std::io::BufRead;
     for line in reader.lines() {
         let Ok(line) = line else { continue };
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
+            continue;
+        };
 
         let is_error = v.get("status").and_then(|s| s.as_str()) == Some("ERROR");
 
         if let Some(tool_calls) = v.get("tool_calls").and_then(|tc| tc.as_array()) {
             for call in tool_calls {
-                let tool_name = call.get("name").and_then(|n| n.as_str()).unwrap_or("unknown");
+                let tool_name = call
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("unknown");
                 let args = call.get("args").or_else(|| call.get("arguments"));
 
                 let (node_id, notes) = match tool_name {
@@ -137,7 +139,10 @@ fn distill_session_trajectories(
                             .file_name()
                             .and_then(|n| n.to_str())
                             .unwrap_or("file");
-                        (format!("{}:{}", tool_name, file_stem), target_path.to_string())
+                        (
+                            format!("{}:{}", tool_name, file_stem),
+                            target_path.to_string(),
+                        )
                     }
                     other => (other.to_string(), String::new()),
                 };
@@ -168,7 +173,11 @@ fn distill_session_trajectories(
             outcome,
             None,
             Some("session_distill"),
-            if step.notes.is_empty() { None } else { Some(&step.notes) },
+            if step.notes.is_empty() {
+                None
+            } else {
+                Some(&step.notes)
+            },
         );
         recorded += 1;
 

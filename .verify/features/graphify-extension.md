@@ -54,3 +54,5 @@ Summary: The codebase graph engine, shipped as the optional `agent-brain-graphif
 - The extension must be rebuilt with the core, since it links the core library.
 - Graph MCP calls now run outside the core process, so their logs are not in the core log.
 - Job rows are written through `BrainStore::insert_graphify_job(GraphifyJobInsert { .. })` in `agent-brain/src/db/graph_store.rs`. The extension's `jobs.rs` queues a job with status `queued`, and the struct replaces the old nine-argument call.
+
+- Formatting pass (rustfmt, 2026-11-07): line breaks and spacing only, no behaviour change.

@@ -201,7 +201,9 @@ fn segment_verdict(
         "source" | "." => args
             .first()
             .and_then(|script| script_verdict(script, ctx, dir.as_deref()))
-            .unwrap_or_else(|| Verdict::Warn(format!("sources code that cannot be inspected: {first}"))),
+            .unwrap_or_else(|| {
+                Verdict::Warn(format!("sources code that cannot be inspected: {first}"))
+            }),
         "dd" if args.iter().any(|arg| is_device_write(arg)) => {
             Verdict::Block("dd writes to a device".into())
         }
@@ -321,7 +323,11 @@ fn script_verdict(path: &str, ctx: Ctx<'_>, dir: Option<&Path>) -> Option<Verdic
         scripts: ctx.scripts - 1,
         ..ctx
     };
-    Some(classify_in(&body.join("\n"), inner, dir.map(Path::to_path_buf)))
+    Some(classify_in(
+        &body.join("\n"),
+        inner,
+        dir.map(Path::to_path_buf),
+    ))
 }
 
 fn script_text(path: &str, dir: Option<&Path>) -> Option<String> {
@@ -796,7 +802,12 @@ mod tests {
     #[test]
     fn blocks_a_script_whose_contents_are_destructive() {
         let dir = script_dir("cleanup.sh", "echo start\nrm -rf /\n");
-        for command in ["bash cleanup.sh", "sh cleanup.sh", "./cleanup.sh", "source cleanup.sh"] {
+        for command in [
+            "bash cleanup.sh",
+            "sh cleanup.sh",
+            "./cleanup.sh",
+            "source cleanup.sh",
+        ] {
             assert!(
                 matches!(
                     classify(command, Some(dir.path()), &command_rules::defaults()),
@@ -811,7 +822,11 @@ mod tests {
     fn allows_a_script_whose_contents_are_safe() {
         let dir = script_dir("build.sh", "# rm -rf / is only a comment\ncargo test\n");
         assert!(matches!(
-            classify("bash build.sh", Some(dir.path()), &command_rules::defaults()),
+            classify(
+                "bash build.sh",
+                Some(dir.path()),
+                &command_rules::defaults()
+            ),
             Verdict::Allow
         ));
     }

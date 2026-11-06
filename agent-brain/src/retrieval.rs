@@ -580,7 +580,8 @@ pub fn recall_procedures(
 
     type GroupKey = (String, String);
     type GroupStats = (usize, usize, Option<String>, Option<String>);
-    let mut groups: std::collections::HashMap<GroupKey, GroupStats> = std::collections::HashMap::new();
+    let mut groups: std::collections::HashMap<GroupKey, GroupStats> =
+        std::collections::HashMap::new();
 
     for t in &all {
         let key = (t.workflow_id.clone(), t.node_id.clone());

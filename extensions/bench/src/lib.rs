@@ -1,12 +1,12 @@
-pub mod bench;
 pub mod beam_eval;
+pub mod bench;
 pub mod cli;
+pub mod eval;
+pub mod fixture;
 pub mod graphify_bench;
 pub mod mcp_bench;
 pub mod proofs;
 pub mod proofs_reb_baseline;
 pub mod scale_bench;
-pub mod supervisor_bench;
-pub mod eval;
-pub mod fixture;
 pub mod skills_sh;
+pub mod supervisor_bench;

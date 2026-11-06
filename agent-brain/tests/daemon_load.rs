@@ -125,7 +125,11 @@ async fn send(write: &mut OwnedWriteHalf, message: Value) {
 
 async fn await_reply(lines: &mut Lines<BufReader<OwnedReadHalf>>, id: usize) -> Value {
     loop {
-        let line = lines.next_line().await.unwrap().expect("daemon closed the session");
+        let line = lines
+            .next_line()
+            .await
+            .unwrap()
+            .expect("daemon closed the session");
         let value: Value = serde_json::from_str(&line).unwrap();
         if value.get("id") == Some(&json!(id)) {
             return value;

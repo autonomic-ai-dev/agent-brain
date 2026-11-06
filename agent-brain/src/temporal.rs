@@ -24,12 +24,14 @@ pub fn active_fact_sql(now_param: &str) -> String {
 
 /// Archive facts whose validity window has ended and prune stale KG edges.
 pub fn prune_expired(conn: &Connection, now_ms: i64) -> Result<PruneReport> {
-    let mut stmt = conn.prepare(r#"SELECT id, topic, fact, scope, scope_key, source, confidence, polarity, apply_when
+    let mut stmt = conn.prepare(
+        r#"SELECT id, topic, fact, scope, scope_key, source, confidence, polarity, apply_when
          FROM facts
          WHERE superseded_by IS NULL
            AND invalid_at IS NOT NULL
            AND invalid_at <= ?1
-           AND id NOT IN (SELECT original_id FROM facts_archive)"#)?;
+           AND id NOT IN (SELECT original_id FROM facts_archive)"#,
+    )?;
     type ExpiredFact = (
         String,
         String,

@@ -43,8 +43,9 @@ pub fn install_bundled(config: &Config, bundle: &str) -> Result<PackageRecord> {
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
         (commit, format!("registry:packages/{bundle}"))
     } else {
-        let files = bundled_manifest_dir(bundle)
-            .ok_or_else(|| anyhow::anyhow!("package '{bundle}' not found in registry cache or bundles"))?;
+        let files = bundled_manifest_dir(bundle).ok_or_else(|| {
+            anyhow::anyhow!("package '{bundle}' not found in registry cache or bundles")
+        })?;
 
         for (rel, content) in files {
             let path = install_dir.join(rel);

@@ -47,3 +47,5 @@ feature: "[[../features/bench-extension]]"
 
 - Feature map: [[../features/bench-extension]]
 - Extension mechanism: [[cli-verify-and-memory]]
+
+- Formatting pass (rustfmt, 2026-11-07): line breaks and spacing only, no behaviour change.

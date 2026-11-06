@@ -3713,7 +3713,9 @@ fn phase_match_boost(phase: &str, topic: &str, text: &str) -> f64 {
 }
 
 pub fn bytes_to_f32(blob: &[u8]) -> Vec<f32> {
-    blob.as_chunks::<4>().0.iter()
+    blob.as_chunks::<4>()
+        .0
+        .iter()
         .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
         .collect()
 }

@@ -8,11 +8,11 @@ use anyhow::{bail, Result};
 use tempfile::TempDir;
 
 use crate::bench::percentiles;
+use crate::fixture::{seed_bench_fixture, BENCH_FIXTURE_SKILLS};
 use agent_brain::config::Config;
 use agent_brain::db::store::{content_hash, BrainStore};
 use agent_brain::embed::deterministic_embedding;
 use agent_brain::engine::{Engine, RouteRequest};
-use crate::fixture::{seed_bench_fixture, BENCH_FIXTURE_SKILLS};
 use agent_brain::packages::install_bundled;
 use agent_brain::route_briefing::token_savings;
 use agent_brain::token_tools::{run_token_tools_bench, TokenToolsBenchReport};

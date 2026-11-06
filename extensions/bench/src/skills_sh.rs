@@ -15,8 +15,8 @@ use crate::fixture::{
     FixtureBuildReport, FIXTURE_DB_KIND_SKILLS_SH,
 };
 use agent_brain::db::store::{content_hash, BrainStore};
-use agent_brain::engine::RouteRequest;
 use agent_brain::embed::deterministic_embedding;
+use agent_brain::engine::RouteRequest;
 use agent_brain::index::skill_index_text;
 use agent_brain::types::{ItemType, RouteLimits};
 
@@ -1045,16 +1045,15 @@ pub fn probe_golden_cases(
             continue;
         }
         for query in query_templates_for_skill(skill) {
-            let resp =
-                engine.route_task(RouteRequest {
-                    user_message: &query,
-                    cwd: None,
-                    open_files: &[],
-                    max_tokens: 500,
-                    limits,
-                    explicit_phase: Some("implementing"),
-                    explicit_task_kind: None,
-                })?;
+            let resp = engine.route_task(RouteRequest {
+                user_message: &query,
+                cwd: None,
+                open_files: &[],
+                max_tokens: 500,
+                limits,
+                explicit_phase: Some("implementing"),
+                explicit_task_kind: None,
+            })?;
             let hit = resp
                 .recommended_skills
                 .iter()

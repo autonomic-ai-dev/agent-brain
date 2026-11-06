@@ -19,3 +19,5 @@ feature: "[[../features/packages]]"
 - `cargo test --all-features -- --skip graphify_1k_ci_gate --skip scale_1k_passes_gate --test-threads=1` covers the `packages::` unit tests, including `package_name_includes_owner_so_same_repo_names_differ`.
 - Not covered by tests: the real `package add` network clone and the stale-directory reuse path.
 - The feature map is [[../features/packages]].
+
+- Formatting pass (rustfmt, 2026-11-07): line breaks and spacing only, no behaviour change.

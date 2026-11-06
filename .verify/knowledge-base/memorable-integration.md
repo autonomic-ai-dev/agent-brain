@@ -52,3 +52,5 @@ Before anything is written, each trace is reduced to its prompt (up to 2000 char
 
 - Feature map: [[../features/memorable-integration]]
 - Upstream MCP servers: [[cli-verify-and-memory]]
+
+- Formatting pass (rustfmt, 2026-11-07): line breaks and spacing only, no behaviour change.

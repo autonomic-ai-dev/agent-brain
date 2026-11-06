@@ -894,9 +894,6 @@ mod tests {
     #[test]
     fn blocking_reason_names_the_repo() {
         let reason = named_reason(Path::new("/work/agentrun"), "Verification is missing.");
-        assert_eq!(
-            reason,
-            "Repo agentrun is blocked: Verification is missing."
-        );
+        assert_eq!(reason, "Repo agentrun is blocked: Verification is missing.");
     }
 }

@@ -42,3 +42,5 @@ The codebase graph moved out of the core binary into the `agent-brain-graphify` 
 - Feature map: [[../features/graphify-extension]]
 - Extension mechanism: [[cli-verify-and-memory]]
 - Bench consumer: [[bench-extension]]
+
+- Formatting pass (rustfmt, 2026-11-07): line breaks and spacing only, no behaviour change.
