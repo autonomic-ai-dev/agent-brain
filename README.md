@@ -7,7 +7,7 @@
 [![Platform](https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon)-lightgrey.svg)](https://autonomic-ai.dev)
 [![Documentation](https://img.shields.io/badge/docs-autonomic--ai.dev-black.svg)](https://autonomic-ai.dev)
 
-Part of [Autonomic AI](https://autonomic-ai.dev), alongside [agent-spine](https://github.com/autonomic-ai-dev/agent-spine). Operates locally via standard stdio MCP and native host hooks across **Claude Code**, **Cursor**, **Antigravity (AGY)**, **OpenCode**, **Codex**, **Gemini CLI**, and **VS Code**.
+Part of [Autonomic AI](https://autonomic-ai.dev), alongside [agent-spine](https://github.com/autonomic-ai-dev/agent-spine). Operates locally over stdio MCP. Route-gate hooks are installed for **Claude Code**, **Cursor**, **Antigravity (AGY)**, **OpenCode**, **Codex** and **Gemini CLI**. **VS Code** and GitHub Copilot get an MCP entry and instructions only.
 
 ---
 
@@ -17,7 +17,7 @@ Part of [Autonomic AI](https://autonomic-ai.dev), alongside [agent-spine](https:
 flowchart LR
     Host["AI Agent / IDE Host"] --> Gate{"route_gate<br/>(Host Pre-Tool Hook)"}
     Gate --> Engine[("SQLite + HNSW Engine<br/>Local Store")]
-    Engine --> Context["Dynamic Knapsack (~500 Tok)<br/>Skills · Rules · Invariants"]
+    Engine --> Context["Dynamic Knapsack (350–700 Tok)<br/>Skills · Rules · Invariants"]
     Engine --> Graph[("Procedure Graph<br/>Schema v25 Recursive CTEs")]
     Context --> Host
     Host --> Verify["agent-brain verify -- <cmd>"]
@@ -30,9 +30,9 @@ flowchart LR
 
 | Challenge in Coding Agent Tooling | agent-brain Solution | Verified Mechanism |
 | :--- | :--- | :--- |
-| **Context Window Bloat (100k+ tokens)** | Turn router packs the top-ranked skills, rules and memory into a fixed per-task token budget (350–700 tokens) | Knapsack token packer with a 120-token memory reservation (`engine.rs`) |
-| **Instruction Drift & Ignored Prompts** | Host pre-tool hooks enforce `route_task` and sandwich policy anchors on every turn | Routing regression suite (`agent-brain/tests/jailbreak_routing.rs`, 250 cases) passes |
-| **Destructive Shell Hazards** | Real-time AST and bash parser blocks dangerous operations before execution | Deterministic `bash-gate` (fail-closed security) |
+| **Context Window Bloat** | Turn router packs the top-ranked skills, rules and memory into a fixed per-task token budget (350–700 tokens) | Knapsack token packer with a 120-token memory reservation (`engine.rs`) |
+| **Instruction Drift & Ignored Prompts** | Host pre-tool hooks enforce `route_task` on every turn | Routing regression suite (`agent-brain/tests/jailbreak_routing.rs`, 250 cases) passes |
+| **Destructive Shell Hazards** | The shell command policy blocks dangerous commands before they run | Command policy rules (`agent-brain/src/command_policy.rs`) |
 | **Repetitive Execution Amnesia** | Procedure Graph (`recall_procedures`) stores structured, multi-step execution graphs | Schema v25 SQLite recursive CTEs (`procedure_edges`) |
 | **Discarded Verification Evidence** | Automatic trajectory capture and outcome attribution (exit 0 vs non-zero) | `verify.rs` & `trajectory.rs` closed loop |
 | **High Prompt Turn Latency** | Turn cache and session stickiness reuse recent routing decisions | `routing.turn_ttl_secs`, `routing.session_stickiness_secs` (`config.rs`) |
@@ -66,11 +66,11 @@ Antigravity and VS Code are available per host (`--antigravity`, `--vscode`). Ho
 | Runtime | Hook Mode | Integration Type |
 | :--- | :--- | :--- |
 | **Claude Code** | PreToolUse Hook | Native CLI stdio MCP + route gate |
-| **Cursor** | Pre-Tool Execution Hook | `.cursor/mcp.json` + `cursor-user-rules.mdc` |
+| **Cursor** | `beforeShellExecution` hook | `.cursor/mcp.json` + `cursor-user-rules.mdc` |
 | **Antigravity (AGY)** | BeforeTool Hook | Native CLI stdio MCP + route gate |
-| **OpenCode** | Session / Tool Plugin | `agent-brain-route-gate.js` v2 plugin |
-| **Codex CLI / Gemini CLI** | Shell / Tool Hooks | Direct stdio MCP client |
-| **VS Code** | Extension MCP | Stdio bridge via `~/.autonomic/config.yaml` |
+| **OpenCode** | Session / tool plugin | `route-gate.js` plugin (`agent-brain/hooks/opencode/`) |
+| **Codex CLI / Gemini CLI** | Shell / tool hooks | Direct stdio MCP client |
+| **VS Code / GitHub Copilot** | None (instructions only) | `.vscode/mcp.json` entry + Copilot instructions |
 
 ---
 
@@ -127,21 +127,21 @@ Instead of dumping full documentation trees into your agent's system prompt, `ag
 - **Debugging**: 650 tokens
 - **Architecture**: 700 tokens
 
-A dedicated 120-token reservation prevents memory starvation, ensuring durable project learnings are never crowded out by active rules.
+A 120-token reservation is set aside for memory items in each route.
 
 ### 2. Procedure Graph & Associative Memory
 Built on local SQLite with schema v25 migrations, `recall_procedures` queries multi-step engineering recipes. Connected downstream procedures and dependent execution nodes are dynamically hydrated using SQLite recursive Common Table Expressions (`procedure_edges`), ranked by task similarity and historical pass rate.
 
 ### 3. Deterministic Security & Host Hook Enforcement (`bash-gate`)
-Agent execution is governed by fail-closed hooks:
-- **`route_gate`**: Ensures no agent tool call executes without fresh turn routing and policy injection.
-- **`bash-gate`**: Real-time parser inspecting shell commands and script contents (`bash`, `sh`, `source`, executable scripts). Prohibits catastrophic commands (`rm -rf /`, force-pushes, `--no-verify` flags, security bypasses) before execution occurs.
+Agent execution is governed by these hooks:
+- **`route_gate`**: Blocks agent tool calls until the turn has been routed with `route_task`.
+- **`bash-gate`**: Inspects shell commands, including the contents of scripts they run (`bash`, `sh`, `source`). Blocks `rm -rf /` and force pushes before they run.
 
 ### 4. Closed-Loop Verification & Trajectory Attribution
-Verified test runs executed through `agent-brain verify -- <cmd>` are recorded with cryptographic and telemetry guarantees:
-- Successful runs (exit `0`) elevate applied recipes into mandatory `must_apply` constraints for subsequent turns.
-- Failed runs (exit `!= 0`) squelch broken recipes immediately from context recommendations.
-- Execution steps are automatically captured in `workflow_trajectory` (`auto_trajectory = true`), linking real build and test outcomes to turn logs.
+Test runs executed through `agent-brain verify -- <cmd>` are recorded with their exit code and the hash of the code they tested:
+- Verified recipes from passing runs are offered as `must_apply` items on later turns.
+- Recipes whose latest run failed are withheld from recommendations.
+- With `auto_trajectory` enabled, execution steps are captured in the `workflow_trajectory` table.
 
 ---
 
