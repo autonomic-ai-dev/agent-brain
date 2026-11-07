@@ -153,6 +153,8 @@ Scaffold a new project verify suite via: `agent-brain verify init`.
 - `agent-brain verify record --exit N -- <CMD SUMMARY...>`: Record an outcome without running the command.
 - `agent-brain verify run [--project DIR] [--json]`: Run the project's verify harness.
 - `agent-brain briefing`: Print a summary of the last `route_task` decision.
+- `agent-brain report`: Print the verify report by source. Runs without a `--help` entry.
+- `agent-brain status`: Print the brain status for the current directory.
 - `agent-brain stats [--days N] [--json]`: Route, cache, token-tool and memory counters. Latency is shown as an average and P95.
 - `agent-brain dashboard [--days N]`: Write a local HTML page with total tokens saved.
 - `agent-brain inspect log|fact|conflicts`: Inspect retrieval logs, a stored fact, or topic conflicts.
@@ -165,6 +167,7 @@ Scaffold a new project verify suite via: `agent-brain verify init`.
 - `agent-brain sync status|restore|git init|git clone|git push|git pull`: Git sync and conflict restore.
 - `agent-brain sessions ingest [--source SRCS] [--legacy]`: Import session digests from cursor, codex, gemini and opencode.
 - `agent-brain sessions status`: Show discoverable and stored session digests.
+- `agent-brain bootstrap --remote <URL> [--skip-install]`: Bootstrap this device from a shared sync repo. Runs without a `--help` entry.
 
 ---
 
