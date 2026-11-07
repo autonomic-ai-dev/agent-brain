@@ -1,7 +1,7 @@
 # agent-brain — Deep Operational & Architectural Context for Agents
 
 > **Cognitive Core, Persistent Volume, Turn Router & Procedure Graph** — In-depth architectural guide, mental model, complete CLI matrix, MCP tool contracts, and failure recovery runbooks for `agent-brain`.  
-> **Ecosystem Version Baseline:** `v1.0.0-rc3` (Schema v23)  
+> **Ecosystem Version Baseline:** `v1.0.0-rc7` (Schema v25)  
 > **Documentation Hub:** [https://autonomic-ai.dev/docs/memory](https://autonomic-ai.dev/docs/memory) · [Architecture Hub](https://autonomic-ai.dev/docs/architecture)  
 > **Default Storage:** `~/.autonomic/memory/` (`brain.db`, `packages/`, `pending/`, `serve.lock`)
 
@@ -10,11 +10,11 @@
 ## 1. Executive Summary & Biological Role
 
 **`agent-brain`** is a local-first turn router and long-term memory engine designed to solve the two fundamental failure modes of modern agentic coding:
-1. **Context Bloat & Token Degradation:** When entire documentation libraries, rules, and large repositories are dumped into LLM prompts (100K+ tokens), models suffer from severe "Lost-in-the-Middle" drift, degraded instruction following, and massive token costs. `agent-brain` dynamically selects and injects a ranked, relevance-scored subset of skills, conventions, and memory facts within a strict **~500-token budget** per turn.
+1. **Context Bloat & Token Degradation:** When entire documentation libraries, rules, and large repositories are dumped into LLM prompts, models suffer from "Lost-in-the-Middle" drift, degraded instruction following, and token costs. `agent-brain` dynamically selects and injects a ranked, relevance-scored subset of skills, conventions, and memory facts within a per-task budget of **350–700 tokens** per turn.
 2. **Loss of Inter-Session Knowledge:** Standard agent chats lose all architectural context, conventions, and test outcomes the moment a session closes. `agent-brain` maintains an embedded vector database (`sqlite-vec` + HNSW) with hybrid BM25 full-text indexing, learning durable facts and attributing tool outcomes across sessions.
 
 `agent-brain` operates in two complementary modes:
-- **Direct Mode (stdio MCP):** Spawned directly by developer IDEs (Cursor, Claude Code, OpenCode, VS Code, Antigravity) to intercept every turn via `route_task` and enforce policy gates with `< 30ms` latency.
+- **Direct Mode (stdio MCP):** Spawned directly by developer IDEs (Cursor, Claude Code, OpenCode, Codex, Gemini CLI, Antigravity) to route every turn via `route_task` and enforce the gate. VS Code and GitHub Copilot get instructions only; they have no gate hook.
 - **Upstream MCP (optional):** Tools from MCP servers the user configures are listed in `suggested_tools`. Routing works without any upstream server.
 
 ---
@@ -26,12 +26,12 @@ flowchart TD
     UserTurn([User Prompt in IDE / Host]) --> HookGate{Host Pre-Tool Hook<br>route_gate.py}
     HookGate -->|Enforces| RouteTask["route_task(user_message, cwd, open_files)"]
     
-    subgraph BrainEngine ["agent-brain Retrieval Engine (~500 token budget)"]
+    subgraph BrainEngine ["agent-brain Retrieval Engine (350–700 token budget)"]
         RouteTask --> QueryVec["FastEmbed AllMiniLML6V2<br>(384-dim dense vector)"]
         RouteTask --> QueryBM25["SQLite FTS5 Lexical Match<br>(BM25 keyword search)"]
-        QueryVec --> HNSW["sqlite-vec HNSW Index"]
-        QueryBM25 & HNSW --> HybridRerank["Hybrid Score Fusion<br>Dense (0.6) + Lexical (0.4)"]
-        HybridRerank --> BudgetPacker["Greedy Knapsack Token Packer<br>(Strict ~500 tok limit)"]
+        QueryVec --> HNSW["In-process ANN index<br>(HNSW above 256 items, ann.rs)"]
+        QueryBM25 & HNSW --> HybridRerank["Hybrid Score Fusion<br>(BM25 + vector)"]
+        HybridRerank --> BudgetPacker["Greedy Knapsack Token Packer<br>(per-task budget, 350–700 tok)"]
     end
 
     subgraph OutcomeLedger ["Outcome Attribution & Adaptive Gating"]
@@ -40,7 +40,7 @@ flowchart TD
         HistoryCheck -->|Exit != 0| SquelchRecipe["Squelch failing suggestions"]
     end
 
-    subgraph ProcedureEngine ["Procedure Graph Engine (Schema v23)"]
+    subgraph ProcedureEngine ["Procedure Graph Engine (Schema v25)"]
         RecallCmd["recall_procedures(query, task_kind)"] --> CTE["Recursive CTE Traversal<br>procedure_edges"]
         CTE --> ProcedureHits["Ranked Procedure Sequences & Next Steps"]
     end
@@ -113,59 +113,58 @@ Scaffold a new project verify suite via: `agent-brain verify init`.
 `agent-brain` provides a rich, modular CLI interface organized by operational domains:
 
 ### 4.1 Server & Lifecycle
-- `agent-brain serve`: Run the MCP server over stdio (used by Cursor, Claude Code, etc.).
-  - `--config <PATH>`: Custom path to configuration file (default: `config.yaml` in the brain home, `~/.autonomic/memory`).
-- `agent-brain version`: Print semantic version, commit hash, and target architecture.
-- `agent-brain onboarding`: Run interactive 5-minute getting-started checklist.
+- `agent-brain serve`: Run the MCP server over stdio. Host runtimes start it.
+- `agent-brain version`: Print the installed version.
+- `agent-brain onboarding`: Print the getting-started checklist.
 
 ### 4.2 Host Installation & Setup
-- `agent-brain install`: Configure MCP server, hooks, and user rules for supported IDEs.
-  - `--global`: Apply configurations globally across the user environment.
-  - `--all`: Install to all detected host environments.
-  - Individual host flags: `--cursor`, `--claude-code`, `--claude-desktop`, `--vscode`, `--opencode`, `--codex`, `--gemini`, `--antigravity`.
-  - `--mode-only`: Only write system instruction rules snippets without modifying editor MCP configs.
+- `agent-brain install`: Configure the MCP entry, hooks and rules for an editor host.
+  - `--global`: User/global scope, where the host supports it.
+  - `--all`: All hosts listed below, at user/global scope.
+  - Host flags: `--claude-code`, `--claude-desktop`, `--vscode`, `--opencode`, `--codex`, `--gemini`, `--antigravity`.
+  - `--reload`: Refresh the Cursor MCP entry after install.
+  - `--starter`: Also install the `@starter` pack.
 
 ### 4.3 Diagnostic & Health Audit
-- `agent-brain doctor`: Comprehensive pre-flight health audit.
-  - `--fix`: Automatically clear macOS quarantine attributes (`xattr -cr`), fix broken advisory locks, and re-scaffold missing directories.
-  - `--quick`: Skip slow embedding model integrity checks.
-  - `--stats`: Output database row counts, index sizes, and route telemetry.
+- `agent-brain doctor`: Check the MCP install, binary, hooks and codesign.
+  - `--fix`: Re-sign the binary (macOS), align `mcp.json`, and refresh hooks.
 
 ### 4.4 Package & Registry Management
-- `agent-brain package add <PACKAGE>`: Install a skill package (supports `@alias`, `owner/repo` GitHub shorthand, or full Git URL).
-- `agent-brain package remove <PACKAGE>`: Remove an installed skill package.
-- `agent-brain package list`: List all installed skill packages and their status.
-- `agent-brain registry list`: Display curated skill packages from the official catalog (e.g. `@agstack`, `@matt-skills`, `@official`).
-- `agent-brain registry sync`: Update local catalog cache from upstream registry.
+- `agent-brain package add <SOURCE>`: Install a package from an `@alias`, `owner/repo`, or GitHub URL. Options: `--ref`, `--no-index`.
+- `agent-brain package list`: List installed packages and their local paths.
+- `agent-brain package update [NAME]`: Update one package, or all.
+- `agent-brain package remove <NAME>`: Remove a package and purge its indexed items.
+- `agent-brain registry list [--kind skill_package|utility|workflow]`: Show curated aliases.
+- `agent-brain registry sync [--local]`: Refresh the registry cache.
 
 ### 4.5 Memory & GC Operations
-- `agent-brain memory put --topic <TOPIC> --fact <FACT> [--confidence <FLOAT>]`: Insert durable memory fact from CLI.
-- `agent-brain memory get <ID>`: Retrieve memory fact details by ID.
-- `agent-brain memory list [--topic <TOPIC>] [--limit <N>]`: List stored memory facts.
-- `agent-brain memory enqueue --topic <TOPIC> --fact <FACT>`: Manually write to pending fallback queue.
-- `agent-brain memory flush-pending`: Ingest and index all files in `~/.autonomic/memory/pending/`.
-- `agent-brain gc [--dry-run] [--apply]`: Deduplicate similar facts, prune low-confidence memories, and vacuum SQLite DB.
-- `agent-brain suggest-memory`: Review anti-pattern suggestions captured by hooks.
-- `agent-brain promote <STAGED_ID>`: Approve or reject candidate skills staged from session traces.
+- `agent-brain remember --text TEXT --tag TAG [--tag TAG ...] [--source SOURCE]`: Store one durable fact. The first tag becomes its topic.
+- `agent-brain recall`: Read stored facts as JSON, by tag, query, age, or similarity.
+- `agent-brain memory gc [--apply] [--stale-days N] [--very-stale-days N]`: Archive stale facts. Dry run unless `--apply`.
+- `agent-brain memory observe`: Run an observation pass over recent activity.
+- `agent-brain memory extract`: Explain or extract pending traces.
+- `agent-brain gc [--min-confidence N] [--max-age-days N]`: Deduplicate, prune and vacuum the database.
+- `agent-brain suggest-memory [approve|reject]`: Show, commit or discard a pending hook suggestion.
+- `agent-brain promote list|approve|reject`: Review skills staged from session traces. Requires a human decision.
 
 ### 4.6 Verification & Ops
-- `agent-brain verify init`: Scaffold `.verify/verify.toml`, executable `run.sh`, and `README.md`.
-- `agent-brain verify [--source <SOURCE>] -- <COMMAND>`: Execute command, capture exit code and duration, and log trusted verification outcome.
-- `agent-brain verify record --command <CMD> --exit <CODE> [--source <SRC>]`: Record outcome without running command directly.
-- `agent-brain report`: Display aggregate verification statistics by source and project.
-- `agent-brain briefing`: Print human-readable summary of the last `route_task` execution.
-- `agent-brain stats`: Show route latency percentiles (p50, p95, p99) and cache hit rates.
-- `agent-brain dashboard`: Generate and open local HTML metrics dashboard.
-- `agent-brain inspect`: Search and debug route logs, vector rankings, and conflict tables.
-- `agent-brain learn <URL_OR_PATH>`: Ingest documentation or reference markdown into skills and memory.
-- `agent-brain index`: Force full reindexing of all installed skills, rules, and vector embeddings.
+- `agent-brain verify init [--force] [--dir DIR]`: Scaffold `.verify/verify.toml`, `run.sh` and a README.
+- `agent-brain verify [--source cli|orchestrator] -- <CMD> [ARGS...]`: Run an allowlisted command and record its exit code.
+- `agent-brain verify record --exit N -- <CMD SUMMARY...>`: Record an outcome without running the command.
+- `agent-brain verify run [--project DIR] [--json]`: Run the project's verify harness.
+- `agent-brain briefing`: Print a summary of the last `route_task` decision.
+- `agent-brain stats [--days N] [--json]`: Route, cache, token-tool and memory counters. Latency is shown as an average and P95.
+- `agent-brain dashboard [--days N]`: Write a local HTML page with total tokens saved.
+- `agent-brain inspect log|fact|conflicts`: Inspect retrieval logs, a stored fact, or topic conflicts.
+- `agent-brain learn url <HTTPS_URL> [--topic NAME] [--dry-run]`: Ingest allowlisted docs. `learn allowlist` shows the allowed domains.
+- `agent-brain index [-c|--changed-only] [--no-ast]`: Reindex skills, rules and memory.
 
 ### 4.7 Synchronization & Session Digest
-- `agent-brain export [--output <BUNDLE.tar.gz>]`: Create portable archive of memory, skills, and configuration.
-- `agent-brain import <BUNDLE.tar.gz>`: Ingest an exported sync bundle into local brain.
-- `agent-brain sync git <REMOTE_URL>`: Synchronize knowledge store with a private Git repository.
-- `agent-brain bootstrap <REMOTE_URL>`: Join a cluster by bootstrapping local brain from a shared repo.
-- `agent-brain sessions ingest`: Ingest session transcripts and distill key architectural decisions.
+- `agent-brain export [DIR]`: Write a sync bundle.
+- `agent-brain import <DIR> [--policy POLICY]`: Import a sync bundle.
+- `agent-brain sync status|restore|git init|git clone|git push|git pull`: Git sync and conflict restore.
+- `agent-brain sessions ingest [--source SRCS] [--legacy]`: Import session digests from cursor, codex, gemini and opencode.
+- `agent-brain sessions status`: Show discoverable and stored session digests.
 
 ---
 
@@ -174,7 +173,7 @@ Scaffold a new project verify suite via: `agent-brain verify init`.
 When running in stdio MCP mode (`agent-brain serve`), the following tools are exposed to the AI host:
 
 ### 5.1 `route_task` (Primary Cognitive Router)
-- **Description:** Mandatory turn router. Selects top-ranked skills, rules, and memory facts within ~500 tokens, unlocks native read tools for candidate paths, and suggests upstream tools based on verified recipes.
+- **Description:** Mandatory turn router. Selects top-ranked skills, rules, and memory facts within a per-task budget of 350–700 tokens, unlocks native read tools for candidate paths, and suggests upstream tools based on verified recipes.
 - **Parameters:**
   - `user_message` (string, required): The user prompt or instruction for the active turn.
   - `current_working_directory` (string, required): Absolute path of the current project root.
