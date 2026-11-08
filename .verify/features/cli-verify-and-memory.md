@@ -70,6 +70,11 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
   - Intent: Count tool calls in `stats` and the route window without consuming the file that the feedback report reads.
   - Behaviour: `ingest_hook_events_since` (`src/tool_events.rs`) reads `hooks/tool_events.jsonl`, inserts each record at or after the window start into `tool_log`, and leaves the file in place. Each row's id is the SHA-256 of its JSON line and inserts use `INSERT OR IGNORE`, so re-reading the file or overlapping windows never double count.
   - Outcome: Tool calls per window are counted once. Records outside a window stay in the file for a wider window. Regression tests: `tool_events::tests` (the log survives ingest, repeated ingest does not double count, a narrow window keeps events for a wider one).
+- `dashboard-measured-figures`: The local dashboard labels each figure by how it is produced.
+  - Intent: Savings shown to a user must be measured or clearly marked as an estimate or upper bound.
+  - Behaviour: `agent-brain dashboard` renders `OperatorStats` (`src/stats.rs`). Its daily series comes from `BrainStore::daily_usage_since` (`src/db/store.rs`): routed tokens from `retrieval_log`, bounded-read saving from `tool_log.tokens_saved`, and verify passed/failed from `verify_outcomes.exit_code`. The bounded-read saving is an upper bound (bytes scanned ÷ 4 minus tokens returned). The naive-load figure assumes 120 tokens per indexed item.
+  - Breakdowns: daily route calls, cache hit rate, and context tokens; latency buckets from `retrieval_log`; route phases; bounded tools by calls from `tool_log`; verify runs by command from `verify_outcomes`; indexed items by type. Every label from data is HTML-escaped.
+  - Outcome: Charts are inline SVG and bars are HTML, with no network calls. Regression tests: `dashboard::tests` (empty period, scaling, zero values, escaping, stacked rows, line clamping) and `db::store::tests::dashboard_breakdowns_count_only_recorded_rows`.
 - `stop-gate-repo-name`: The stop-gate block names the repo it blocks.
   - Intent: A block raised while working in one repo must not look like it belongs to another.
   - Behaviour: `run_stop_gate` prefixes each block reason with `Repo <name> is blocked:` (`named_reason` in `src/stop_gate.rs`). The gate evaluates only the git root of the session's cwd.

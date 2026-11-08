@@ -108,3 +108,4 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 - Feature map: [[../features/cli-verify-and-memory]]
 
 - Formatting pass (rustfmt, 2026-11-07): line breaks and spacing only, no behaviour change.
+- Dashboard savings: the bounded-read saving sums the bytes of every file a directory `grep_search` scans (`full_bytes` in `src/token_tools.rs`), not only the files an agent would open. Read it as an upper bound, never as a measured saving. The dashboard labels it that way.
