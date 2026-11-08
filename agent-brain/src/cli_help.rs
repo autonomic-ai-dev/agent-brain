@@ -421,6 +421,7 @@ Local index / routing / latency metrics (not product ROI claims).
 Options:
       --days N    Lookback window (default: 7)
       --json      Machine-readable JSON
+      --markdown  Shareable summary of measured figures only, for a weekly update
 "
         }
         "dashboard" => {

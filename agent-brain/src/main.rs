@@ -441,6 +441,8 @@ async fn main() -> Result<()> {
             let snapshot = agent_brain::stats::collect(&store, &config, days)?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&snapshot)?);
+            } else if args.iter().any(|a| a == "--markdown") {
+                print!("{}", agent_brain::stats::format_markdown(&snapshot));
             } else {
                 print!("{}", agent_brain::stats::format_text(&snapshot));
             }

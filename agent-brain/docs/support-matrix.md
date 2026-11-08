@@ -6,7 +6,7 @@ Install with `agent-brain install --all` (the default), or pick one host with a 
 
 | Host | Flag | MCP server entry | Route and gate hooks | Instruction files | Automated tests |
 |---|---|---|---|---|---|
-| Claude Code | `--claude-code` | `.mcp.json` at the project root, or `~/.claude.json` with `--global` | `UserPromptSubmit`, `PreToolUse` and `PostToolUse` in `.claude/settings.json` | `.claude/rules/agent-brain-route.md` | `merges_claude_json_user_scope` (unit); `claude_code_project_uses_mcp_json_at_root` (`tests/v0_9.rs`) |
+| Claude Code | `--claude-code` | `.mcp.json` at the project root, or `~/.claude.json` with `--global` | `UserPromptSubmit`, `PreToolUse` and `PostToolUse` in `.claude/settings.json` | `.claude/rules/agent-brain-route.md` and `.claude/rules/agent-brain-agstack.md` (agstack policy, including the verification step) | `merges_claude_json_user_scope` (unit); `claude_code_project_uses_mcp_json_at_root` (`tests/v0_9.rs`) |
 | Cursor | `--cursor` | `.cursor/mcp.json` in the workspace, or `~/.cursor/mcp.json` with `--global` | Shell gate on `beforeShellExecution` in the Cursor hooks file | `.mdc` rule files under `~/.agent_brain/` | Hook assertion in `src/install.rs`; `tests/v0_9.rs`, `tests/v0_10.rs`, `tests/jailbreak_routing.rs` |
 | OpenCode | `--opencode` | `opencode.json` at the project root, or the user config with `--global` | Route-gate plugin `agent-brain-route-gate.js` | OpenCode instructions file | `merges_opencode_config_preserves_schema` (unit); `opencode_project_uses_opencode_json_at_root` (`tests/v0_9.rs`) |
 | Codex | `--codex` | A TOML block in the Codex config (`~/.codex/config.toml` with `--global`) | `hooks.json` in `~/.codex/` or `.codex/` | Codex instructions file | `merges_codex_config_appends_when_missing` and `merges_codex_config_replaces_existing_section` (unit) |
@@ -14,6 +14,10 @@ Install with `agent-brain install --all` (the default), or pick one host with a 
 | Antigravity | `--antigravity` | Antigravity config paths (`antigravity_config_paths`) | Shares `~/.gemini/settings.json` hooks | Antigravity instructions file | `antigravity_global_paths_include_shared_config` (unit) |
 | VS Code (Copilot) | `--vscode` | `mcp.json` under the VS Code settings folder | None. No gate runs before VS Code actions. | Copilot instructions file | `merges_vscode_servers` (unit); `vscode_workspace_path_under_vscode_dir` (`tests/v0_9.rs`) |
 | Claude Desktop | `--claude-desktop` | `claude_desktop_config.json` | None | None | `claude_desktop_path_is_absolute_file` (`tests/v0_9.rs`) |
+
+## Manual step for Cursor
+
+`agent-brain install` writes `~/.agent_brain/cursor-agent-brain-mode.mdc` and `~/.agent_brain/cursor-user-rules.mdc`. The installer prints a request to paste both files into Cursor's User Rules, and it does not do that paste itself, so this step is manual.
 
 ## What "hooks" means here
 

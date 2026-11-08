@@ -151,6 +151,52 @@ pub fn format_text(stats: &OperatorStats) -> String {
     out
 }
 
+pub fn format_markdown(stats: &OperatorStats) -> String {
+    let p = &stats.period;
+    let routed_tokens: u64 = stats.daily.iter().map(|d| d.routed_tokens).sum();
+    let verify_passed: u64 = stats.daily.iter().map(|d| d.verify_passed).sum();
+    let verify_failed: u64 = stats.daily.iter().map(|d| d.verify_failed).sum();
+    let verify_runs = verify_passed + verify_failed;
+    let pass_rate = if verify_runs == 0 {
+        "no runs".to_string()
+    } else {
+        format!("{:.1}%", verify_passed as f64 / verify_runs as f64 * 100.0)
+    };
+    let mut out = format!(
+        "**agent-brain summary, last {} days (measured)**\n\n| Measure | Value |\n|---|---|\n",
+        stats.period_days
+    );
+    out.push_str(&format!("| Routed turns | {} |\n", p.route_calls));
+    out.push_str(&format!("| Context tokens returned | {routed_tokens} |\n"));
+    out.push_str(&format!(
+        "| Average tokens per turn | {:.0} |\n",
+        p.avg_routed_tokens
+    ));
+    out.push_str(&format!(
+        "| Cache hit rate | {:.1}% |\n",
+        p.cache_hit_rate * 100.0
+    ));
+    out.push_str(&format!(
+        "| Latency avg / p95 | {:.0} ms / {} ms |\n",
+        p.avg_latency_ms, p.p95_latency_ms
+    ));
+    out.push_str(&format!(
+        "| Turns with must_apply constraints | {} |\n",
+        p.routes_with_constraints
+    ));
+    out.push_str(&format!("| Bounded tool calls | {} |\n", p.tool_calls));
+    out.push_str(&format!(
+        "| Full-read steers | {} |\n",
+        stats.value.blocked_full_reads
+    ));
+    out.push_str(&format!(
+        "| Verify runs passed / failed | {verify_passed} / {verify_failed} |\n"
+    ));
+    out.push_str(&format!("| Verify pass rate | {pass_rate} |\n"));
+    out.push_str("\nFrom the local database only. Estimated savings are left out.\n");
+    out
+}
+
 /// One-line summary for doctor / onboarding.
 pub fn format_summary_line(stats: &OperatorStats) -> String {
     if stats.period.route_calls == 0 {
