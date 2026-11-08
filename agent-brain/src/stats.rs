@@ -7,7 +7,9 @@ use serde::Serialize;
 
 use crate::adoption::{self, AdoptionMilestones};
 use crate::config::Config;
-use crate::db::store::{BrainStore, RetrievalStats};
+use crate::db::store::{
+    BrainStore, CountBucket, DailyUsage, RetrievalStats, ToolUsage, VerifyCommand,
+};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct IndexBreakdown {
@@ -29,6 +31,10 @@ pub struct OperatorStats {
     pub period: RetrievalStats,
     pub value: ValueSummary,
     pub adoption: AdoptionMilestones,
+    pub daily: Vec<DailyUsage>,
+    pub latency: Vec<CountBucket>,
+    pub tools: Vec<ToolUsage>,
+    pub verify_commands: Vec<VerifyCommand>,
 }
 
 pub fn collect(store: &BrainStore, config: &Config, period_days: u32) -> Result<OperatorStats> {
@@ -37,6 +43,10 @@ pub fn collect(store: &BrainStore, config: &Config, period_days: u32) -> Result<
     let since = now - i64::from(period_days) * 24 * 3600 * 1000;
     let _ = crate::tool_events::ingest_hook_events_since(store, &config.home, since);
     let period = store.retrieval_stats_since(since)?;
+    let daily = store.daily_usage_since(since)?;
+    let latency = store.latency_buckets_since(since)?;
+    let tools = store.tool_usage_since(since)?;
+    let verify_commands = store.verify_commands_since(since)?;
     let mut by_type = BTreeMap::new();
     for (item_type, count) in store.count_indexed_by_type()? {
         by_type.insert(item_type, count);
@@ -57,6 +67,10 @@ pub fn collect(store: &BrainStore, config: &Config, period_days: u32) -> Result<
         period,
         value,
         adoption,
+        daily,
+        latency,
+        tools,
+        verify_commands,
     })
 }
 

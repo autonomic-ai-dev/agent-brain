@@ -559,14 +559,16 @@ pub fn grep_search(
             if is_blocked_path(p, false) {
                 continue;
             }
-            if let Ok(meta) = std::fs::metadata(p) {
-                if meta.len() > MAX_GREP_FILE_BYTES {
-                    continue;
-                }
-                full_bytes = full_bytes.saturating_add(meta.len());
+            let size = std::fs::metadata(p).ok().map(|m| m.len());
+            if size.is_some_and(|len| len > MAX_GREP_FILE_BYTES) {
+                continue;
             }
+            let before = matches.len();
             lines_skipped_oversized +=
                 grep_file(p, &re, limit.saturating_sub(matches.len()), &mut matches)?;
+            if matches.len() > before {
+                full_bytes = full_bytes.saturating_add(size.unwrap_or(0));
+            }
             if matches.len() >= limit {
                 break;
             }
@@ -1057,6 +1059,22 @@ mod tests {
         std::fs::write(&path, bytes).unwrap();
         let resp = grep_search("needle", &path, 10, false, false, 500).unwrap();
         assert!(resp.matches.len() >= 2);
+    }
+
+    #[test]
+    fn grep_directory_saving_counts_only_files_with_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        let matched = dir.path().join("a.txt");
+        std::fs::write(&matched, "needle\n").unwrap();
+        std::fs::write(dir.path().join("b.txt"), "x".repeat(40_000)).unwrap();
+        let resp = grep_search("needle", dir.path(), 10, false, false, 500).unwrap();
+        let matched_len = std::fs::metadata(&matched).unwrap().len();
+        let full = estimate_file_tokens(matched_len);
+        assert_eq!(resp.match_count, 1);
+        assert_eq!(
+            resp.tokens_saved_vs_full_read,
+            Some(full.saturating_sub(resp.tokens_used))
+        );
     }
 
     #[test]
