@@ -44,6 +44,7 @@ Memory & Sync:
   import        Import a sync bundle
   sync          Git / cloud sync and conflict restore
   sessions      Ingest or status session digests
+  bootstrap     Join this device to a shared sync repo
   memory        Archive / observe / extract memory
   gc            Dedup, prune, and vacuum the DB
   suggest-memory  Review hook anti-pattern suggestions
@@ -59,6 +60,11 @@ Ops:
   learn         Ingest allowlisted docs into skills + memory
   log           Print or follow a named log file
   verify        Execute allowlisted check and record trusted outcome
+  report        Print the verify report by source
+  status        Show brain status for the current directory
+  rules         Command rules for the Bash gate
+  ext           Install or remove an extension
+  memorable     Optional Memorable integration
   feature-graph Print the feature-map graph as JSON
 
 Extras (build with `--features extras`):
@@ -88,6 +94,22 @@ pub fn print_command(cmd: &str) -> bool {
         "recall" => agent_brain::recall::USAGE,
         "remember" => agent_brain::remember::USAGE,
         "import-corpus" => agent_brain::remember::IMPORT_USAGE,
+        "report" => "Usage:  agent-brain report\n\nPrint the verify report by source.\n",
+        "status" => "Usage:  agent-brain status\n\nShow brain status for the current directory.\n",
+        "bootstrap" => {
+            "Usage:  agent-brain bootstrap [--remote URL] [--skip-install]\n\nJoin this device to a shared sync repo. Without --remote, uses sync.git.remote from config.yaml.\n"
+        }
+        "rules" => {
+            "Usage:  agent-brain rules [list | add KEY=VALUE... | remove ID | reset]\n\nCommand rules for the Bash gate. Run these yourself; agents cannot change rules.\n"
+        }
+        "ext" => "Usage:  agent-brain ext [list | add NAME | remove NAME]\n\nInstall or remove an extension.\n",
+        "memorable" => {
+            "Usage:  agent-brain memorable [status | enable [--capture] | disable | list | capture TRACE.json | capture-transcript ...]\n\nOptional Memorable integration. With --capture, verified sessions are sent to Memorable's extraction service.\n"
+        }
+        "bash-gate" => "Usage:  agent-brain bash-gate\n\nHook entry point for the Bash gate. Host hooks call it; run it by hand only to test.\n",
+        "commit-gate" => "Usage:  agent-brain commit-gate\n\nHook entry point for the commit gate. Host hooks call it; run it by hand only to test.\n",
+        "stop-gate" => "Usage:  agent-brain stop-gate\n\nHook entry point for the stop gate. The Stop hook calls it; run it by hand only to test.\n",
+        "capabilities-hook" => "Usage:  agent-brain capabilities-hook\n\nHook entry point that prints the capability rule at session start. Host hooks call it.\n",
         "serve" => {
             "\
 Usage:  agent-brain serve
@@ -569,7 +591,22 @@ mod tests {
     #[test]
     fn known_commands_have_detail() {
         for cmd in [
-            "serve", "install", "doctor", "add", "sync", "eval", "dataset", "verify",
+            "serve",
+            "install",
+            "doctor",
+            "add",
+            "sync",
+            "eval",
+            "dataset",
+            "verify",
+            "report",
+            "status",
+            "bootstrap",
+            "rules",
+            "ext",
+            "memorable",
+            "bash-gate",
+            "stop-gate",
         ] {
             assert!(print_command(cmd), "{cmd}");
         }
