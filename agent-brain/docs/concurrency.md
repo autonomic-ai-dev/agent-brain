@@ -2,7 +2,7 @@
 
 agent-brain uses a **single-threaded write queue** so all mutations to `brain.db` serialize through one path. Reads (`route_task`, `list_memory`, etc.) use the shared `BrainStore` mutex and may run concurrently with the queue, but never interleave writes.
 
-## Queued operations (v0.7.2+)
+## Queued operations
 
 | Operation | Entry point |
 |-----------|-------------|
