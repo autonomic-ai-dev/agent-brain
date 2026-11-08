@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0-rc8] - 2026-11-08
+
+### Added
+- **Verify receipts**: `agent-brain verify receipt` shows PASSED, FAILED or NOT VERIFIED for the current commit and code state. Exit 0 only when PASSED. `--markdown` prints a block for a pull request, `--json` the same verdict, and the text names the saved run output.
+- **Schema v26**: verify runs record the git commit (`head_sha`). A receipt matches only runs for the same commit and code hash. Runs recorded before this version never count.
+- **agstack verification layout**: `verify init` writes a phased `run.sh` (doctor, unit, static, functional), an optional feature argument, and per-run artifacts under `.verify/artifacts/<RUN_ID>/`.
+- **Project-install mode**: project installs write the agstack mode into the file each host reads (AGENTS.md, GEMINI.md, `.github/copilot-instructions.md`), between markers. Text outside the markers is kept.
+- **Measured weekly summary**: `agent-brain stats --markdown` prints measured figures only, with no estimated savings.
+- **agstack skill usage**: stats, the markdown summary and a dashboard tile count the routes that offered the agstack-mode or verification skill.
+- **Clickable dashboard tiles**: each tile shows what it counts, its source, and whether the figure is measured or an estimate.
+- **Procedure reuse demo**: `docs/procedure-reuse-demo.md` and a test show a procedure learned in one task recalled for a second.
+- **Support matrix and egress statement**: `docs/support-matrix.md` lists what each host gets. `docs/egress.md` lists every network path, its trigger and default, and a test keeps that list in step with the code.
+
+### Changed
+- The dashboard separates measured figures from estimates. Bounded-read savings count only files that matched a grep, and are labelled as an upper bound.
+- The VS Code copilot instructions are a marked block, so an existing team file is no longer overwritten.
+
+### Fixed
+- `agent-brain <command> --help` shows help for every dispatched command.
+- All `cargo clippy --all-targets --all-features -- -D warnings` lints are cleared.
+
 ## [1.0.0-rc7] - 2026-11-05
 
 ### Added
