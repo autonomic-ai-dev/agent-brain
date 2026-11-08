@@ -249,6 +249,16 @@ const DUMP_MARKERS: [&str; 6] = [
     "latest focus:",
 ];
 
+pub fn send_and_recv<T>(
+    queue: &crate::db::WriteQueue,
+    build: impl FnOnce(Sender<Result<T>>) -> WriteOp,
+) -> Result<T> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    queue.send(build(tx))?;
+    rx.recv()
+        .map_err(|e| anyhow::anyhow!("write queue response channel closed: {e}"))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::{capture_blocked, validate_memory_text};
@@ -326,14 +336,4 @@ mod tests {
         assert!(!capture_blocked(true, "auto-route"));
         assert!(!capture_blocked(true, "voice"));
     }
-}
-
-pub fn send_and_recv<T>(
-    queue: &crate::db::WriteQueue,
-    build: impl FnOnce(Sender<Result<T>>) -> WriteOp,
-) -> Result<T> {
-    let (tx, rx) = std::sync::mpsc::channel();
-    queue.send(build(tx))?;
-    rx.recv()
-        .map_err(|e| anyhow::anyhow!("write queue response channel closed: {e}"))?
 }

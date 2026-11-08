@@ -70,6 +70,25 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
   - Intent: Count tool calls in `stats` and the route window without consuming the file that the feedback report reads.
   - Behaviour: `ingest_hook_events_since` (`src/tool_events.rs`) reads `hooks/tool_events.jsonl`, inserts each record at or after the window start into `tool_log`, and leaves the file in place. Each row's id is the SHA-256 of its JSON line and inserts use `INSERT OR IGNORE`, so re-reading the file or overlapping windows never double count.
   - Outcome: Tool calls per window are counted once. Records outside a window stay in the file for a wider window. Regression tests: `tool_events::tests` (the log survives ingest, repeated ingest does not double count, a narrow window keeps events for a wider one).
+- `verify-receipt`: `agent-brain verify receipt` shows whether the current commit and code state passed its verify run.
+  - Intent: A receipt a person can paste into a pull request, and that cannot pass on stale evidence.
+  - Behaviour: `receipt_for_project` (`src/receipt.rs`) reads the newest `verify_outcomes` row for the project whose `head_sha` (git HEAD) and `code_hash` (uncommitted code paths) both match now, and whose source is `cli` or `orchestrator`. Exit 0 only when that run exited 0. `--markdown` and `--json` render the same verdict.
+  - Outcome: Verdicts `PASSED`, `FAILED`, `NOT VERIFIED`. Rows recorded before schema v26 have no `head_sha` and never count. Regression tests: `receipt::tests` (13 cases) and `tests/first_receipt.rs` (four end-to-end runs covering a fresh home, stale code, a new commit, and markdown/json).
+- `verify-init-layout`: `agent-brain verify init` writes the agstack verification layout.
+  - Intent: the harness an agent sets up matches the agstack verification skill, so its runs produce the same evidence.
+  - Behaviour: `run.sh` runs phases in order (doctor, unit, static, functional), skips a phase the repository lacks with a stated reason, takes an optional feature argument, and writes `summary.txt` and one log per phase under `.verify/artifacts/<RUN_ID>/`. A failing doctor stops the run.
+  - Outcome: Regression tests: `tests/verify_layout.rs` (five cases).
+- `procedure-reuse`: A procedure learned from verify runs is recalled for a second task.
+  - Intent: a repeatable demo of the claim that verified runs make later work faster.
+  - Behaviour: two `verify --` runs for the same command produce trajectories that `retrieval::recall_procedures` groups into one procedure with total_runs 2 and success_rate 0.5.
+  - Outcome: Regression tests: `tests/procedure_reuse.rs`. Demo: `docs/procedure-reuse-demo.md`.
+- `dashboard-tiles`: Each dashboard tile opens to show what it counts and its source.
+  - Behaviour: each card is a `<details>` element, so it works without scripts. The detail text states whether a figure is measured or an estimate.
+  - Outcome: Regression test: `tests/dashboard_tiles.rs`.
+- `egress-statement`: Every network path agent-brain can open is listed in `docs/egress.md`.
+  - Intent: A reviewer or user can check the no-telemetry and no-LLM claims against the code.
+  - Behaviour: `tests/egress_guard.rs` finds files that use a network client or spawn `curl` or git network subcommands, and fails unless they match `EXPECTED_NETWORK_FILES`. It also checks that no LLM provider host appears in source and that no telemetry SDK is a dependency.
+  - Outcome: Adding a network path requires updating the doc and the list together. Regression tests: the three `egress_guard` tests.
 - `dashboard-measured-figures`: The local dashboard labels each figure by how it is produced.
   - Intent: Savings shown to a user must be measured or clearly marked as an estimate or upper bound.
   - Behaviour: `agent-brain dashboard` renders `OperatorStats` (`src/stats.rs`). Its daily series comes from `BrainStore::daily_usage_since` (`src/db/store.rs`): routed tokens from `retrieval_log`, bounded-read saving from `tool_log.tokens_saved`, and verify passed/failed from `verify_outcomes.exit_code`. The bounded-read saving is an upper bound (bytes scanned ÷ 4 minus tokens returned). The naive-load figure assumes 120 tokens per indexed item.

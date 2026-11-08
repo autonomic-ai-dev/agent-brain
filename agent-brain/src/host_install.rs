@@ -1566,8 +1566,8 @@ approval_policy = "on-request"
         let locs = agent_brain_mode_locations(true);
         let hosts: Vec<_> = locs.iter().map(|(h, _)| *h).collect();
         assert!(hosts.iter().any(|h| h.contains("cursor")));
-        assert!(hosts.iter().any(|h| *h == "codex"));
-        assert!(hosts.iter().any(|h| *h == "opencode"));
+        assert!(hosts.contains(&"codex"));
+        assert!(hosts.contains(&"opencode"));
         assert_eq!(locs.len(), 8);
     }
 }
