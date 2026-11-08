@@ -132,3 +132,4 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
 - Log writers take structs: `observability::log_native_tool_use(store, NativeToolUse { .. })` and `observability::log_upstream_call(store, UpstreamCall { .. })`. The MCP server builds them at each call site.
 
 - Formatting pass (rustfmt, 2026-11-07): line breaks and spacing only, no behaviour change.
+- Help coverage: every top-level command that `main.rs` dispatches has a `cli_help.rs` entry, including `report`, `status`, `bootstrap`, `rules`, `ext`, `memorable`, and the four hook entry points. Without an entry, `agent-brain <cmd> --help` prints "Unknown command" even though the command runs.
