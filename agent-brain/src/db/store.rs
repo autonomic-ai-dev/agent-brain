@@ -1534,6 +1534,16 @@ impl BrainStore {
         })
     }
 
+    pub fn set_verify_outcome_head_sha(&self, id: &str, head_sha: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE verify_outcomes SET head_sha = ?1 WHERE id = ?2",
+                params![head_sha, id],
+            )?;
+            Ok(())
+        })
+    }
+
     pub fn verify_outcome_tests_run(&self, id: &str) -> Result<Option<i64>> {
         self.with_conn(|conn| {
             Ok(conn.query_row(
@@ -1547,7 +1557,7 @@ impl BrainStore {
     pub fn list_verify_outcomes(&self, limit: usize) -> Result<Vec<VerifyOutcomeRow>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                r#"SELECT id, route_log_id, exit_code, cause_tag, verify_config_hash, scenario_dir_hash, cmd, device_id, recorded_at, source, code_hash
+                r#"SELECT id, route_log_id, exit_code, cause_tag, verify_config_hash, scenario_dir_hash, cmd, device_id, recorded_at, source, code_hash, head_sha
                    FROM verify_outcomes ORDER BY recorded_at DESC LIMIT ?1"#,
             )?;
             let rows = stmt
@@ -1564,7 +1574,7 @@ impl BrainStore {
     ) -> Result<Vec<VerifyOutcomeRow>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                r#"SELECT id, route_log_id, exit_code, cause_tag, verify_config_hash, scenario_dir_hash, cmd, device_id, recorded_at, source, code_hash
+                r#"SELECT id, route_log_id, exit_code, cause_tag, verify_config_hash, scenario_dir_hash, cmd, device_id, recorded_at, source, code_hash, head_sha
                    FROM verify_outcomes WHERE project_key = ?1 ORDER BY recorded_at DESC LIMIT ?2"#,
             )?;
             let rows = stmt
@@ -3403,6 +3413,7 @@ fn map_verify_outcome_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<VerifyOut
         recorded_at: row.get(8)?,
         source: row.get(9)?,
         code_hash: row.get(10)?,
+        head_sha: row.get(11)?,
     })
 }
 
@@ -3718,6 +3729,7 @@ pub struct VerifyOutcomeRow {
     pub recorded_at: i64,
     pub source: Option<String>,
     pub code_hash: Option<String>,
+    pub head_sha: Option<String>,
 }
 
 pub struct StoreFactResult {

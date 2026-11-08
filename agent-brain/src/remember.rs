@@ -299,10 +299,7 @@ mod tests {
 
     #[test]
     fn long_text_is_not_capped_by_words() {
-        let text = std::iter::repeat("word")
-            .take(200)
-            .collect::<Vec<_>>()
-            .join(" ");
+        let text = ["word"; 200].join(" ");
         assert!(text_rejection(&text).is_none());
     }
 }

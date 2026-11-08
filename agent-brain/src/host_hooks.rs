@@ -401,16 +401,7 @@ pub fn install_vscode_copilot_instructions(quiet: bool) -> Result<()> {
     let cwd = std::env::current_dir().context("current working directory")?;
     let root = crate::config::find_repo_root(&cwd).unwrap_or(cwd);
     let path = root.join(".github").join("copilot-instructions.md");
-    if path.is_file() {
-        if let Ok(existing) = fs::read_to_string(&path) {
-            if existing.contains("instructions-version: 5") {
-                return Ok(());
-            }
-        }
-    }
-    fs::create_dir_all(path.parent().unwrap())?;
-    fs::write(&path, VSCODE_COPILOT_INSTRUCTIONS)
-        .with_context(|| format!("write {}", path.display()))?;
+    crate::host_install::upsert_managed_block(&path, "copilot", VSCODE_COPILOT_INSTRUCTIONS)?;
     let mode_path = root.join(".github").join("agent-brain-mode.md");
     if !mode_path.is_file() {
         fs::write(&mode_path, crate::host_install::mode_snippet())

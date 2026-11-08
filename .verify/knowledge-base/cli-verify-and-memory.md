@@ -108,4 +108,6 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 - Feature map: [[../features/cli-verify-and-memory]]
 
 - Formatting pass (rustfmt, 2026-11-07): line breaks and spacing only, no behaviour change.
+- Receipts need commit tracking: `code_tree_hash` covers only uncommitted code paths, so on a clean tree it is the same for every commit. The receipt therefore also requires `head_sha` (git HEAD, schema v26). A receipt only matches a run recorded after v26; older runs show NOT VERIFIED until re-run.
+- Egress guard: network use is found by markers (`ureq::`, `opendal::`, `Command::new("curl")`, git `fetch`/`clone`/`pull`/`push` argument lists). A new client that uses a different API will not be caught. Add its marker to `NETWORK_CLIENT_MARKERS` when you add one.
 - Dashboard savings: the bounded-read saving sums the bytes of every file a directory `grep_search` scans (`full_bytes` in `src/token_tools.rs`), not only the files an agent would open. Read it as an upper bound, never as a measured saving. The dashboard labels it that way.

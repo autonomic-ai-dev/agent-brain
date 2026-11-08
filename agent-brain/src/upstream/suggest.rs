@@ -137,7 +137,7 @@ mod tests {
 
     #[test]
     fn scores_github_issue_lookup() {
-        let tools = vec![IndexedUpstreamTool {
+        let tools = [IndexedUpstreamTool {
             server: "github".into(),
             name: "search_issues".into(),
             description: "Search GitHub issues in a repository".into(),

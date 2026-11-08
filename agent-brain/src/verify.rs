@@ -438,11 +438,13 @@ pub fn record_from_result(
         source.as_str(),
         project_key.as_deref(),
     )?;
-    if let Some(hash) = cwd
-        .and_then(crate::config::find_repo_root)
-        .and_then(|root| code_tree_hash(&root))
-    {
-        store.set_verify_outcome_code_hash(&id, &hash)?;
+    if let Some(root) = cwd.and_then(crate::config::find_repo_root) {
+        if let Some(hash) = code_tree_hash(&root) {
+            store.set_verify_outcome_code_hash(&id, &hash)?;
+        }
+        if let Some(sha) = git_head_sha(&root) {
+            store.set_verify_outcome_head_sha(&id, &sha)?;
+        }
     }
 
     let outcome_str = if success { "success" } else { "failure" };
@@ -556,26 +558,81 @@ pub fn init_verify(project_root: &Path, force: bool) -> Result<PathBuf> {
 
     let run_sh_path = verify_dir.join("run.sh");
     if force || !run_sh_path.exists() {
-        let script = r#"#!/usr/bin/env bash
-set -euo pipefail
+        let script = r##"#!/usr/bin/env bash
+set -uo pipefail
 
-# Project verification entrypoint executed by `agent-brain verify -- .verify/run.sh`
-echo "==> Running verification suite..."
+FEATURE="${1:-all}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+OUT="$ROOT/.verify/artifacts/$RUN_ID"
+mkdir -p "$OUT"
+FAILED=0
 
-if [ -f Cargo.toml ]; then
-  cargo test
-elif [ -f package.json ]; then
-  npm test
-elif [ -f pyproject.toml ] || [ -f requirements.txt ]; then
-  pytest
-elif [ -f Makefile ]; then
-  make test
+record() {
+  echo "$1" | tee -a "$OUT/summary.txt"
+}
+
+run_phase() {
+  local phase="$1"
+  shift
+  local log="$OUT/$phase.log"
+  if "$@" >"$log" 2>&1; then
+    record "[pass] $phase"
+  else
+    local code=$?
+    record "[fail] $phase (exit $code, log: $log)"
+    FAILED=1
+  fi
+}
+
+cd "$ROOT"
+record "run $RUN_ID feature=$FEATURE"
+
+if [ -f .verify/doctor.sh ]; then
+  run_phase doctor bash .verify/doctor.sh
+  if [ "$FAILED" -ne 0 ]; then
+    record "doctor failed; no tests were run"
+    exit 1
+  fi
 else
-  echo "No default test runner detected. Please edit .verify/run.sh."
+  record "[skip] doctor: no .verify/doctor.sh"
 fi
 
-echo "==> Verification completed successfully."
-"#;
+if [ -f Cargo.toml ]; then
+  if [ "$FEATURE" = "all" ]; then
+    run_phase unit cargo test
+  else
+    run_phase unit cargo test "$FEATURE"
+  fi
+elif [ -f package.json ]; then
+  run_phase unit npm test
+elif [ -f pyproject.toml ] || [ -f requirements.txt ]; then
+  if [ "$FEATURE" = "all" ]; then
+    run_phase unit pytest
+  else
+    run_phase unit pytest -k "$FEATURE"
+  fi
+elif [ -f Makefile ]; then
+  run_phase unit make test
+else
+  record "[skip] unit: no test runner detected; edit .verify/run.sh"
+fi
+
+if [ -f .verify/static.sh ]; then
+  run_phase static bash .verify/static.sh
+else
+  record "[skip] static: no .verify/static.sh"
+fi
+
+if [ -f .verify/functional/run.sh ]; then
+  run_phase functional bash .verify/functional/run.sh
+else
+  record "[skip] functional: no .verify/functional/run.sh"
+fi
+
+record "artifacts: $OUT"
+exit "$FAILED"
+"##;
         fs::write(&run_sh_path, script)
             .with_context(|| format!("write {}", run_sh_path.display()))?;
         #[cfg(unix)]
@@ -585,16 +642,37 @@ echo "==> Verification completed successfully."
         }
     }
 
+    for dir in ["artifacts", "functional"] {
+        let keep = verify_dir.join(dir).join(".gitkeep");
+        if !keep.exists() {
+            fs::create_dir_all(verify_dir.join(dir))
+                .with_context(|| format!("create {dir} directory"))?;
+            fs::write(&keep, "").with_context(|| format!("write {}", keep.display()))?;
+        }
+    }
+
     let readme_path = verify_dir.join("README.md");
     if force || !readme_path.exists() {
         let readme = r#"# Project Verification (`.verify/`)
 
-Discovered by `agent-brain verify` and `agent-brain report`.
+Layout follows the agstack verification skill.
+
+```text
+.verify/
+├── verify.toml        allowlist of trusted commands
+├── run.sh             runner: doctor, unit, static, functional
+├── doctor.sh          optional read-only environment checks (create it to enable)
+├── static.sh          optional static checks (create it to enable)
+├── functional/        optional functional suites; functional/run.sh runs when present
+└── artifacts/         one folder per run, kept after the run
+```
 
 ## Usage
-- Run verify: `agent-brain verify -- .verify/run.sh`
-- Allowlisted test commands are recorded into `~/.autonomic/memory/brain.db` with tamper-evident cryptographic hashes.
-- Edit `verify.toml` to customize allowlisted commands for your project.
+- Run the whole suite: `agent-brain verify -- .verify/run.sh`
+- Run one feature: `agent-brain verify -- .verify/run.sh <feature>`
+- Each run writes `summary.txt` and one log per phase under `.verify/artifacts/<RUN_ID>/`.
+- Allowlisted runs are recorded into the local brain database, and `agent-brain verify receipt` shows the result for the current commit.
+- Edit `verify.toml` to change the allowlist. Commands outside it are not evidence.
 "#;
         fs::write(&readme_path, readme)
             .with_context(|| format!("write {}", readme_path.display()))?;
@@ -796,6 +874,20 @@ pub fn code_tree_hash(root: &Path) -> Option<String> {
         hasher.update([0]);
     }
     Some(format!("{:x}", hasher.finalize()))
+}
+
+pub fn git_head_sha(root: &Path) -> Option<String> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let sha = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!sha.is_empty()).then_some(sha)
 }
 
 fn hash_tree(dir: &Path) -> Result<String> {

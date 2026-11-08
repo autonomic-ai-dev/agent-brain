@@ -168,7 +168,7 @@ fn memory_gc_skips_negative_facts_without_force() {
         )
         .unwrap();
     store
-        .record_context_feedback(&[stored.id.clone()], false)
+        .record_context_feedback(std::slice::from_ref(&stored.id), false)
         .unwrap();
 
     let report = run_memory_gc(&store, false, false).unwrap();
@@ -247,11 +247,11 @@ fn memory_gc_report_buckets_protected_negative() {
         )
         .unwrap();
     store
-        .record_context_feedback(&[stored.id.clone()], false)
+        .record_context_feedback(std::slice::from_ref(&stored.id), false)
         .unwrap();
     for _ in 0..8 {
         store
-            .record_context_feedback(&[stored.id.clone()], false)
+            .record_context_feedback(std::slice::from_ref(&stored.id), false)
             .unwrap();
     }
     let old = chrono::Utc::now().timestamp_millis() - 100_i64 * 24 * 3600 * 1000;
@@ -365,7 +365,7 @@ fn supervisor_bundle_routes_token_efficient_skill() {
         .map(|s| s.name.as_str())
         .collect();
     assert!(
-        skill_names.iter().any(|n| *n == "token-efficient-ops"),
+        skill_names.contains(&"token-efficient-ops"),
         "expected token-efficient-ops in {:?}",
         skill_names
     );

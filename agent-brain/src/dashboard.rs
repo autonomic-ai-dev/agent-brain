@@ -51,6 +51,9 @@ fn render_html(stats: &OperatorStats) -> String {
     let total_saved_tokens = p.total_saved_tokens + p.tool_tokens_saved;
     let generated = chrono::Utc::now().format("%Y-%m-%d %H:%M UTC");
     let charts = render_charts(stats);
+    let agstack_routes = stats.agstack.routes_with_agstack_skill;
+    let agstack_total = stats.agstack.routes;
+    let agstack_skills = crate::stats::skill_mix(&stats.agstack);
     let memories = stats.value.memories_committed;
     let blocked = stats.value.blocked_full_reads;
     let active_mem = stats.index.active_memories;
@@ -126,6 +129,13 @@ fn render_html(stats: &OperatorStats) -> String {
   .card .label {{ font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-family: ui-monospace, monospace; font-weight: 600; }}
   .card .num {{ font-size: 1.75rem; font-weight: 700; margin-top: 0.4rem; color: #ffffff; }}
   .card .hint {{ font-size: 0.75rem; color: var(--muted); margin-top: 0.35rem; }}
+  .tile summary {{ list-style: none; cursor: pointer; }}
+  .tile summary::-webkit-details-marker {{ display: none; }}
+  .tile summary::after {{ content: "details"; display: block; margin-top: 0.5rem; font-size: 0.65rem; font-family: ui-monospace, monospace; color: var(--blue); }}
+  .tile[open] summary::after {{ content: "hide"; }}
+  .tile:hover {{ border-color: #2f3750; }}
+  .detail {{ font-size: 0.8rem; color: var(--text); border-top: 1px solid var(--card-border); margin: 0.9rem 0 0; padding-top: 0.8rem; line-height: 1.5; }}
+  .tip {{ font-size: 0.75rem; color: var(--muted); margin: -1rem 0 1rem; font-family: ui-monospace, monospace; }}
   .highlight {{ color: var(--accent); }}
   .section-title {{ font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 2rem 0 0.85rem; font-family: ui-monospace, monospace; font-weight: 600; }}
   .charts {{ display: grid; grid-template-columns: 1fr; gap: 1rem; }}
@@ -157,62 +167,104 @@ fn render_html(stats: &OperatorStats) -> String {
     <p class="line">Across {route_calls} routed turns · avg {avg_routed:.0} tok per turn{peak_text}</p>
   </div>
 
+  <p class="tip">Click any tile to see what it counts and where the number comes from.</p>
   <div class="grid">
-    <div class="card">
-      <div class="label">Route calls</div>
-      <div class="num">{route_calls}</div>
-      <div class="hint">avg {avg_latency:.0} ms · p95 {p95} ms</div>
-    </div>
-    <div class="card">
-      <div class="label">Cache hit rate</div>
-      <div class="num">{cache_pct:.1}%</div>
-      <div class="hint">{cache_hits} of {daily_routes} routes served from cache</div>
-    </div>
-    <div class="card">
-      <div class="label">Supervisor turns</div>
-      <div class="num">{constrained}</div>
-      <div class="hint">{constrained_pct:.0}% of routes carried must_apply constraints</div>
-    </div>
-    <div class="card">
-      <div class="label">must_apply items served</div>
-      <div class="num" style="color:var(--accent);">{recipes_promoted}</div>
-      <div class="hint">Constraints returned by route_task in this period</div>
-    </div>
-    <div class="card">
-      <div class="label">Bounded-read saving, upper bound</div>
-      <div class="num highlight">{bounded_sum}</div>
-      <div class="hint">Bytes of files that matched ÷ 4, minus tokens returned. Assumes the agent would otherwise read those files in full.</div>
-    </div>
-    <div class="card">
-      <div class="label">Bounded tool calls</div>
-      <div class="num">{tool_calls}</div>
-      <div class="hint">grep, head, tail, file_summary · avg {tool_avg:.0}% saved per call (estimate)</div>
-    </div>
-    <div class="card">
-      <div class="label">Verify runs passed / failed</div>
-      <div class="num">{verify_passed} / {verify_failed}</div>
-      <div class="hint">Pass rate {pass_rate:.1}% · recorded exit codes from agent-brain verify</div>
-    </div>
-    <div class="card">
-      <div class="label">Full-read steers</div>
-      <div class="num" style="color:var(--amber);">{blocked}</div>
-      <div class="hint">Native full-file reads steered to bounded tools · {tool_calls} bounded calls</div>
-    </div>
-    <div class="card">
-      <div class="label">Estimated saving vs naive load</div>
-      <div class="num" style="color:var(--muted);">{total_saved_tokens}</div>
-      <div class="hint">Assumes each indexed item would cost 120 tokens if loaded. An estimate, not a measurement.</div>
-    </div>
-    <div class="card">
-      <div class="label">Durable memories</div>
-      <div class="num">{memories}</div>
-      <div class="hint">{active_mem} active across sessions</div>
-    </div>
-    <div class="card">
-      <div class="label">Indexed knowledge</div>
-      <div class="num">{index}</div>
-      <div class="hint">{index_mix}</div>
-    </div>
+    <details class="card tile">
+      <summary>
+        <div class="label">Route calls</div>
+        <div class="num">{route_calls}</div>
+        <div class="hint">avg {avg_latency:.0} ms · p95 {p95} ms</div>
+      </summary>
+      <p class="detail">Each route_task response logged in the retrieval log for this period, excluding upstream calls. avg is the mean latency; p95 is the 95th percentile. Measured.</p>
+    </details>
+    <details class="card tile">
+      <summary>
+        <div class="label">Cache hit rate</div>
+        <div class="num">{cache_pct:.1}%</div>
+        <div class="hint">{cache_hits} of {daily_routes} routes served from cache</div>
+      </summary>
+      <p class="detail">Share of route responses served from the route cache (cache_hit in the retrieval log). Measured.</p>
+    </details>
+    <details class="card tile">
+      <summary>
+        <div class="label">Supervisor turns</div>
+        <div class="num">{constrained}</div>
+        <div class="hint">{constrained_pct:.0}% of routes carried must_apply constraints</div>
+      </summary>
+      <p class="detail">Routes whose response carried one or more must_apply constraints (must_apply_count above zero in the retrieval log). Measured.</p>
+    </details>
+    <details class="card tile">
+      <summary>
+        <div class="label">must_apply items served</div>
+        <div class="num" style="color:var(--accent);">{recipes_promoted}</div>
+        <div class="hint">Constraints returned by route_task in this period</div>
+      </summary>
+      <p class="detail">Total must_apply constraints returned across all routes in the period (the sum of must_apply_count). Measured.</p>
+    </details>
+    <details class="card tile">
+      <summary>
+        <div class="label">Bounded-read saving, upper bound</div>
+        <div class="num highlight">{bounded_sum}</div>
+        <div class="hint">Bytes of files that matched ÷ 4, minus tokens returned</div>
+      </summary>
+      <p class="detail">For each directory grep, the bytes of files that produced a match, divided by 4, minus the tokens returned. It assumes the agent would otherwise have read those files in full, so treat it as an upper bound. Source: tool_log.tokens_saved. Estimate.</p>
+    </details>
+    <details class="card tile">
+      <summary>
+        <div class="label">Bounded tool calls</div>
+        <div class="num">{tool_calls}</div>
+        <div class="hint">grep, head, tail, file_summary · avg {tool_avg:.0}% saved per call (estimate)</div>
+      </summary>
+      <p class="detail">Calls to the bounded tools in the period. The average saving uses the same counterfactual as the bounded-read saving above, so it is an estimate.</p>
+    </details>
+    <details class="card tile">
+      <summary>
+        <div class="label">Verify runs passed / failed</div>
+        <div class="num">{verify_passed} / {verify_failed}</div>
+        <div class="hint">Pass rate {pass_rate:.1}% · recorded exit codes from agent-brain verify</div>
+      </summary>
+      <p class="detail">Verify runs recorded in the period. Passed means exit code 0; failed means any other exit code. Only runs executed by agent-brain verify are recorded, and each run keeps the commit and code hash it tested. Measured.</p>
+    </details>
+    <details class="card tile">
+      <summary>
+        <div class="label">Full-read steers</div>
+        <div class="num" style="color:var(--amber);">{blocked}</div>
+        <div class="hint">Native full-file reads steered to bounded tools · {tool_calls} bounded calls</div>
+      </summary>
+      <p class="detail">Native full-file reads that agent-brain steered to a bounded tool in the period (inefficient_read_events). Measured.</p>
+    </details>
+    <details class="card tile">
+      <summary>
+        <div class="label">Estimated saving vs naive load</div>
+        <div class="num" style="color:var(--muted);">{total_saved_tokens}</div>
+        <div class="hint">Assumes each indexed item would cost 120 tokens if loaded. An estimate, not a measurement.</div>
+      </summary>
+      <p class="detail">Modelled, not measured: indexed items × 120 tokens, minus tokens routed, plus the bounded-read estimate. Shown for context only and left out of the weekly summary.</p>
+    </details>
+    <details class="card tile">
+      <summary>
+        <div class="label">Durable memories</div>
+        <div class="num">{memories}</div>
+        <div class="hint">{active_mem} active across sessions</div>
+      </summary>
+      <p class="detail">Facts stored in the period, and the number currently active across sessions. Measured from the local database.</p>
+    </details>
+    <details class="card tile">
+      <summary>
+        <div class="label">Indexed knowledge</div>
+        <div class="num">{index}</div>
+        <div class="hint">{index_mix}</div>
+      </summary>
+      <p class="detail">Items in the local index by type (skills, rules, agents, memories, workflows), from the installed packages and the project. Measured.</p>
+    </details>
+    <details class="card tile">
+      <summary>
+        <div class="label">agstack skills surfaced</div>
+        <div class="num">{agstack_routes}</div>
+        <div class="hint">of {agstack_total} routes · {agstack_skills}</div>
+      </summary>
+      <p class="detail">Routes whose top results included the agstack-mode or verification skill, counted from the route log. Measured. It shows what route_task offered. It does not show whether the agent read the skill.</p>
+    </details>
   </div>
 
   {charts}

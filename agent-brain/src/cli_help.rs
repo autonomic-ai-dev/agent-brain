@@ -421,6 +421,7 @@ Local index / routing / latency metrics (not product ROI claims).
 Options:
       --days N    Lookback window (default: 7)
       --json      Machine-readable JSON
+      --markdown  Shareable summary of measured figures only, for a weekly update
 "
         }
         "dashboard" => {
@@ -474,6 +475,7 @@ Usage:  agent-brain verify [OPTIONS] -- <cmd> [args...]
         agent-brain verify init [--force] [--dir <DIR>]
         agent-brain verify record --exit N [OPTIONS] -- <cmd summary...>
         agent-brain verify run [--project <DIR>] [--json]
+        agent-brain verify receipt [--project <DIR>] [--markdown|--json]
 
 Run an allowlisted verification command and record trusted outcome.
 
@@ -481,6 +483,8 @@ Subcommands:
   init                  Initialize .verify/ directory with verify.toml and run.sh template
   record                Record already-known exit code without executing
   run                   Run the [verify.default] step declared in verify.toml, with its timeout
+  receipt               Show whether the current commit and code state passed its verify run.
+                        Exit 0 only when PASSED. --markdown prints a block to paste into a PR.
 
 Options:
       --source <SOURCE>    Outcome source: cli (default) or orchestrator (spine/muscle)

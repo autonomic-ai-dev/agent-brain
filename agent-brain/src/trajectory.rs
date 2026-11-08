@@ -131,6 +131,6 @@ mod tests {
             Some("tests passed"),
         )
         .unwrap();
-        assert_eq!(report.route_log_linked, true);
+        assert!(report.route_log_linked);
     }
 }

@@ -50,6 +50,7 @@ pub use agent_brain_core::behavior_contract;
 pub mod gate_events;
 pub mod project_key;
 pub mod promote;
+pub mod receipt;
 pub mod status;
 pub use agent_brain_core::query_decompose;
 pub mod registry_sync;
