@@ -2496,6 +2496,134 @@ impl BrainStore {
         })
     }
 
+    pub fn daily_usage_since(&self, since_ms: i64) -> Result<Vec<DailyUsage>> {
+        self.with_conn(|conn| {
+            let mut days: std::collections::BTreeMap<String, DailyUsage> =
+                std::collections::BTreeMap::new();
+            let mut routes = conn.prepare(
+                "SELECT strftime('%Y-%m-%d', timestamp / 1000, 'unixepoch') AS day, COUNT(*), SUM(tokens_used),
+                        SUM(cache_hit), SUM(CASE WHEN must_apply_count > 0 THEN 1 ELSE 0 END)
+                 FROM retrieval_log WHERE timestamp >= ?1 AND phase <> 'upstream_call' GROUP BY day",
+            )?;
+            for row in routes.query_map(params![since_ms], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, i64>(3)?,
+                    r.get::<_, i64>(4)?,
+                ))
+            })? {
+                let (day, calls, tokens, cache_hits, constrained) = row?;
+                let entry = days.entry(day.clone()).or_insert_with(|| DailyUsage { day, ..Default::default() });
+                entry.route_calls = calls.max(0) as u64;
+                entry.routed_tokens = tokens.max(0) as u64;
+                entry.cache_hits = cache_hits.max(0) as u64;
+                entry.constrained_routes = constrained.max(0) as u64;
+            }
+            let mut bounded = conn.prepare(
+                "SELECT strftime('%Y-%m-%d', timestamp / 1000, 'unixepoch') AS day, SUM(tokens_saved)
+                 FROM tool_log WHERE timestamp >= ?1 AND tokens_saved IS NOT NULL GROUP BY day",
+            )?;
+            for row in bounded.query_map(params![since_ms], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+            })? {
+                let (day, saved) = row?;
+                let entry = days.entry(day.clone()).or_insert_with(|| DailyUsage { day, ..Default::default() });
+                entry.bounded_read_tokens_saved = saved.max(0) as u64;
+            }
+            let mut verify = conn.prepare(
+                "SELECT strftime('%Y-%m-%d', recorded_at / 1000, 'unixepoch') AS day,
+                        SUM(CASE WHEN exit_code = 0 THEN 1 ELSE 0 END), SUM(CASE WHEN exit_code <> 0 THEN 1 ELSE 0 END)
+                 FROM verify_outcomes WHERE recorded_at >= ?1 GROUP BY day",
+            )?;
+            for row in verify.query_map(params![since_ms], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
+            })? {
+                let (day, passed, failed) = row?;
+                let entry = days.entry(day.clone()).or_insert_with(|| DailyUsage { day, ..Default::default() });
+                entry.verify_passed = passed.max(0) as u64;
+                entry.verify_failed = failed.max(0) as u64;
+            }
+            Ok(days.into_values().collect())
+        })
+    }
+
+    pub fn latency_buckets_since(&self, since_ms: i64) -> Result<Vec<CountBucket>> {
+        const LABELS: [&str; 6] = [
+            "<50 ms",
+            "50–99 ms",
+            "100–249 ms",
+            "250–499 ms",
+            "500–999 ms",
+            "≥1 s",
+        ];
+        let rows: Vec<(i64, i64)> = self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT CASE WHEN latency_ms < 50 THEN 0 WHEN latency_ms < 100 THEN 1
+                             WHEN latency_ms < 250 THEN 2 WHEN latency_ms < 500 THEN 3
+                             WHEN latency_ms < 1000 THEN 4 ELSE 5 END AS bucket, COUNT(*)
+                 FROM retrieval_log WHERE timestamp >= ?1 AND phase <> 'upstream_call' GROUP BY bucket",
+            )?;
+            let rows = stmt
+                .query_map(params![since_ms], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        })?;
+        let mut buckets: Vec<CountBucket> = LABELS
+            .iter()
+            .map(|label| CountBucket {
+                label: (*label).to_string(),
+                count: 0,
+            })
+            .collect();
+        for (bucket, count) in rows {
+            if let Some(slot) = buckets.get_mut(bucket as usize) {
+                slot.count = count.max(0) as u64;
+            }
+        }
+        Ok(buckets)
+    }
+
+    pub fn tool_usage_since(&self, since_ms: i64) -> Result<Vec<ToolUsage>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT tool_name, COUNT(*), SUM(tokens_used), COALESCE(SUM(tokens_saved), 0)
+                 FROM tool_log WHERE timestamp >= ?1 GROUP BY tool_name ORDER BY COUNT(*) DESC LIMIT 10",
+            )?;
+            let rows = stmt
+                .query_map(params![since_ms], |r| {
+                    Ok(ToolUsage {
+                        tool_name: r.get(0)?,
+                        calls: r.get::<_, i64>(1)?.max(0) as u64,
+                        tokens_used: r.get::<_, i64>(2)?.max(0) as u64,
+                        tokens_saved: r.get::<_, i64>(3)?.max(0) as u64,
+                    })
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        })
+    }
+
+    pub fn verify_commands_since(&self, since_ms: i64) -> Result<Vec<VerifyCommand>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT cmd, SUM(CASE WHEN exit_code = 0 THEN 1 ELSE 0 END), SUM(CASE WHEN exit_code <> 0 THEN 1 ELSE 0 END)
+                 FROM verify_outcomes WHERE recorded_at >= ?1 GROUP BY cmd ORDER BY COUNT(*) DESC LIMIT 8",
+            )?;
+            let rows = stmt
+                .query_map(params![since_ms], |r| {
+                    Ok(VerifyCommand {
+                        cmd: r.get(0)?,
+                        passed: r.get::<_, i64>(1)?.max(0) as u64,
+                        failed: r.get::<_, i64>(2)?.max(0) as u64,
+                    })
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        })
+    }
+
     pub fn retrieval_stats_since(&self, since_ms: i64) -> Result<RetrievalStats> {
         let mut stats = self.with_conn(|conn| {
             let mut stmt = conn.prepare(
@@ -3321,6 +3449,70 @@ mod tests {
     use super::*;
 
     #[test]
+    fn dashboard_breakdowns_count_only_recorded_rows() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = BrainStore::open(&tmp.path().join("dashboard.db")).unwrap();
+        let at = 1_793_000_000_000i64;
+        store
+            .with_conn(|conn| {
+                conn.execute(
+                    "INSERT INTO retrieval_log (id, timestamp, query_hash, phase, items_returned, tokens_used, truncated, cache_hit, latency_ms, must_apply_count)
+                     VALUES ('r1', ?1, 'h', 'pre', '[]', 100, 0, 1, 40, 2)",
+                    params![at],
+                )?;
+                conn.execute(
+                    "INSERT INTO retrieval_log (id, timestamp, query_hash, phase, items_returned, tokens_used, truncated, cache_hit, latency_ms, must_apply_count)
+                     VALUES ('r2', ?1, 'h', 'pre', '[]', 300, 0, 0, 700, 0)",
+                    params![at],
+                )?;
+                conn.execute(
+                    "INSERT INTO retrieval_log (id, timestamp, query_hash, phase, items_returned, tokens_used, truncated, cache_hit, latency_ms, must_apply_count)
+                     VALUES ('r3', ?1, 'h', 'upstream_call', '[]', 999, 0, 0, 5, 0)",
+                    params![at],
+                )?;
+                conn.execute(
+                    "INSERT INTO tool_log (id, timestamp, tool_name, tokens_used, tokens_saved) VALUES ('t1', ?1, 'grep_search', 50, 30)",
+                    params![at],
+                )?;
+                conn.execute(
+                    "INSERT INTO verify_outcomes (id, exit_code, cmd, recorded_at) VALUES ('v1', 0, 'cargo test', ?1)",
+                    params![at],
+                )?;
+                conn.execute(
+                    "INSERT INTO verify_outcomes (id, exit_code, cmd, recorded_at) VALUES ('v2', 1, 'cargo test', ?1)",
+                    params![at],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+
+        let daily = store.daily_usage_since(at - 1).unwrap();
+        assert_eq!(daily.len(), 1);
+        assert_eq!(daily[0].route_calls, 2);
+        assert_eq!(daily[0].cache_hits, 1);
+        assert_eq!(daily[0].constrained_routes, 1);
+        assert_eq!(daily[0].routed_tokens, 400);
+        assert_eq!(daily[0].bounded_read_tokens_saved, 30);
+        assert_eq!((daily[0].verify_passed, daily[0].verify_failed), (1, 1));
+
+        let latency = store.latency_buckets_since(at - 1).unwrap();
+        assert_eq!(latency.iter().map(|b| b.count).sum::<u64>(), 2);
+        assert_eq!(latency[0].count, 1);
+        assert_eq!(latency[4].count, 1);
+
+        let tools = store.tool_usage_since(at - 1).unwrap();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(
+            (tools[0].calls, tools[0].tokens_used, tools[0].tokens_saved),
+            (1, 50, 30)
+        );
+
+        let commands = store.verify_commands_since(at - 1).unwrap();
+        assert_eq!(commands.len(), 1);
+        assert_eq!((commands[0].passed, commands[0].failed), (1, 1));
+    }
+
+    #[test]
     fn bm25_fast_path_requires_hits_and_strength() {
         let weak = Bm25Prefilter {
             item_ids: HashSet::from(["a".into()]),
@@ -3578,6 +3770,39 @@ pub struct GcCandidate {
     pub polarity: Option<String>,
     pub apply_when: Option<String>,
     pub gc_kind: String,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct DailyUsage {
+    pub day: String,
+    pub route_calls: u64,
+    pub cache_hits: u64,
+    pub constrained_routes: u64,
+    pub routed_tokens: u64,
+    pub bounded_read_tokens_saved: u64,
+    pub verify_passed: u64,
+    pub verify_failed: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CountBucket {
+    pub label: String,
+    pub count: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ToolUsage {
+    pub tool_name: String,
+    pub calls: u64,
+    pub tokens_used: u64,
+    pub tokens_saved: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct VerifyCommand {
+    pub cmd: String,
+    pub passed: u64,
+    pub failed: u64,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
