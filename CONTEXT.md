@@ -1,7 +1,7 @@
 # agent-brain — Deep Operational & Architectural Context for Agents
 
 > **Cognitive Core, Persistent Volume, Turn Router & Procedure Graph** — In-depth architectural guide, mental model, complete CLI matrix, MCP tool contracts, and failure recovery runbooks for `agent-brain`.  
-> **Ecosystem Version Baseline:** `v1.0.0-rc7` (Schema v25)  
+> **Ecosystem Version Baseline:** `v1.0.0-rc7` (Schema v26)  
 > **Documentation Hub:** [https://autonomic-ai.dev/docs/memory](https://autonomic-ai.dev/docs/memory) · [Architecture Hub](https://autonomic-ai.dev/docs/architecture)  
 > **Default Storage:** `~/.autonomic/memory/` (`brain.db`, `packages/`, `pending/`, `serve.lock`)
 
@@ -40,7 +40,7 @@ flowchart TD
         HistoryCheck -->|Exit != 0| SquelchRecipe["Squelch failing suggestions"]
     end
 
-    subgraph ProcedureEngine ["Procedure Graph Engine (Schema v25)"]
+    subgraph ProcedureEngine ["Procedure Graph Engine (Schema v26)"]
         RecallCmd["recall_procedures(query, task_kind)"] --> CTE["Recursive CTE Traversal<br>procedure_edges"]
         CTE --> ProcedureHits["Ranked Procedure Sequences & Next Steps"]
     end

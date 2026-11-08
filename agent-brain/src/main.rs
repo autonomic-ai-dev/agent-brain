@@ -732,6 +732,27 @@ async fn main() -> Result<()> {
                 }
                 return Ok(());
             }
+            if sub == "receipt" {
+                let root = match flag_value(&args, "--project") {
+                    Some(path) => std::path::PathBuf::from(path),
+                    None => {
+                        let cwd = std::env::current_dir()?;
+                        agent_brain::config::find_repo_root(&cwd).unwrap_or(cwd)
+                    }
+                };
+                let receipt = agent_brain::receipt::receipt_for_project(&store, &root)?;
+                if args.iter().any(|a| a == "--json") {
+                    println!("{}", serde_json::to_string_pretty(&receipt)?);
+                } else if args.iter().any(|a| a == "--markdown") {
+                    print!("{}", agent_brain::receipt::render_markdown(&receipt));
+                } else {
+                    print!("{}", agent_brain::receipt::render_text(&receipt));
+                }
+                if receipt.verdict != agent_brain::receipt::Verdict::Passed {
+                    std::process::exit(1);
+                }
+                return Ok(());
+            }
             if sub == "record" {
                 let route_log_id = flag_value(&args, "--route-log-id");
                 let cause = flag_value(&args, "--cause");

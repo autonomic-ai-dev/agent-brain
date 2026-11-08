@@ -438,11 +438,13 @@ pub fn record_from_result(
         source.as_str(),
         project_key.as_deref(),
     )?;
-    if let Some(hash) = cwd
-        .and_then(crate::config::find_repo_root)
-        .and_then(|root| code_tree_hash(&root))
-    {
-        store.set_verify_outcome_code_hash(&id, &hash)?;
+    if let Some(root) = cwd.and_then(crate::config::find_repo_root) {
+        if let Some(hash) = code_tree_hash(&root) {
+            store.set_verify_outcome_code_hash(&id, &hash)?;
+        }
+        if let Some(sha) = git_head_sha(&root) {
+            store.set_verify_outcome_head_sha(&id, &sha)?;
+        }
     }
 
     let outcome_str = if success { "success" } else { "failure" };
@@ -796,6 +798,20 @@ pub fn code_tree_hash(root: &Path) -> Option<String> {
         hasher.update([0]);
     }
     Some(format!("{:x}", hasher.finalize()))
+}
+
+pub fn git_head_sha(root: &Path) -> Option<String> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let sha = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!sha.is_empty()).then_some(sha)
 }
 
 fn hash_tree(dir: &Path) -> Result<String> {

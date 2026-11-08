@@ -18,7 +18,7 @@ flowchart LR
     Host["AI Agent / IDE Host"] --> Gate{"route_gate<br/>(Host Pre-Tool Hook)"}
     Gate --> Engine[("SQLite + HNSW Engine<br/>Local Store")]
     Engine --> Context["Dynamic Knapsack (350–700 Tok)<br/>Skills · Rules · Invariants"]
-    Engine --> Graph[("Procedure Graph<br/>Schema v25 Recursive CTEs")]
+    Engine --> Graph[("Procedure Graph<br/>Schema v26 Recursive CTEs")]
     Context --> Host
     Host --> Verify["agent-brain verify -- <cmd>"]
     Verify --> Trajectory[("Automatic Trajectory Capture<br/>& Outcome Attribution")]
@@ -33,7 +33,7 @@ flowchart LR
 | **Context Window Bloat** | Turn router packs the top-ranked skills, rules and memory into a fixed per-task token budget (350–700 tokens) | Knapsack token packer with a 120-token memory reservation (`engine.rs`) |
 | **Instruction Drift & Ignored Prompts** | Host pre-tool hooks enforce `route_task` on every turn | Routing regression suite (`agent-brain/tests/jailbreak_routing.rs`, 250 cases) passes |
 | **Destructive Shell Hazards** | The shell command policy blocks dangerous commands before they run | Command policy rules (`agent-brain/src/command_policy.rs`) |
-| **Repetitive Execution Amnesia** | Procedure Graph (`recall_procedures`) stores structured, multi-step execution graphs | Schema v25 SQLite recursive CTEs (`procedure_edges`) |
+| **Repetitive Execution Amnesia** | Procedure Graph (`recall_procedures`) stores structured, multi-step execution graphs | Schema v26 SQLite recursive CTEs (`procedure_edges`) |
 | **Discarded Verification Evidence** | Automatic trajectory capture and outcome attribution (exit 0 vs non-zero) | `verify.rs` & `trajectory.rs` closed loop |
 | **High Prompt Turn Latency** | Turn cache and session stickiness reuse recent routing decisions | `routing.turn_ttl_secs`, `routing.session_stickiness_secs` (`config.rs`) |
 
@@ -115,6 +115,13 @@ agent-brain install --all --global
 # or selectively: --claude-code | --cursor | --opencode | --gemini | --antigravity | --vscode | --codex
 ```
 
+### Your first verify receipt
+
+After install, run `agent-brain verify init` in a project, then `agent-brain verify -- <your test command>`. `agent-brain verify receipt` then reports whether that command passed for your current commit and code, and `--markdown` prints a block for a pull request. The full walk-through is in [docs/first-receipt.md](agent-brain/docs/first-receipt.md).
+
+- Which hosts get which gates: [docs/support-matrix.md](agent-brain/docs/support-matrix.md)
+- Every network path agent-brain can open, and its default: [docs/egress.md](agent-brain/docs/egress.md)
+
 ---
 
 ## Core Pillars
@@ -130,7 +137,7 @@ Instead of dumping full documentation trees into your agent's system prompt, `ag
 A 120-token reservation is set aside for memory items in each route.
 
 ### 2. Procedure Graph & Associative Memory
-Built on local SQLite with schema v25 migrations, `recall_procedures` queries multi-step engineering recipes. Connected downstream procedures and dependent execution nodes are dynamically hydrated using SQLite recursive Common Table Expressions (`procedure_edges`), ranked by task similarity and historical pass rate.
+Built on local SQLite with schema v26 migrations, `recall_procedures` queries multi-step engineering recipes. Connected downstream procedures and dependent execution nodes are dynamically hydrated using SQLite recursive Common Table Expressions (`procedure_edges`), ranked by task similarity and historical pass rate.
 
 ### 3. Deterministic Security & Host Hook Enforcement (`bash-gate`)
 Agent execution is governed by these hooks:
