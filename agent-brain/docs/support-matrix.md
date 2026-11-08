@@ -19,6 +19,20 @@ Install with `agent-brain install --all` (the default), or pick one host with a 
 
 `agent-brain install` writes `~/.agent_brain/cursor-agent-brain-mode.mdc` and `~/.agent_brain/cursor-user-rules.mdc`. The installer prints a request to paste both files into Cursor's User Rules, and it does not do that paste itself, so this step is manual.
 
+## Mode in project installs
+
+A project install (no `--global`) writes the agstack mode into the file each host reads for project instructions. The text sits between two markers, `<!-- agent-brain:begin mode -->` and `<!-- agent-brain:end mode -->`:
+
+| Host | File |
+|---|---|
+| Codex, OpenCode, Antigravity | `AGENTS.md` at the repository root |
+| Gemini CLI | `GEMINI.md` at the repository root |
+| VS Code (Copilot) | `.github/copilot-instructions.md` |
+| Claude Code | `.claude/rules/agent-brain-agstack.md` |
+| Cursor | `.cursor/rules/agstack.mdc` (always applied) and `.cursor/rules/agent-brain-mode.mdc` |
+
+Text outside the markers is never changed, and a second install leaves the file as it was. The file names follow each host's usual convention. The regression test is `tests/project_mode.rs`.
+
 ## What "hooks" means here
 
 Hooks run agent-brain's gates before a host action. The bash gate blocks unsafe shell commands. The route gate requires `route_task` before work starts. Only the hosts marked with hooks above get these gates. VS Code and Claude Desktop get the MCP tools and the instructions, but no gate runs before their actions.

@@ -18,7 +18,7 @@ fn every_dashboard_tile_opens_to_a_detail_panel() {
         .expect("dashboard html");
     let tiles = html.matches("<details class=\"card tile\">").count();
     let details = html.matches("<p class=\"detail\">").count();
-    assert_eq!(tiles, 11, "one details tile per card");
+    assert_eq!(tiles, 12, "one details tile per card");
     assert_eq!(details, tiles, "every tile has a detail panel");
     assert!(!html.contains("<script"), "dashboard must not run scripts");
     assert!(html.contains("Click any tile"));

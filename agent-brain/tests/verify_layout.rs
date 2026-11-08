@@ -130,6 +130,21 @@ fn passing_run_with_functional_suite_passes_every_run_phase() {
     let receipt = agent_brain(home.path(), root, &["verify", "receipt"]);
     assert_eq!(receipt.status.code(), Some(0));
     assert!(stdout(&receipt).contains("command:   .verify/run.sh"));
+    let artifact_line = stdout(&receipt)
+        .lines()
+        .find(|line| line.starts_with("  artifact:"))
+        .expect("receipt names the proof artifact")
+        .trim_start_matches("  artifact:")
+        .trim()
+        .to_string();
+    assert!(
+        artifact_line.starts_with(".verify/artifacts/"),
+        "{artifact_line}"
+    );
+    assert!(
+        root.join(&artifact_line).is_file(),
+        "artifact must exist: {artifact_line}"
+    );
 }
 
 #[test]

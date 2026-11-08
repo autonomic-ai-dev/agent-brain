@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use anyhow::Result;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::adoption::{self, AdoptionMilestones};
 use crate::config::Config;
@@ -35,6 +35,71 @@ pub struct OperatorStats {
     pub latency: Vec<CountBucket>,
     pub tools: Vec<ToolUsage>,
     pub verify_commands: Vec<VerifyCommand>,
+    pub agstack: AgstackUsage,
+}
+
+pub const AGSTACK_SKILLS: [&str; 2] = ["agstack-mode", "verification"];
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct AgstackUsage {
+    pub routes: u64,
+    pub routes_with_agstack_skill: u64,
+    pub by_skill: BTreeMap<String, u64>,
+}
+
+#[derive(Deserialize)]
+struct LoggedItem {
+    #[serde(rename = "type")]
+    item_type: String,
+    topic: String,
+}
+
+pub fn agstack_usage(items_json: &[String]) -> AgstackUsage {
+    let mut usage = AgstackUsage {
+        routes: items_json.len() as u64,
+        ..AgstackUsage::default()
+    };
+    for json in items_json {
+        let items: Vec<LoggedItem> = serde_json::from_str(json).unwrap_or_default();
+        let mut surfaced = false;
+        for skill in AGSTACK_SKILLS {
+            if items
+                .iter()
+                .any(|item| item.item_type == "skill" && item.topic == skill)
+            {
+                *usage.by_skill.entry(skill.to_string()).or_insert(0) += 1;
+                surfaced = true;
+            }
+        }
+        if surfaced {
+            usage.routes_with_agstack_skill += 1;
+        }
+    }
+    usage
+}
+
+pub fn skill_mix(usage: &AgstackUsage) -> String {
+    if usage.by_skill.is_empty() {
+        return "none".to_string();
+    }
+    usage
+        .by_skill
+        .iter()
+        .map(|(skill, count)| format!("{skill} {count}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn retrieval_items_since(store: &BrainStore, since_ms: i64) -> Result<Vec<String>> {
+    store.with_conn(|conn| {
+        let mut stmt = conn.prepare(
+            "SELECT items_returned FROM retrieval_log WHERE timestamp >= ?1 AND phase <> 'upstream_call'",
+        )?;
+        let rows = stmt
+            .query_map([since_ms], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    })
 }
 
 pub fn collect(store: &BrainStore, config: &Config, period_days: u32) -> Result<OperatorStats> {
@@ -47,6 +112,7 @@ pub fn collect(store: &BrainStore, config: &Config, period_days: u32) -> Result<
     let latency = store.latency_buckets_since(since)?;
     let tools = store.tool_usage_since(since)?;
     let verify_commands = store.verify_commands_since(since)?;
+    let agstack = agstack_usage(&retrieval_items_since(store, since)?);
     let mut by_type = BTreeMap::new();
     for (item_type, count) in store.count_indexed_by_type()? {
         by_type.insert(item_type, count);
@@ -71,6 +137,7 @@ pub fn collect(store: &BrainStore, config: &Config, period_days: u32) -> Result<
         latency,
         tools,
         verify_commands,
+        agstack,
     })
 }
 
@@ -119,6 +186,14 @@ pub fn format_text(stats: &OperatorStats) -> String {
         out.push_str(&format!(
             "- Token tools: {} bounded-read calls\n",
             stats.period.tool_calls
+        ));
+    }
+    if stats.agstack.routes > 0 {
+        out.push_str(&format!(
+            "- agstack skills surfaced: {} of {} routes ({})\n",
+            stats.agstack.routes_with_agstack_skill,
+            stats.agstack.routes,
+            skill_mix(&stats.agstack)
         ));
     }
     if stats.period.inefficient_read_events > 0 {
@@ -185,6 +260,12 @@ pub fn format_markdown(stats: &OperatorStats) -> String {
         p.routes_with_constraints
     ));
     out.push_str(&format!("| Bounded tool calls | {} |\n", p.tool_calls));
+    out.push_str(&format!(
+        "| agstack skills surfaced in routes | {} of {} ({}) |\n",
+        stats.agstack.routes_with_agstack_skill,
+        stats.agstack.routes,
+        skill_mix(&stats.agstack)
+    ));
     out.push_str(&format!(
         "| Full-read steers | {} |\n",
         stats.value.blocked_full_reads

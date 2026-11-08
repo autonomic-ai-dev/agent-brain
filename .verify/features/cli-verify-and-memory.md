@@ -74,6 +74,15 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
   - Intent: A receipt a person can paste into a pull request, and that cannot pass on stale evidence.
   - Behaviour: `receipt_for_project` (`src/receipt.rs`) reads the newest `verify_outcomes` row for the project whose `head_sha` (git HEAD) and `code_hash` (uncommitted code paths) both match now, and whose source is `cli` or `orchestrator`. Exit 0 only when that run exited 0. `--markdown` and `--json` render the same verdict.
   - Outcome: Verdicts `PASSED`, `FAILED`, `NOT VERIFIED`. Rows recorded before schema v26 have no `head_sha` and never count. Regression tests: `receipt::tests` (13 cases) and `tests/first_receipt.rs` (four end-to-end runs covering a fresh home, stale code, a new commit, and markdown/json).
+- `receipt-artifact`: A passing or failing receipt names the saved run output.
+  - Behaviour: `receipt_for_project` points at `.verify/artifacts/<outcome id>.log` when that file exists. `verify --` saves it in any project with a `.verify/` folder.
+  - Outcome: Text shows `artifact:` and markdown shows `Proof artifact`. Regression tests: two `receipt::tests` cases and an existence check in `tests/verify_layout.rs`.
+- `project-mode-blocks`: A project install writes the agstack mode into the file each host reads.
+  - Behaviour: `upsert_managed_block` (`src/host_install.rs`) writes text between `<!-- agent-brain:begin <id> -->` and `<!-- agent-brain:end <id> -->`. It leaves other content alone and does nothing on a second run. The VS Code copilot file uses a `copilot` block, so a team's own instructions are kept.
+  - Outcome: Regression tests: `tests/project_mode.rs` (five hosts, idempotent, team content kept).
+- `agstack-skill-usage`: The stats count routes whose top results included the agstack-mode or verification skill.
+  - Behaviour: `agstack_usage` (`src/stats.rs`) counts `skill` items named `agstack-mode` or `verification` in each route log row. It shows in `stats`, `stats --markdown`, and a dashboard tile. It shows what route_task offered, not whether the agent read the skill.
+  - Outcome: Regression tests: `tests/agstack_usage.rs` (unit cases and a real route inserted and counted through the CLI).
 - `verify-init-layout`: `agent-brain verify init` writes the agstack verification layout.
   - Intent: the harness an agent sets up matches the agstack verification skill, so its runs produce the same evidence.
   - Behaviour: `run.sh` runs phases in order (doctor, unit, static, functional), skips a phase the repository lacks with a stated reason, takes an optional feature argument, and writes `summary.txt` and one log per phase under `.verify/artifacts/<RUN_ID>/`. A failing doctor stops the run.

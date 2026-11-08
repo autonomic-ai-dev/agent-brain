@@ -54,9 +54,12 @@ Verify receipt: PASSED
   exit code: 0
   recorded:  2026-11-08T10:12:44Z
   source:    cli
+  artifact:  .verify/artifacts/3f9c2a1e-8b7d-4c6e-9a10-5d2b7e8f1a20.log
   commit:    1a2b3c4d5e6f
   code hash: 9f8e7d6c5b4a
 ```
+
+The `artifact` line is the full output of the run, saved in the project. It appears when the project has a `.verify/` folder. Open it to see the exact output behind the verdict.
 
 For a pull request, paste the markdown version:
 

@@ -51,6 +51,9 @@ fn render_html(stats: &OperatorStats) -> String {
     let total_saved_tokens = p.total_saved_tokens + p.tool_tokens_saved;
     let generated = chrono::Utc::now().format("%Y-%m-%d %H:%M UTC");
     let charts = render_charts(stats);
+    let agstack_routes = stats.agstack.routes_with_agstack_skill;
+    let agstack_total = stats.agstack.routes;
+    let agstack_skills = crate::stats::skill_mix(&stats.agstack);
     let memories = stats.value.memories_committed;
     let blocked = stats.value.blocked_full_reads;
     let active_mem = stats.index.active_memories;
@@ -253,6 +256,14 @@ fn render_html(stats: &OperatorStats) -> String {
         <div class="hint">{index_mix}</div>
       </summary>
       <p class="detail">Items in the local index by type (skills, rules, agents, memories, workflows), from the installed packages and the project. Measured.</p>
+    </details>
+    <details class="card tile">
+      <summary>
+        <div class="label">agstack skills surfaced</div>
+        <div class="num">{agstack_routes}</div>
+        <div class="hint">of {agstack_total} routes · {agstack_skills}</div>
+      </summary>
+      <p class="detail">Routes whose top results included the agstack-mode or verification skill, counted from the route log. Measured. It shows what route_task offered. It does not show whether the agent read the skill.</p>
     </details>
   </div>
 

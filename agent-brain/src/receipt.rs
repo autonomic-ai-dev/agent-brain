@@ -20,10 +20,12 @@ pub enum Verdict {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Evidence {
+    pub id: String,
     pub cmd: String,
     pub exit_code: i32,
     pub recorded_at: i64,
     pub source: String,
+    pub artifact: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -51,10 +53,12 @@ pub fn build_receipt(
                     && ran_under_verify_runner(row.source.as_deref())
             })
             .map(|row| Evidence {
+                id: row.id.clone(),
                 cmd: row.cmd.clone(),
                 exit_code: row.exit_code,
                 recorded_at: row.recorded_at,
                 source: row.source.clone().unwrap_or_else(|| "cli".to_string()),
+                artifact: None,
             })
     });
     let verdict = match &evidence {
@@ -77,7 +81,20 @@ pub fn receipt_for_project(store: &BrainStore, root: &Path) -> Result<Receipt> {
         Some(key) => store.list_verify_outcomes_for_project(&key, RECEIPT_SCAN_LIMIT)?,
         None => Vec::new(),
     };
-    Ok(build_receipt(&rows, head.as_deref(), code.as_deref()))
+    let mut receipt = build_receipt(&rows, head.as_deref(), code.as_deref());
+    if let Some(evidence) = receipt.evidence.as_mut() {
+        let artifact = verify::repo_artifact_path(root, &evidence.id);
+        if artifact.is_file() {
+            evidence.artifact = Some(
+                artifact
+                    .strip_prefix(root)
+                    .unwrap_or(&artifact)
+                    .display()
+                    .to_string(),
+            );
+        }
+    }
+    Ok(receipt)
 }
 
 fn short(value: &str) -> &str {
@@ -117,6 +134,9 @@ pub fn render_text(receipt: &Receipt) -> String {
                 recorded_at_text(evidence.recorded_at)
             ));
             out.push_str(&format!("  source:    {}\n", evidence.source));
+            if let Some(artifact) = &evidence.artifact {
+                out.push_str(&format!("  artifact:  {artifact}\n"));
+            }
         }
         None => out.push_str(&format!("  {}\n", not_verified_hint(receipt))),
     }
@@ -148,6 +168,12 @@ pub fn render_markdown(receipt: &Receipt) -> String {
                 recorded_at_text(evidence.recorded_at)
             ));
             out.push_str(&format!("| Source | {} |\n", evidence.source));
+            if let Some(artifact) = &evidence.artifact {
+                out.push_str(&format!(
+                    "| Proof artifact | `{}` |\n",
+                    markdown_cell(artifact)
+                ));
+            }
             if let Some(head) = &receipt.head_sha {
                 out.push_str(&format!("| Commit | `{}` |\n", short(head)));
             }
@@ -309,6 +335,25 @@ mod tests {
         let markdown = render_markdown(&build_receipt(&rows, Some(HEAD), Some(HASH)));
         assert!(markdown.contains("| Command | `cargo test -- a\\|b` |"));
         assert!(markdown.contains("| Commit | `1a2b3c4d5e6f` |"));
+    }
+
+    #[test]
+    fn text_and_markdown_show_the_proof_artifact_when_present() {
+        let rows = [row("cargo test", 0, Some(HEAD), Some(HASH), Some("cli"))];
+        let mut receipt = build_receipt(&rows, Some(HEAD), Some(HASH));
+        receipt.evidence.as_mut().unwrap().artifact =
+            Some(".verify/artifacts/run-1.log".to_string());
+        assert!(render_text(&receipt).contains("artifact:  .verify/artifacts/run-1.log"));
+        assert!(render_markdown(&receipt)
+            .contains("| Proof artifact | `.verify/artifacts/run-1.log` |"));
+    }
+
+    #[test]
+    fn no_artifact_line_when_none_was_saved() {
+        let rows = [row("cargo test", 0, Some(HEAD), Some(HASH), Some("cli"))];
+        let receipt = build_receipt(&rows, Some(HEAD), Some(HASH));
+        assert!(!render_text(&receipt).contains("artifact:"));
+        assert!(!render_markdown(&receipt).contains("Proof artifact"));
     }
 
     #[test]

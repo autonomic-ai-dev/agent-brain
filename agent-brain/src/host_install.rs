@@ -143,6 +143,7 @@ fn install_vscode(exe: &Path, user: bool, quiet: bool) -> Result<Vec<PathBuf>> {
     let path = vscode_mcp_path(user)?;
     write_vscode_servers_file(&path, vscode_server_entry(exe))?;
     let _ = crate::host_hooks::install_vscode_copilot_instructions(quiet);
+    install_project_mode_block(".github/copilot-instructions.md", user, quiet)?;
     if !quiet {
         println!("Installed VS Code MCP at {}", path.display());
         println!("  Run \"MCP: List Servers\" or reload the window to connect.");
@@ -252,6 +253,7 @@ fn install_opencode(exe: &Path, user: bool, quiet: bool) -> Result<Vec<PathBuf>>
     let path = opencode_config_path(user)?;
     write_opencode_config(&path, opencode_server_entry(exe), user)?;
     install_opencode_instructions(user, quiet)?;
+    install_project_mode_block("AGENTS.md", user, quiet)?;
     crate::host_hooks::install_opencode_hooks(user, quiet)?;
     if !quiet {
         println!("Installed OpenCode MCP at {}", path.display());
@@ -298,6 +300,7 @@ fn install_gemini(exe: &Path, user: bool, quiet: bool) -> Result<Vec<PathBuf>> {
     let path = gemini_config_path(user)?;
     write_claude_json_mcp(&path, mcp_server_entry(exe))?;
     install_gemini_instructions(user, quiet)?;
+    install_project_mode_block("GEMINI.md", user, quiet)?;
     crate::host_hooks::install_gemini_hooks(user, &path, quiet)?;
     if !quiet {
         println!("Installed Gemini CLI MCP at {}", path.display());
@@ -321,6 +324,7 @@ fn install_antigravity(exe: &Path, user: bool, quiet: bool) -> Result<Vec<PathBu
         written.push(path.clone());
     }
     install_antigravity_instructions(user, quiet)?;
+    install_project_mode_block("AGENTS.md", user, quiet)?;
     if let Ok(gemini_settings) = gemini_config_path(user) {
         crate::host_hooks::install_gemini_hooks(user, &gemini_settings, quiet)?;
     }
@@ -542,6 +546,46 @@ For any coding, design, review, debugging, UI, or documentation task, start agst
 
 pub fn mode_snippet() -> String {
     format!("{AGENT_BRAIN_MODE_SNIPPET}\n{AGSTACK_MODE}")
+}
+
+pub fn upsert_managed_block(path: &Path, id: &str, body: &str) -> Result<()> {
+    let begin = format!("<!-- agent-brain:begin {id} -->");
+    let end = format!("<!-- agent-brain:end {id} -->");
+    let existing = fs::read_to_string(path).unwrap_or_default();
+    let block = format!("{begin}\n{}\n{end}\n", body.trim_end());
+    let next = match existing.find(&begin).zip(existing.find(&end)) {
+        Some((start, end_at)) if end_at > start => {
+            let rest = &existing[end_at + end.len()..];
+            format!(
+                "{}{block}{}",
+                &existing[..start],
+                rest.strip_prefix('\n').unwrap_or(rest)
+            )
+        }
+        _ if existing.trim().is_empty() => block,
+        _ => format!("{}\n{block}", existing.trim_end()),
+    };
+    if next == existing {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+    fs::write(path, next).with_context(|| format!("write {}", path.display()))
+}
+
+pub fn install_project_mode_block(relative: &str, user: bool, quiet: bool) -> Result<()> {
+    if user {
+        return Ok(());
+    }
+    let cwd = std::env::current_dir().context("current working directory")?;
+    let root = crate::config::find_repo_root(&cwd).unwrap_or(cwd);
+    let path = root.join(relative);
+    upsert_managed_block(&path, "mode", &mode_snippet())?;
+    if !quiet {
+        println!("agent-brain mode block in {}", path.display());
+    }
+    Ok(())
 }
 
 fn write_agent_brain_mode(dir: &Path, quiet: bool, label: &str) -> Result<PathBuf> {
@@ -824,6 +868,7 @@ fn install_codex(exe: &Path, user: bool, quiet: bool) -> Result<Vec<PathBuf>> {
     let config_path = codex_config_path(user)?;
     write_codex_config(&config_path, exe)?;
     install_codex_instructions(user, quiet)?;
+    install_project_mode_block("AGENTS.md", user, quiet)?;
     crate::host_hooks::install_codex_hooks(user, quiet)?;
     if !quiet {
         println!("Installed Codex MCP at {}", config_path.display());
