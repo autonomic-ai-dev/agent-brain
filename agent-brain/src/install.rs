@@ -704,7 +704,7 @@ mod tests {
     #[test]
     fn detects_homebrew_managed_paths() {
         assert!(is_homebrew_managed(Path::new(
-            "/opt/homebrew/Cellar/autonomic-stack/0.5.12/bin/agent-brain"
+            "/opt/homebrew/Cellar/agent-brain/1.0.0-rc8/bin/agent-brain"
         )));
         assert!(!is_homebrew_managed(Path::new(
             "/Users/me/.local/bin/agent-brain"
