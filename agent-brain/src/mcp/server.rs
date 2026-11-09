@@ -2210,7 +2210,51 @@ pub async fn run_proxy(socket_path: &Path) -> Result<()> {
     }
 }
 
-const PROXY_REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
+const FAST_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+const LONG_REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
+const PROGRESS_INTERVAL: Duration = Duration::from_secs(10);
+const LONG_TOOLS: &[&str] = &[
+    "brain_gc",
+    "export_memory",
+    "import_memory",
+    "learn_from_url",
+    "route_to_mcp",
+    "trigger_deep_analysis",
+    "verify_run",
+];
+
+#[derive(Clone)]
+struct PendingRequest {
+    sent: std::time::Instant,
+    last_progress: std::time::Instant,
+    deadline: Duration,
+    progress_token: Option<serde_json::Value>,
+}
+
+impl PendingRequest {
+    fn new(line: &str, now: std::time::Instant) -> Self {
+        let value: serde_json::Value = serde_json::from_str(line).unwrap_or_default();
+        let params = value.get("params");
+        let is_long = value.get("method").and_then(|m| m.as_str()) == Some("tools/call")
+            && params
+                .and_then(|p| p.get("name"))
+                .and_then(|n| n.as_str())
+                .is_some_and(|name| LONG_TOOLS.contains(&name));
+        Self {
+            sent: now,
+            last_progress: now,
+            deadline: if is_long {
+                LONG_REQUEST_TIMEOUT
+            } else {
+                FAST_REQUEST_TIMEOUT
+            },
+            progress_token: params
+                .and_then(|p| p.get("_meta"))
+                .and_then(|m| m.get("progressToken"))
+                .cloned(),
+        }
+    }
+}
 
 #[derive(Default)]
 struct ProxyHandshake {
@@ -2263,7 +2307,7 @@ async fn serve_one_proxy_connection(
     }
     let pending = Arc::new(std::sync::Mutex::new(std::collections::HashMap::<
         String,
-        std::time::Instant,
+        PendingRequest,
     >::new()));
     let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
 
@@ -2286,10 +2330,8 @@ async fn serve_one_proxy_connection(
             while let Ok(Some(line)) = lines.next_line().await {
                 handshake.lock().unwrap().record(&line);
                 if let Some(id) = request_id(&line) {
-                    pending
-                        .lock()
-                        .unwrap()
-                        .insert(id, std::time::Instant::now());
+                    let entry = PendingRequest::new(&line, std::time::Instant::now());
+                    pending.lock().unwrap().insert(id, entry);
                 }
                 if tx.write_all(line.as_bytes()).await.is_err()
                     || tx.write_all(b"\n").await.is_err()
@@ -2327,20 +2369,33 @@ async fn serve_one_proxy_connection(
             let mut tick = tokio::time::interval(Duration::from_secs(1));
             loop {
                 tick.tick().await;
-                let expired: Vec<String> = {
+                let mut expired: Vec<(String, Duration)> = Vec::new();
+                let mut progress: Vec<String> = Vec::new();
+                {
                     let mut map = pending.lock().unwrap();
-                    let expired: Vec<String> = map
-                        .iter()
-                        .filter(|(_, sent)| sent.elapsed() > PROXY_REQUEST_TIMEOUT)
-                        .map(|(id, _)| id.clone())
-                        .collect();
-                    for id in &expired {
+                    for (id, request) in map.iter_mut() {
+                        if request.sent.elapsed() > request.deadline {
+                            expired.push((id.clone(), request.deadline));
+                        } else if let Some(token) = &request.progress_token {
+                            if request.last_progress.elapsed() >= PROGRESS_INTERVAL {
+                                request.last_progress = std::time::Instant::now();
+                                progress.push(progress_notification(
+                                    token,
+                                    request.sent.elapsed(),
+                                    request.deadline,
+                                ));
+                            }
+                        }
+                    }
+                    for (id, _) in &expired {
                         map.remove(id);
                     }
-                    expired
-                };
-                for id in expired {
-                    let _ = out_tx.send(timeout_response(&id));
+                }
+                for line in progress {
+                    let _ = out_tx.send(line);
+                }
+                for (id, deadline) in expired {
+                    let _ = out_tx.send(timeout_response(&id, deadline));
                 }
             }
         })
@@ -2369,7 +2424,7 @@ async fn serve_one_proxy_connection(
 }
 
 fn drain_pending(
-    pending: &std::sync::Mutex<std::collections::HashMap<String, std::time::Instant>>,
+    pending: &std::sync::Mutex<std::collections::HashMap<String, PendingRequest>>,
 ) -> Vec<String> {
     let mut map = pending.lock().unwrap();
     let ids: Vec<String> = map.keys().cloned().collect();
@@ -2403,7 +2458,29 @@ fn response_id(line: &str) -> Option<String> {
     value.get("id").map(|id| id.to_string())
 }
 
-fn timeout_response(id: &str) -> String {
+fn progress_notification(
+    token: &serde_json::Value,
+    elapsed: Duration,
+    deadline: Duration,
+) -> String {
+    serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/progress",
+        "params": {
+            "progressToken": token,
+            "progress": elapsed.as_secs(),
+            "total": deadline.as_secs(),
+            "message": format!(
+                "agent-brain is still working ({}s of {}s allowed)",
+                elapsed.as_secs(),
+                deadline.as_secs()
+            )
+        }
+    })
+    .to_string()
+}
+
+fn timeout_response(id: &str, deadline: Duration) -> String {
     serde_json::json!({
         "jsonrpc": "2.0",
         "id": serde_json::from_str::<serde_json::Value>(id).unwrap_or(serde_json::Value::Null),
@@ -2411,7 +2488,7 @@ fn timeout_response(id: &str) -> String {
             "code": -32000,
             "message": format!(
                 "agent-brain did not answer within {}s; the daemon may be hung. Run `agent-brain doctor`, then restart serve or this session.",
-                PROXY_REQUEST_TIMEOUT.as_secs()
+                deadline.as_secs()
             )
         }
     })
@@ -2957,9 +3034,13 @@ mod tests {
 
     #[test]
     fn lost_connection_answers_every_pending_request_with_an_error() {
+        let entry = PendingRequest::new(
+            r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
+            std::time::Instant::now(),
+        );
         let pending = std::sync::Mutex::new(std::collections::HashMap::from([
-            ("1".to_string(), std::time::Instant::now()),
-            ("\"abc\"".to_string(), std::time::Instant::now()),
+            ("1".to_string(), entry.clone()),
+            ("\"abc\"".to_string(), entry),
         ]));
         let mut ids = drain_pending(&pending);
         ids.sort();
@@ -2973,13 +3054,47 @@ mod tests {
 
     #[test]
     fn proxy_timeout_answers_the_pending_request_with_an_error() {
-        let reply: serde_json::Value = serde_json::from_str(&timeout_response("\"abc\"")).unwrap();
+        let reply: serde_json::Value =
+            serde_json::from_str(&timeout_response("\"abc\"", FAST_REQUEST_TIMEOUT)).unwrap();
         assert_eq!(reply["id"], "abc");
         assert_eq!(reply["error"]["code"], -32000);
         assert!(reply["error"]["message"]
             .as_str()
             .unwrap()
             .contains("agent-brain doctor"));
+    }
+
+    #[test]
+    fn route_task_gets_the_short_deadline_and_verify_gets_the_long_one() {
+        let now = std::time::Instant::now();
+        let route =
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"route_task"}}"#;
+        let verify =
+            r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"verify_run"}}"#;
+        assert_eq!(
+            PendingRequest::new(route, now).deadline,
+            FAST_REQUEST_TIMEOUT
+        );
+        assert_eq!(
+            PendingRequest::new(verify, now).deadline,
+            LONG_REQUEST_TIMEOUT
+        );
+    }
+
+    #[test]
+    fn progress_is_reported_only_when_the_client_sent_a_token() {
+        let token = serde_json::json!("p-1");
+        let line = progress_notification(&token, Duration::from_secs(12), FAST_REQUEST_TIMEOUT);
+        let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(value["method"], "notifications/progress");
+        assert_eq!(value["params"]["progressToken"], "p-1");
+        assert_eq!(value["params"]["progress"], 12);
+        assert_eq!(value["params"]["total"], 60);
+        let untokened =
+            r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"route_task"}}"#;
+        assert!(PendingRequest::new(untokened, std::time::Instant::now())
+            .progress_token
+            .is_none());
     }
 
     #[test]

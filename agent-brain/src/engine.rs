@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -22,7 +22,7 @@ use crate::sync::{ImportReport, MergePolicy, SyncSource};
 use crate::tokens::estimate_json_tokens;
 use crate::types::{
     AgentRec, GetContextItem, GetContextResponse, ItemType, MemoryRec, MustApply, RouteLimits,
-    RouteTaskResponse, RuleRec, ScoredItem, SkillRec,
+    RouteTaskResponse, RouteWarning, RuleRec, ScoredItem, SkillRec,
 };
 use crate::workspace::{
     agent_boost_keywords, infer_phase, is_low_signal_memory, mcp_route_expansion_tags, probe,
@@ -728,7 +728,7 @@ impl Engine {
         let phase = explicit_phase
             .filter(|p| !p.is_empty() && *p != "unknown")
             .map(|p| p.to_string())
-            .unwrap_or_else(|| infer_phase(user_message));
+            .unwrap_or_else(|| sticky_phase(cwd, infer_phase(user_message)));
         let project_identity = cwd.and_then(|path| {
             let resolved = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
             crate::project_key::resolve_project_key_cached(&resolved)
@@ -1003,6 +1003,12 @@ impl Engine {
                     "Prefer verified recipe `{}` (exit 0 verified via {}) over unverified raw commands.",
                     cmd_display, top.source
                 ),
+            });
+        }
+        if cwd.is_some_and(|path| path.join(".verify/run.sh").is_file()) {
+            resp.must_apply.push(crate::types::MustApply {
+                topic: "verify-precedence".into(),
+                text: "This repository has a .verify/run.sh harness, and that harness is the required check. Run it, then record the run with `agent-brain verify -- <cmd>` so the receipt counts it. Verified recipes apply only where the harness does not cover the change.".into(),
             });
         }
         if prefer_agstack {
@@ -1369,6 +1375,25 @@ impl Engine {
             truncated,
         })
     }
+}
+
+fn sticky_phase(cwd: Option<&Path>, inferred: String) -> String {
+    static LAST_PHASE: std::sync::OnceLock<std::sync::Mutex<HashMap<String, String>>> =
+        std::sync::OnceLock::new();
+    let key = cwd
+        .map(|path| path.display().to_string())
+        .unwrap_or_default();
+    let mut last = LAST_PHASE
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let phase = if inferred == "unknown" {
+        last.get(&key).cloned().unwrap_or(inferred)
+    } else {
+        inferred
+    };
+    last.insert(key, phase.clone());
+    phase
 }
 
 fn is_duplicate_topic(seen: &mut HashSet<String>, item: &ScoredItem) -> bool {
@@ -1808,6 +1833,15 @@ fn build_route_response(
         }
     }
 
+    if state.omitted > 0 {
+        resp.warnings.push(RouteWarning {
+            topic: "budget".into(),
+            message: format!(
+                "{} relevant item(s) were left out to stay within the {}-token budget. Use skill_search with a narrower query, or explain_last_context for this route.",
+                state.omitted, max_tokens
+            ),
+        });
+    }
     resp
 }
 
@@ -1815,6 +1849,7 @@ fn build_route_response(
 struct RouteBuildState {
     seen_agents: HashSet<String>,
     seen_skills: HashSet<String>,
+    omitted: usize,
 }
 
 fn try_add_route_item(
@@ -1914,6 +1949,7 @@ fn try_add_route_item(
     };
 
     if resp.tokens_used + rec_tokens > max_tokens {
+        state.omitted += 1;
         return;
     }
 
@@ -2123,6 +2159,18 @@ fn auto_observe_topics(
 mod tests {
     use super::*;
     use crate::types::{ItemType, RouteLimits, ScoredItem};
+
+    #[test]
+    fn an_unclear_message_keeps_the_phase_of_the_last_clear_one() {
+        let dir = Path::new("/work/phase-sticky-test");
+        assert_eq!(sticky_phase(Some(dir), "debugging".into()), "debugging");
+        assert_eq!(sticky_phase(Some(dir), "unknown".into()), "debugging");
+        assert_eq!(sticky_phase(Some(dir), "reviewing".into()), "reviewing");
+        assert_eq!(
+            sticky_phase(Some(Path::new("/work/other-phase-test")), "unknown".into()),
+            "unknown"
+        );
+    }
 
     fn mem(topic: &str, score: f64, text: &str) -> ScoredItem {
         ScoredItem {
