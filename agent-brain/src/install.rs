@@ -218,7 +218,7 @@ pub fn ensure_mcp_runnable_binary(exe: &Path, quiet: bool) -> Result<PathBuf> {
     #[cfg(not(target_os = "macos"))]
     {
         let _ = quiet;
-        return Ok(exe.to_path_buf());
+        Ok(exe.to_path_buf())
     }
 
     #[cfg(target_os = "macos")]
@@ -278,11 +278,6 @@ fn needs_mcp_binary_copy(path: &Path) -> bool {
         return false;
     }
     is_homebrew_managed(path) || crate::doctor::macos_has_quarantine_attrs(path)
-}
-
-#[cfg(not(target_os = "macos"))]
-fn needs_mcp_binary_copy(_path: &Path) -> bool {
-    false
 }
 
 pub fn is_homebrew_managed(path: &Path) -> bool {
