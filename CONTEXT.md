@@ -295,16 +295,17 @@ memory_gc:
   ```bash
   # Check if pending facts exist
   ls -la ~/.autonomic/memory/pending/
-  # Flush pending facts into brain.db
-  agent-brain memory flush-pending
+  # To store a fact by hand, use the CLI. `memory flush-pending` is not a command in the released binary.
+  agent-brain remember --text "<fact>" --tag <topic>
   ```
 
 ### 7.4 Problem: Slow Route Latency or Bloated Vector Index
 - **Cause:** Fragmented SQLite database after thousands of turn route logs.
 - **Resolution:**
   ```bash
-  # Run memory deduplication, prune stale logs, and vacuum DB
-  agent-brain gc --apply
+  # Review the options first, then run database garbage collection (deduplicate, prune, vacuum)
+  agent-brain gc --help
+  agent-brain gc
   # Re-index all packages and rules
   agent-brain index
   ```
