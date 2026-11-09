@@ -108,6 +108,25 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
   - Behaviour: `run_stop_gate` prefixes each block reason with `Repo <name> is blocked:` (`named_reason` in `src/stop_gate.rs`). The gate evaluates only the git root of the session's cwd.
   - Outcome: The block headline names the repo. Regression test: `stop_gate::tests::blocking_reason_names_the_repo`.
 
+- `route-budget-report`: A route that drops items to stay within its token budget says so.
+  - Behaviour: `try_add_route_item` (`src/engine.rs`) counts each item it leaves out, and the route appends a `budget` warning to `warnings` that names the count and the budget. The warning points to `skill_search` and `explain_last_context`.
+  - Outcome: Callers can see that context was omitted, instead of receiving a shorter list with no reason.
+- `phase-stickiness`: A message with no phase keyword keeps the last clear phase for the same directory.
+  - Behaviour: `sticky_phase` (`src/engine.rs`) applies only when no phase is given explicitly. An inferred phase other than `unknown` replaces the stored one.
+  - Outcome: Route labels no longer flip between `planning`, `implementing` and `unknown` on a session's messages.
+- `verify-precedence-rule`: A repository with its own harness is told that its harness is the required check.
+  - Behaviour: When `.verify/run.sh` exists under the working directory, the route adds a `verify-precedence` must-apply rule (`src/engine.rs`). It asks for the harness to run and for the run to be recorded with `agent-brain verify`.
+  - Outcome: The verified-recipe rule and the repository policy no longer point at different commands without saying which one wins.
+- `bash-gate-quoted-text`: Quoted text is not treated as a live command substitution.
+  - Behaviour: `substitutions` (`src/commit_gate.rs`) skips text inside single quotes, and still treats backticks and `$(...)` inside double quotes as live. The rule is covered by `src/command_policy_cases.txt`.
+  - Outcome: A Node script that contains a template literal inside single quotes is no longer blocked as "computed at runtime".
+- `doctor-mcp-missing-command`: Doctor says when the recorded MCP command is missing on disk.
+  - Behaviour: `src/doctor.rs` reports "command does not exist on disk" for a mismatch whose recorded path is gone. `doctor --fix` realigns the entry to the stable path from `ensure_mcp_runnable_binary`, not to the running binary.
+  - Outcome: A removed Homebrew Cellar path produces a specific message, and the fix does not record another versioned path.
+- `read-denial-message`: The route gate's denial for a native read leads with the unlock step.
+  - Behaviour: `hooks/route_gate.py` names the path, the scout tool to call first, and the number of seconds the unlock lasts, then gives the reason read is denied.
+  - Outcome: The unlock step is visible even when a host shows only the first part of the message.
+
 ## Code
 
 - `agent-brain/src`

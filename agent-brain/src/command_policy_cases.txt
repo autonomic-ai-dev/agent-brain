@@ -237,3 +237,7 @@ allow for f in a b; do echo $f; done
 allow export GOFLAGS=-mod=mod
 allow set -e
 allow true
+allow node -e 'console.log(`${x}`)'
+allow echo '`rm -rf /`'
+allow echo '$(rm -rf /)'
+block echo "$(rm -rf /)"

@@ -100,17 +100,23 @@ pub fn run(fix: bool) -> Result<()> {
             println!("  mcp path:              OK (same binary, different path spelling)");
             mcp_step.done();
         } else {
-            println!("  mcp path:              MISMATCH");
+            let missing = !cmd.exists();
+            if missing {
+                println!("  mcp path:              MISMATCH (command does not exist on disk)");
+            } else {
+                println!("  mcp path:              MISMATCH");
+            }
             ok = false;
             if fix {
+                let stable = crate::install::ensure_mcp_runnable_binary(&exe, true)?;
                 println!("  fixing:                agent-brain install --global");
-                crate::install::configure_cursor(true, &exe, false)?;
+                crate::install::configure_cursor(true, &stable, false)?;
                 let _ = crate::host_install::install_host(
                     crate::host_install::HostTarget::All,
-                    &exe,
+                    &stable,
                     true,
                 );
-                println!("  mcp path:              realigned to {}", exe.display());
+                println!("  mcp path:              realigned to {}", stable.display());
                 ok = true;
                 mcp_step.done();
             } else {

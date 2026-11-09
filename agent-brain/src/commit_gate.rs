@@ -191,7 +191,16 @@ pub(crate) fn substitutions(command: &str) -> Vec<&str> {
     let bytes = command.as_bytes();
     let mut found = Vec::new();
     let mut index = 0;
+    let mut in_double = false;
     while index < bytes.len() {
+        match bytes[index] {
+            b'\'' if !in_double => {
+                index = single_quote_end(bytes, index) + 1;
+                continue;
+            }
+            b'"' => in_double = !in_double,
+            _ => {}
+        }
         if bytes[index] == b'`' {
             if let Some(len) = command[index + 1..].find('`') {
                 found.push(&command[index + 1..index + 1 + len]);
@@ -221,6 +230,13 @@ pub(crate) fn substitutions(command: &str) -> Vec<&str> {
         index += 1;
     }
     found
+}
+
+fn single_quote_end(bytes: &[u8], open: usize) -> usize {
+    bytes[open + 1..]
+        .iter()
+        .position(|&byte| byte == b'\'')
+        .map_or(bytes.len(), |offset| open + 1 + offset)
 }
 
 pub(crate) fn split_segments(command: &str) -> Vec<Vec<String>> {

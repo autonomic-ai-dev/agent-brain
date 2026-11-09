@@ -821,9 +821,9 @@ def check_read_tool_gate(event: dict) -> dict | None:
             return {
                 "permission": "deny",
                 "agent_message": (
-                    f"Read denied ({detail}). First call agent-brain {tool_hint} on this path "
-                    f"(unlocks native Read/StrReplace for {int(SCOUT_UNLOCK_SECS)}s). "
-                    "Do not patch via Shell+python."
+                    f"To unlock `{path}`, call agent-brain {tool_hint} on this path first. "
+                    f"Native Read and StrReplace then work on it for {int(SCOUT_UNLOCK_SECS)}s. "
+                    f"Read is denied now because {detail}. Do not patch via Shell+python."
                 ),
                 "user_message": (
                     "agent-brain: scout with file_summary/read_file_head first, then StrReplace — "
