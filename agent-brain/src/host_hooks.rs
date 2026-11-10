@@ -342,6 +342,17 @@ pub fn install_claude_code_hooks(user: bool, quiet: bool) -> Result<PathBuf> {
     Ok(settings)
 }
 
+fn gemini_stop_gate_entry(command: String) -> Value {
+    json!([{
+        "hooks": [{
+            "type": "command",
+            "name": "agent-brain-stop-gate",
+            "command": command,
+            "timeout": (crate::verify::MAX_STEP_TIMEOUT_SECS + 60) * 1000
+        }]
+    }])
+}
+
 pub fn install_gemini_hooks(user: bool, settings_path: &Path, quiet: bool) -> Result<()> {
     let hooks_dir = gemini_hooks_dir(user)?;
     let script = deploy_route_gate_script(&hooks_dir)?;
@@ -355,6 +366,7 @@ pub fn install_gemini_hooks(user: bool, settings_path: &Path, quiet: bool) -> Re
             "timeout": 10000
         }]
     }]);
+    fragment["hooks"]["AfterAgent"] = gemini_stop_gate_entry(agent_brain_subcommand("stop-gate")?);
     write_settings_hooks(settings_path, &fragment)?;
     if !quiet {
         println!(
@@ -620,6 +632,43 @@ mod tests {
         assert_eq!(
             settings["hooks"]["SessionStart"].as_array().unwrap().len(),
             1
+        );
+    }
+
+    #[test]
+    fn gemini_stop_gate_timeout_is_in_milliseconds() {
+        let entry = gemini_stop_gate_entry("'/bin/agent-brain' stop-gate".to_string());
+        assert_eq!(entry[0]["hooks"][0]["timeout"], json!(660_000));
+        assert_eq!(
+            entry[0]["hooks"][0]["command"],
+            "'/bin/agent-brain' stop-gate"
+        );
+    }
+
+    #[test]
+    fn gemini_stop_gate_reinstall_replaces_own_entry_and_keeps_user_hook() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("settings.json");
+        fs::write(
+            &path,
+            r#"{"hooks":{"AfterAgent":[{"hooks":[{"type":"command","command":"/usr/local/bin/notify"}]}]}}"#,
+        )
+        .unwrap();
+        let mut fragment = gemini_hooks_fragment(&dir.path().join("route_gate.py"));
+        fragment["hooks"]["AfterAgent"] =
+            gemini_stop_gate_entry("'/bin/agent-brain' stop-gate".to_string());
+        write_settings_hooks(&path, &fragment).unwrap();
+        write_settings_hooks(&path, &fragment).unwrap();
+        let settings: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        let commands: Vec<&str> = settings["hooks"]["AfterAgent"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|entry| entry["hooks"][0]["command"].as_str())
+            .collect();
+        assert_eq!(
+            commands,
+            vec!["/usr/local/bin/notify", "'/bin/agent-brain' stop-gate"]
         );
     }
 

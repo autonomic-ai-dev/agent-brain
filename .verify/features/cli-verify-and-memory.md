@@ -107,6 +107,12 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
   - Intent: A block raised while working in one repo must not look like it belongs to another.
   - Behaviour: `run_stop_gate` prefixes each block reason with `Repo <name> is blocked:` (`named_reason` in `src/stop_gate.rs`). The gate evaluates only the git root of the session's cwd.
   - Outcome: The block headline names the repo. Regression test: `stop_gate::tests::blocking_reason_names_the_repo`.
+- `gemini-stop-gate`: Gemini-family hosts run the stop gate at the end of each turn.
+  - Behaviour: `install_gemini_hooks` (`src/host_hooks.rs`) registers `AfterAgent` in the Gemini settings file and runs `agent-brain stop-gate`, with a timeout in milliseconds (`gemini_stop_gate_entry`). Reinstalling replaces only agent-brain's entry and keeps user hooks.
+  - Outcome: Regression tests: `host_hooks::tests::gemini_stop_gate_timeout_is_in_milliseconds` and `host_hooks::tests::gemini_stop_gate_reinstall_replaces_own_entry_and_keeps_user_hook`. Not yet verified live: whether the Gemini CLI and Antigravity CLI run `AfterAgent` and honor its block decision.
+- `retrieval-algorithm-doc`: The scoring used for route suggestions and memory search is written down.
+  - Behaviour: `agent-brain/docs/retrieval-algorithm.md` gives the candidate sources (BM25, HNSW, RRF), the base blend, every adjustment, the thresholds, and the keyword and semantic memory modes, each with its source location.
+  - Outcome: Documentation only. Its constants are checked by hand against the code, not by a test.
 
 - `route-budget-report`: A route that drops items to stay within its token budget says so.
   - Behaviour: `try_add_route_item` (`src/engine.rs`) counts each item it leaves out, and the route appends a `budget` warning to `warnings` that names the count and the budget. The warning points to `skill_search` and `explain_last_context`.

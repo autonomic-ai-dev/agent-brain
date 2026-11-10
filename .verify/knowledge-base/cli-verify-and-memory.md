@@ -39,8 +39,10 @@ agent-brain is the routing layer every agent calls at the start of a turn. Its C
 
 - CLI and verify: `agent-brain/src/verify.rs`, `count_tests` for the cargo count
 - Stop gate: `agent-brain/src/stop_gate.rs` (`changed_paths`, `feature_map_missing`, `feature_map_gap`, `evaluate_stop`)
-- Host hooks: `agent-brain/src/host_hooks.rs` (`claude_code_gate_fragment` installs the `Stop` hook)
+- Host hooks: `agent-brain/src/host_hooks.rs` (`claude_code_gate_fragment` installs the `Stop` hook; `install_gemini_hooks` installs the `AfterAgent` stop gate for Gemini and Antigravity)
+- Gemini stop gate (2026-11-10): `install_gemini_hooks` writes an `AfterAgent` entry that runs `agent-brain stop-gate` with a millisecond timeout (`gemini_stop_gate_entry`). Gemini CLI documents `AfterAgent` and accepts `decision: "block"`. Antigravity CLI replaced Gemini CLI on 2026-06-18. The installer's docs say it shares `~/.gemini/settings.json`, which is not verified. Its own hook file, `~/.gemini/config/hooks.json`, has a `Stop` event, owned by cmux, and was left alone. Not yet verified live on either CLI: a turn without a passing verify should get a retry prompt. The installed binary needs `agent-brain install --gemini --global` before the hook is live.
 - MCP tools: `route_task`, `store_memory`, `verify_run`, `record_verify_outcome`, `file_summary`, `grep_search`, `read_file_head`, `read_file_tail`
+- Retrieval algorithm (route suggestions and memory search): `agent-brain/docs/retrieval-algorithm.md`. Its numbers come from `db/store.rs` (`score_items_with_bm25`), `retrieval.rs`, `recall.rs`, `engine.rs` (per-type floors), and `memory_decay.rs`. Update it in the same change as any of those constants.
 - Memory write path: `agent-brain/src/mcp/server.rs` (`store_memory`, `delete_memory`), `agent-brain/src/db/write_handler.rs` (`send_and_recv`), `agent-brain/src/db/store.rs` (`store_fact_full`)
 - graphify subprocess timeouts: `agent-brain/src/graphify/process.rs` (`output_with_timeout`), used by `graphify/jobs.rs` and `graphify/query.rs`
 - Session digest tests: `agent-brain/src/sessions/digest.rs` tests that set `AGENT_BRAIN_SESSION_HOME` serialize on `SESSION_HOME_ENV`, because the variable is process-wide and the test harness runs tests in parallel.
