@@ -58,6 +58,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn rrf_scores_each_list_as_one_over_k_plus_rank() {
+        let list: Vec<(String, f64)> = vec![("a".into(), 9.0), ("b".into(), 8.0)];
+        let fused = rrf_fuse(&[&list], RRF_K);
+        let a = fused.iter().find(|(id, _)| id == "a").unwrap().1;
+        let b = fused.iter().find(|(id, _)| id == "b").unwrap().1;
+        assert!((a - 1.0 / 61.0).abs() < 1e-12, "a={a}");
+        assert!((b - 1.0 / 62.0).abs() < 1e-12, "b={b}");
+    }
+
+    #[test]
     fn rrf_beats_single_source() {
         // Doc A ranks #1 in BM25 but #3 in ANN; B is #1 ANN only.
         // RRF should prefer A (present in both lists) over B.

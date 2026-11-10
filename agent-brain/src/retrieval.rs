@@ -703,6 +703,13 @@ mod tests {
     }
 
     #[test]
+    fn minimum_recommendation_score_is_a_floor_or_forty_five_percent_of_top() {
+        assert!((minimum_recommendation_score(0.0) - 0.12).abs() < 1e-9);
+        assert!((minimum_recommendation_score(0.2) - 0.12).abs() < 1e-9);
+        assert!((minimum_recommendation_score(1.0) - 0.45).abs() < 1e-9);
+    }
+
+    #[test]
     fn recall_procedures_ranks_exact_and_lexical_matches() {
         use tempfile::TempDir;
         let dir = TempDir::new().unwrap();

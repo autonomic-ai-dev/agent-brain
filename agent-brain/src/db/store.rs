@@ -3460,6 +3460,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn feedback_multiplier_demotes_repeatedly_useless_items_and_boosts_proven_ones() {
+        assert!((feedback_multiplier(0, 3) - 0.5).abs() < 1e-9);
+        assert!((feedback_multiplier(2, 3) - 1.0).abs() < 1e-9);
+        assert!((feedback_multiplier(3, 0) - 1.15).abs() < 1e-9);
+        assert!((feedback_multiplier(2, 0) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
     fn dashboard_breakdowns_count_only_recorded_rows() {
         let tmp = tempfile::tempdir().unwrap();
         let store = BrainStore::open(&tmp.path().join("dashboard.db")).unwrap();
