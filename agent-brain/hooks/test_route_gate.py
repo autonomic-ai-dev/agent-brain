@@ -1230,6 +1230,83 @@ class TestIsolationTests(unittest.TestCase):
         )
 
 
+class RouteReuseTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.root = tempfile.mkdtemp(prefix="agent-brain-reuse-")
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.repo = os.path.join(self.root, "repo")
+        os.makedirs(os.path.join(self.repo, ".git"))
+        os.makedirs(os.path.join(self.repo, "src"))
+        self.other = os.path.join(self.root, "other")
+        os.makedirs(os.path.join(self.other, ".git"))
+
+    def reusable(self, routed_cwd: str, cwd: str) -> bool:
+        state = {"routed_at": time.time(), "routed_cwd": routed_cwd}
+        return route_gate.session_route_reusable(state, cwd)
+
+    def test_a_subdirectory_of_the_same_repo_reuses_the_route(self) -> None:
+        self.assertTrue(self.reusable(self.repo, os.path.join(self.repo, "src")))
+
+    def test_a_different_repo_needs_a_new_route(self) -> None:
+        self.assertFalse(self.reusable(self.repo, self.other))
+
+    def test_outside_any_repo_only_the_same_directory_reuses_the_route(self) -> None:
+        self.assertTrue(self.reusable(self.root, self.root))
+        self.assertFalse(self.reusable(self.root, os.path.join(self.root, "x")))
+
+
+class ReadGateSizeTests(unittest.TestCase):
+    def read_gate(self, size: int) -> dict | None:
+        with tempfile.NamedTemporaryFile(delete=False) as handle:
+            handle.write(b"x" * size)
+        self.addCleanup(os.unlink, handle.name)
+        state = {"must_apply": [{"topic": "rule", "text": "always"}]}
+        with mock.patch.object(route_gate, "load_state", return_value=state), mock.patch.object(
+            route_gate, "READ_GATE_MODE", "hard"
+        ), mock.patch.object(route_gate, "READ_WARN_BYTES", 10):
+            return route_gate.check_read_tool_gate({"tool_name": "Read", "tool_input": {"path": handle.name}})
+
+    def test_a_small_file_is_readable_while_constraints_are_active(self) -> None:
+        self.assertIsNone(self.read_gate(5))
+
+    def test_a_large_file_still_needs_a_bounded_read(self) -> None:
+        self.assertEqual(self.read_gate(50)["permission"], "deny")
+
+
+class ProtectedCheckEditTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.repo = tempfile.mkdtemp(prefix="agent-brain-checks-")
+        os.mkdir(os.path.join(self.repo, ".git"))
+        os.makedirs(os.path.join(self.repo, ".verify", "checks"))
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.repo, ignore_errors=True)
+
+    def edit(self, path: str) -> dict | None:
+        return route_gate.check_protected_edit(
+            {"tool_name": "Write", "tool_input": {"path": path}, "cwd": self.repo}
+        )
+
+    def test_denies_edits_to_the_allowlist_and_check_scripts(self) -> None:
+        for path in (
+            ".verify/verify.toml",
+            "./.verify/verify.toml",
+            os.path.join(self.repo, ".verify", "verify.toml"),
+            ".verify/checks/core.sh",
+        ):
+            with self.subTest(path=path):
+                self.assertEqual(self.edit(path)["permission"], "deny")
+
+    def test_allows_other_harness_files_and_other_paths(self) -> None:
+        for path in (".verify/features/a.md", ".verify/artifacts/x.log", "src/a.rs"):
+            with self.subTest(path=path):
+                self.assertIsNone(self.edit(path))
+
+    def test_the_owner_override_allows_the_edit(self) -> None:
+        with mock.patch.object(route_gate, "ALLOW_CHECK_EDITS", True):
+            self.assertIsNone(self.edit(".verify/verify.toml"))
+
+
 if __name__ == "__main__":
     unittest.main()
 
