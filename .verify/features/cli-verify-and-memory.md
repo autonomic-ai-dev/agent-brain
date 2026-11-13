@@ -169,6 +169,19 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
   - Behaviour: `retrieval_stats_since` in `src/db/store.rs` counts latency and cache hits only for rows whose phase is not `upstream_call`, and divides cache hits by route calls.
   - Outcome: A five-second upstream tool call no longer shows up as a slow route.
 
+- `stop-gate-handback`: After the block limit, the stop gate hands the turn back with a NOT VERIFIED line.
+  - Behaviour: `evaluate_stop` in `src/stop_gate.rs` returns `StopOutcome::HandBack` once `decide` allows the stop after `STOP_BLOCK_LIMIT` blocks. `hook_output` prints a `systemMessage` with no `decision` key, naming the repo, the first line of the reason, and `agent-brain verify receipt`. `gate_event` records `stop-handback`.
+  - Outcome: A turn no longer ends silently unverified on hosts that show `systemMessage`.
+- `stop-gate-verified-line`: A turn that ended on a passing check on the current code prints one VERIFIED line.
+  - Behaviour: `StopOutcome::Verified` from `evaluate_stop` in `src/stop_gate.rs` yields a `systemMessage` naming the repo and pointing at `agent-brain verify receipt`. No gate event is written.
+  - Outcome: The user reads one line to judge a turn that changed code.
+- `stop-gate-watch-mode`: Watch mode reports would-be stop blocks without blocking.
+  - Behaviour: `GateMode` in `src/settings.rs` selects the mode, set by `gates.stop` in the settings file or by `AGENT_BRAIN_STOP_GATE=watch`. In watch mode `evaluate_stop` returns `HandBack` without writing block state, and the event is `stop-would-block`. The default is `enforce`.
+  - Outcome: A new install can see what the gate would do before it enforces anything.
+- `verify-init-force-blocked`: The agent cannot rewrite the allowlist through the binary.
+  - Behaviour: `src/command_policy.rs` blocks `agent-brain verify init` when `--force` is present. Plain `verify init` stays allowed because it never overwrites an existing file. Cases are in `src/command_policy_cases.txt`.
+  - Outcome: The binary cannot bypass the Bash guard on `.verify/verify.toml`.
+
 ## Code
 
 - `agent-brain/src`

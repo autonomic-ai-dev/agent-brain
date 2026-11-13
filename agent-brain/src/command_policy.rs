@@ -313,6 +313,11 @@ fn segment_verdict(
         "agent-brain" if matches!(args, ["rules", "add" | "remove" | "reset", ..]) => {
             Verdict::Block("rule changes are made by the user, not by the agent".into())
         }
+        "agent-brain" if matches!(args, ["verify", "init", rest @ ..] if rest.contains(&"--force")) => {
+            Verdict::Block(
+                "verify init --force rewrites .verify/verify.toml; the user makes that change by hand".into(),
+            )
+        }
         name if name.starts_with("mkfs") => Verdict::Block("mkfs formats a filesystem".into()),
         name if INTERPRETERS.contains(&name) => merge(
             interpreter_verdict(args),

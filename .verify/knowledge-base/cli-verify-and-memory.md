@@ -126,3 +126,9 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 - Route stats recorded before 2026-11-13 mixed upstream MCP calls into route latency and cache-hit rate. The slow "routes" in that period (72 of 413 over five seconds on one machine) were `upstream_call` rows; real routes ran in 100 to 500 ms.
 - `still-applies` is a reserved `must_apply` topic written by the MCP handler, not by a rule. A client that needs every constraint in full on each call should read them on the first route of the session, or after the 30-minute resend.
 - `context_bundle.team_rules[].text` is empty by design since 2026-11-13. Read rule text from `applicable_rules`.
+
+## Stop gate hand-back, watch mode, and the verify-init guard
+
+- The stop gate no longer ends a turn silently after the block limit. `StopOutcome::HandBack` produces a `systemMessage` with NOT VERIFIED, and `hook_output` never sets a `decision` key for it, so the host still lets the turn end. Hosts that do not show `systemMessage` will not show the line; check each host (`src/host_hooks.rs`, `gemini_stop_gate_entry`) before relying on it.
+- Watch mode (`gates.stop: watch` or `AGENT_BRAIN_STOP_GATE=watch`) never writes block state, so the block counter is not advanced and nothing is ever blocked. The reason is still computed, so the would-be block is recorded as `stop-would-block`.
+- `agent-brain verify init --force` is blocked by the Bash guard because it rewrites `.verify/verify.toml`. Plain `verify init` is allowed; it only writes when the file is missing.

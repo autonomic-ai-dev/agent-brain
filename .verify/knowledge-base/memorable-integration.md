@@ -55,3 +55,8 @@ Before anything is written, each trace is reduced to its prompt (up to 2000 char
 - Upstream MCP servers: [[cli-verify-and-memory]]
 
 - Formatting pass (rustfmt, 2026-11-07): line breaks and spacing only, no behaviour change.
+
+## Gate settings
+
+- `gates.stop` in the settings file takes `enforce` (default) or `watch`. The environment variable `AGENT_BRAIN_STOP_GATE` overrides it; other values are ignored.
+- Settings are loaded with `AgentBrainSettings::load`, which falls back to defaults for the whole file when it does not parse (`src/settings.rs`). One bad key therefore resets every setting silently. This is an existing behaviour that the gate settings inherit.

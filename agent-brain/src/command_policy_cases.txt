@@ -54,6 +54,8 @@ block `echo rm` -rf /
 block $(echo git) commit -n -m x
 block agent-brain rules add command=ls mode=allow
 block agent-brain rules add command=rm mode=allow
+block agent-brain verify init --force
+allow agent-brain verify init
 block agent-brain rules remove 1
 block agent-brain rules remove 3
 block agent-brain rules reset
