@@ -59,6 +59,7 @@ allow agent-brain verify init
 block echo x > .verify/verify.toml
 block sed -i '' s/a/b/ .verify/verify.toml
 block rm .verify/checks/core_boundary.sh
+block echo x > .verify/run.sh
 block mv .verify/verify.toml /tmp/x
 block cp /tmp/x .verify/checks/a.sh
 allow cat .verify/verify.toml

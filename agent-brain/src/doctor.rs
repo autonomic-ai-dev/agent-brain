@@ -389,6 +389,13 @@ pub fn run(fix: bool) -> Result<()> {
     for line in crate::gate_events::summarize(&config.logs_dir.join("gate-events.jsonl"), 5) {
         println!("    {line}");
     }
+    if let Ok(cwd) = std::env::current_dir() {
+        if let Some(root) = crate::config::find_repo_root(&cwd) {
+            if !root.join(".verify/verify.toml").exists() {
+                println!("  verify allowlist:      missing — run: agent-brain verify init");
+            }
+        }
+    }
     _hosts.done();
 
     progress.finish();

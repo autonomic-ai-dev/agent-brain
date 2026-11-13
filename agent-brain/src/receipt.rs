@@ -150,6 +150,7 @@ fn protected_changes(root: &Path) -> Vec<String> {
             "--porcelain",
             "--",
             ".verify/verify.toml",
+            ".verify/run.sh",
             ".verify/checks",
         ])
         .output()

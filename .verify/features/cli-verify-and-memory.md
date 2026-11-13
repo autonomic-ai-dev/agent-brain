@@ -173,7 +173,7 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
   - Behaviour: `evaluate_stop` in `src/stop_gate.rs` returns `StopOutcome::HandBack` once `decide` allows the stop after `STOP_BLOCK_LIMIT` blocks. `hook_output` prints a `systemMessage` with no `decision` key, naming the repo, the first line of the reason, and `agent-brain verify receipt`. `gate_event` records `stop-handback`.
   - Outcome: A turn no longer ends silently unverified on hosts that show `systemMessage`.
 - `stop-gate-verified-line`: A turn that ended on a passing check on the current code prints one VERIFIED line.
-  - Behaviour: `StopOutcome::Verified` from `evaluate_stop` in `src/stop_gate.rs` yields a `systemMessage` naming the repo and pointing at `agent-brain verify receipt`. No gate event is written.
+  - Behaviour: `StopOutcome::Verified` from `evaluate_stop` in `src/stop_gate.rs` yields a `systemMessage` naming the repo, the passing command and the first twelve characters of the code hash, and pointing at `agent-brain verify receipt`. No gate event is written.
   - Outcome: The user reads one line to judge a turn that changed code.
 - `stop-gate-watch-mode`: Watch mode reports would-be stop blocks without blocking.
   - Behaviour: `GateMode` in `src/settings.rs` selects the mode, set by `gates.stop` in the settings file or by `AGENT_BRAIN_STOP_GATE=watch`. In watch mode `evaluate_stop` returns `HandBack` without writing block state, and the event is `stop-would-block`. The default is `enforce`.
@@ -185,7 +185,7 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
 - `spec-requirements-receipt`: The receipt reports each requirement in `.verify/specs/*.md`.
   - Behaviour: `src/spec.rs` parses `R<n>.` lines with an optional backticked `check:` command. `receipt_for_project` in `src/receipt.rs` marks each requirement proven, failed, not run, no check yet, or not allowlisted.
   - Outcome: The receipt says "N of M requirements proven" instead of only that a command passed.
-- `protected-checks`: The agent cannot change `.verify/verify.toml` or `.verify/checks/` through Bash or an edit tool.
+- `protected-checks`: The agent cannot change `.verify/verify.toml`, `.verify/run.sh` or `.verify/checks/` through Bash or an edit tool.
   - Behaviour: `is_protected_check` in `src/command_policy.rs` blocks writes and deletes of those paths. `check_protected_edit` in `hooks/route_gate.py` denies edit tools targeting them; `AGENT_BRAIN_ALLOW_CHECK_EDITS=1` lifts the hook rule. The receipt lists these files when they differ from the last commit.
   - Outcome: An allowlist or check script cannot be weakened silently.
 - `read-gate-large-files`: The read gate denies only large files that have not been scouted.
@@ -195,8 +195,12 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
   - Behaviour: `session_route_reusable` in `hooks/route_gate.py` compares `checkout_key`, the nearest ancestor with `.git`, instead of the raw directory.
   - Outcome: A `cd` inside the repository no longer forces a new `route_task`.
 - `verify-init-scaffold`: `init_verify` allowlists `.verify/run.sh` and no longer guesses commands.
-  - Behaviour: `init_verify` in `src/verify.rs` lists the detected test commands and then `.verify/run.sh`. It no longer adds `.verify/` as a command or fills in four guessed commands when nothing is detected.
+  - Behaviour: `init_verify` in `src/verify.rs` lists the detected test commands and then `.verify/run.sh`. The Node runner comes from the lockfile (pnpm, yarn, bun, or npm). Deno, Maven, Gradle and mix projects are detected too. It no longer adds `.verify/` as a command or fills in four guessed commands when nothing is detected.
   - Outcome: The allowlist holds only commands the repository has, plus the verification entry point.
+
+- `doctor-verify-allowlist`: Doctor says when the current repository has no verification allowlist.
+  - Behaviour: `run` in `src/doctor.rs` prints `verify allowlist: missing — run: agent-brain verify init` when `config::find_repo_root` finds a repository whose `.verify/verify.toml` does not exist.
+  - Outcome: A new repository gets its first check set up from one command.
 
 ## Code
 

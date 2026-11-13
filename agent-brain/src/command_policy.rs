@@ -565,8 +565,10 @@ fn is_protected_check(path: &Path, root: Option<&Path>) -> bool {
     let Some(root) = root else {
         return false;
     };
-    let checks = root.join(".verify").join("checks");
-    path == root.join(".verify").join("verify.toml") || path.starts_with(checks)
+    let verify = root.join(".verify");
+    path == verify.join("verify.toml")
+        || path == verify.join("run.sh")
+        || path.starts_with(verify.join("checks"))
 }
 
 fn protected_check_reason(target: &str) -> String {

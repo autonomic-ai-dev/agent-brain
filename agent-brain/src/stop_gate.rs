@@ -34,6 +34,7 @@ struct BlockState {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Evidence {
+    pub cmd: String,
     pub exit_code: i32,
     pub source: Option<String>,
     pub code_hash: Option<String>,
@@ -42,7 +43,7 @@ pub struct Evidence {
 #[derive(Debug, PartialEq, Eq)]
 pub enum StopOutcome {
     Clear,
-    Verified,
+    Verified(String),
     Block(String),
     HandBack(String),
 }
@@ -53,8 +54,8 @@ pub enum Decision {
     Block(&'static str),
 }
 
-fn verified(code_hash: &str, evidence: &[Evidence]) -> bool {
-    evidence.iter().any(|e| {
+fn passing_run<'a>(code_hash: &str, evidence: &'a [Evidence]) -> Option<&'a Evidence> {
+    evidence.iter().find(|e| {
         e.exit_code == 0
             && matches!(e.source.as_deref(), Some("cli" | "orchestrator"))
             && e.code_hash.as_deref() == Some(code_hash)
@@ -171,6 +172,7 @@ fn load_evidence(store: &BrainStore, root: &Path) -> Result<Vec<Evidence>> {
         .into_iter()
         .filter(|row| !has_harness || verify::repo_artifact_path(root, &row.id).is_file())
         .map(|row| Evidence {
+            cmd: row.cmd,
             exit_code: row.exit_code,
             source: row.source,
             code_hash: row.code_hash,
@@ -234,7 +236,7 @@ fn gate_event(
         (StopOutcome::HandBack(reason), GateMode::Enforce) => {
             Some(("stop-handback", headline(&named_reason(root, reason))))
         }
-        (StopOutcome::Clear | StopOutcome::Verified, _) => None,
+        (StopOutcome::Clear | StopOutcome::Verified(_), _) => None,
     }
 }
 
@@ -242,9 +244,9 @@ fn hook_output(outcome: &StopOutcome, mode: GateMode, root: &Path) -> Option<ser
     let repo = repo_name(root);
     match (outcome, mode) {
         (StopOutcome::Clear, _) => None,
-        (StopOutcome::Verified, _) => Some(serde_json::json!({
+        (StopOutcome::Verified(proof), _) => Some(serde_json::json!({
             "systemMessage": format!(
-                "agent-brain: {repo} VERIFIED. A passing check is recorded for the current code. Details: `agent-brain verify receipt`."
+                "agent-brain: {repo} VERIFIED. {proof}. Details: `agent-brain verify receipt`."
             )
         })),
         (StopOutcome::Block(reason), _) => Some(serde_json::json!({
@@ -281,15 +283,23 @@ fn evaluate_stop(
         .iter()
         .any(|path| verify::is_code_path(path));
     let evidence = load_evidence(store, root)?;
-    let passed = code_changed
-        && verify::code_tree_hash(root)
-            .as_deref()
-            .is_some_and(|hash| verified(hash, &evidence));
+    let proof = code_changed
+        .then(|| verify::code_tree_hash(root))
+        .flatten()
+        .and_then(|hash| {
+            passing_run(&hash, &evidence).map(|run| {
+                format!(
+                    "`{}` passed on code {}",
+                    run.cmd,
+                    &hash[..hash.len().min(12)]
+                )
+            })
+        });
+    let passed = proof.is_some();
     if (!code_changed || passed) && gap.is_none() {
-        return Ok(if code_changed {
-            StopOutcome::Verified
-        } else {
-            StopOutcome::Clear
+        return Ok(match proof {
+            Some(line) => StopOutcome::Verified(line),
+            None => StopOutcome::Clear,
         });
     }
     let blocks = prior_blocks(&load_state(state_file), session_id, edit);
@@ -301,7 +311,12 @@ fn evaluate_stop(
     let reason = match (&step, &gap) {
         (Some(run), _) if !run.report.success => failure_reason(run),
         (_, Some(gap)) => gap.clone(),
-        (Some(_), None) => return Ok(StopOutcome::Verified),
+        (Some(run), None) => {
+            return Ok(StopOutcome::Verified(format!(
+                "`{}` passed on the current code",
+                run.report.cmd
+            )))
+        }
         (None, None) => BLOCK_REASON.to_string(),
     };
     if mode == GateMode::Watch {
@@ -344,6 +359,7 @@ mod tests {
 
     fn evidence(exit_code: i32, source: Option<&str>, code_hash: Option<&str>) -> Evidence {
         Evidence {
+            cmd: "cargo test".to_string(),
             exit_code,
             source: source.map(str::to_string),
             code_hash: code_hash.map(str::to_string),
@@ -358,32 +374,32 @@ mod tests {
     #[test]
     fn blocks_run_recorded_for_another_tree() {
         let ev = [evidence(0, Some("cli"), Some("old-tree"))];
-        assert!(!verified("new-tree", &ev));
+        assert!(passing_run("new-tree", &ev).is_none());
     }
 
     #[test]
     fn blocks_failing_run_for_the_same_tree() {
         let ev = [evidence(1, Some("cli"), Some("tree"))];
-        assert!(!verified("tree", &ev));
+        assert!(passing_run("tree", &ev).is_none());
     }
 
     #[test]
     fn blocks_run_not_from_trusted_source() {
         let ev = [evidence(0, Some("mcp"), Some("tree"))];
-        assert!(!verified("tree", &ev));
+        assert!(passing_run("tree", &ev).is_none());
     }
 
     #[test]
     fn allows_passing_cli_run_for_the_same_tree() {
         let ev = [evidence(0, Some("cli"), Some("tree"))];
-        assert!(verified("tree", &ev));
+        assert!(passing_run("tree", &ev).is_some());
         assert_eq!(decide(true, 0), Decision::Allow);
     }
 
     #[test]
     fn allows_passing_orchestrator_run_for_the_same_tree() {
         let ev = [evidence(0, Some("orchestrator"), Some("tree"))];
-        assert!(verified("tree", &ev));
+        assert!(passing_run("tree", &ev).is_some());
     }
 
     #[test]
@@ -479,7 +495,7 @@ mod tests {
         Ok(
             match evaluate_stop(store, root, session_id, state_file, GateMode::Enforce)? {
                 StopOutcome::Block(reason) => Some(reason),
-                StopOutcome::Clear | StopOutcome::Verified | StopOutcome::HandBack(_) => None,
+                StopOutcome::Clear | StopOutcome::Verified(_) | StopOutcome::HandBack(_) => None,
             },
         )
     }
@@ -552,7 +568,7 @@ mod tests {
         let state = aux.path().join("state.json");
 
         let outcome = evaluate_stop(&store, dir.path(), "s1", &state, GateMode::Enforce).unwrap();
-        assert_eq!(outcome, StopOutcome::Verified);
+        assert!(matches!(outcome, StopOutcome::Verified(ref line) if line.contains("passed")));
         let output = hook_output(&outcome, GateMode::Enforce, Path::new("/work/shop")).unwrap();
         assert!(output["systemMessage"]
             .as_str()

@@ -1293,6 +1293,7 @@ class ProtectedCheckEditTests(unittest.TestCase):
             "./.verify/verify.toml",
             os.path.join(self.repo, ".verify", "verify.toml"),
             ".verify/checks/core.sh",
+            ".verify/run.sh",
         ):
             with self.subTest(path=path):
                 self.assertEqual(self.edit(path)["permission"], "deny")

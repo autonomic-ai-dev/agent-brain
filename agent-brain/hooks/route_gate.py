@@ -1246,7 +1246,8 @@ def is_protected_check_path(path: str, cwd: str) -> bool:
         target = Path(cwd).expanduser().resolve() / target
     target = target.resolve()
     verify = root / ".verify"
-    return any(target == p or p in target.parents for p in (verify / "verify.toml", verify / "checks"))
+    protected = (verify / "verify.toml", verify / "run.sh", verify / "checks")
+    return any(target == p or p in target.parents for p in protected)
 
 
 def check_protected_edit(event: dict) -> dict | None:

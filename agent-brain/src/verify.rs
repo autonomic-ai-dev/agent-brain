@@ -513,8 +513,27 @@ pub fn init_verify(project_root: &Path, force: bool) -> Result<PathBuf> {
             commands.push("cargo clippy".to_string());
             commands.push("cargo check".to_string());
         }
-        if project_root.join("package.json").exists() {
-            commands.push("npm test".to_string());
+        let node_runner = if project_root.join("pnpm-lock.yaml").exists() {
+            Some("pnpm test")
+        } else if project_root.join("yarn.lock").exists() {
+            Some("yarn test")
+        } else if project_root.join("bun.lockb").exists() {
+            Some("bun test")
+        } else if project_root.join("package.json").exists() {
+            Some("npm test")
+        } else {
+            None
+        };
+        commands.extend(node_runner.map(str::to_string));
+        for (marker, command) in [
+            ("deno.json", "deno test"),
+            ("pom.xml", "mvn test"),
+            ("build.gradle", "gradle test"),
+            ("mix.exs", "mix test"),
+        ] {
+            if project_root.join(marker).exists() {
+                commands.push(command.to_string());
+            }
         }
         if project_root.join("pyproject.toml").exists()
             || project_root.join("requirements.txt").exists()
@@ -1206,6 +1225,19 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
 
         assert!(command_is_allowlisted("cargo test", Some(dir.path())));
         assert!(command_is_allowlisted(".verify/run.sh", Some(dir.path())));
+    }
+
+    #[test]
+    fn init_verify_uses_the_node_runner_its_lockfile_names() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("package.json"), b"{}").unwrap();
+        fs::write(dir.path().join("pnpm-lock.yaml"), b"").unwrap();
+        fs::write(dir.path().join("deno.json"), b"{}").unwrap();
+        let verify_path = init_verify(dir.path(), false).unwrap();
+        let toml_str = fs::read_to_string(verify_path.join("verify.toml")).unwrap();
+        assert!(toml_str.contains("\"pnpm test\""));
+        assert!(!toml_str.contains("\"npm test\""));
+        assert!(toml_str.contains("\"deno test\""));
     }
 
     #[test]
