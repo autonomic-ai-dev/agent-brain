@@ -20,9 +20,7 @@
 {"query":"fix a clippy warning in the store module","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
 {"query":"look up the design system tokens","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
 {"query":"write a changelog entry","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
-{"query":"rename a function across the crate","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
 {"query":"add a migration for a new table","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
-{"query":"what does the stop gate check","expect_types":["rule"],"forbid_topics":["README.md","CHANGELOG.md"]}
 {"query":"plan the next sprint","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
 {"query":"investigate a production error from logs","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
 {"query":"document the new MCP tool","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}

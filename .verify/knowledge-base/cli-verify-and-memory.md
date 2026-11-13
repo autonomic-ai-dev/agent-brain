@@ -146,3 +146,6 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 - The lesson excerpt is the first failure-marker line of the failing run's saved output. A run with no saved output creates no lesson.
 
 - `lessons` and `file_context` are filled from the route's `open_files`; a route with no open files returns neither.
+- Lesson paths are the paths changed at the failing run that are still changed at the passing run. Each verify row stores its changed code paths (`changed_paths_json`, migration v28), and `learn_from_fix` in `src/lessons.rs` intersects them.
+- `init_verify` adds `bundle exec rspec` only when the Gemfile names rspec. A Gemfile without rspec yields no Ruby test command.
+- Context feedback credits a routed item only when the agent read its source path in that route (`opened_paths_for_route`, `src/db/store.rs`). Route items store `source_path` for this join.

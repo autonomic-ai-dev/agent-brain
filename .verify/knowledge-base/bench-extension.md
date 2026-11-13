@@ -53,3 +53,4 @@ feature: "[[../features/bench-extension]]"
 ## Eval fixture location
 
 - The three fixture files moved from `agent-brain/eval/` to `extensions/bench/eval/` in the Horizon 2 change, where the loader already expected them.
+- The skill pool for the eval is `eval/skills.jsonl`: 120 skills exported from the brain database (`skill` rows of at most 600 characters, ordered by topic). Regenerate it from a read-only query of the database; the export is not refreshed automatically.

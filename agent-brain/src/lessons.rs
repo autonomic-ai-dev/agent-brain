@@ -53,11 +53,19 @@ fn lesson_id(project_key: &str, cmd: &str, paths: &[String]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+pub fn current_code_paths(root: &Path) -> Vec<String> {
+    crate::stop_gate::changed_paths(root)
+        .into_iter()
+        .filter(|path| crate::verify::is_code_path(path))
+        .collect()
+}
+
 pub fn learn_from_fix(
     store: &BrainStore,
     root: &Path,
     project_key: &str,
     cmd: &str,
+    failed_run_id: &str,
     failed_artifact: &Path,
 ) -> Result<()> {
     let Ok(output) = fs::read_to_string(failed_artifact) else {
@@ -67,9 +75,11 @@ pub fn learn_from_fix(
     if excerpt.is_empty() || looks_like_secret(&excerpt) {
         return Ok(());
     }
-    let mut paths: Vec<String> = crate::stop_gate::changed_paths(root)
+    let fixing = current_code_paths(root);
+    let mut paths: Vec<String> = store
+        .verify_outcome_changed_paths(failed_run_id)?
         .into_iter()
-        .filter(|path| crate::verify::is_code_path(path))
+        .filter(|path| fixing.contains(path))
         .collect();
     paths.truncate(MAX_PATHS);
     if paths.is_empty() {
@@ -117,6 +127,32 @@ pub fn route_lessons(store: &BrainStore, root: &Path, open_files: &[String]) -> 
 }
 
 impl BrainStore {
+    pub fn set_verify_outcome_changed_paths(&self, id: &str, paths: &[String]) -> Result<()> {
+        let json = serde_json::to_string(paths)?;
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE verify_outcomes SET changed_paths_json = ?1 WHERE id = ?2",
+                params![json, id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn verify_outcome_changed_paths(&self, id: &str) -> Result<Vec<String>> {
+        self.with_conn(|conn| {
+            let json: Option<String> = conn
+                .query_row(
+                    "SELECT changed_paths_json FROM verify_outcomes WHERE id = ?1",
+                    params![id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(None);
+            Ok(json
+                .and_then(|json| serde_json::from_str(&json).ok())
+                .unwrap_or_default())
+        })
+    }
+
     pub fn insert_lesson(&self, lesson: &Lesson) -> Result<()> {
         let paths = serde_json::to_string(&lesson.paths)?;
         self.with_conn(|conn| {
@@ -224,9 +260,44 @@ mod tests {
         fs::write(&artifact, "running\nassertion failed: left == right\n").unwrap();
         let db = tempdir().unwrap();
         let store = BrainStore::open(&db.path().join("t.db")).unwrap();
+        let failed_id = store
+            .insert_verify_outcome(
+                None,
+                1,
+                None,
+                None,
+                None,
+                "cargo test",
+                "dev",
+                "cli",
+                Some("p"),
+            )
+            .unwrap();
+        store
+            .set_verify_outcome_changed_paths(
+                &failed_id,
+                &["src/a.rs".to_string(), "src/b.rs".to_string()],
+            )
+            .unwrap();
 
-        learn_from_fix(&store, repo.path(), "p", "cargo test", &artifact).unwrap();
-        learn_from_fix(&store, repo.path(), "p", "cargo test", &artifact).unwrap();
+        learn_from_fix(
+            &store,
+            repo.path(),
+            "p",
+            "cargo test",
+            &failed_id,
+            &artifact,
+        )
+        .unwrap();
+        learn_from_fix(
+            &store,
+            repo.path(),
+            "p",
+            "cargo test",
+            &failed_id,
+            &artifact,
+        )
+        .unwrap();
 
         let listed = store
             .lessons_for_project("p", chrono::Utc::now().timestamp_millis())

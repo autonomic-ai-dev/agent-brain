@@ -458,11 +458,12 @@ pub fn record_from_result(
                 .nth(1);
             if let Some(previous) = previous.filter(|row| row.exit_code != 0) {
                 let artifact = repo_artifact_path(&root, &previous.id);
-                crate::lessons::learn_from_fix(store, &root, key, cmd, &artifact)?;
+                crate::lessons::learn_from_fix(store, &root, key, cmd, &previous.id, &artifact)?;
             }
         }
     }
     if let Some(root) = cwd.and_then(crate::config::find_repo_root) {
+        store.set_verify_outcome_changed_paths(&id, &crate::lessons::current_code_paths(&root))?;
         if let Some(hash) = code_tree_hash(&root) {
             store.set_verify_outcome_code_hash(&id, &hash)?;
         }
@@ -549,6 +550,10 @@ pub fn init_verify(project_root: &Path, force: bool) -> Result<PathBuf> {
             None
         };
         commands.extend(node_runner.map(str::to_string));
+        if fs::read_to_string(project_root.join("Gemfile")).is_ok_and(|text| text.contains("rspec"))
+        {
+            commands.push("bundle exec rspec".to_string());
+        }
         for (marker, command) in [
             ("deno.json", "deno test"),
             ("pom.xml", "mvn test"),
@@ -1308,6 +1313,21 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
         assert_eq!(credited.get("item-1"), Some(&(1, 0)));
         assert!(!credited.contains_key("item-2"));
         assert!(attribute_run(VerifySource::Hook).is_empty());
+    }
+
+    #[test]
+    fn init_verify_runs_rspec_only_when_the_gemfile_names_it() {
+        let with_rspec = tempdir().unwrap();
+        fs::write(with_rspec.path().join("Gemfile"), b"gem \"rspec\"\n").unwrap();
+        let verify_path = init_verify(with_rspec.path(), false).unwrap();
+        let toml_str = fs::read_to_string(verify_path.join("verify.toml")).unwrap();
+        assert!(toml_str.contains("\"bundle exec rspec\""));
+
+        let without = tempdir().unwrap();
+        fs::write(without.path().join("Gemfile"), b"gem \"rails\"\n").unwrap();
+        let verify_path = init_verify(without.path(), false).unwrap();
+        let toml_str = fs::read_to_string(verify_path.join("verify.toml")).unwrap();
+        assert!(!toml_str.contains("rspec"));
     }
 
     #[test]

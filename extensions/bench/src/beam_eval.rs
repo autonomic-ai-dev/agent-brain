@@ -731,7 +731,27 @@ fn seed_observation_inputs(store: &Arc<BrainStore>) -> Result<()> {
     Ok(())
 }
 
+#[derive(serde::Deserialize)]
+struct CorpusSkill {
+    topic: String,
+    text: String,
+}
+
+fn seed_skill_corpus(store: &Arc<BrainStore>) -> Result<()> {
+    let raw = fs::read_to_string(skill_corpus_path())?;
+    for line in raw.lines().filter(|line| !line.trim().is_empty()) {
+        let skill: CorpusSkill = serde_json::from_str(line)?;
+        upsert_skill(store, &skill.topic, &skill.text)?;
+    }
+    Ok(())
+}
+
+fn skill_corpus_path() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("eval/skills.jsonl")
+}
+
 fn seed_jsonl_fixture(store: &Arc<BrainStore>) -> Result<()> {
+    seed_skill_corpus(store)?;
     upsert_rule(
         store,
         "verify-ci-beam",
