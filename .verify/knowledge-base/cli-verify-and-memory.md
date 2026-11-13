@@ -149,3 +149,4 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 - Lesson paths are the paths changed at the failing run that are still changed at the passing run. Each verify row stores its changed code paths (`changed_paths_json`, migration v28), and `learn_from_fix` in `src/lessons.rs` intersects them.
 - `init_verify` adds `bundle exec rspec` only when the Gemfile names rspec. A Gemfile without rspec yields no Ruby test command.
 - Context feedback credits a routed item only when the agent read its source path in that route (`opened_paths_for_route`, `src/db/store.rs`). Route items store `source_path` for this join.
+- The index pruning test covers rules dropped on sync (prune_removes_stored_rules_that_are_not_rule_files, src/db/store.rs).

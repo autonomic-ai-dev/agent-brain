@@ -69,6 +69,7 @@ pub fn run_beam_eval_isolated() -> Result<BeamEvalReport> {
 pub fn run_beam_eval(engine: &Engine) -> Result<BeamEvalReport> {
     seed_eval_fixture(&engine.store)?;
     seed_beam_extensions(&engine.store)?;
+    seed_skill_corpus(&engine.store, &engine.embedder)?;
     engine.store.bump_index_version()?;
 
     let recall = run_ci_eval_seeded(engine)?;
@@ -737,11 +738,14 @@ struct CorpusSkill {
     text: String,
 }
 
-fn seed_skill_corpus(store: &Arc<BrainStore>) -> Result<()> {
+fn seed_skill_corpus(
+    store: &Arc<BrainStore>,
+    embedder: &agent_brain::embed::Embedder,
+) -> Result<()> {
     let raw = fs::read_to_string(skill_corpus_path())?;
     for line in raw.lines().filter(|line| !line.trim().is_empty()) {
         let skill: CorpusSkill = serde_json::from_str(line)?;
-        upsert_skill(store, &skill.topic, &skill.text)?;
+        crate::eval::upsert_skill(store, embedder, &skill.topic, &skill.text)?;
     }
     Ok(())
 }
@@ -751,7 +755,6 @@ fn skill_corpus_path() -> std::path::PathBuf {
 }
 
 fn seed_jsonl_fixture(store: &Arc<BrainStore>) -> Result<()> {
-    seed_skill_corpus(store)?;
     upsert_rule(
         store,
         "verify-ci-beam",

@@ -3526,6 +3526,31 @@ mod tests {
     }
 
     #[test]
+    fn prune_removes_stored_rules_that_are_not_rule_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = BrainStore::open(&dir.path().join("t.db")).unwrap();
+        for (topic, path) in [
+            ("fixture", "/p/docs/design.md"),
+            ("style", "/p/rules/style.mdc"),
+        ] {
+            store
+                .upsert_indexed_item(
+                    ItemType::Rule,
+                    topic,
+                    "text",
+                    path,
+                    "global",
+                    None,
+                    &content_hash(topic),
+                    None,
+                )
+                .unwrap();
+        }
+        assert_eq!(store.prune_noise_rule_rows().unwrap(), 1);
+        assert_eq!(store.prune_noise_rule_rows().unwrap(), 0);
+    }
+
+    #[test]
     fn feedback_multiplier_demotes_repeatedly_useless_items_and_boosts_proven_ones() {
         assert!((feedback_multiplier(0, 3) - 0.5).abs() < 1e-9);
         assert!((feedback_multiplier(2, 3) - 1.0).abs() < 1e-9);

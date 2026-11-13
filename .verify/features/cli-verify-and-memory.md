@@ -203,7 +203,7 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
   - Outcome: A new repository gets its first check set up from one command.
 
 - `index-rule-scope`: Only `.mdc` files, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, and files under a `rules` directory are indexed as rules. Test, fixture, example, spec and docs directories inside installed packages are not indexed.
-  - Behaviour: `is_rule_file` and `is_package_support_dir` in `src/index.rs`. `is_noise_rule_source` makes `prune_noise_rule_rows` drop stored rules that no longer qualify on the next sync.
+  - Behaviour: `is_rule_file` and `is_package_support_dir` in `src/index.rs`. `is_noise_rule_source` makes `prune_noise_rule_rows` drop stored rules that no longer qualify on the next sync. `prune_removes_stored_rules_that_are_not_rule_files` in `src/db/store.rs` covers it.
   - Outcome: Fixture READMEs and package docs no longer come back as applicable rules.
 - `package-duplicates`: Doctor reports installed packages that ship identical skill text.
   - Behaviour: `duplicate_packages` in `src/packages/mod.rs` digests the `SKILL.md` files of each package under `packages/`. `run` in `src/doctor.rs` prints one line per duplicate pair with the `package remove` command.
