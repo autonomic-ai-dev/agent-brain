@@ -755,7 +755,18 @@ impl BrainMcp {
             })
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         self.route_gate.record_route(&p.user_message);
+        let repo_root = cwd.as_deref().and_then(crate::config::find_repo_root);
+        let file_context = repo_root
+            .as_deref()
+            .map(|root| crate::feature_map::route_file_context(root, &p.open_files))
+            .unwrap_or_default();
+        let lessons = repo_root
+            .as_deref()
+            .map(|root| crate::lessons::route_lessons(&self.engine.store, root, &p.open_files))
+            .unwrap_or_default();
         let resp = RouteTaskResponse {
+            file_context,
+            lessons,
             must_apply: self.sent_constraints.collapse(&resp.must_apply),
             ..resp
         };
@@ -2041,8 +2052,47 @@ impl BrainMcp {
     }
 }
 
+const CORE_TOOLS: &[&str] = &[
+    "route_task",
+    "read_file_head",
+    "read_file_tail",
+    "grep_search",
+    "file_summary",
+    "verify_run",
+    "store_memory",
+    "skill_search",
+    "skill_get",
+    "mcp_search",
+    "get_mcp",
+    "route_to_mcp",
+];
+
 #[tool_handler]
 impl ServerHandler for BrainMcp {
+    async fn list_tools(
+        &self,
+        _request: Option<rmcp::model::PaginatedRequestParams>,
+        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<rmcp::model::ListToolsResult, McpError> {
+        let core = matches!(
+            crate::settings::AgentBrainSettings::load(&self.engine.config.home)
+                .mcp
+                .tool_surface,
+            crate::settings::ToolSurface::Core
+        );
+        let tools = self
+            .tool_router
+            .list_all()
+            .into_iter()
+            .filter(|tool| !core || CORE_TOOLS.contains(&tool.name.as_ref()))
+            .collect();
+        Ok(rmcp::model::ListToolsResult {
+            tools,
+            meta: None,
+            next_cursor: None,
+        })
+    }
+
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::default();
         info.instructions = Some(
@@ -3207,6 +3257,21 @@ mod tests {
             .await
             .expect("route_task must succeed");
         json_body(result)
+    }
+
+    #[test]
+    fn every_core_tool_is_a_real_tool() {
+        let dir = TempDir::new().expect("tempdir");
+        let server = skill_test_server(&dir, &[]);
+        let names: Vec<String> = server
+            .tool_router
+            .list_all()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect();
+        for core in CORE_TOOLS {
+            assert!(names.iter().any(|name| name == core), "missing {core}");
+        }
     }
 
     #[tokio::test]

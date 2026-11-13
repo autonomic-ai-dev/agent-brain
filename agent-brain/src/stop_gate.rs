@@ -104,7 +104,7 @@ fn git_root(cwd: &Path) -> Option<PathBuf> {
     Some(PathBuf::from(root.trim_end()))
 }
 
-fn changed_paths(root: &Path) -> Vec<String> {
+pub(crate) fn changed_paths(root: &Path) -> Vec<String> {
     let Ok(out) = Command::new("git")
         .arg("-C")
         .arg(root)

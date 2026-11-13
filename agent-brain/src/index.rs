@@ -349,6 +349,7 @@ fn should_skip(path: &Path) -> bool {
         // Skill-pack supporting docs are not routeable Rules (noise vs .mdc policy).
         || s.contains("/references/")
         || is_non_entry_skill_tree_doc(path)
+        || is_package_support_dir(&s)
         || s.ends_with(".pyc")
         || s.ends_with(".pyo")
         || s.ends_with(".so")
@@ -385,7 +386,34 @@ fn is_non_entry_skill_tree_doc(path: &Path) -> bool {
 
 /// True when an indexed Rule path should not remain in the DB.
 pub fn is_noise_rule_source(path: &str) -> bool {
-    path.contains("/references/") || is_non_entry_skill_tree_doc(Path::new(path))
+    path.contains("/references/")
+        || is_non_entry_skill_tree_doc(Path::new(path))
+        || !is_rule_file(Path::new(path))
+}
+
+fn is_rule_file(path: &Path) -> bool {
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default();
+    name.ends_with(".mdc")
+        || matches!(name, "AGENTS.md" | "CLAUDE.md" | "GEMINI.md")
+        || path.components().any(|c| c.as_os_str() == "rules")
+}
+
+fn is_package_support_dir(path: &str) -> bool {
+    path.contains("/.autonomic/memory/packages/")
+        && [
+            "/test/",
+            "/tests/",
+            "/fixtures/",
+            "/__fixtures__/",
+            "/examples/",
+            "/spec/",
+            "/docs/",
+        ]
+        .iter()
+        .any(|dir| path.contains(dir))
 }
 
 struct ParsedItem {
@@ -451,8 +479,7 @@ fn parse_file(path: &Path, repo: Option<&Path>, package: Option<String>) -> Opti
             name.clone(),
             extract_agent_text(&content, &name),
         )
-    } else if file_name.ends_with(".mdc") || file_name == "AGENTS.md" || file_name.ends_with(".md")
-    {
+    } else if is_rule_file(path) {
         (
             ItemType::Rule,
             file_name.clone(),
@@ -591,5 +618,25 @@ mod tests {
         assert!(should_skip(state));
         let log = Path::new("/h/.autonomic/memory/logs/route.log");
         assert!(should_skip(log));
+    }
+
+    #[test]
+    fn only_mdc_entry_files_and_files_under_rules_are_rules() {
+        assert!(is_rule_file(Path::new("/p/.cursor/rules/style.mdc")));
+        assert!(is_rule_file(Path::new("/home/u/.claude/rules/route.md")));
+        assert!(is_rule_file(Path::new("/p/AGENTS.md")));
+        assert!(!is_rule_file(Path::new("/p/docs/design.md")));
+        assert!(!is_rule_file(Path::new("/p/README.md")));
+    }
+
+    #[test]
+    fn package_test_fixture_and_doc_files_are_not_indexed() {
+        let pkg = "/home/u/.autonomic/memory/packages/acme-skills";
+        assert!(should_skip(Path::new(&format!(
+            "{pkg}/test/fixtures/app/README.md"
+        ))));
+        assert!(should_skip(Path::new(&format!("{pkg}/docs/guide.md"))));
+        assert!(!should_skip(Path::new(&format!("{pkg}/rules/style.mdc"))));
+        assert!(!should_skip(Path::new("/p/docs/design.md")));
     }
 }

@@ -138,3 +138,11 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 - A requirement line starts with `R<number>.` at the start of a line. Its check is the first backticked command after `check:`, on the same line or on the next indented line. An `R<n>` inside a list item or heading is not a requirement.
 - `check_protected_edit` covers edit tools whose path resolves inside the nearest repository's `.verify/verify.toml` or `.verify/checks/`. It also covers `.verify/run.sh`.
 - `init_verify` allowlists only the detected test commands and `.verify/run.sh`. A project without a recognised build file must add its test command by hand.
+
+## Horizon 2 notes
+
+- Rules are indexed only from `.mdc`, entry files and `rules/` directories. A stored rule from before the change is removed on the next sync.
+
+- The lesson excerpt is the first failure-marker line of the failing run's saved output. A run with no saved output creates no lesson.
+
+- `lessons` and `file_context` are filled from the route's `open_files`; a route with no open files returns neither.

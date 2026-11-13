@@ -1,12 +1,17 @@
 use std::fs;
 use std::path::Path;
 
+use crate::types::FileContext;
+
 const CODE_HEADING: &str = "## Code";
+const FILE_CONTEXT_LIMIT: usize = 5;
+const FILE_CONTEXT_COMMANDS: usize = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FeatureMap {
     pub file: String,
     pub code: Vec<String>,
+    pub commands: Vec<String>,
 }
 
 pub fn load(features_dir: &Path) -> Vec<FeatureMap> {
@@ -22,6 +27,7 @@ pub fn load(features_dir: &Path) -> Vec<FeatureMap> {
             let text = fs::read_to_string(features_dir.join(&file)).ok()?;
             Some(FeatureMap {
                 code: parse_code_section(&text),
+                commands: parse_verification_commands(&text),
                 file,
             })
         })
@@ -45,6 +51,66 @@ pub fn parse_code_section(text: &str) -> Vec<String> {
         }
     }
     paths
+}
+
+pub fn parse_verification_commands(text: &str) -> Vec<String> {
+    let mut in_section = false;
+    let mut commands = Vec::new();
+    for line in text.lines() {
+        if line.starts_with("## ") {
+            in_section = line.starts_with("## Verification Suites");
+        } else if in_section {
+            commands.extend(
+                line.split('`')
+                    .skip(1)
+                    .step_by(2)
+                    .map(str::trim)
+                    .filter(|command| !command.is_empty())
+                    .map(str::to_string),
+            );
+        }
+    }
+    commands
+}
+
+pub fn route_file_context(root: &Path, open_files: &[String]) -> Vec<FileContext> {
+    let features = load(&root.join(".verify/features"));
+    file_context(&features, open_files, |command| {
+        crate::verify::command_is_allowlisted(command, Some(root))
+    })
+}
+
+fn file_context(
+    features: &[FeatureMap],
+    open_files: &[String],
+    allowlisted: impl Fn(&str) -> bool,
+) -> Vec<FileContext> {
+    open_files
+        .iter()
+        .take(FILE_CONTEXT_LIMIT)
+        .map(|path| {
+            let owned = owners(features, path);
+            let chosen: Vec<&FeatureMap> = if owned.is_empty() {
+                nearest_owner(features, path)
+                    .and_then(|file| features.iter().find(|feature| feature.file == file))
+                    .into_iter()
+                    .collect()
+            } else {
+                owned
+            };
+            FileContext {
+                path: path.clone(),
+                features: chosen.iter().map(|feature| feature.file.clone()).collect(),
+                commands: chosen
+                    .iter()
+                    .flat_map(|feature| feature.commands.iter())
+                    .filter(|command| allowlisted(command))
+                    .take(FILE_CONTEXT_COMMANDS)
+                    .cloned()
+                    .collect(),
+            }
+        })
+        .collect()
 }
 
 fn is_code(path: &str) -> bool {
@@ -183,6 +249,7 @@ mod tests {
 
     fn feature(file: &str, code: &[&str]) -> FeatureMap {
         FeatureMap {
+            commands: Vec::new(),
             file: file.to_string(),
             code: names(code),
         }
@@ -313,5 +380,28 @@ mod tests {
         let reason = gap(&changed, &features, &names(&["engine.md"])).unwrap();
         assert!(reason.contains("`scripts/release.sh`."));
         assert!(!reason.contains("nearest feature"));
+    }
+
+    #[test]
+    fn verification_commands_come_from_the_suites_section_only() {
+        let text = "## Code\n- `src/a`\n\n## Verification Suites\n- Unit: `cargo test a`\n\n## Gotchas\n- `not a command`\n";
+        assert_eq!(parse_verification_commands(text), ["cargo test a"]);
+    }
+
+    #[test]
+    fn file_context_names_the_owner_and_only_allowlisted_commands() {
+        let mut owner = feature("gate.md", &["src/gate"]);
+        owner.commands = vec!["cargo test gate".into(), "rm -rf build".into()];
+        let context = file_context(&[owner], &["src/gate/a.rs".to_string()], |command| {
+            command.starts_with("cargo test")
+        });
+        assert_eq!(
+            context,
+            vec![FileContext {
+                path: "src/gate/a.rs".into(),
+                features: vec!["gate.md".into()],
+                commands: vec!["cargo test gate".into()],
+            }]
+        );
     }
 }

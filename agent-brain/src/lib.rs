@@ -60,6 +60,7 @@ pub use agent_brain_core::retrieval_fusion;
 pub mod feature_graph;
 pub mod feature_map;
 pub mod feedback_report;
+pub mod lessons;
 pub mod route_briefing;
 pub mod secrets;
 pub mod serve_lock;

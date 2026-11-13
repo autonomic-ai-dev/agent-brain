@@ -34,6 +34,8 @@ pub struct AgentBrainSettings {
     pub memorable: MemorableSettings,
     #[serde(default)]
     pub gates: GateSettings,
+    #[serde(default)]
+    pub mcp: McpSettings,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -48,6 +50,20 @@ pub enum GateMode {
 pub struct GateSettings {
     #[serde(default)]
     pub stop: GateMode,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolSurface {
+    #[default]
+    Full,
+    Core,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct McpSettings {
+    #[serde(default)]
+    pub tool_surface: ToolSurface,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -661,6 +677,7 @@ impl AgentBrainSettings {
             feedback_report: FeedbackReportSettings::default(),
             memorable: MemorableSettings::default(),
             gates: GateSettings::default(),
+            mcp: McpSettings::default(),
         }
     }
 

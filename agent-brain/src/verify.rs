@@ -405,7 +405,8 @@ pub fn record_from_result(
         .or_else(|| store.latest_retrieval_log().ok().flatten().map(|r| r.id));
 
     // Closed-loop outcome attribution: automatically attribute context feedback for the route turn
-    if let Some(ref log_id) = resolved_log_id {
+    let ran_checks = matches!(source, VerifySource::Cli | VerifySource::Orchestrator);
+    if let Some(log_id) = resolved_log_id.as_deref().filter(|_| ran_checks) {
         if let Ok(Some(retrieval_log)) = store.get_retrieval_log(log_id) {
             if let Ok(items) =
                 serde_json::from_str::<Vec<serde_json::Value>>(&retrieval_log.items_json)
@@ -438,6 +439,19 @@ pub fn record_from_result(
         source.as_str(),
         project_key.as_deref(),
     )?;
+    if let (true, true, Some(key)) = (ran_checks, success, project_key.as_deref()) {
+        if let Some(root) = cwd.and_then(crate::config::find_repo_root) {
+            let previous = store
+                .list_verify_outcomes_for_project(key, 100)?
+                .into_iter()
+                .filter(|row| row.cmd == cmd)
+                .nth(1);
+            if let Some(previous) = previous.filter(|row| row.exit_code != 0) {
+                let artifact = repo_artifact_path(&root, &previous.id);
+                crate::lessons::learn_from_fix(store, &root, key, cmd, &artifact)?;
+            }
+        }
+    }
     if let Some(root) = cwd.and_then(crate::config::find_repo_root) {
         if let Some(hash) = code_tree_hash(&root) {
             store.set_verify_outcome_code_hash(&id, &hash)?;
@@ -1225,6 +1239,52 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
 
         assert!(command_is_allowlisted("cargo test", Some(dir.path())));
         assert!(command_is_allowlisted(".verify/run.sh", Some(dir.path())));
+    }
+
+    fn attribute_run(source: VerifySource) -> std::collections::HashMap<String, (u32, u32)> {
+        let dir = tempdir().unwrap();
+        let store = BrainStore::open(&dir.path().join("t.db")).unwrap();
+        fs::create_dir_all(dir.path().join(".verify")).unwrap();
+        fs::write(dir.path().join(".verify/README.md"), b"playbook").unwrap();
+        store
+            .insert_retrieval_log(
+                "log-1",
+                "q",
+                "implementing",
+                "[{\"id\":\"item-1\"}]",
+                10,
+                false,
+                false,
+                5,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        record_from_result(
+            &store,
+            0,
+            "cargo test",
+            VerifyRecord {
+                route_log_id: Some("log-1"),
+                cause_tag: None,
+                config_path: None,
+                scenarios_dir: None,
+                cwd: Some(dir.path()),
+                source,
+            },
+        )
+        .unwrap();
+        store.load_retrieval_stats(&["item-1".to_string()]).unwrap()
+    }
+
+    #[test]
+    fn a_real_check_credits_the_routed_items_and_a_hook_observation_does_not() {
+        assert_eq!(
+            attribute_run(VerifySource::Cli).get("item-1"),
+            Some(&(1, 0))
+        );
+        assert!(attribute_run(VerifySource::Hook).is_empty());
     }
 
     #[test]

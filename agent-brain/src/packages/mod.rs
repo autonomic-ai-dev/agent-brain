@@ -74,6 +74,53 @@ pub fn packages_dir(home: &Path) -> PathBuf {
     home.join("packages")
 }
 
+pub fn duplicate_packages(home: &Path) -> Vec<(String, String)> {
+    use sha2::Digest;
+    let dir = packages_dir(home);
+    let mut skill_files: std::collections::BTreeMap<String, Vec<PathBuf>> =
+        std::collections::BTreeMap::new();
+    for entry in walkdir::WalkDir::new(&dir)
+        .into_iter()
+        .filter_map(Result::ok)
+    {
+        let path = entry.path();
+        if !entry.file_type().is_file() || path.file_name().is_none_or(|n| n != "SKILL.md") {
+            continue;
+        }
+        let Ok(relative) = path.strip_prefix(&dir) else {
+            continue;
+        };
+        let Some(package) = relative.components().next() else {
+            continue;
+        };
+        skill_files
+            .entry(package.as_os_str().to_string_lossy().into_owned())
+            .or_default()
+            .push(path.to_path_buf());
+    }
+    let mut by_digest: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
+    for (package, mut files) in skill_files {
+        files.sort();
+        let mut hasher = sha2::Sha256::new();
+        for file in &files {
+            hasher.update(fs::read(file).unwrap_or_default());
+        }
+        let digest = format!("{:x}", hasher.finalize());
+        by_digest.entry(digest).or_default().push(package);
+    }
+    by_digest
+        .into_values()
+        .filter(|names| names.len() > 1)
+        .flat_map(|names| {
+            names
+                .windows(2)
+                .map(|pair| (pair[0].clone(), pair[1].clone()))
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageSource {
     pub owner: String,
@@ -516,6 +563,37 @@ fn git_head(path: &Path) -> Result<String> {
         bail!("git rev-parse failed");
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+#[cfg(test)]
+mod duplicate_tests {
+    use super::*;
+
+    fn write_skill(home: &Path, package: &str, body: &str) {
+        let dir = packages_dir(home).join(package).join("skills/demo");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("SKILL.md"), body).unwrap();
+    }
+
+    #[test]
+    fn packages_with_the_same_skill_text_are_reported_as_duplicates() {
+        let home = tempfile::tempdir().unwrap();
+        write_skill(home.path(), "ecc", "same skill");
+        write_skill(home.path(), "affaan", "same skill");
+        write_skill(home.path(), "other", "different skill");
+        assert_eq!(
+            duplicate_packages(home.path()),
+            [("affaan".to_string(), "ecc".to_string())]
+        );
+    }
+
+    #[test]
+    fn distinct_packages_are_not_reported() {
+        let home = tempfile::tempdir().unwrap();
+        write_skill(home.path(), "one", "first");
+        write_skill(home.path(), "two", "second");
+        assert!(duplicate_packages(home.path()).is_empty());
+    }
 }
 
 #[cfg(test)]

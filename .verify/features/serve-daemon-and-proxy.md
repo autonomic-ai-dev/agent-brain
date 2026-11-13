@@ -28,6 +28,10 @@ Summary: `agent-brain serve` runs in two roles. A shared daemon holds the brain 
   - Behaviour: The model loads on the first embed. A check every 60 seconds drops it once it has been unused for `IDLE_UNLOAD_AFTER` (600 seconds, `src/embed.rs`). The next embed reloads it.
   - Outcome: The daemon's footprint falls back after idle time. The first query after idle pays the model load.
 
+- `mcp-list-tools-filter`: The MCP tool list honours `mcp.tool_surface`.
+  - Behaviour: `list_tools` in `src/mcp/server.rs` overrides the `#[tool_handler]` default, which the rmcp macro emits only when the method is absent. The route handler in the same file now also sets `file_context` and `lessons` on the response.
+  - Outcome: Hidden tools are still callable by name, and the tool list shrinks only when the setting is `core`.
+
 ## Code
 
 - `agent-brain/src/main.rs` (`serve` branch)

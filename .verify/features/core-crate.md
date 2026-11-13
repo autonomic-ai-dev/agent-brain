@@ -30,6 +30,10 @@ related:
   - Behaviour: The normal dependency tree of `agent-brain-core` is checked against a denylist of IO and runtime crate names.
   - Outcome: `.verify/checks/core_boundary.sh` exits 0 and prints the holding message.
 
+- `route-file-context-types`: `FileContext` and `LessonRec` are optional fields of `RouteTaskResponse`.
+  - Behaviour: `crates/agent-brain-core/src/types.rs` defines both structs. `file_context` and `lessons` are omitted from the serialized response when empty.
+  - Outcome: Clients that ignore the fields see no change.
+
 ## Code
 
 - `agent-brain/crates/agent-brain-core`

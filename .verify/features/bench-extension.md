@@ -23,6 +23,10 @@ Summary: The benchmark and CI-proof harness, shipped as the optional `agent-brai
   - Behaviour: `agent-brain eval --ci [--live]` runs the memory and skill gate on an isolated temp DB, with the deterministic embedder, or with the real model under `--live`. `agent-brain eval --skills-sh [--fixture-db PATH] [--seed] [--write PATH]` runs the skills.sh gate.
   - Outcome: A JSON report and an exit code from the gate. The core library keeps the eval logic (`agent-brain/src/eval.rs`). The core binary no longer has an `eval` command.
 
+- `eval-fixtures-location`: The eval query fixtures live in `extensions/bench/eval/`, where the loader in `src/beam_eval.rs` reads them.
+  - Behaviour: `queries.jsonl`, `task-scoped.jsonl` and `transcript-queries.jsonl` moved there from `agent-brain/eval/`. Before the move the loader pointed at a missing directory.
+  - Outcome: The bench suite reads its own cases. The thirty-case retrieval eval from the plan is not written yet.
+
 ## Code
 
 - `extensions/bench`

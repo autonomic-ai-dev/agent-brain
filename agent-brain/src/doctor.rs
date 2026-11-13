@@ -396,6 +396,9 @@ pub fn run(fix: bool) -> Result<()> {
             }
         }
     }
+    for (first, second) in crate::packages::duplicate_packages(&config.home) {
+        println!("  duplicate package:     {first} and {second} ship the same skills; remove one: agent-brain package remove {second}");
+    }
     _hosts.done();
 
     progress.finish();

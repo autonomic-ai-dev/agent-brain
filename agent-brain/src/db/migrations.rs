@@ -340,7 +340,26 @@ pub fn run(conn: &Connection) -> rusqlite::Result<()> {
         conn.execute("UPDATE schema_version SET version = 26", [])?;
     }
 
+    if version < 27 {
+        migrate_v27(conn)?;
+        conn.execute("UPDATE schema_version SET version = 27", [])?;
+    }
+
     Ok(())
+}
+
+fn migrate_v27(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS lessons (
+            id TEXT PRIMARY KEY,
+            project_key TEXT NOT NULL,
+            paths_json TEXT NOT NULL,
+            cmd TEXT NOT NULL,
+            excerpt TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_lessons_project ON lessons(project_key, created_at);",
+    )
 }
 
 fn migrate_v26(conn: &Connection) -> rusqlite::Result<()> {

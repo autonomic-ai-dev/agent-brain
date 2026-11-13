@@ -202,6 +202,25 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
   - Behaviour: `run` in `src/doctor.rs` prints `verify allowlist: missing — run: agent-brain verify init` when `config::find_repo_root` finds a repository whose `.verify/verify.toml` does not exist.
   - Outcome: A new repository gets its first check set up from one command.
 
+- `index-rule-scope`: Only `.mdc` files, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, and files under a `rules` directory are indexed as rules. Test, fixture, example, spec and docs directories inside installed packages are not indexed.
+  - Behaviour: `is_rule_file` and `is_package_support_dir` in `src/index.rs`. `is_noise_rule_source` makes `prune_noise_rule_rows` drop stored rules that no longer qualify on the next sync.
+  - Outcome: Fixture READMEs and package docs no longer come back as applicable rules.
+- `package-duplicates`: Doctor reports installed packages that ship identical skill text.
+  - Behaviour: `duplicate_packages` in `src/packages/mod.rs` digests the `SKILL.md` files of each package under `packages/`. `run` in `src/doctor.rs` prints one line per duplicate pair with the `package remove` command.
+  - Outcome: A package installed twice under two names is visible, and nothing is removed automatically.
+- `lessons-from-fixes`: A passing check that follows a failing run of the same command stores one lesson for the changed code.
+  - Behaviour: `learn_from_fix` in `src/lessons.rs` is called from `record_from_result` in `src/verify.rs` for `cli` and `orchestrator` runs only. The excerpt is the first failure-marker line of the failing run's saved output, or its last line. Lessons are keyed by project, command and paths, expire after 60 days, and are skipped when the excerpt looks like a secret. `route_lessons` returns up to three lessons that touch an open file or a changed code path. Migration v27 adds the `lessons` table.
+  - Outcome: The next route that touches the files a fix changed shows the earlier failure and its excerpt.
+- `file-context`: A route names the owning feature and up to two allowlisted verification commands for up to five open files.
+  - Behaviour: `route_file_context` and `parse_verification_commands` in `src/feature_map.rs`, called from the `route_task` handler in `src/mcp/server.rs`. Files with no owner use the nearest feature, as `nearest_owner` does for unclaimed code. The response field is `file_context`.
+  - Outcome: The agent sees which feature owns a file and which command proves it, without searching.
+- `feedback-real-checks-only`: Only `cli` and `orchestrator` runs credit or debit routed items.
+  - Behaviour: The attribution block in `record_from_result` (`src/verify.rs`) is gated on `ran_checks`. Hook-observed commands record no context feedback.
+  - Outcome: Routed items are no longer credited for an unrelated `ls` or `grep`.
+- `mcp-tool-surface`: `mcp.tool_surface: core` in the settings file lists twelve core tools.
+  - Behaviour: `list_tools` in `src/mcp/server.rs` filters `CORE_TOOLS` when the setting is `core`; the default `full` lists every tool. `call_tool` is unchanged, so a hidden tool still runs when called by name. `McpSettings` and `ToolSurface` are in `src/settings.rs`.
+  - Outcome: A smaller tool list for agents that choose by name, with no change for hosts that call hidden tools.
+
 ## Code
 
 - `agent-brain/src`
