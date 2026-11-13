@@ -39,6 +39,14 @@ pub fn enabled_servers(settings: &UpstreamMcpSettings) -> Vec<&UpstreamServerCon
         .collect()
 }
 
+pub fn is_over_max_servers(settings: &UpstreamMcpSettings, server: &UpstreamServerConfig) -> bool {
+    settings.enabled
+        && server.enabled
+        && !enabled_servers(settings)
+            .iter()
+            .any(|s| s.name.eq_ignore_ascii_case(&server.name))
+}
+
 pub fn find_server<'a>(
     settings: &'a UpstreamMcpSettings,
     name: &str,
@@ -86,4 +94,53 @@ pub fn validate_server_config(server: &UpstreamServerConfig) -> Result<()> {
         bail!("upstream server {} missing command", server.name);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn server(name: &str, enabled: bool) -> UpstreamServerConfig {
+        UpstreamServerConfig {
+            name: name.into(),
+            command: "npx".into(),
+            args: vec![],
+            env: HashMap::new(),
+            enabled,
+        }
+    }
+
+    fn settings(
+        enabled: bool,
+        max_servers: usize,
+        servers: Vec<UpstreamServerConfig>,
+    ) -> UpstreamMcpSettings {
+        UpstreamMcpSettings {
+            enabled,
+            max_servers,
+            suggest_limit: 4,
+            servers,
+        }
+    }
+
+    #[test]
+    fn enabled_server_past_max_servers_is_over_cap() {
+        let s = settings(
+            true,
+            2,
+            vec![server("a", true), server("b", true), server("c", true)],
+        );
+        assert!(!is_over_max_servers(&s, &s.servers[0]));
+        assert!(!is_over_max_servers(&s, &s.servers[1]));
+        assert!(is_over_max_servers(&s, &s.servers[2]));
+    }
+
+    #[test]
+    fn disabled_servers_and_disabled_upstream_are_not_over_cap() {
+        let s = settings(true, 1, vec![server("a", true), server("b", false)]);
+        assert!(!is_over_max_servers(&s, &s.servers[1]));
+
+        let off = settings(false, 1, vec![server("a", true), server("b", true)]);
+        assert!(!is_over_max_servers(&off, &off.servers[1]));
+    }
 }

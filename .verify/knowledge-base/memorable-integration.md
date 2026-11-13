@@ -20,6 +20,7 @@ Memorable is a procedural-memory CLI. Its MCP server reads procedures that are s
 - `agent-brain/src/settings.rs`: the `memorable` section, defaulting to `enabled: false`
 - `agent-brain/src/mcp_cli.rs`: `persist_brain_settings` is public. This turn's change to the file only replaced a format argument in the `mcp list` header with a literal, so memorable behavior is unchanged.
 - `agent-brain/src/main.rs`: the `memorable` command
+- `agent-brain/src/upstream/mod.rs` (`is_over_max_servers`): when `upstream_mcp.max_servers` is lower than the number of enabled servers, memorable can fall past the cap and show `not indexed (over max_servers)` in `mcp list`. Raise `max_servers` to index it.
 
 ## How it is verified
 
