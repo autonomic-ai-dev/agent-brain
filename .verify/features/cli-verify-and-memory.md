@@ -25,6 +25,9 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
 - `upstream-mcp-add`: Registers an upstream MCP server that agent-brain proxies through `route_to_mcp`.
   - Behaviour: `agent-brain mcp add <name> [--env KEY=VAL | --env=KEY=VAL] -- <command> [args...]` saves the server in `config.yaml` under `upstream_mcp`, then indexes its tools.
   - Outcome: The server and its env are stored, and its tool count is printed. `src/mcp_cli.rs` `parse_env_flags` reads both `--env` forms. `config_warnings` prints a `warning:` line for an empty header value or a `${VAR}` placeholder that is set neither in the server env nor in the environment. Indexing only proves the tools are listed, not that calls will authenticate.
+- `upstream-mcp-over-cap`: An enabled upstream server past `upstream_mcp.max_servers` is not indexed, and `mcp list` says so.
+  - Behaviour: `enabled_servers` keeps the first `max_servers` enabled servers. `is_over_max_servers` (`src/upstream/mod.rs`) flags the rest. `mcp list` shows `-` in the TOOLS column and `not indexed (over max_servers)` for each flagged server (`src/mcp_cli.rs`).
+  - Outcome: Unit tests `upstream::tests::enabled_server_past_max_servers_is_over_cap` and `upstream::tests::disabled_servers_and_disabled_upstream_are_not_over_cap`. `mcp sync` still prints only a count and does not name skipped servers.
 - `verify-init-scaffold`: Creates the harness files for a repository.
   - Behaviour: `agent-brain verify init` writes `.verify/verify.toml`, an executable `run.sh`, and `README.md`.
   - Outcome: The three files exist and `run.sh` is executable.
@@ -132,6 +135,39 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
 - `read-denial-message`: The route gate's denial for a native read leads with the unlock step.
   - Behaviour: `hooks/route_gate.py` names the path, the scout tool to call first, and the number of seconds the unlock lasts, then gives the reason read is denied.
   - Outcome: The unlock step is visible even when a host shows only the first part of the message.
+- `bash-gate-shell-structure`: The bash gate classifies commands inside shell structure and ignores text that is only data.
+  - Behaviour: `src/command_policy.rs` classifies the command that follows `if`, `then`, `else`, `elif`, `while`, `until`, `do`, `{`, `!`, and `function NAME`. A heredoc body is dropped before classification unless its line feeds a shell or interpreter; `$(...)` inside any heredoc is still classified. A function defined in the same command is not reported as unrecognised, and a function name never overrides a command rule. `gh`, `mktemp`, and `pgrep` have default rules (`src/command_rules.rs`); `gh ... delete` warns.
+  - Outcome: `if true; then rm -rf /; fi` and `{ rm -rf /; }` are blocked. Commit messages and file bodies passed through a heredoc no longer produce "unrecognised command" warnings.
+- `bash-gate-alternatives`: A block that has a safe alternative names it.
+  - Behaviour: The block reasons for a computed command name, `eval` of computed code, code piped into a shell, a recursive delete of an unresolved path, a force push, and a git config change each end with what to do instead. The closing sentence is "If it is intended, ask the user to run it."
+  - Outcome: The agent can correct the command from the message alone.
+- `gate-tests-isolated-home`: The bash-gate integration tests write gate events under a temporary `AGENT_BRAIN_HOME`.
+  - Behaviour: `tests/bash_gate.rs` sets `AGENT_BRAIN_HOME` for every spawned `bash-gate`, and one test asserts the event lands in that home's `logs/gate-events.jsonl`.
+  - Outcome: Running the test suite no longer adds block and warn events to the user's real gate log.
+- `stop-gate-nearest-feature`: The stop gate suggests an owner for unclaimed code.
+  - Behaviour: `gap` in `src/feature_map.rs` adds `(nearest feature: .verify/features/<file>)` to each unclaimed path, choosing the feature whose `## Code` entry shares the most leading path components. A path that shares none gets no suggestion.
+  - Outcome: The block names the feature file to edit instead of only listing paths.
+- `verification-from-checks-only`: Only `cli` and `orchestrator` runs count as verification.
+  - Behaviour: `ran_a_check` in `src/verify.rs` gates `last_verification`, `suggest_verified_recipes`, and the success rate in `verify report`. Hook-observed shell commands are still stored but are not offered as recipes or reported as the last verification. A recipe needs a keyword match or execution intent; source alone no longer qualifies it.
+  - Outcome: A route no longer recommends a past `git add` or `ls` as a "verified recipe".
+- `bounded-read-count`: The stats count only bounded-read tools as token-tool calls.
+  - Behaviour: `tool_log_stats_since` in `src/db/store.rs` counts `read_file_head`, `read_file_tail`, `grep_search`, and `file_summary`. Logged `bash`, `edit`, `write`, and `cursor_read` rows are excluded from the count.
+  - Outcome: "Token tools: N bounded-read calls" matches the reader rows in `tool_log`.
+- `suggested-tool-brief`: A suggested upstream tool carries a one-line description.
+  - Behaviour: `brief` in `src/upstream/suggest.rs` keeps the first non-empty line of the tool description, cut to 160 characters. The full schema stays available through `get_mcp`.
+  - Outcome: A route response no longer embeds multi-paragraph upstream tool descriptions.
+- `constraints-sent-once`: A `must_apply` entry is sent in full once per MCP session, then named in one line.
+  - Behaviour: `collapse_repeats` in `src/mcp/sent_constraints.rs` keeps entries whose topic and text were not sent in the last 30 minutes, and replaces the rest with one `still-applies` entry that lists their topics. A changed text counts as new. The list is never emptied while constraints apply, so the host hook still sees them as active.
+  - Outcome: A repeat route carries one line for unchanged constraints instead of every rule again.
+- `route-response-tokens`: `route_task` reports the size of the whole response.
+  - Behaviour: The MCP handler in `src/mcp/server.rs` sets `response_tokens` to the token estimate of the serialized response. `tokens_used` still counts only the budgeted context.
+  - Outcome: The cost of a route to the agent can be read from the response instead of inferred from the budget.
+- `route-rule-dedupe`: A rule indexed from several paths is returned once, and the bundle does not repeat rule text.
+  - Behaviour: `build_route_response` in `src/engine.rs` skips a rule whose topic and text are already in `applicable_rules`. `build_context_bundle` in `src/bridge.rs` clears `text` on `team_rules`, as it already does for skill text; the text stays in `applicable_rules`.
+  - Outcome: The same `AGENTS.md` installed for three hosts no longer takes three rule slots.
+- `route-stats-exclude-upstream`: Route latency and cache-hit rate ignore upstream MCP calls.
+  - Behaviour: `retrieval_stats_since` in `src/db/store.rs` counts latency and cache hits only for rows whose phase is not `upstream_call`, and divides cache hits by route calls.
+  - Outcome: A five-second upstream tool call no longer shows up as a slow route.
 
 ## Code
 

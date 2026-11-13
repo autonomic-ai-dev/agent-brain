@@ -137,4 +137,23 @@ mod tests {
 
         assert_eq!(tool_calls_since(&store, now - 7 * DAY_MS), 2);
     }
+
+    #[test]
+    fn only_bounded_read_tools_count_as_tool_calls() {
+        let home = tempfile::tempdir().unwrap();
+        let store = open_store(home.path());
+        for (id, tool) in [
+            ("a", "read_file_head"),
+            ("b", "grep_search"),
+            ("c", "bash"),
+            ("d", "edit"),
+            ("e", "cursor_read"),
+        ] {
+            store
+                .insert_tool_log(id, tool, None, None, 10, None, None, false, None, None)
+                .unwrap();
+        }
+
+        assert_eq!(tool_calls_since(&store, 0), 2);
+    }
 }

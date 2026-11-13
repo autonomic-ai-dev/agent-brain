@@ -263,6 +263,8 @@ pub struct RouteTaskResponse {
     pub recommended_phase: String,
     pub tokens_used: usize,
     pub tokens_budget: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_tokens: Option<usize>,
     pub cache_hit: bool,
     pub latency_ms: u64,
     pub log_id: String,

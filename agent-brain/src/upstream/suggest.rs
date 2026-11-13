@@ -68,12 +68,30 @@ pub fn suggest_upstream_tools(
             SuggestedTool {
                 server: tool.server.clone(),
                 tool: tool.name.clone(),
-                description: tool.description.clone(),
+                description: brief(&tool.description),
                 rationale,
                 score,
             }
         })
         .collect()
+}
+
+const SUGGESTED_DESCRIPTION_CHARS: usize = 160;
+
+fn brief(description: &str) -> String {
+    let first_line = description
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or_default();
+    if first_line.chars().count() <= SUGGESTED_DESCRIPTION_CHARS {
+        return first_line.to_string();
+    }
+    let cut: String = first_line
+        .chars()
+        .take(SUGGESTED_DESCRIPTION_CHARS)
+        .collect();
+    format!("{}…", cut.trim_end())
 }
 
 fn compute_historical_outcome_adjustments(
@@ -150,5 +168,22 @@ mod tests {
             .collect();
         let score = score_tool(&query_lower, &query_tokens, &tools[0]);
         assert!(score >= 2.0);
+    }
+
+    #[test]
+    fn brief_keeps_a_short_first_line() {
+        assert_eq!(
+            brief("\nSearch GitHub issues.\n\nWhen to use: long guidance"),
+            "Search GitHub issues."
+        );
+        assert_eq!(brief(""), "");
+    }
+
+    #[test]
+    fn brief_cuts_a_long_first_line_on_a_character_boundary() {
+        let long = "é".repeat(400);
+        let cut = brief(&long);
+        assert_eq!(cut.chars().count(), SUGGESTED_DESCRIPTION_CHARS + 1);
+        assert!(cut.ends_with('…'));
     }
 }

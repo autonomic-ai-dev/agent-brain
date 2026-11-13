@@ -27,3 +27,4 @@ Every agent host session starts `agent-brain serve` as an MCP server. One of tho
 - The feature map is [[../features/serve-daemon-and-proxy]].
 
 - Formatting pass (rustfmt, 2026-11-07): line breaks and spacing only, no behaviour change.
+- `agent-brain/src/mcp/sent_constraints.rs`: per-session record of `must_apply` entries already sent. `serve_mcp_over_io` builds one `BrainMcp` per connection, so a session behind the shared daemon never inherits another session's record (2026-11-13).

@@ -793,11 +793,19 @@ pub fn print_report(store: &BrainStore) -> Result<()> {
         println!("by_source: {{{}}}", parts.join(", "));
     }
 
-    if n < MIN_SAMPLE_FOR_RATES {
-        println!("rates suppressed (need n>={MIN_SAMPLE_FOR_RATES}; showing counts only)");
+    let checks: Vec<_> = rows
+        .iter()
+        .filter(|r| ran_a_check(r.source.as_deref()))
+        .collect();
+    if checks.len() < MIN_SAMPLE_FOR_RATES {
+        println!("rates suppressed (need n>={MIN_SAMPLE_FOR_RATES} cli or orchestrator runs; showing counts only)");
     } else {
-        let rate = success as f64 / n as f64;
-        println!("first-pass success rate: {rate:.3}");
+        let passed = checks.iter().filter(|r| r.exit_code == 0).count();
+        let rate = passed as f64 / checks.len() as f64;
+        println!(
+            "first-pass success rate: {rate:.3} (cli and orchestrator runs, n={})",
+            checks.len()
+        );
     }
 
     let mut config_counts: std::collections::HashMap<String, usize> =
@@ -907,12 +915,16 @@ fn hash_tree(dir: &Path) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+pub fn ran_a_check(source: Option<&str>) -> bool {
+    matches!(source.unwrap_or("cli"), "cli" | "orchestrator")
+}
+
 pub fn last_verification(store: &BrainStore, project_key: &str) -> Option<VerificationStatus> {
     let row = store
-        .list_verify_outcomes_for_project(project_key, 1)
+        .list_verify_outcomes_for_project(project_key, 100)
         .ok()?
         .into_iter()
-        .next()?;
+        .find(|row| ran_a_check(row.source.as_deref()))?;
     Some(VerificationStatus {
         cmd: row.cmd,
         exit_code: row.exit_code,
@@ -966,6 +978,9 @@ pub fn suggest_verified_recipes(
     let mut candidates: Vec<(i32, VerifiedRecipe)> = Vec::new();
 
     for row in outcomes {
+        if !ran_a_check(row.source.as_deref()) {
+            continue;
+        }
         let trimmed_cmd = row.cmd.trim().to_string();
         if trimmed_cmd.is_empty() || seen_cmds.contains(&trimmed_cmd) {
             continue;
@@ -995,9 +1010,6 @@ pub fn suggest_verified_recipes(
         }
 
         let src = row.source.clone().unwrap_or_else(|| "cli".to_string());
-        if matches!(src.as_str(), "cli" | "orchestrator" | "hook") {
-            score += 5;
-        }
 
         if score > 0 {
             candidates.push((
@@ -1285,6 +1297,63 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
             recipes.is_empty(),
             "recently failed command must be squelched"
         );
+    }
+
+    #[test]
+    fn hook_observed_commands_are_not_verification() {
+        let dir = tempdir().unwrap();
+        let store = BrainStore::open(&dir.path().join("t.db")).unwrap();
+        let _ = store.insert_verify_outcome(
+            None,
+            0,
+            None,
+            None,
+            None,
+            "cargo test --lib",
+            "dev1",
+            "cli",
+            Some("project-a"),
+        );
+        for observed in ["git add src && git status", "ls tests | grep cargo"] {
+            let _ = store.insert_verify_outcome(
+                None,
+                0,
+                None,
+                None,
+                None,
+                observed,
+                "dev1",
+                "hook",
+                Some("project-a"),
+            );
+        }
+
+        let status = last_verification(&store, "project-a").unwrap();
+        assert_eq!(status.cmd, "cargo test --lib");
+
+        let recipes = suggest_verified_recipes(&store, "run cargo test", Some("project-a"), 5);
+        let commands: Vec<&str> = recipes.iter().map(|r| r.cmd.as_str()).collect();
+        assert_eq!(commands, ["cargo test --lib"]);
+    }
+
+    #[test]
+    fn a_project_with_only_hook_observations_has_no_verification() {
+        let dir = tempdir().unwrap();
+        let store = BrainStore::open(&dir.path().join("t.db")).unwrap();
+        let _ = store.insert_verify_outcome(
+            None,
+            0,
+            None,
+            None,
+            None,
+            "ls -la",
+            "dev1",
+            "hook",
+            Some("project-a"),
+        );
+
+        assert!(last_verification(&store, "project-a").is_none());
+        assert!(suggest_verified_recipes(&store, "run ls", Some("project-a"), 5).is_empty());
     }
 
     #[test]

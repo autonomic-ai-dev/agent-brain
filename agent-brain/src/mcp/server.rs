@@ -22,8 +22,9 @@ use crate::db::write_queue::{store_memory_payload, WriteOp};
 use crate::engine::{Engine, RouteRequest};
 use crate::gc;
 use crate::mcp::route_gate::McpRouteGate;
+use crate::mcp::sent_constraints::SentConstraints;
 use crate::skill_registry::{read_skill_file, search_terms, MAX_SKILL_RESULTS};
-use crate::types::{deserialize_route_limits, ItemType, RouteLimits};
+use crate::types::{deserialize_route_limits, ItemType, RouteLimits, RouteTaskResponse};
 
 #[derive(Clone)]
 pub struct BrainMcp {
@@ -31,6 +32,7 @@ pub struct BrainMcp {
     #[allow(dead_code)]
     tool_router: ToolRouter<Self>,
     route_gate: Arc<McpRouteGate>,
+    sent_constraints: Arc<SentConstraints>,
     active_cwd: Arc<std::sync::RwLock<Option<PathBuf>>>,
 }
 
@@ -38,6 +40,7 @@ impl BrainMcp {
     pub fn new(engine: Arc<Engine>) -> Self {
         Self {
             route_gate: Arc::new(McpRouteGate::from_config(&engine.config)),
+            sent_constraints: Arc::new(SentConstraints::default()),
             engine,
             tool_router: Self::tool_router(),
             active_cwd: Arc::new(std::sync::RwLock::new(None)),
@@ -752,7 +755,18 @@ impl BrainMcp {
             })
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         self.route_gate.record_route(&p.user_message);
-        json_result(resp)
+        let resp = RouteTaskResponse {
+            must_apply: self.sent_constraints.collapse(&resp.must_apply),
+            ..resp
+        };
+        let response_tokens = crate::tokens::estimate_json_tokens(
+            &serde_json::to_value(&resp)
+                .map_err(|e| McpError::internal_error(format!("{e}"), None))?,
+        );
+        json_result(RouteTaskResponse {
+            response_tokens: Some(response_tokens),
+            ..resp
+        })
     }
 
     #[tool(
@@ -3177,5 +3191,68 @@ mod tests {
         let list_body = json_body(list_res);
         let entries = list_body["entries"].as_array().unwrap();
         assert!(entries.iter().any(|e| e["name"] == "sample.txt"));
+    }
+
+    async fn route_body(server: &BrainMcp, cwd: &TempDir) -> serde_json::Value {
+        let result = server
+            .route_task(Parameters(RouteTaskParams {
+                user_message: "inspect workspace files".into(),
+                current_working_directory: Some(cwd.path().display().to_string()),
+                open_files: vec![],
+                max_tokens: 500,
+                limits: RouteLimits::default(),
+                phase: None,
+                task_kind: None,
+            }))
+            .await
+            .expect("route_task must succeed");
+        json_body(result)
+    }
+
+    #[tokio::test]
+    async fn route_task_reports_the_size_of_the_whole_response() {
+        let dir = TempDir::new().expect("tempdir");
+        let server = skill_test_server(&dir, &[]);
+        let ws = TempDir::new().expect("workspace");
+
+        let body = route_body(&server, &ws).await;
+        let reported = body["response_tokens"].as_u64().expect("response_tokens") as usize;
+        let rest: serde_json::Map<String, serde_json::Value> = body
+            .as_object()
+            .expect("object")
+            .iter()
+            .filter(|(field, _)| field.as_str() != "response_tokens")
+            .map(|(field, value)| (field.clone(), value.clone()))
+            .collect();
+        assert_eq!(
+            reported,
+            crate::tokens::estimate_json_tokens(&serde_json::Value::Object(rest))
+        );
+        assert!(reported >= body["tokens_used"].as_u64().expect("tokens_used") as usize);
+    }
+
+    #[tokio::test]
+    async fn a_second_route_does_not_repeat_constraint_text() {
+        let dir = TempDir::new().expect("tempdir");
+        let server = skill_test_server(&dir, &[]);
+        let ws = TempDir::new().expect("workspace");
+
+        let first = route_body(&server, &ws).await;
+        let second = route_body(&server, &ws).await;
+        let sent: Vec<&serde_json::Value> = first["must_apply"]
+            .as_array()
+            .map(|rules| rules.iter().collect())
+            .unwrap_or_default();
+        let repeated: Vec<&serde_json::Value> = second["must_apply"]
+            .as_array()
+            .map(|rules| rules.iter().filter(|rule| sent.contains(rule)).collect())
+            .unwrap_or_default();
+        assert!(repeated.is_empty(), "repeated in full: {repeated:?}");
+        if !sent.is_empty() {
+            assert_eq!(
+                second["must_apply"][0]["topic"],
+                crate::mcp::sent_constraints::STILL_APPLIES_TOPIC
+            );
+        }
     }
 }

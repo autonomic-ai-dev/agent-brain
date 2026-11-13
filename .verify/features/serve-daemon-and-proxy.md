@@ -73,3 +73,4 @@ Summary: `agent-brain serve` runs in two roles. A shared daemon holds the brain 
 - Installed binaries keep the old behaviour until they are rebuilt and reinstalled from a merged `master`. Restart host sessions after reinstalling, or their old proxies keep running.
 
 - Formatting pass (rustfmt, 2026-11-07): line breaks and spacing only, no behaviour change.
+- Session-scoped route state (2026-11-13): each MCP session gets its own `BrainMcp`, so the record of constraints already sent (`src/mcp/sent_constraints.rs`) is per host session even when sessions share one daemon. `src/engine.rs` returns a rule once when the same topic and text are indexed from several paths.
