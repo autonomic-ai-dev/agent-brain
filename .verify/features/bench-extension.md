@@ -25,7 +25,7 @@ Summary: The benchmark and CI-proof harness, shipped as the optional `agent-brai
 
 - `eval-fixtures-location`: The eval query fixtures live in `extensions/bench/eval/`, where the loader in `src/beam_eval.rs` reads them.
   - Behaviour: `queries.jsonl`, `task-scoped.jsonl` and `transcript-queries.jsonl` moved there from `agent-brain/eval/`. Before the move the loader pointed at a missing directory.
-  - Outcome: The bench suite reads its own cases. The thirty-case retrieval eval from the plan is not written yet.
+  - Outcome: The bench suite reads its own cases. The retrieval eval is 30 cases, each with expected and forbidden types or topics, run by `bench --beam`. The first measured run passed 13 of 30 (score 0.43, below the 0.85 gate); most misses returned memory where a skill was expected.
 
 ## Code
 

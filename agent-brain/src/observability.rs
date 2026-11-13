@@ -14,6 +14,8 @@ pub struct RetrievalItemLog {
     pub item_type: String,
     pub topic: String,
     pub score: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,6 +59,7 @@ pub fn log_route(
             item_type: item.item_type.as_str().to_string(),
             topic: item.topic.clone(),
             score: item.score,
+            source_path: item.source_path.clone(),
         })
         .collect();
     store.insert_retrieval_log(

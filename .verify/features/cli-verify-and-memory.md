@@ -215,7 +215,7 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
   - Behaviour: `route_file_context` and `parse_verification_commands` in `src/feature_map.rs`, called from the `route_task` handler in `src/mcp/server.rs`. Files with no owner use the nearest feature, as `nearest_owner` does for unclaimed code. The response field is `file_context`.
   - Outcome: The agent sees which feature owns a file and which command proves it, without searching.
 - `feedback-real-checks-only`: Only `cli` and `orchestrator` runs credit or debit routed items.
-  - Behaviour: The attribution block in `record_from_result` (`src/verify.rs`) is gated on `ran_checks`. Hook-observed commands record no context feedback.
+  - Behaviour: The attribution block in `record_from_result` (`src/verify.rs`) is gated on `ran_checks`. Hook-observed commands record no context feedback. Only items whose source path the agent read in the same route are credited (`opened_paths_for_route` in `src/db/store.rs`, read from `tool_log`).
   - Outcome: Routed items are no longer credited for an unrelated `ls` or `grep`.
 - `mcp-tool-surface`: `mcp.tool_surface: core` in the settings file lists twelve core tools.
   - Behaviour: `list_tools` in `src/mcp/server.rs` filters `CORE_TOOLS` when the setting is `core`; the default `full` lists every tool. `call_tool` is unchanged, so a hidden tool still runs when called by name. `McpSettings` and `ToolSurface` are in `src/settings.rs`.

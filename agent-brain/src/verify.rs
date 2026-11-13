@@ -411,8 +411,18 @@ pub fn record_from_result(
             if let Ok(items) =
                 serde_json::from_str::<Vec<serde_json::Value>>(&retrieval_log.items_json)
             {
+                let opened = store.opened_paths_for_route(log_id).unwrap_or_default();
                 let item_ids: Vec<String> = items
                     .iter()
+                    .filter(|item| {
+                        item.get("source_path")
+                            .and_then(|v| v.as_str())
+                            .is_some_and(|source| {
+                                opened.iter().any(|path| {
+                                    source == path || source.ends_with(&format!("/{path}"))
+                                })
+                            })
+                    })
                     .filter_map(|item| {
                         item.get("id")
                             .and_then(|v| v.as_str())
@@ -1247,11 +1257,25 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
         fs::create_dir_all(dir.path().join(".verify")).unwrap();
         fs::write(dir.path().join(".verify/README.md"), b"playbook").unwrap();
         store
+            .insert_tool_log(
+                "read-1",
+                "read_file_head",
+                Some("skills/a/SKILL.md"),
+                None,
+                10,
+                None,
+                None,
+                false,
+                None,
+                Some("log-1"),
+            )
+            .unwrap();
+        store
             .insert_retrieval_log(
                 "log-1",
                 "q",
                 "implementing",
-                "[{\"id\":\"item-1\"}]",
+                "[{\"id\":\"item-1\",\"source_path\":\"skills/a/SKILL.md\"},{\"id\":\"item-2\",\"source_path\":\"skills/b/SKILL.md\"}]",
                 10,
                 false,
                 false,
@@ -1279,11 +1303,10 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
     }
 
     #[test]
-    fn a_real_check_credits_the_routed_items_and_a_hook_observation_does_not() {
-        assert_eq!(
-            attribute_run(VerifySource::Cli).get("item-1"),
-            Some(&(1, 0))
-        );
+    fn a_real_check_credits_only_the_items_the_agent_opened() {
+        let credited = attribute_run(VerifySource::Cli);
+        assert_eq!(credited.get("item-1"), Some(&(1, 0)));
+        assert!(!credited.contains_key("item-2"));
         assert!(attribute_run(VerifySource::Hook).is_empty());
     }
 
@@ -1507,8 +1530,21 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
         let store = BrainStore::open(&db).unwrap();
 
         let log_id = "route-log-123";
-        let items_json =
-            r#"[{"id":"fact-item-1","item_type":"memory","topic":"test","score":0.9}]"#;
+        let items_json = r#"[{"id":"fact-item-1","type":"memory","topic":"test","score":0.9,"source_path":"memory/test.md"}]"#;
+        store
+            .insert_tool_log(
+                "read-route-123",
+                "read_file_head",
+                Some("memory/test.md"),
+                None,
+                10,
+                None,
+                None,
+                false,
+                None,
+                Some(log_id),
+            )
+            .unwrap();
         store
             .insert_retrieval_log(
                 log_id,

@@ -2102,8 +2102,8 @@ impl ServerHandler for BrainMcp {
               other agent-brain tools return errors until route_task succeeds. \
               Use returned paths to load skills; apply applicable_rules and must_apply. \
               For inspecting unfamiliar files, prefer token-efficient tools: grep_search, file_summary, read_file_head, read_file_tail — not full-file reads. \
-              For git operations, prefer brain_git_log, brain_git_diff, brain_git_tags, brain_git_compare over raw bash. \
-              When exploring code architecture in a repo with graphify enabled, use query_codebase after route_task. \
+              For git operations, use brain_git_log, brain_git_diff, brain_git_tags or brain_git_compare when they are listed; otherwise use git. \
+              When exploring code architecture in a repo with graphify enabled, use query_codebase after route_task when it is listed. \
               To ingest framework docs from an allowlisted HTTPS URL, use learn_from_url (see docs.allowed_domains in config). \
               At task end, call store_memory for durable outcomes (max 50 words). \
               Native tools (read, grep, edit, write, bash, glob) are fine for operations agent-brain does not provide alternatives for."

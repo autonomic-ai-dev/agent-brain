@@ -39,6 +39,10 @@ struct JsonlCase {
     #[serde(default)]
     _cwd_hint: Option<String>,
     expect_types: Vec<String>,
+    #[serde(default)]
+    forbid_types: Vec<String>,
+    #[serde(default)]
+    forbid_topics: Vec<String>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -540,10 +544,19 @@ fn run_jsonl_file_suite(
             explicit_task_kind: None,
         })?;
         let present = response_types(&resp);
+        let topics = response_topics(&resp);
         let ok = case
             .expect_types
             .iter()
-            .all(|t| present.contains(&t.to_ascii_lowercase()));
+            .all(|t| present.contains(&t.to_ascii_lowercase()))
+            && !case
+                .forbid_types
+                .iter()
+                .any(|t| present.contains(&t.to_ascii_lowercase()))
+            && !case
+                .forbid_topics
+                .iter()
+                .any(|t| topics.contains(&t.to_ascii_lowercase()));
         if ok {
             passed += 1;
         } else {
@@ -592,6 +605,28 @@ fn response_types(resp: &RouteTaskResponse) -> HashSet<String> {
         out.insert("memory".into());
     }
     out
+}
+
+fn response_topics(resp: &RouteTaskResponse) -> HashSet<String> {
+    resp.recommended_skills
+        .iter()
+        .map(|skill| skill.name.to_ascii_lowercase())
+        .chain(
+            resp.applicable_rules
+                .iter()
+                .map(|rule| rule.topic.to_ascii_lowercase()),
+        )
+        .chain(
+            resp.recommended_agents
+                .iter()
+                .map(|agent| agent.name.to_ascii_lowercase()),
+        )
+        .chain(
+            resp.relevant_memory
+                .iter()
+                .map(|memory| memory.topic.to_ascii_lowercase()),
+        )
+        .collect()
 }
 
 fn jsonl_fixture_path() -> std::path::PathBuf {

@@ -1,5 +1,30 @@
-{"query":"fix a failing rust test in agent-brain","cwd_hint":"agent-brain","expect_types":["skill","rule"]}
-{"query":"review this PR for security issues","expect_types":["skill","agent"]}
-{"query":"what did we decide about memory dedup?","expect_types":["memory"]}
-{"query":"implement route_task MCP tool","expect_types":["skill","rule","agent"]}
-{"query":"store a project fact about error handling","expect_types":["memory"]}
+{"query":"fix a failing rust test in agent-brain","cwd_hint":"agent-brain","expect_types":["skill","rule"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"review this PR for security issues","expect_types":["skill","agent"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"what did we decide about memory dedup?","expect_types":["memory"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"implement route_task MCP tool","expect_types":["skill","rule","agent"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"store a project fact about error handling","expect_types":["memory"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"run the tests after editing the stop gate","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"update the feature map for the new command","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"create a graph of files","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"write a design doc for a new API","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"refactor a long function into smaller ones","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"debug a flaky integration test","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"summarize what changed in the last commit","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"add a unit test for the parser","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"explain how the route cache works","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"check the release checklist before tagging","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"review the diff for comment slop","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"record a durable outcome from this task","expect_types":["memory"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"what is the verification policy for this repo","expect_types":["rule"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"how do I run the bench suite","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"fix a clippy warning in the store module","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"look up the design system tokens","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"write a changelog entry","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"rename a function across the crate","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"add a migration for a new table","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"what does the stop gate check","expect_types":["rule"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"plan the next sprint","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"investigate a production error from logs","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"document the new MCP tool","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"check the installed hooks are healthy","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"optimise a slow query","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}

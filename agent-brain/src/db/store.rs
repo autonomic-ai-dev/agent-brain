@@ -2469,6 +2469,18 @@ impl BrainStore {
         })
     }
 
+    pub fn opened_paths_for_route(&self, route_log_id: &str) -> Result<Vec<String>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT DISTINCT path FROM tool_log WHERE route_log_id = ?1 AND path IS NOT NULL",
+            )?;
+            let paths = stmt
+                .query_map(params![route_log_id], |row| row.get(0))?
+                .collect::<rusqlite::Result<Vec<String>>>()?;
+            Ok(paths)
+        })
+    }
+
     pub fn tool_log_stats_since(&self, since_ms: i64) -> Result<(usize, u64, f64, usize)> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
