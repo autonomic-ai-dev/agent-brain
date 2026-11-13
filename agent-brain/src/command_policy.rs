@@ -535,6 +535,9 @@ fn delete_verdict(
             Verdict::Warn(format!("delete of an unresolved path: {target}"))
         };
     };
+    if is_protected_check(&path, root) {
+        return Verdict::Block(protected_check_reason(target));
+    }
     let git_metadata = path.components().any(|part| part.as_os_str() == ".git");
     if git_metadata || is_protected(&path) || is_root_or_home(&path) || in_system_root(&path) {
         return Verdict::Block(format!(
@@ -558,6 +561,20 @@ fn delete_verdict(
     }
 }
 
+fn is_protected_check(path: &Path, root: Option<&Path>) -> bool {
+    let Some(root) = root else {
+        return false;
+    };
+    let checks = root.join(".verify").join("checks");
+    path == root.join(".verify").join("verify.toml") || path.starts_with(checks)
+}
+
+fn protected_check_reason(target: &str) -> String {
+    format!(
+        "verification checks are changed by the user, not by the agent; ask the user to make this change: {target}"
+    )
+}
+
 fn write_verdict(target: &str, root: Option<&Path>, dir: Option<&Path>) -> Verdict {
     if HARMLESS_DEVICES.contains(&target) {
         return Verdict::Allow;
@@ -568,6 +585,9 @@ fn write_verdict(target: &str, root: Option<&Path>, dir: Option<&Path>) -> Verdi
     let Some(path) = resolve(target, dir) else {
         return Verdict::Warn(format!("write to an unresolved path: {target}"));
     };
+    if is_protected_check(&path, root) {
+        return Verdict::Block(protected_check_reason(target));
+    }
     if path == Path::new("/") || is_protected(&path) || in_system_root(&path) {
         return Verdict::Block(format!("writes a protected or system path: {target}"));
     }

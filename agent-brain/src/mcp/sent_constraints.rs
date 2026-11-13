@@ -24,11 +24,8 @@ pub fn collapse_repeats(
                 .is_some_and(|at| now.duration_since(*at) < RESEND_AFTER)
         });
 
-    let next: Sent = sent
-        .iter()
-        .map(|(sent_key, at)| (sent_key.clone(), *at))
-        .chain(fresh.iter().map(|rule| (key(rule), now)))
-        .collect();
+    let mut next = sent.clone();
+    next.extend(fresh.iter().map(|rule| (key(rule), now)));
 
     let summary = (!repeated.is_empty()).then(|| MustApply {
         topic: STILL_APPLIES_TOPIC.to_string(),

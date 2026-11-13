@@ -132,3 +132,9 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 - The stop gate no longer ends a turn silently after the block limit. `StopOutcome::HandBack` produces a `systemMessage` with NOT VERIFIED, and `hook_output` never sets a `decision` key for it, so the host still lets the turn end. Hosts that do not show `systemMessage` will not show the line; check each host (`src/host_hooks.rs`, `gemini_stop_gate_entry`) before relying on it.
 - Watch mode (`gates.stop: watch` or `AGENT_BRAIN_STOP_GATE=watch`) never writes block state, so the block counter is not advanced and nothing is ever blocked. The reason is still computed, so the would-be block is recorded as `stop-would-block`.
 - `agent-brain verify init --force` is blocked by the Bash guard because it rewrites `.verify/verify.toml`. Plain `verify init` is allowed; it only writes when the file is missing.
+
+## Protected checks, requirements, and route reuse
+
+- A requirement line starts with `R<number>.` at the start of a line. Its check is the first backticked command after `check:`, on the same line or on the next indented line. An `R<n>` inside a list item or heading is not a requirement.
+- `check_protected_edit` covers edit tools whose path resolves inside the nearest repository's `.verify/verify.toml` or `.verify/checks/`. It does not cover `.verify/run.sh`, which can still be edited; decide that before relying on the rule.
+- `init_verify` allowlists only the detected test commands and `.verify/run.sh`. A project without a recognised build file must add its test command by hand.

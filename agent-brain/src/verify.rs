@@ -528,13 +528,7 @@ pub fn init_verify(project_root: &Path, force: bool) -> Result<PathBuf> {
         if project_root.join("Makefile").exists() {
             commands.push("make test".to_string());
         }
-        if commands.is_empty() {
-            commands.push("cargo test".to_string());
-            commands.push("pytest".to_string());
-            commands.push("npm test".to_string());
-            commands.push("make test".to_string());
-        }
-        commands.push(".verify/".to_string());
+        commands.push(".verify/run.sh".to_string());
 
         let mut toml_content = String::from("[verify]\ncommands = [\n");
         for cmd in &commands {
@@ -1207,7 +1201,8 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
 
         let toml_str = fs::read_to_string(verify_path.join("verify.toml")).unwrap();
         assert!(toml_str.contains("cargo test"));
-        assert!(toml_str.contains(".verify/"));
+        assert!(toml_str.contains("\".verify/run.sh\""));
+        assert!(!toml_str.contains("\".verify/\""));
 
         assert!(command_is_allowlisted("cargo test", Some(dir.path())));
         assert!(command_is_allowlisted(".verify/run.sh", Some(dir.path())));

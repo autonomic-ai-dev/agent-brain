@@ -182,6 +182,22 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
   - Behaviour: `src/command_policy.rs` blocks `agent-brain verify init` when `--force` is present. Plain `verify init` stays allowed because it never overwrites an existing file. Cases are in `src/command_policy_cases.txt`.
   - Outcome: The binary cannot bypass the Bash guard on `.verify/verify.toml`.
 
+- `spec-requirements-receipt`: The receipt reports each requirement in `.verify/specs/*.md`.
+  - Behaviour: `src/spec.rs` parses `R<n>.` lines with an optional backticked `check:` command. `receipt_for_project` in `src/receipt.rs` marks each requirement proven, failed, not run, no check yet, or not allowlisted.
+  - Outcome: The receipt says "N of M requirements proven" instead of only that a command passed.
+- `protected-checks`: The agent cannot change `.verify/verify.toml` or `.verify/checks/` through Bash or an edit tool.
+  - Behaviour: `is_protected_check` in `src/command_policy.rs` blocks writes and deletes of those paths. `check_protected_edit` in `hooks/route_gate.py` denies edit tools targeting them; `AGENT_BRAIN_ALLOW_CHECK_EDITS=1` lifts the hook rule. The receipt lists these files when they differ from the last commit.
+  - Outcome: An allowlist or check script cannot be weakened silently.
+- `read-gate-large-files`: The read gate denies only large files that have not been scouted.
+  - Behaviour: `check_read_tool_gate` in `hooks/route_gate.py` no longer denies a read because `must_apply` is active. The 64 KB threshold is unchanged.
+  - Outcome: Small files are read and edited without an unlock call.
+- `route-reuse-by-checkout`: A route is reused across directory changes inside one repository.
+  - Behaviour: `session_route_reusable` in `hooks/route_gate.py` compares `checkout_key`, the nearest ancestor with `.git`, instead of the raw directory.
+  - Outcome: A `cd` inside the repository no longer forces a new `route_task`.
+- `verify-init-scaffold`: `init_verify` allowlists `.verify/run.sh` and no longer guesses commands.
+  - Behaviour: `init_verify` in `src/verify.rs` lists the detected test commands and then `.verify/run.sh`. It no longer adds `.verify/` as a command or fills in four guessed commands when nothing is detected.
+  - Outcome: The allowlist holds only commands the repository has, plus the verification entry point.
+
 ## Code
 
 - `agent-brain/src`
