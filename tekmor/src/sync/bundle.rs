@@ -459,3 +459,73 @@ mod lesson_bundle_tests {
         assert!(lessons_jsonl(&[leaky]).is_empty());
     }
 }
+
+#[cfg(test)]
+mod lesson_import_store_tests {
+    use super::*;
+
+    fn bundle_with_lessons(dir: &Path, body: &str) {
+        fs::write(dir.join("lessons.jsonl"), body).unwrap();
+        let manifest = serde_json::json!({
+            "schema_version": 1,
+            "device_id": "test",
+            "exported_at": 0,
+            "fact_count": 0,
+            "includes_vectors": false,
+            "checksums": { "facts_jsonl": "", "lessons_jsonl": sha256_hex(body.as_bytes()) }
+        });
+        fs::write(dir.join("manifest.json"), manifest.to_string()).unwrap();
+    }
+
+    fn lesson_line(id: &str, cmd: &str, excerpt: &str, created_at: i64) -> String {
+        serde_json::to_string(&BundleLesson {
+            id: id.into(),
+            project_key: "p".into(),
+            paths: vec!["src/a.rs".into()],
+            cmd: cmd.into(),
+            excerpt: excerpt.into(),
+            created_at,
+        })
+        .unwrap()
+            + "\n"
+    }
+
+    #[test]
+    fn an_imported_lesson_is_stored_and_a_secret_looking_one_is_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = BrainStore::open(&dir.path().join("brain.db")).unwrap();
+        let now = chrono::Utc::now().timestamp_millis();
+        let body = lesson_line("clean", "cargo test", "assert failed", now)
+            + &lesson_line("leaky", "cargo test", "password=hunter2", now);
+        let bundle = tempfile::tempdir().unwrap();
+        bundle_with_lessons(bundle.path(), &body);
+
+        let mut report = ImportReport::default();
+        let expected = sha256_hex(body.as_bytes());
+        import_lessons(&store, bundle.path(), Some(&expected), &mut report).unwrap();
+
+        let stored: Vec<String> = store
+            .lessons_for_project("p", now)
+            .unwrap()
+            .into_iter()
+            .map(|l| l.id)
+            .collect();
+        assert_eq!(stored, ["clean"]);
+        assert_eq!((report.imported, report.skipped), (1, 1));
+    }
+
+    #[test]
+    fn a_lessons_file_with_a_wrong_checksum_is_refused_and_nothing_is_stored() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = BrainStore::open(&dir.path().join("brain.db")).unwrap();
+        let now = chrono::Utc::now().timestamp_millis();
+        let body = lesson_line("clean", "cargo test", "assert failed", now);
+        let bundle = tempfile::tempdir().unwrap();
+        bundle_with_lessons(bundle.path(), &body);
+
+        let mut report = ImportReport::default();
+        let result = import_lessons(&store, bundle.path(), Some("deadbeef"), &mut report);
+        assert!(result.is_err());
+        assert!(store.lessons_for_project("p", now).unwrap().is_empty());
+    }
+}

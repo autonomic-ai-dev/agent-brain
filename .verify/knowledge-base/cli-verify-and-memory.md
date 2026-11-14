@@ -222,3 +222,7 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 ## Lessons in the sync bundle (H4-3, ADR 0003 amendment 2)
 
 - `tekmor export --with-lessons` writes lessons.jsonl, checksummed in the manifest. Each lesson is secret-checked on export and on import. Default export is unchanged.
+
+## Lesson import is tested against a real store (H4-3 follow-up)
+
+- `import_lessons` has store-level tests: a clean lesson is stored, a secret-looking one is skipped, and a wrong checksum stores nothing.
