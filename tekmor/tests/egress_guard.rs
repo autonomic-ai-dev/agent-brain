@@ -20,16 +20,9 @@ const NETWORK_CLIENT_MARKERS: [&str; 16] = [
     "\"fetch\",",
 ];
 
-const EXPECTED_NETWORK_FILES: [&str; 9] = [
-    "tekmor/src/auto_update.rs",
-    "tekmor/src/docs/fetch.rs",
+const EXPECTED_NETWORK_FILES: [&str; 2] = [
     "tekmor/src/extensions.rs",
-    "tekmor/src/mcp/server.rs",
-    "tekmor/src/packages/mod.rs",
     "tekmor/src/registry_sync.rs",
-    "tekmor/src/sync/cloud.rs",
-    "tekmor/src/sync/git.rs",
-    "extensions/bench/src/skills_sh.rs",
 ];
 
 const LLM_PROVIDER_HOSTS: [&str; 4] = [
@@ -119,7 +112,6 @@ fn no_telemetry_sdk_is_a_dependency() {
         ["sentry", "posthog", "opentelemetry", "segment", "mixpanel"];
     let manifests = [
         crate_dir().join("Cargo.toml"),
-        crate_dir().join("../extensions/bench/Cargo.toml"),
     ];
     for manifest in manifests {
         let text = fs::read_to_string(&manifest).expect("read Cargo.toml");

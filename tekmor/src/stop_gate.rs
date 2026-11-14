@@ -387,7 +387,7 @@ mod tests {
 
     #[test]
     fn blocks_run_not_from_trusted_source() {
-        let ev = [evidence(0, Some("mcp"), Some("tree"))];
+        let ev = [evidence(0, Some("hook"), Some("tree"))];
         assert!(passing_run("tree", &ev).is_none());
     }
 
@@ -420,7 +420,7 @@ mod tests {
     #[test]
     fn only_code_paths_need_a_verification_run() {
         assert!(verify::is_code_path("tekmor/src/engine.rs"));
-        assert!(verify::is_code_path("tekmor/hooks/route_gate.py"));
+        assert!(verify::is_code_path("tekmor/src/stop_gate.rs"));
         assert!(verify::is_code_path("tekmor/Cargo.toml"));
         assert!(!verify::is_code_path("tekmor/.verify/features/x.md"));
         assert!(!verify::is_code_path("tekmor/README.md"));

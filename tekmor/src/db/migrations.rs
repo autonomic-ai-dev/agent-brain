@@ -1,474 +1,56 @@
 use rusqlite::Connection;
 
+const SCHEMA_VERSION: i64 = 29;
+
+const VERIFY_COLUMNS: &[(&str, &str)] = &[
+    ("changed_paths_json", "TEXT"),
+    ("head_sha", "TEXT"),
+    ("code_hash", "TEXT"),
+    ("source", "TEXT NOT NULL DEFAULT 'cli'"),
+    ("project_key", "TEXT"),
+    ("tests_run", "INTEGER"),
+];
+
 pub fn run(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
         r#"
-        PRAGMA journal_mode=WAL;
-        PRAGMA busy_timeout=5000;
-        PRAGMA synchronous=NORMAL;
-
         CREATE TABLE IF NOT EXISTS schema_version (
             version INTEGER NOT NULL
         );
-
-        CREATE TABLE IF NOT EXISTS indexed_items (
-            id TEXT PRIMARY KEY,
-            item_type TEXT NOT NULL,
-            topic TEXT NOT NULL,
-            text TEXT NOT NULL,
-            source_path TEXT NOT NULL,
-            scope TEXT NOT NULL DEFAULT 'global',
-            scope_key TEXT,
-            content_hash TEXT NOT NULL,
-            embedding BLOB,
-            updated_at INTEGER NOT NULL,
-            UNIQUE(source_path, content_hash)
-        );
-
-        CREATE VIRTUAL TABLE IF NOT EXISTS items_fts USING fts5(
-            topic, text, content='indexed_items', content_rowid='rowid'
-        );
-
-        CREATE TRIGGER IF NOT EXISTS items_ai AFTER INSERT ON indexed_items BEGIN
-            INSERT INTO items_fts(rowid, topic, text) VALUES (new.rowid, new.topic, new.text);
-        END;
-        CREATE TRIGGER IF NOT EXISTS items_ad AFTER DELETE ON indexed_items BEGIN
-            INSERT INTO items_fts(items_fts, rowid, topic, text) VALUES('delete', old.rowid, old.topic, old.text);
-        END;
-        CREATE TRIGGER IF NOT EXISTS items_au AFTER UPDATE ON indexed_items BEGIN
-            INSERT INTO items_fts(items_fts, rowid, topic, text) VALUES('delete', old.rowid, old.topic, old.text);
-            INSERT INTO items_fts(rowid, topic, text) VALUES (new.rowid, new.topic, new.text);
-        END;
-
-        CREATE TABLE IF NOT EXISTS facts (
-            id TEXT PRIMARY KEY,
-            topic TEXT NOT NULL,
-            fact TEXT NOT NULL,
-            scope TEXT NOT NULL,
-            scope_key TEXT,
-            source TEXT NOT NULL DEFAULT 'agent',
-            confidence REAL DEFAULT 0.9,
-            created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL,
-            last_used_at INTEGER,
-            expires_at INTEGER,
-            content_hash TEXT NOT NULL,
-            superseded_by TEXT,
-            UNIQUE(content_hash, scope, scope_key)
-        );
-
-        CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(
-            topic, fact, content='facts', content_rowid='rowid'
-        );
-
-        CREATE TRIGGER IF NOT EXISTS facts_ai AFTER INSERT ON facts BEGIN
-            INSERT INTO facts_fts(rowid, topic, fact) VALUES (new.rowid, new.topic, new.fact);
-        END;
-        CREATE TRIGGER IF NOT EXISTS facts_ad AFTER DELETE ON facts BEGIN
-            INSERT INTO facts_fts(facts_fts, rowid, topic, fact) VALUES('delete', old.rowid, old.topic, old.fact);
-        END;
-        CREATE TRIGGER IF NOT EXISTS facts_au AFTER UPDATE ON facts BEGIN
-            INSERT INTO facts_fts(facts_fts, rowid, topic, fact) VALUES('delete', old.rowid, old.topic, old.fact);
-            INSERT INTO facts_fts(rowid, topic, fact) VALUES (new.rowid, new.topic, new.fact);
-        END;
-
         CREATE TABLE IF NOT EXISTS meta (
             key TEXT PRIMARY KEY,
             value TEXT NOT NULL
         );
-
-        CREATE TABLE IF NOT EXISTS query_embeddings (
-            query_hash TEXT PRIMARY KEY,
-            embedding BLOB NOT NULL,
-            updated_at INTEGER NOT NULL
-        );
-        "#,
-    )?;
-
-    let version: i64 = conn
-        .query_row(
-            "SELECT COALESCE((SELECT version FROM schema_version LIMIT 1), 0)",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap_or(0);
-
-    if version == 0 {
-        conn.execute("INSERT INTO schema_version (version) VALUES (1)", [])?;
-        conn.execute(
-            "INSERT OR IGNORE INTO meta (key, value) VALUES ('index_version', '1')",
-            [],
-        )?;
-    }
-
-    let version: i64 = conn
-        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
-            r.get(0)
-        })
-        .unwrap_or(0);
-
-    if version < 2 {
-        migrate_v2(conn)?;
-        conn.execute("UPDATE schema_version SET version = 2", [])?;
-    }
-
-    let version: i64 = conn
-        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
-            r.get(0)
-        })
-        .unwrap_or(0);
-
-    if version < 3 {
-        migrate_v3(conn)?;
-        conn.execute("UPDATE schema_version SET version = 3", [])?;
-    }
-
-    let version: i64 = conn
-        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
-            r.get(0)
-        })
-        .unwrap_or(0);
-
-    if version < 4 {
-        migrate_v4(conn)?;
-        conn.execute("UPDATE schema_version SET version = 4", [])?;
-    }
-
-    let version: i64 = conn
-        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
-            r.get(0)
-        })
-        .unwrap_or(0);
-
-    if version < 5 {
-        migrate_v5(conn)?;
-        conn.execute("UPDATE schema_version SET version = 5", [])?;
-    }
-
-    let version: i64 = conn
-        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
-            r.get(0)
-        })
-        .unwrap_or(0);
-
-    if version < 6 {
-        migrate_v6(conn)?;
-        conn.execute("UPDATE schema_version SET version = 6", [])?;
-    }
-
-    let version: i64 = conn
-        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
-            r.get(0)
-        })
-        .unwrap_or(0);
-
-    if version < 7 {
-        migrate_v7(conn)?;
-        conn.execute("UPDATE schema_version SET version = 7", [])?;
-    }
-
-    let version: i64 = conn
-        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
-            r.get(0)
-        })
-        .unwrap_or(0);
-
-    if version < 8 {
-        migrate_v8(conn)?;
-        conn.execute("UPDATE schema_version SET version = 8", [])?;
-    }
-
-    let version: i64 = conn
-        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
-            r.get(0)
-        })
-        .unwrap_or(0);
-
-    if version < 9 {
-        migrate_v9(conn)?;
-        conn.execute("UPDATE schema_version SET version = 9", [])?;
-    }
-
-    let version: i64 = conn
-        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
-            r.get(0)
-        })
-        .unwrap_or(0);
-
-    if version < 10 {
-        migrate_v10(conn)?;
-        conn.execute("UPDATE schema_version SET version = 10", [])?;
-    }
-
-    let version: i64 = conn
-        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
-            r.get(0)
-        })
-        .unwrap_or(0);
-
-    if version < 11 {
-        migrate_v11(conn)?;
-        conn.execute("UPDATE schema_version SET version = 11", [])?;
-    }
-
-    let version: i64 = conn
-        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
-            r.get(0)
-        })
-        .unwrap_or(0);
-
-    if version < 12 {
-        migrate_v12(conn)?;
-        conn.execute("UPDATE schema_version SET version = 12", [])?;
-    }
-
-    let version: i64 = conn
-        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
-            r.get(0)
-        })
-        .unwrap_or(0);
-
-    if version < 13 {
-        migrate_v13(conn)?;
-        conn.execute("UPDATE schema_version SET version = 13", [])?;
-    }
-
-    let version: i64 = conn
-        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
-            r.get(0)
-        })
-        .unwrap_or(0);
-
-    if version < 14 {
-        migrate_v14(conn)?;
-        conn.execute("UPDATE schema_version SET version = 14", [])?;
-    }
-
-    if version < 15 {
-        migrate_v15(conn)?;
-        conn.execute("UPDATE schema_version SET version = 15", [])?;
-    }
-
-    let version: i64 = conn
-        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
-            r.get(0)
-        })
-        .unwrap_or(0);
-
-    if version < 16 {
-        migrate_v16(conn)?;
-        conn.execute("UPDATE schema_version SET version = 16", [])?;
-    }
-
-    let version: i64 = conn
-        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
-            r.get(0)
-        })
-        .unwrap_or(0);
-
-    if version < 17 {
-        migrate_v17(conn)?;
-        conn.execute("UPDATE schema_version SET version = 17", [])?;
-    }
-
-    let version: i64 = conn
-        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
-            r.get(0)
-        })
-        .unwrap_or(0);
-
-    if version < 18 {
-        migrate_v18(conn)?;
-        conn.execute("UPDATE schema_version SET version = 18", [])?;
-    }
-
-    let version: i64 = conn
-        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
-            r.get(0)
-        })
-        .unwrap_or(0);
-
-    if version < 19 {
-        migrate_v19(conn)?;
-        conn.execute("UPDATE schema_version SET version = 19", [])?;
-    }
-
-    let version: i64 = conn
-        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
-            r.get(0)
-        })
-        .unwrap_or(0);
-
-    if version < 20 {
-        migrate_v20(conn)?;
-        conn.execute("UPDATE schema_version SET version = 20", [])?;
-    }
-
-    let version: i64 = conn
-        .query_row("SELECT version FROM schema_version LIMIT 1", [], |r| {
-            r.get(0)
-        })
-        .unwrap_or(0);
-
-    if version < 21 {
-        migrate_v21(conn)?;
-        conn.execute("UPDATE schema_version SET version = 21", [])?;
-    }
-
-    if version < 22 {
-        migrate_v22(conn)?;
-        conn.execute("UPDATE schema_version SET version = 22", [])?;
-    }
-
-    if version < 23 {
-        migrate_v23(conn)?;
-        conn.execute("UPDATE schema_version SET version = 23", [])?;
-    }
-
-    if version < 24 {
-        migrate_v24(conn)?;
-        conn.execute("UPDATE schema_version SET version = 24", [])?;
-    }
-
-    if version < 25 {
-        migrate_v25(conn)?;
-        conn.execute("UPDATE schema_version SET version = 25", [])?;
-    }
-
-    if version < 26 {
-        migrate_v26(conn)?;
-        conn.execute("UPDATE schema_version SET version = 26", [])?;
-    }
-
-    if version < 27 {
-        migrate_v27(conn)?;
-        conn.execute("UPDATE schema_version SET version = 27", [])?;
-    }
-
-    if version < 28 {
-        migrate_v28(conn)?;
-        conn.execute("UPDATE schema_version SET version = 28", [])?;
-    }
-
-    if version < 29 {
-        migrate_v29(conn)?;
-        conn.execute("UPDATE schema_version SET version = 29", [])?;
-    }
-
-    Ok(())
-}
-
-fn migrate_v29(conn: &Connection) -> rusqlite::Result<()> {
-    if column_exists(conn, "turn_telemetry", "estimated_dollars_saved")? {
-        conn.execute(
-            "ALTER TABLE turn_telemetry DROP COLUMN estimated_dollars_saved",
-            [],
-        )?;
-    }
-    Ok(())
-}
-
-fn migrate_v28(conn: &Connection) -> rusqlite::Result<()> {
-    if !column_exists(conn, "verify_outcomes", "changed_paths_json")? {
-        conn.execute(
-            "ALTER TABLE verify_outcomes ADD COLUMN changed_paths_json TEXT",
-            [],
-        )?;
-    }
-    Ok(())
-}
-
-fn migrate_v27(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS lessons (
+        CREATE TABLE IF NOT EXISTS verify_outcomes (
             id TEXT PRIMARY KEY,
-            project_key TEXT NOT NULL,
-            paths_json TEXT NOT NULL,
+            route_log_id TEXT,
+            exit_code INTEGER NOT NULL,
+            cause_tag TEXT,
+            verify_config_hash TEXT,
+            scenario_dir_hash TEXT,
             cmd TEXT NOT NULL,
-            excerpt TEXT NOT NULL,
-            created_at INTEGER NOT NULL
+            device_id TEXT,
+            recorded_at INTEGER NOT NULL
         );
-        CREATE INDEX IF NOT EXISTS idx_lessons_project ON lessons(project_key, created_at);",
-    )
-}
-
-fn migrate_v26(conn: &Connection) -> rusqlite::Result<()> {
-    if !column_exists(conn, "verify_outcomes", "head_sha")? {
-        conn.execute("ALTER TABLE verify_outcomes ADD COLUMN head_sha TEXT", [])?;
-    }
-    Ok(())
-}
-
-fn migrate_v25(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS fact_tags (
-            fact_id TEXT NOT NULL,
-            tag TEXT NOT NULL,
-            PRIMARY KEY (fact_id, tag)
-        );
-        CREATE INDEX IF NOT EXISTS idx_fact_tags_tag ON fact_tags(tag);",
-    )
-}
-
-fn migrate_v24(conn: &Connection) -> rusqlite::Result<()> {
-    if !column_exists(conn, "verify_outcomes", "code_hash")? {
-        conn.execute("ALTER TABLE verify_outcomes ADD COLUMN code_hash TEXT", [])?;
-    }
-    Ok(())
-}
-
-fn migrate_v23(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(
-        r#"
-        CREATE TABLE IF NOT EXISTS procedure_edges (
-            source_workflow TEXT NOT NULL,
-            source_node TEXT NOT NULL,
-            target_node TEXT NOT NULL,
-            transition_count INTEGER NOT NULL DEFAULT 1,
-            last_transition_at INTEGER NOT NULL,
-            PRIMARY KEY (source_workflow, source_node, target_node)
-        );
-        CREATE INDEX IF NOT EXISTS idx_procedure_edges_source ON procedure_edges(source_workflow, source_node);
+        CREATE INDEX IF NOT EXISTS idx_verify_outcomes_at ON verify_outcomes(recorded_at);
         "#,
     )?;
-    Ok(())
-}
-
-fn migrate_v15(conn: &Connection) -> rusqlite::Result<()> {
-    if !column_exists(conn, "code_graph_nodes", "ast_symbol")? {
-        conn.execute(
-            "ALTER TABLE code_graph_nodes ADD COLUMN ast_symbol TEXT",
-            [],
-        )?;
+    for (column, definition) in VERIFY_COLUMNS {
+        if !column_exists(conn, "verify_outcomes", column)? {
+            conn.execute(
+                &format!("ALTER TABLE verify_outcomes ADD COLUMN {column} {definition}"),
+                [],
+            )?;
+        }
     }
-    if !column_exists(conn, "code_graph_nodes", "embedding_id")? {
-        conn.execute(
-            "ALTER TABLE code_graph_nodes ADD COLUMN embedding_id TEXT",
-            [],
-        )?;
-    }
-    if !column_exists(conn, "code_graph_nodes", "start_line")? {
-        conn.execute(
-            "ALTER TABLE code_graph_nodes ADD COLUMN start_line INTEGER",
-            [],
-        )?;
-    }
-    if !column_exists(conn, "code_graph_nodes", "end_line")? {
-        conn.execute(
-            "ALTER TABLE code_graph_nodes ADD COLUMN end_line INTEGER",
-            [],
-        )?;
-    }
-    Ok(())
-}
-
-fn migrate_v14(conn: &Connection) -> rusqlite::Result<()> {
-    if !column_exists(conn, "indexed_items", "file_mtime")? {
-        conn.execute(
-            "ALTER TABLE indexed_items ADD COLUMN file_mtime INTEGER",
-            [],
-        )?;
-    }
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_verify_outcomes_project ON verify_outcomes(project_key, recorded_at);",
+    )?;
+    conn.execute("DELETE FROM schema_version", [])?;
+    conn.execute(
+        "INSERT INTO schema_version (version) VALUES (?1)",
+        [SCHEMA_VERSION],
+    )?;
     Ok(())
 }
 
@@ -484,437 +66,51 @@ fn column_exists(conn: &Connection, table: &str, column: &str) -> rusqlite::Resu
     Ok(false)
 }
 
-fn migrate_v2(conn: &Connection) -> rusqlite::Result<()> {
-    if !column_exists(conn, "facts", "polarity")? {
-        conn.execute(
-            "ALTER TABLE facts ADD COLUMN polarity TEXT NOT NULL DEFAULT 'positive'",
-            [],
-        )?;
-    }
-
-    conn.execute_batch(
-        r#"
-        CREATE TABLE IF NOT EXISTS conflict_log (
-            id TEXT PRIMARY KEY,
-            timestamp INTEGER NOT NULL,
-            sync_source TEXT NOT NULL DEFAULT 'local',
-            topic TEXT NOT NULL,
-            scope TEXT NOT NULL,
-            scope_key TEXT,
-            loser_id TEXT NOT NULL,
-            loser_fact TEXT NOT NULL,
-            winner_id TEXT NOT NULL,
-            winner_fact TEXT NOT NULL,
-            resolution TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS retrieval_log (
-            id TEXT PRIMARY KEY,
-            timestamp INTEGER NOT NULL,
-            query_hash TEXT NOT NULL,
-            phase TEXT NOT NULL,
-            items_returned TEXT NOT NULL,
-            tokens_used INTEGER NOT NULL,
-            truncated INTEGER NOT NULL,
-            cache_hit INTEGER NOT NULL,
-            latency_ms INTEGER NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS context_weights (
-            item_id TEXT PRIMARY KEY,
-            weight REAL NOT NULL DEFAULT 1.0,
-            useful_count INTEGER NOT NULL DEFAULT 0,
-            useless_count INTEGER NOT NULL DEFAULT 0,
-            last_used_at INTEGER
-        );
-        "#,
-    )?;
-    Ok(())
-}
-
-fn migrate_v3(conn: &Connection) -> rusqlite::Result<()> {
-    if !column_exists(conn, "facts", "apply_when")? {
-        conn.execute("ALTER TABLE facts ADD COLUMN apply_when TEXT", [])?;
-    }
-    Ok(())
-}
-
-fn migrate_v4(conn: &Connection) -> rusqlite::Result<()> {
-    if !column_exists(conn, "conflict_log", "restored")? {
-        conn.execute(
-            "ALTER TABLE conflict_log ADD COLUMN restored INTEGER NOT NULL DEFAULT 0",
-            [],
-        )?;
-    }
-    Ok(())
-}
-
-fn migrate_v5(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(
-        r#"
-        CREATE TABLE IF NOT EXISTS secret_refs (
-            name TEXT PRIMARY KEY,
-            used_by TEXT NOT NULL,
-            created_at INTEGER NOT NULL
-        );
-        "#,
-    )?;
-    Ok(())
-}
-
-fn migrate_v6(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(
-        r#"
-        CREATE TABLE IF NOT EXISTS skill_staging (
-            id TEXT PRIMARY KEY,
-            fact_id TEXT NOT NULL,
-            topic TEXT NOT NULL,
-            skill_name TEXT NOT NULL,
-            draft_path TEXT NOT NULL,
-            target_path TEXT,
-            status TEXT NOT NULL DEFAULT 'pending',
-            created_at INTEGER NOT NULL,
-            resolved_at INTEGER
-        );
-
-        CREATE TABLE IF NOT EXISTS facts_archive (
-            id TEXT PRIMARY KEY,
-            original_id TEXT NOT NULL,
-            topic TEXT NOT NULL,
-            fact TEXT NOT NULL,
-            scope TEXT NOT NULL,
-            scope_key TEXT,
-            source TEXT NOT NULL,
-            confidence REAL,
-            polarity TEXT,
-            apply_when TEXT,
-            archived_at INTEGER NOT NULL,
-            archive_reason TEXT NOT NULL
-        );
-        "#,
-    )?;
-    Ok(())
-}
-
-fn migrate_v7(conn: &Connection) -> rusqlite::Result<()> {
-    if !column_exists(conn, "retrieval_log", "index_total")? {
-        conn.execute(
-            "ALTER TABLE retrieval_log ADD COLUMN index_total INTEGER",
-            [],
-        )?;
-    }
-    if !column_exists(conn, "retrieval_log", "saved_pct")? {
-        conn.execute("ALTER TABLE retrieval_log ADD COLUMN saved_pct INTEGER", [])?;
-    }
-    Ok(())
-}
-
-fn migrate_v8(conn: &Connection) -> rusqlite::Result<()> {
-    if !column_exists(conn, "retrieval_log", "must_apply_count")? {
-        conn.execute(
-            "ALTER TABLE retrieval_log ADD COLUMN must_apply_count INTEGER",
-            [],
-        )?;
-    }
-    Ok(())
-}
-
-fn migrate_v9(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(
-        r#"
-        CREATE TABLE IF NOT EXISTS tool_log (
-            id TEXT PRIMARY KEY,
-            timestamp INTEGER NOT NULL,
-            tool_name TEXT NOT NULL,
-            path TEXT,
-            tokens_used INTEGER NOT NULL,
-            tokens_saved INTEGER,
-            savings_pct INTEGER,
-            must_apply_active INTEGER NOT NULL DEFAULT 0,
-            phase TEXT,
-            route_log_id TEXT
-        );
-        CREATE INDEX IF NOT EXISTS idx_tool_log_timestamp ON tool_log(timestamp);
-        "#,
-    )?;
-    Ok(())
-}
-
-fn migrate_v10(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(
-        r#"
-        CREATE TABLE IF NOT EXISTS code_graph_nodes (
-            id TEXT PRIMARY KEY,
-            repo_root TEXT NOT NULL,
-            graphify_id TEXT NOT NULL,
-            label TEXT NOT NULL,
-            community_id INTEGER,
-            is_god_node INTEGER NOT NULL DEFAULT 0,
-            source_file TEXT,
-            file_type TEXT,
-            ingested_at INTEGER NOT NULL,
-            UNIQUE(repo_root, graphify_id)
-        );
-        CREATE INDEX IF NOT EXISTS idx_code_graph_nodes_repo ON code_graph_nodes(repo_root);
-
-        CREATE TABLE IF NOT EXISTS code_graph_edges (
-            id TEXT PRIMARY KEY,
-            repo_root TEXT NOT NULL,
-            source_id TEXT NOT NULL,
-            target_id TEXT NOT NULL,
-            relation TEXT NOT NULL,
-            confidence TEXT,
-            confidence_score REAL,
-            ingested_at INTEGER NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_code_graph_edges_repo ON code_graph_edges(repo_root);
-
-        CREATE TABLE IF NOT EXISTS graphify_jobs (
-            id TEXT PRIMARY KEY,
-            repo_root TEXT NOT NULL,
-            trigger TEXT NOT NULL,
-            mode TEXT NOT NULL,
-            status TEXT NOT NULL,
-            started_at INTEGER,
-            finished_at INTEGER,
-            error TEXT,
-            result_json TEXT
-        );
-        CREATE INDEX IF NOT EXISTS idx_graphify_jobs_repo ON graphify_jobs(repo_root);
-        "#,
-    )?;
-    Ok(())
-}
-
-fn migrate_v11(conn: &Connection) -> rusqlite::Result<()> {
-    if !column_exists(conn, "facts", "valid_from")? {
-        conn.execute("ALTER TABLE facts ADD COLUMN valid_from INTEGER", [])?;
-    }
-    if !column_exists(conn, "facts", "invalid_at")? {
-        conn.execute("ALTER TABLE facts ADD COLUMN invalid_at INTEGER", [])?;
-    }
-    conn.execute(
-        "UPDATE facts SET valid_from = created_at WHERE valid_from IS NULL",
-        [],
-    )?;
-    conn.execute_batch(
-        r#"
-        CREATE TABLE IF NOT EXISTS memory_kg_edges (
-            id TEXT PRIMARY KEY,
-            source_fact_id TEXT NOT NULL,
-            target_fact_id TEXT NOT NULL,
-            relation TEXT NOT NULL,
-            valid_from INTEGER NOT NULL,
-            invalid_at INTEGER,
-            created_at INTEGER NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_memory_kg_source ON memory_kg_edges(source_fact_id);
-        CREATE INDEX IF NOT EXISTS idx_memory_kg_target ON memory_kg_edges(target_fact_id);
-        "#,
-    )?;
-    Ok(())
-}
-
-fn migrate_v12(conn: &Connection) -> rusqlite::Result<()> {
-    if !column_exists(conn, "tool_log", "detail")? {
-        conn.execute("ALTER TABLE tool_log ADD COLUMN detail TEXT", [])?;
-    }
-    conn.execute_batch(
-        r#"
-        CREATE TABLE IF NOT EXISTS trace_extract_log (
-            tool_log_id TEXT PRIMARY KEY,
-            fact_id TEXT,
-            extracted_at INTEGER NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_trace_extract_at ON trace_extract_log(extracted_at);
-        "#,
-    )?;
-    Ok(())
-}
-
-fn migrate_v13(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(
-        r#"
-        CREATE TABLE IF NOT EXISTS workflow_trajectory (
-            id TEXT PRIMARY KEY,
-            workflow_id TEXT NOT NULL,
-            node_id TEXT NOT NULL,
-            outcome TEXT NOT NULL,
-            route_log_id TEXT,
-            task_kind TEXT,
-            notes TEXT,
-            recorded_at INTEGER NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_trajectory_workflow ON workflow_trajectory(workflow_id, recorded_at);
-        CREATE INDEX IF NOT EXISTS idx_trajectory_route_log ON workflow_trajectory(route_log_id);
-
-        CREATE TABLE IF NOT EXISTS fact_lineage (
-            id TEXT PRIMARY KEY,
-            fact_id TEXT NOT NULL,
-            source_type TEXT NOT NULL,
-            source_id TEXT NOT NULL,
-            relation TEXT NOT NULL,
-            created_at INTEGER NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_fact_lineage_fact ON fact_lineage(fact_id);
-        CREATE INDEX IF NOT EXISTS idx_fact_lineage_source ON fact_lineage(source_type, source_id);
-        "#,
-    )?;
-    Ok(())
-}
-
-fn migrate_v16(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(
-        r#"
-        CREATE TABLE IF NOT EXISTS code_scratchpad (
-            id TEXT PRIMARY KEY,
-            repo_root TEXT NOT NULL,
-            agent_id TEXT,
-            content TEXT NOT NULL,
-            context_type TEXT NOT NULL DEFAULT 'note',
-            tags TEXT,
-            created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_scratchpad_repo ON code_scratchpad(repo_root, created_at);
-        "#,
-    )?;
-    Ok(())
-}
-
-fn migrate_v17(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(
-        r#"
-        CREATE TABLE IF NOT EXISTS project_roots (
-            project_key TEXT PRIMARY KEY,
-            repo_root TEXT NOT NULL,
-            domain TEXT NOT NULL DEFAULT 'unclassified',
-            updated_at INTEGER NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_project_roots_repo ON project_roots(repo_root);
-
-        CREATE TABLE IF NOT EXISTS sync_events (
-            id TEXT PRIMARY KEY,
-            hlc_wall INTEGER NOT NULL,
-            hlc_counter INTEGER NOT NULL,
-            device_id TEXT NOT NULL,
-            project_key TEXT,
-            domain TEXT NOT NULL DEFAULT 'unclassified',
-            event_type TEXT NOT NULL,
-            payload_json TEXT NOT NULL,
-            origin_json TEXT,
-            created_at INTEGER NOT NULL,
-            flushed_at INTEGER
-        );
-        CREATE INDEX IF NOT EXISTS idx_sync_events_pending
-            ON sync_events(flushed_at, hlc_wall, hlc_counter);
-        CREATE INDEX IF NOT EXISTS idx_sync_events_hlc
-            ON sync_events(device_id, hlc_wall, hlc_counter);
-
-        CREATE TABLE IF NOT EXISTS sync_cursors (
-            remote_device_id TEXT PRIMARY KEY,
-            last_hlc_wall INTEGER NOT NULL,
-            last_hlc_counter INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL
-        );
-        "#,
-    )?;
-    Ok(())
-}
-
-fn migrate_v18(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(
-        r#"
-        CREATE TABLE IF NOT EXISTS verify_outcomes (
-            id TEXT PRIMARY KEY,
-            route_log_id TEXT,
-            exit_code INTEGER NOT NULL,
-            cause_tag TEXT,
-            verify_config_hash TEXT,
-            scenario_dir_hash TEXT,
-            cmd TEXT NOT NULL,
-            device_id TEXT,
-            recorded_at INTEGER NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_verify_outcomes_at ON verify_outcomes(recorded_at);
-        "#,
-    )?;
-    Ok(())
-}
-
-fn migrate_v19(conn: &Connection) -> rusqlite::Result<()> {
-    if !column_exists(conn, "verify_outcomes", "source")? {
-        conn.execute(
-            "ALTER TABLE verify_outcomes ADD COLUMN source TEXT NOT NULL DEFAULT 'cli'",
-            [],
-        )?;
-    }
-    Ok(())
-}
-
-fn migrate_v20(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(
-        r#"
-        CREATE TABLE IF NOT EXISTS turn_telemetry (
-            id TEXT PRIMARY KEY,
-            session_id TEXT,
-            organ TEXT NOT NULL,
-            provider TEXT NOT NULL,
-            model TEXT NOT NULL,
-            prompt_tokens INTEGER NOT NULL,
-            completion_tokens INTEGER NOT NULL,
-            cache_read_tokens INTEGER NOT NULL,
-            cache_write_tokens INTEGER NOT NULL,
-            estimated_cost_usd REAL NOT NULL,
-            estimated_dollars_saved REAL NOT NULL,
-            cache_hit_pct REAL NOT NULL,
-            latency_ms INTEGER NOT NULL,
-            task_phase TEXT,
-            created_at INTEGER NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_turn_telemetry_created ON turn_telemetry(created_at);
-        CREATE INDEX IF NOT EXISTS idx_turn_telemetry_session ON turn_telemetry(session_id);
-        CREATE INDEX IF NOT EXISTS idx_turn_telemetry_model ON turn_telemetry(model);
-        "#,
-    )?;
-    Ok(())
-}
-
-fn migrate_v21(conn: &Connection) -> rusqlite::Result<()> {
-    if !column_exists(conn, "verify_outcomes", "project_key")? {
-        conn.execute(
-            "ALTER TABLE verify_outcomes ADD COLUMN project_key TEXT",
-            [],
-        )?;
-    }
-    conn.execute_batch(
-        "CREATE INDEX IF NOT EXISTS idx_verify_outcomes_project ON verify_outcomes(project_key, recorded_at);",
-    )?;
-    Ok(())
-}
-
-fn migrate_v22(conn: &Connection) -> rusqlite::Result<()> {
-    if !column_exists(conn, "verify_outcomes", "tests_run")? {
-        conn.execute(
-            "ALTER TABLE verify_outcomes ADD COLUMN tests_run INTEGER",
-            [],
-        )?;
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn version(conn: &Connection) -> i64 {
+        conn.query_row("SELECT version FROM schema_version", [], |r| r.get(0))
+            .unwrap()
+    }
+
     #[test]
-    fn fresh_database_drops_the_dollars_saved_column_and_reaches_v29() {
+    fn a_fresh_database_gets_the_verify_schema_at_the_current_version() {
         let conn = Connection::open_in_memory().unwrap();
         run(&conn).unwrap();
-        assert!(!column_exists(&conn, "turn_telemetry", "estimated_dollars_saved").unwrap());
-        let version: i64 = conn
-            .query_row("SELECT version FROM schema_version", [], |row| row.get(0))
+        assert_eq!(version(&conn), SCHEMA_VERSION);
+        for (column, _) in VERIFY_COLUMNS {
+            assert!(column_exists(&conn, "verify_outcomes", column).unwrap(), "{column}");
+        }
+        assert!(!column_exists(&conn, "verify_outcomes", "nope").unwrap());
+    }
+
+    #[test]
+    fn running_twice_keeps_one_version_row() {
+        let conn = Connection::open_in_memory().unwrap();
+        run(&conn).unwrap();
+        run(&conn).unwrap();
+        let rows: i64 = conn
+            .query_row("SELECT COUNT(*) FROM schema_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 29);
+        assert_eq!(rows, 1);
+        assert_eq!(version(&conn), SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn an_older_verify_table_gets_the_missing_columns() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE verify_outcomes (id TEXT PRIMARY KEY, route_log_id TEXT, exit_code INTEGER NOT NULL, cause_tag TEXT, verify_config_hash TEXT, scenario_dir_hash TEXT, cmd TEXT NOT NULL, device_id TEXT, recorded_at INTEGER NOT NULL);
+             CREATE TABLE schema_version (version INTEGER NOT NULL);
+             INSERT INTO schema_version (version) VALUES (12);",
+        )
+        .unwrap();
+        run(&conn).unwrap();
+        for (column, _) in VERIFY_COLUMNS {
+            assert!(column_exists(&conn, "verify_outcomes", column).unwrap(), "{column}");
+        }
+        assert_eq!(version(&conn), SCHEMA_VERSION);
     }
 }

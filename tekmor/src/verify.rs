@@ -16,18 +16,11 @@ use crate::db::store::BrainStore;
 use crate::evidence_reader;
 use crate::types::{VerificationStatus, VerifiedRecipe};
 
-const MIN_SAMPLE_FOR_RATES: usize = 30;
 pub const VERIFY_DIR_NAME: &str = ".verify";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VerifySource {
     Cli,
-    /// Host Shell PostToolUse / hook captured a real exit.
-    Hook,
-    /// MCP `record_verify_outcome` (agent-asserted; not trusted for learning).
-    Mcp,
-    /// Explicit playbook-driven record.
-    Playbook,
     Orchestrator,
 }
 
@@ -35,27 +28,20 @@ impl VerifySource {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Cli => "cli",
-            Self::Hook => "hook",
-            Self::Mcp => "mcp",
-            Self::Playbook => "playbook",
             Self::Orchestrator => "orchestrator",
         }
     }
 
-    /// Full learning weight: orchestrator, cli (allowlisted), hook (allowlisted).
     pub fn is_trusted_for_learning(self) -> bool {
-        matches!(self, Self::Cli | Self::Hook | Self::Orchestrator)
+        matches!(self, Self::Cli | Self::Orchestrator)
     }
 
     pub fn parse(s: &str) -> Result<Self> {
         match s.trim().to_ascii_lowercase().as_str() {
             "cli" => Ok(Self::Cli),
-            "hook" => Ok(Self::Hook),
-            "mcp" => Ok(Self::Mcp),
-            "playbook" => Ok(Self::Playbook),
             "orchestrator" | "spine" => Ok(Self::Orchestrator),
             other => bail!(
-                "unknown verify source `{other}` (expected cli|hook|mcp|playbook|orchestrator)"
+                "unknown verify source `{other}` (expected cli|orchestrator)"
             ),
         }
     }
@@ -398,42 +384,7 @@ pub fn record_from_result(
             Some(cmd.to_string())
         }
     });
-    let resolved_log_id = route_log_id
-        .map(String::from)
-        .or_else(|| store.latest_retrieval_log().ok().flatten().map(|r| r.id));
-
-    // Closed-loop outcome attribution: automatically attribute context feedback for the route turn
-    let ran_checks = matches!(source, VerifySource::Cli | VerifySource::Orchestrator);
-    if let Some(log_id) = resolved_log_id.as_deref().filter(|_| ran_checks) {
-        if let Ok(Some(retrieval_log)) = store.get_retrieval_log(log_id) {
-            if let Ok(items) =
-                serde_json::from_str::<Vec<serde_json::Value>>(&retrieval_log.items_json)
-            {
-                let opened = store.opened_paths_for_route(log_id).unwrap_or_default();
-                let item_ids: Vec<String> = items
-                    .iter()
-                    .filter(|item| {
-                        item.get("source_path")
-                            .and_then(|v| v.as_str())
-                            .is_some_and(|source| {
-                                opened.iter().any(|path| {
-                                    source == path || source.ends_with(&format!("/{path}"))
-                                })
-                            })
-                    })
-                    .filter_map(|item| {
-                        item.get("id")
-                            .and_then(|v| v.as_str())
-                            .map(ToString::to_string)
-                    })
-                    .collect();
-                if !item_ids.is_empty() {
-                    let _ = store.record_context_feedback(&item_ids, success);
-                }
-            }
-        }
-    }
-
+    let resolved_log_id: Option<String> = route_log_id.map(String::from);
     let device_id = store.ensure_device_id()?;
     let project_key = crate::project_key::project_key_if_known(cwd.unwrap_or(Path::new(".")));
     let id = store.insert_verify_outcome(
@@ -447,20 +398,7 @@ pub fn record_from_result(
         source.as_str(),
         project_key.as_deref(),
     )?;
-    if let (true, true, Some(key)) = (ran_checks, success, project_key.as_deref()) {
-        if let Some(root) = cwd.and_then(crate::config::find_repo_root) {
-            let previous = evidence_reader::project_runs(store, key, 100)?
-                .into_iter()
-                .filter(|row| row.cmd == cmd)
-                .nth(1);
-            if let Some(previous) = previous.filter(|row| row.exit_code != 0) {
-                let artifact = repo_artifact_path(&root, &previous.id);
-                crate::lessons::learn_from_fix(store, &root, key, cmd, &previous.id, &artifact)?;
-            }
-        }
-    }
     if let Some(root) = cwd.and_then(crate::config::find_repo_root) {
-        store.set_verify_outcome_changed_paths(&id, &crate::lessons::current_code_paths(&root))?;
         if let Some(hash) = code_tree_hash(&root) {
             store.set_verify_outcome_code_hash(&id, &hash)?;
         }
@@ -469,22 +407,6 @@ pub fn record_from_result(
         }
     }
 
-    let outcome_str = if success { "success" } else { "failure" };
-    let clean_cmd = cmd.split_whitespace().next().unwrap_or("verify");
-    let notes_str = format!("exit {exit_code} {cmd}");
-    let wf_id = project_key.as_deref().unwrap_or("project");
-    let _ = crate::trajectory::auto_record_trajectory(
-        store,
-        wf_id,
-        clean_cmd,
-        outcome_str,
-        resolved_log_id.as_deref(),
-        Some("verification"),
-        Some(&notes_str),
-    );
-    if success {
-        let _ = store.record_procedure_edge(wf_id, "implementing", clean_cmd);
-    }
 
     Ok(VerifyReport {
         id,
@@ -734,10 +656,6 @@ pub fn run_verify(store: &BrainStore, cmd: &[String], run: VerifyRun<'_>) -> Res
     if cmd.is_empty() {
         bail!("usage: tekmor verify [--source cli|orchestrator] [--config PATH] [--scenarios DIR] [--route-log-id ID] [--cause TAG] -- <cmd> [args...]");
     }
-    let source = match source {
-        VerifySource::Mcp | VerifySource::Playbook | VerifySource::Hook => VerifySource::Cli,
-        other => other,
-    };
     let joined = cmd.join(" ");
     let project_root = std::env::current_dir()
         .ok()
@@ -815,65 +733,6 @@ fn save_artifact_log(
     Ok(path)
 }
 
-pub fn print_report(store: &BrainStore) -> Result<()> {
-    let rows = evidence_reader::recent_runs(store, 500)?;
-    let n = rows.len();
-    let success = rows.iter().filter(|r| r.exit_code == 0).count();
-    let fail = n.saturating_sub(success);
-    println!("verify outcomes: n={n} success={success} failure={fail}");
-
-    let mut by_source: std::collections::BTreeMap<String, usize> =
-        std::collections::BTreeMap::new();
-    for r in &rows {
-        *by_source
-            .entry(r.source.clone().unwrap_or_else(|| "cli".to_string()))
-            .or_default() += 1;
-    }
-    if !by_source.is_empty() {
-        let parts: Vec<String> = by_source.iter().map(|(k, v)| format!("{k}={v}")).collect();
-        println!("by_source: {{{}}}", parts.join(", "));
-    }
-
-    let checks: Vec<_> = rows
-        .iter()
-        .filter(|r| ran_a_check(r.source.as_deref()))
-        .collect();
-    if checks.len() < MIN_SAMPLE_FOR_RATES {
-        println!("rates suppressed (need n>={MIN_SAMPLE_FOR_RATES} cli or orchestrator runs; showing counts only)");
-    } else {
-        let passed = checks.iter().filter(|r| r.exit_code == 0).count();
-        let rate = passed as f64 / checks.len() as f64;
-        println!(
-            "first-pass success rate: {rate:.3} (cli and orchestrator runs, n={})",
-            checks.len()
-        );
-    }
-
-    let mut config_counts: std::collections::HashMap<String, usize> =
-        std::collections::HashMap::new();
-    for r in &rows {
-        if let Some(h) = &r.verify_config_hash {
-            *config_counts.entry(h.clone()).or_default() += 1;
-        }
-    }
-    if let Some((baseline, _)) = config_counts.iter().max_by_key(|(_, c)| *c) {
-        let drifted: Vec<_> = rows
-            .iter()
-            .filter(|r| r.verify_config_hash.as_ref().is_some_and(|h| h != baseline))
-            .collect();
-        if !drifted.is_empty() {
-            println!(
-                "WARNING: {} runs used a different verify_config_hash than the modal baseline",
-                drifted.len()
-            );
-        }
-    }
-
-    println!(
-        "note: source=orchestrator|cli (allowlisted verify --) strongest; hook observational; mcp/playbook not trusted for learning"
-    );
-    Ok(())
-}
 
 fn hash_path(path: &Path) -> Result<String> {
     let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
@@ -1146,11 +1005,11 @@ mod tests {
                 config_path: None,
                 scenarios_dir: None,
                 cwd: Some(dir.path()),
-                source: VerifySource::Hook,
+                source: VerifySource::Cli,
             },
         )
         .unwrap();
-        assert_eq!(report.source, "hook");
+        assert_eq!(report.source, "cli");
         assert!(report.scenario_dir_hash.is_some());
         assert_eq!(
             report.verify_root.as_deref(),
@@ -1159,7 +1018,7 @@ mod tests {
 
         let rows = store.list_verify_outcomes(10).unwrap();
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].source.as_deref(), Some("hook"));
+        assert_eq!(rows[0].source.as_deref(), Some("cli"));
         assert!(rows[0].scenario_dir_hash.is_some());
     }
 
@@ -1174,7 +1033,7 @@ mod tests {
             VerifySource::Orchestrator
         );
         assert!(VerifySource::Orchestrator.is_trusted_for_learning());
-        assert!(!VerifySource::Mcp.is_trusted_for_learning());
+        assert!(VerifySource::parse("mcp").is_err());
     }
 
     #[test]
@@ -1235,87 +1094,6 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
         assert!(run_project_verify(&store, dir.path()).is_err());
     }
 
-    #[test]
-    fn init_verify_scaffolding() {
-        let dir = tempdir().unwrap();
-        fs::write(
-            dir.path().join("Cargo.toml"),
-            b"[package]\nname = \"test\"\n",
-        )
-        .unwrap();
-        let verify_path = init_verify(dir.path(), false).unwrap();
-        assert!(verify_path.exists());
-        assert!(verify_path.join("verify.toml").exists());
-        assert!(verify_path.join("run.sh").exists());
-        assert!(verify_path.join("README.md").exists());
-
-        let toml_str = fs::read_to_string(verify_path.join("verify.toml")).unwrap();
-        assert!(toml_str.contains("cargo test"));
-        assert!(toml_str.contains("\".verify/run.sh\""));
-        assert!(!toml_str.contains("\".verify/\""));
-
-        assert!(command_is_allowlisted("cargo test", Some(dir.path())));
-        assert!(command_is_allowlisted(".verify/run.sh", Some(dir.path())));
-    }
-
-    fn attribute_run(source: VerifySource) -> std::collections::HashMap<String, (u32, u32)> {
-        let dir = tempdir().unwrap();
-        let store = BrainStore::open(&dir.path().join("t.db")).unwrap();
-        fs::create_dir_all(dir.path().join(".verify")).unwrap();
-        fs::write(dir.path().join(".verify/README.md"), b"playbook").unwrap();
-        store
-            .insert_tool_log(
-                "read-1",
-                "read_file_head",
-                Some("skills/a/SKILL.md"),
-                None,
-                10,
-                None,
-                None,
-                false,
-                None,
-                Some("log-1"),
-            )
-            .unwrap();
-        store
-            .insert_retrieval_log(
-                "log-1",
-                "q",
-                "implementing",
-                "[{\"id\":\"item-1\",\"source_path\":\"skills/a/SKILL.md\"},{\"id\":\"item-2\",\"source_path\":\"skills/b/SKILL.md\"}]",
-                10,
-                false,
-                false,
-                5,
-                None,
-                None,
-                None,
-            )
-            .unwrap();
-        record_from_result(
-            &store,
-            0,
-            "cargo test",
-            VerifyRecord {
-                route_log_id: Some("log-1"),
-                cause_tag: None,
-                config_path: None,
-                scenarios_dir: None,
-                cwd: Some(dir.path()),
-                source,
-            },
-        )
-        .unwrap();
-        store.load_retrieval_stats(&["item-1".to_string()]).unwrap()
-    }
-
-    #[test]
-    fn a_real_check_credits_only_the_items_the_agent_opened() {
-        let credited = attribute_run(VerifySource::Cli);
-        assert_eq!(credited.get("item-1"), Some(&(1, 0)));
-        assert!(!credited.contains_key("item-2"));
-        assert!(attribute_run(VerifySource::Hook).is_empty());
-    }
 
     #[test]
     fn init_verify_runs_rspec_only_when_the_gemfile_names_it() {
@@ -1583,67 +1361,6 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
         assert_eq!(recipes[0].cmd, "cargo test -p harbor");
     }
 
-    #[test]
-    fn record_from_result_updates_context_feedback_automatically() {
-        let dir = tempdir().unwrap();
-        let db = dir.path().join("t.db");
-        let store = BrainStore::open(&db).unwrap();
-
-        let log_id = "route-log-123";
-        let items_json = r#"[{"id":"fact-item-1","type":"memory","topic":"test","score":0.9,"source_path":"memory/test.md"}]"#;
-        store
-            .insert_tool_log(
-                "read-route-123",
-                "read_file_head",
-                Some("memory/test.md"),
-                None,
-                10,
-                None,
-                None,
-                false,
-                None,
-                Some(log_id),
-            )
-            .unwrap();
-        store
-            .insert_retrieval_log(
-                log_id,
-                "qhash",
-                "implementing",
-                items_json,
-                100,
-                false,
-                false,
-                10,
-                Some(10),
-                Some(50),
-                Some(1),
-            )
-            .unwrap();
-
-        // Record a successful outcome associated with this route log
-        let report = record_from_result(
-            &store,
-            0,
-            "cargo test",
-            VerifyRecord {
-                route_log_id: Some(log_id),
-                cause_tag: None,
-                config_path: None,
-                scenarios_dir: None,
-                cwd: Some(dir.path()),
-                source: VerifySource::Cli,
-            },
-        )
-        .unwrap();
-        assert!(report.success);
-
-        // Feedback weights should reflect the positive feedback
-        let weights = store
-            .load_context_weights(&["fact-item-1".to_string()])
-            .unwrap();
-        assert!(weights.get("fact-item-1").copied().unwrap_or(1.0) > 1.0);
-    }
 
     #[test]
     fn save_artifact_log_files_output_under_project_name() {
@@ -1728,7 +1445,7 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
             dir.path(),
             "[verify.default]\ncommand = [\"echo\", \"hi\"]\n",
         );
-        let err = run_default_step(&store, dir.path(), VerifySource::Hook).unwrap_err();
+        let err = run_default_step(&store, dir.path(), VerifySource::Orchestrator).unwrap_err();
         assert!(err.to_string().contains("not in the verify allowlist"));
     }
 
@@ -1740,7 +1457,7 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
             dir.path(),
             "[verify]\ncommands = [\"sh -c\"]\n\n[verify.default]\ncommand = [\"sh\", \"-c\", \"true\"]\n",
         );
-        let report = run_default_step(&store, dir.path(), VerifySource::Hook)
+        let report = run_default_step(&store, dir.path(), VerifySource::Orchestrator)
             .unwrap()
             .unwrap()
             .report;
@@ -1776,5 +1493,28 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
             ),
         );
         assert!(load_default_step(dir.path()).is_err());
+    }
+
+    #[test]
+    fn init_verify_scaffolding() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("Cargo.toml"),
+            b"[package]\nname = \"test\"\n",
+        )
+        .unwrap();
+        let verify_path = init_verify(dir.path(), false).unwrap();
+        assert!(verify_path.exists());
+        assert!(verify_path.join("verify.toml").exists());
+        assert!(verify_path.join("run.sh").exists());
+        assert!(verify_path.join("README.md").exists());
+
+        let toml_str = fs::read_to_string(verify_path.join("verify.toml")).unwrap();
+        assert!(toml_str.contains("cargo test"));
+        assert!(toml_str.contains("\".verify/run.sh\""));
+        assert!(!toml_str.contains("\".verify/\""));
+
+        assert!(command_is_allowlisted("cargo test", Some(dir.path())));
+        assert!(command_is_allowlisted(".verify/run.sh", Some(dir.path())));
     }
 }

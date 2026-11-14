@@ -79,7 +79,7 @@ tekmor verify receipt --markdown
 
 - **A new commit needs a new run.** A receipt is tied to the commit that was checked out when the run happened.
 - **Editing code needs a new run.** The code hash covers uncommitted changes to files under `src/`, `crates/`, `tests/`, `hooks/`, and `Cargo.*`. Editing a README does not invalidate a receipt.
-- **Only commands run by `verify --` count.** Results that a hook or an MCP call reports are not receipts.
+- **Only commands run by `verify --` count.** Results that a hook reports are not receipts.
 - **Runs recorded before commit tracking existed do not count.** Run the command again after upgrading.
 
 ## What a receipt does not prove

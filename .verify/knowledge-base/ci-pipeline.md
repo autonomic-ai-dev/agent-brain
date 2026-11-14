@@ -10,7 +10,7 @@ GitHub Actions builds, lints and tests tekmor, and publishes releases from `v*` 
 
 ## How it works
 
-1. **CI.** `.github/workflows/ci.yml` runs on push and pull request to master, and on manual dispatch. It has one job: clippy with warnings denied, the Rust tests with `--features extras` and one test thread, and the hook tests.
+1. **CI.** `.github/workflows/ci.yml` runs on push and pull request to master, and on manual dispatch. It has one job: clippy with warnings denied, the Rust tests with one test thread.
 2. **Release.** `.github/workflows/release.yml` runs on `v*` tags. It calls the CI workflow, then `.github/workflows/reusable-build.yml` (the signed macOS build), then publishes the release.
 3. **Removed.** The compose wrapper (`.github/pipelines/`), the stage workflows, the path filter on CI, and the protected-path label check.
 

@@ -219,7 +219,6 @@ pub fn run(home: &Path, name: &str, args: &[String]) -> Result<i32> {
     let status = Command::new(binary_path(home, name))
         .args(args)
         .env("TEKMOR_HOME", home)
-        .env("TEKMOR_SOCKET", home.join("serve.sock"))
         .status()
         .with_context(|| format!("run extension `{name}`"))?;
     Ok(status.code().unwrap_or(1))
@@ -255,7 +254,7 @@ mod tests {
 
     #[test]
     fn names_are_restricted_to_letters_digits_and_dashes() {
-        assert!(validate_name("bench").is_ok());
+        assert!(validate_name("sample").is_ok());
         assert!(validate_name("skills-sh").is_ok());
         assert!(validate_name("../evil").is_err());
         assert!(validate_name("a/b").is_err());
@@ -275,14 +274,14 @@ mod tests {
         let home = tempdir().unwrap();
         write_manifest(
             home.path(),
-            "bench",
-            &manifest_json("bench", &["bench", "proofs"]),
+            "sample",
+            &manifest_json("sample", &["sample", "proofs"]),
         );
-        let manifest = load_manifest(home.path(), "bench").unwrap();
+        let manifest = load_manifest(home.path(), "sample").unwrap();
         assert_eq!(manifest.version, "0.1.0");
         assert_eq!(
             manifest.subcommands,
-            vec!["bench".to_string(), "proofs".to_string()]
+            vec!["sample".to_string(), "proofs".to_string()]
         );
         assert!(manifest.binaries.contains_key("aarch64-apple-darwin"));
     }
@@ -290,44 +289,44 @@ mod tests {
     #[test]
     fn manifest_name_must_match_the_requested_extension() {
         let home = tempdir().unwrap();
-        write_manifest(home.path(), "bench", &manifest_json("other", &["bench"]));
-        assert!(load_manifest(home.path(), "bench").is_err());
+        write_manifest(home.path(), "sample", &manifest_json("other", &["sample"]));
+        assert!(load_manifest(home.path(), "sample").is_err());
     }
 
     #[test]
     fn missing_manifest_is_an_error() {
         let home = tempdir().unwrap();
-        assert!(load_manifest(home.path(), "bench").is_err());
+        assert!(load_manifest(home.path(), "sample").is_err());
     }
 
     #[test]
     fn installed_lists_recorded_extensions() {
         let home = tempdir().unwrap();
-        record_installed(home.path(), "bench", &["bench"]);
+        record_installed(home.path(), "sample", &["sample"]);
         record_installed(home.path(), "graph", &["graph"]);
         assert_eq!(
             installed(home.path()).unwrap(),
-            vec!["bench".to_string(), "graph".to_string()]
+            vec!["graph".to_string(), "sample".to_string()]
         );
     }
 
     #[test]
     fn owner_of_finds_the_extension_that_provides_a_subcommand() {
         let home = tempdir().unwrap();
-        record_installed(home.path(), "bench", &["bench", "proofs"]);
+        record_installed(home.path(), "sample", &["sample", "proofs"]);
         assert_eq!(
             owner_of(home.path(), "proofs").unwrap(),
-            Some("bench".to_string())
+            Some("sample".to_string())
         );
         assert_eq!(owner_of(home.path(), "nosuch").unwrap(), None);
     }
 
     #[test]
     fn team_id_must_match_exactly() {
-        let details = "Executable=/x\nIdentifier=bench\nTeamIdentifier=9HSMVVUMVX\n";
+        let details = "Executable=/x\nIdentifier=sample\nTeamIdentifier=9HSMVVUMVX\n";
         assert!(team_id_matches(details, "9HSMVVUMVX"));
         assert!(!team_id_matches(details, "9HSMVVUMV"));
-        assert!(!team_id_matches("Identifier=bench\n", "9HSMVVUMVX"));
+        assert!(!team_id_matches("Identifier=sample\n", "9HSMVVUMVX"));
     }
 
     #[test]
@@ -346,13 +345,13 @@ mod tests {
     #[test]
     fn remove_deletes_the_binary_and_its_manifest() {
         let home = tempdir().unwrap();
-        record_installed(home.path(), "bench", &["bench"]);
+        record_installed(home.path(), "sample", &["sample"]);
         let dir = bin_dir(home.path());
         fs::create_dir_all(&dir).unwrap();
-        fs::write(binary_path(home.path(), "bench"), b"x").unwrap();
-        remove(home.path(), "bench").unwrap();
+        fs::write(binary_path(home.path(), "sample"), b"x").unwrap();
+        remove(home.path(), "sample").unwrap();
         assert!(installed(home.path()).unwrap().is_empty());
-        assert!(!binary_path(home.path(), "bench").exists());
-        assert!(remove(home.path(), "bench").is_err());
+        assert!(!binary_path(home.path(), "sample").exists());
+        assert!(remove(home.path(), "sample").is_err());
     }
 }
