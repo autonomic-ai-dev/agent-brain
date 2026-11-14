@@ -261,6 +261,10 @@ Summary: tekmor is the routing layer that every agent calls at turn start. Its C
   - Behaviour: `calculate_pricing` in `tekmor/src/telemetry.rs` returns cost and cache hit. The `estimated_dollars_saved` column is dropped by migration v29 (`tekmor/src/db/migrations.rs`).
   - Outcome: No dollar savings figure is stored or reported.
 
+- `route-gate-tool-kind`: The Rust side classifies host tool names into shell, edit, route_task or other (R-15 step 1, ADR 0001).
+  - Behaviour: `classify_tool` in `tekmor/src/route_gate_event.rs` applies the same name rules as the Python route gate. Nothing calls it yet.
+  - Outcome: The Python gate can move to Rust one gate at a time, with the same classification.
+
 ## Code
 
 - `tekmor/src`

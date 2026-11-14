@@ -206,3 +206,7 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 
 - Turn telemetry no longer stores or reports `estimated_dollars_saved`. Schema v29 drops the column.
 - The figure was cache-read tokens times list price, with no measured baseline, so it was an estimate, not a saving.
+
+## Route gate tool classification in Rust (R-15 step 1)
+
+- `classify_tool` mirrors the Python route gate name rules. It is pure and unused until the route-gate subcommand lands (ADR 0001).
