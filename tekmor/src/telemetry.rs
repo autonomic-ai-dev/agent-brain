@@ -35,7 +35,6 @@ pub struct TurnTelemetryOutcome {
     pub cache_write_tokens: u64,
     pub total_tokens: u64,
     pub estimated_cost_usd: f64,
-    pub estimated_dollars_saved: f64,
     pub cache_hit_pct: f64,
 }
 
@@ -46,7 +45,6 @@ pub struct ProviderSavings {
     pub cache_read_tokens: u64,
     pub cache_write_tokens: u64,
     pub estimated_cost_usd: f64,
-    pub estimated_dollars_saved: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -56,7 +54,6 @@ pub struct ModelSavings {
     pub cache_read_tokens: u64,
     pub cache_write_tokens: u64,
     pub estimated_cost_usd: f64,
-    pub estimated_dollars_saved: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -68,12 +65,10 @@ pub struct CacheSavingsSummary {
     pub total_cache_write_tokens: u64,
     pub overall_cache_hit_pct: f64,
     pub total_cost_usd: f64,
-    pub total_dollars_saved: f64,
     pub by_provider: HashMap<String, ProviderSavings>,
     pub by_model: HashMap<String, ModelSavings>,
 }
 
-/// Calculate estimated cost, dollars saved via cache, and cache hit percentage.
 pub fn calculate_pricing(
     provider: &str,
     model: &str,
@@ -81,7 +76,7 @@ pub fn calculate_pricing(
     completion: u64,
     cache_read: u64,
     cache_write: u64,
-) -> (f64, f64, f64) {
+) -> (f64, f64) {
     let p_lower = provider.to_lowercase();
     let m_lower = model.to_lowercase();
 
@@ -128,13 +123,6 @@ pub fn calculate_pricing(
 
     let total_cost = prompt_cost + completion_cost + cache_read_cost + cache_write_cost;
 
-    // Cache savings: what cache_read would have cost at regular prompt rate minus actual cache_read cost
-    let dollars_saved = if cache_read > 0 && prompt_rate > cache_read_rate {
-        (cache_read as f64 / 1_000_000.0) * (prompt_rate - cache_read_rate)
-    } else {
-        0.0
-    };
-
     let total_prompt_side = prompt + cache_read;
     let cache_hit_pct = if total_prompt_side > 0 {
         (cache_read as f64 / total_prompt_side as f64) * 100.0
@@ -142,12 +130,12 @@ pub fn calculate_pricing(
         0.0
     };
 
-    (total_cost, dollars_saved, cache_hit_pct)
+    (total_cost, cache_hit_pct)
 }
 
 /// Ingest and process a turn telemetry request, calculating cost and savings.
 pub fn process_turn_telemetry(req: TurnTelemetryRequest) -> TurnTelemetryOutcome {
-    let (cost, saved, hit_pct) = calculate_pricing(
+    let (cost, hit_pct) = calculate_pricing(
         &req.provider,
         &req.model,
         req.prompt_tokens,
@@ -172,7 +160,6 @@ pub fn process_turn_telemetry(req: TurnTelemetryRequest) -> TurnTelemetryOutcome
         cache_write_tokens: req.cache_write_tokens,
         total_tokens,
         estimated_cost_usd: cost,
-        estimated_dollars_saved: saved,
         cache_hit_pct: hit_pct,
     }
 }
@@ -184,7 +171,7 @@ mod tests {
     #[test]
     fn test_calculate_pricing_anthropic_sonnet() {
         // 100k prompt, 10k completion, 50k cache read, 10k cache write
-        let (cost, saved, hit_pct) = calculate_pricing(
+        let (cost, hit_pct) = calculate_pricing(
             "anthropic",
             "claude-3-5-sonnet",
             100_000,
@@ -200,16 +187,13 @@ mod tests {
         // Total cost = 0.30 + 0.15 + 0.015 + 0.0375 = 0.5025
         assert!((cost - 0.5025).abs() < 1e-4);
 
-        // Saved: 0.05 * (3.00 - 0.30) = 0.05 * 2.70 = 0.135
-        assert!((saved - 0.135).abs() < 1e-4);
-
         // Cache hit pct: 50k / (100k + 50k) = 33.333%
         assert!((hit_pct - 33.3333).abs() < 0.1);
     }
 
     #[test]
     fn test_calculate_pricing_openai_mini() {
-        let (cost, saved, hit_pct) =
+        let (cost, hit_pct) =
             calculate_pricing("openai", "gpt-4o-mini", 1_000_000, 100_000, 500_000, 0);
 
         // Prompt: 1.0 * 0.15 = 0.15
@@ -218,8 +202,6 @@ mod tests {
         // Total cost = 0.2475
         assert!((cost - 0.2475).abs() < 1e-4);
 
-        // Saved: 0.5 * (0.15 - 0.075) = 0.0375
-        assert!((saved - 0.0375).abs() < 1e-4);
         assert!((hit_pct - 33.3333).abs() < 0.1);
     }
 
@@ -243,29 +225,24 @@ mod tests {
         assert_eq!(outcome.prompt_tokens, 5_000);
         assert_eq!(outcome.total_tokens, 26_000);
         assert!(outcome.estimated_cost_usd > 0.0);
-        assert!(outcome.estimated_dollars_saved > 0.0);
         assert!(outcome.cache_hit_pct > 70.0); // 20k / 25k = 80%
     }
 
     #[test]
     fn test_calculate_pricing_gemini_flash_and_pro() {
         // Gemini Flash: $0.075 / 1M prompt, $0.30 / 1M completion, $0.01875 / 1M cache read
-        let (cost, saved, hit_pct) =
+        let (cost, hit_pct) =
             calculate_pricing("google", "gemini-2.0-flash", 1_000_000, 100_000, 500_000, 0);
         // Prompt: 1.0 * 0.075 = 0.075
         // Completion: 0.1 * 0.30 = 0.03
         // Cache read: 0.5 * 0.01875 = 0.009375
         // Total cost = 0.075 + 0.03 + 0.009375 = 0.114375
         assert!((cost - 0.114375).abs() < 1e-4);
-        // Saved: 0.5 * (0.075 - 0.01875) = 0.028125
-        assert!((saved - 0.028125).abs() < 1e-4);
         assert!((hit_pct - 33.3333).abs() < 0.1);
 
-        // Gemini Pro: $1.25 / 1M prompt, $5.00 / 1M completion, $0.3125 / 1M cache read
-        let (pro_cost, pro_saved, _) =
+        let (pro_cost, _) =
             calculate_pricing("gemini", "gemini-1.5-pro", 100_000, 10_000, 50_000, 0);
         assert!(pro_cost > 0.0);
-        assert!(pro_saved > 0.0);
     }
 
     #[test]
@@ -277,11 +254,6 @@ mod tests {
 
         assert_eq!(tokens_saved, 49_500);
         assert!((savings_pct - 99.0).abs() < 1e-2);
-
-        // Test dollar savings at metered rate ($3.00 / 1M prompt tokens)
-        let rate_per_million = 3.00f64;
-        let dollars_saved = (tokens_saved as f64 / 1_000_000.0) * rate_per_million;
-        assert!((dollars_saved - 0.1485).abs() < 1e-4);
     }
 
     #[test]
