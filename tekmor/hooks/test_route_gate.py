@@ -1247,6 +1247,49 @@ class ReadGateSizeTests(unittest.TestCase):
         self.assertEqual(self.read_gate(50)["permission"], "deny")
 
 
+class ShadowModeTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._dir = tempfile.TemporaryDirectory(prefix="tekmor-shadow-test-")
+        self.log_path = Path(self._dir.name) / "route_gate_shadow.jsonl"
+
+    def tearDown(self) -> None:
+        self._dir.cleanup()
+
+    def test_a_disagreement_is_logged_and_the_python_decision_is_kept(self) -> None:
+        import route_gate
+
+        event = {"tool_name": "Read", "sessionId": "s1"}
+        with mock.patch.object(route_gate, "SHADOW_ENABLED", True), \
+                mock.patch.object(route_gate, "SHADOW_LOG_PATH", self.log_path), \
+                mock.patch.object(route_gate, "rust_route_permission", return_value="allow"), \
+                mock.patch.object(route_gate, "_gate_tool_use_python", return_value={"permission": "deny"}):
+            decision = route_gate.gate_tool_use(event)
+        self.assertEqual(decision, {"permission": "deny"})
+        lines = self.log_path.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(lines), 1)
+        record = json.loads(lines[0])
+        self.assertEqual((record["python"], record["rust"], record["session"]), ("deny", "allow", "s1"))
+
+    def test_agreement_is_not_logged(self) -> None:
+        import route_gate
+
+        with mock.patch.object(route_gate, "SHADOW_ENABLED", True), \
+                mock.patch.object(route_gate, "SHADOW_LOG_PATH", self.log_path), \
+                mock.patch.object(route_gate, "rust_route_permission", return_value="deny"), \
+                mock.patch.object(route_gate, "_gate_tool_use_python", return_value={"permission": "deny"}):
+            route_gate.gate_tool_use({"tool_name": "Read"})
+        self.assertFalse(self.log_path.exists())
+
+    def test_shadow_is_off_by_default_and_never_runs_the_rust_gate(self) -> None:
+        import route_gate
+
+        with mock.patch.object(route_gate, "SHADOW_ENABLED", False), \
+                mock.patch.object(route_gate, "rust_route_permission") as rust, \
+                mock.patch.object(route_gate, "_gate_tool_use_python", return_value={"permission": "allow"}):
+            route_gate.gate_tool_use({"tool_name": "Read"})
+        rust.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
 

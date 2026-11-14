@@ -52,6 +52,20 @@ Step 2 delivers the pure route decision in `tekmor/src/route_gate_decision.rs`. 
 
 The `tekmor route-gate` subcommand and the reading and writing of `route_state.json` move to step 3, with shadow mode. Step 2 wires nothing into a host. The silent-watcher setting, the read gate, and the Python shell policy are not ported yet. Step 3 must port or explicitly exclude each before the switchover in step 4.
 
+## Amendment 2: step 3 scope (shadow mode)
+
+`tekmor route-gate --state <route_state.json>` reads the host event on stdin and prints `{"permission": "allow" | "deny"}`. It reads the session's state from the file the Python hook already writes. The state path comes from Python as an argument, so the two sides cannot resolve the home directory differently.
+
+Shadow mode is opt-in: `TEKMOR_ROUTE_GATE_SHADOW=1`. The Python gate still decides. When the two permissions differ, one line is appended to `route_gate_shadow.jsonl` in the hooks folder, with the session, the tool name, and both decisions. Nothing else is logged.
+
+Opt-in because the shadow call starts a process for every gated tool call. That breaks the 1 ms hook latency budget in `test_route_gate.py`, so shadow stays off by default. Latency with shadow on is a cost the owner measures during the week.
+
+Known gaps, recorded so shadow data is read correctly:
+- The silent-watcher setting is not ported. Rust will deny where Python allows silently. These show as disagreements.
+- The read gate and the Python shell policy are not ported and not in shadow.
+- A legacy flat state file is read as no state. Python claims it into the session, so the first call can disagree.
+- `route_briefing.rs` writes flat keys at the root of `route_state.json`, while the Python hook uses per-session keys. That mismatch exists today and is not changed here.
+
 ## Rollback
 
 Set `TEKMOR_ROUTE_GATE_IMPL=python` to return to the Python gate. Reverting the commit restores the Python file. The state file format does not change, so no migration is needed.

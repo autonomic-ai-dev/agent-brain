@@ -13,3 +13,4 @@ target/
 !docs/benchmarks/fixture-2k.db
 vectors.bin
 .tekmor_test/
+__pycache__/
