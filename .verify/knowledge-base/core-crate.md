@@ -45,3 +45,7 @@ Version 1.0.0-rc5 (`tekmor/crates/tekmor-core/Cargo.toml`). See CHANGELOG.md for
 - Feature map: [[../features/core-crate]]
 - Routing and verify CLI: [cli-verify-and-memory](cli-verify-and-memory.md)
 - `RouteTaskResponse` in `src/types.rs` gained `response_tokens: Option<usize>` on 2026-11-13. It is set by the MCP handler in the main crate, not by core. It is not in the gRPC proto.
+
+## Context provider contract (H3-1, ADR 0002)
+
+- `ContextRequest` and `ContextItem` are data only, in `tekmor-core`. The provider trait and the first providers come in later PRs.
