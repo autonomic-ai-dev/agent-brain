@@ -34,7 +34,7 @@ Summary: An opt-in, read-only link to the Memorable procedural-memory CLI. It is
 - `tekmor/src/memorable.rs`
 - `tekmor/src/settings.rs` (the `memorable` section and its default)
 - `tekmor/src/mcp_cli.rs` (`persist_brain_settings`, now public; the `mcp list` header now prints a literal `COMMAND` label, with the same output)
-- `tekmor/src/main.rs` (the `memorable` command arm)
+- `tekmor/src/main.rs` (the `memorable` command arm; the `export` and `verify summary` arms changed in this turn, and neither is part of this feature)
 
 ## How to get to it (user POV)
 

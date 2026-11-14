@@ -5,8 +5,9 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::db::store::{content_hash, BrainStore};
+use crate::db::store::{content_hash, looks_like_secret, BrainStore};
 use crate::embed::Embedder;
+use crate::lessons::Lesson;
 use crate::secrets::SecretRef;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,6 +66,8 @@ struct BundleManifest {
 #[derive(Debug, Serialize, Deserialize)]
 struct BundleChecksums {
     facts_jsonl: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    lessons_jsonl: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,6 +88,23 @@ pub struct BundleFact {
 }
 
 pub fn export_bundle(store: &BrainStore, home: &Path, dest: Option<&Path>) -> Result<PathBuf> {
+    write_bundle(store, home, dest, false)
+}
+
+pub fn export_bundle_with_lessons(
+    store: &BrainStore,
+    home: &Path,
+    dest: Option<&Path>,
+) -> Result<PathBuf> {
+    write_bundle(store, home, dest, true)
+}
+
+fn write_bundle(
+    store: &BrainStore,
+    home: &Path,
+    dest: Option<&Path>,
+    include_lessons: bool,
+) -> Result<PathBuf> {
     let facts = store.list_export_facts()?;
     let facts_body = if facts.is_empty() {
         String::new()
@@ -97,6 +117,12 @@ pub fn export_bundle(store: &BrainStore, home: &Path, dest: Option<&Path>) -> Re
             + "\n"
     };
     let facts_checksum = sha256_hex(facts_body.as_bytes());
+    let lessons_body = if include_lessons {
+        let now = chrono::Utc::now().timestamp_millis();
+        Some(lessons_jsonl(&store.lessons_all(now)?))
+    } else {
+        None
+    };
 
     let device_id = store.ensure_device_id()?;
     let manifest = BundleManifest {
@@ -107,6 +133,7 @@ pub fn export_bundle(store: &BrainStore, home: &Path, dest: Option<&Path>) -> Re
         includes_vectors: false,
         checksums: BundleChecksums {
             facts_jsonl: facts_checksum,
+            lessons_jsonl: lessons_body.as_ref().map(|body| sha256_hex(body.as_bytes())),
         },
     };
 
@@ -121,6 +148,9 @@ pub fn export_bundle(store: &BrainStore, home: &Path, dest: Option<&Path>) -> Re
         serde_json::to_string_pretty(&manifest)?,
     )?;
     fs::write(out_dir.join("facts.jsonl"), facts_body)?;
+    if let Some(body) = &lessons_body {
+        fs::write(out_dir.join("lessons.jsonl"), body)?;
+    }
     let secret_refs = store.list_secret_refs()?;
     fs::write(
         out_dir.join("secret_refs.json"),
@@ -182,6 +212,13 @@ pub fn import_bundle(
         let remote: BundleFact = serde_json::from_str(line).context("parse facts.jsonl line")?;
         import_one_fact(store, embedder, &remote, policy, sync_source, &mut report)?;
     }
+
+    import_lessons(
+        store,
+        bundle_path,
+        manifest.checksums.lessons_jsonl.as_deref(),
+        &mut report,
+    )?;
 
     let refs_path = bundle_path.join("secret_refs.json");
     if refs_path.is_file() {
@@ -282,4 +319,143 @@ fn import_one_fact(
 
 fn sha256_hex(bytes: &[u8]) -> String {
     format!("sha256:{:x}", Sha256::digest(bytes))
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct BundleLesson {
+    id: String,
+    project_key: String,
+    paths: Vec<String>,
+    cmd: String,
+    excerpt: String,
+    created_at: i64,
+}
+
+impl From<&Lesson> for BundleLesson {
+    fn from(lesson: &Lesson) -> Self {
+        Self {
+            id: lesson.id.clone(),
+            project_key: lesson.project_key.clone(),
+            paths: lesson.paths.clone(),
+            cmd: lesson.cmd.clone(),
+            excerpt: lesson.excerpt.clone(),
+            created_at: lesson.created_at,
+        }
+    }
+}
+
+impl From<BundleLesson> for Lesson {
+    fn from(lesson: BundleLesson) -> Self {
+        Self {
+            id: lesson.id,
+            project_key: lesson.project_key,
+            paths: lesson.paths,
+            cmd: lesson.cmd,
+            excerpt: lesson.excerpt,
+            created_at: lesson.created_at,
+        }
+    }
+}
+
+fn names_a_secret(lesson: &BundleLesson) -> bool {
+    looks_like_secret(&lesson.cmd)
+        || looks_like_secret(&lesson.excerpt)
+        || lesson.paths.iter().any(|path| looks_like_secret(path))
+}
+
+fn lessons_jsonl(lessons: &[Lesson]) -> String {
+    lessons
+        .iter()
+        .map(BundleLesson::from)
+        .filter(|lesson| !names_a_secret(lesson))
+        .filter_map(|lesson| serde_json::to_string(&lesson).ok())
+        .map(|line| line + "\n")
+        .collect()
+}
+
+fn accepted_lessons(body: &str) -> Result<(Vec<Lesson>, usize)> {
+    let mut accepted = Vec::new();
+    let mut refused = 0;
+    for line in body.lines().filter(|line| !line.trim().is_empty()) {
+        let lesson: BundleLesson = serde_json::from_str(line).context("parse lessons.jsonl line")?;
+        if names_a_secret(&lesson) {
+            refused += 1;
+        } else {
+            accepted.push(Lesson::from(lesson));
+        }
+    }
+    Ok((accepted, refused))
+}
+
+fn import_lessons(
+    store: &BrainStore,
+    bundle_path: &Path,
+    expected_checksum: Option<&str>,
+    report: &mut ImportReport,
+) -> Result<()> {
+    let path = bundle_path.join("lessons.jsonl");
+    if !path.is_file() {
+        return Ok(());
+    }
+    let body = fs::read_to_string(&path).context("read lessons.jsonl")?;
+    let Some(expected) = expected_checksum else {
+        anyhow::bail!("lessons.jsonl is not covered by the manifest checksum");
+    };
+    if sha256_hex(body.as_bytes()) != expected {
+        anyhow::bail!("lessons.jsonl checksum mismatch");
+    }
+    let (lessons, refused) = accepted_lessons(&body)?;
+    for lesson in &lessons {
+        store.insert_lesson(lesson)?;
+    }
+    report.imported += lessons.len();
+    report.skipped += refused;
+    Ok(())
+}
+
+#[cfg(test)]
+mod lesson_bundle_tests {
+    use super::*;
+
+    fn lesson(id: &str, cmd: &str, excerpt: &str) -> Lesson {
+        Lesson {
+            id: id.into(),
+            project_key: "p".into(),
+            paths: vec!["src/a.rs".into()],
+            cmd: cmd.into(),
+            excerpt: excerpt.into(),
+            created_at: 1,
+        }
+    }
+
+    #[test]
+    fn a_lesson_with_a_secret_looking_excerpt_is_left_out_of_the_bundle() {
+        let body = lessons_jsonl(&[
+            lesson("clean", "cargo test", "assert failed"),
+            lesson("leaky", "cargo test", "password=hunter2"),
+        ]);
+        let (accepted, refused) = accepted_lessons(&body).unwrap();
+        assert_eq!(refused, 0);
+        assert_eq!(accepted.iter().map(|l| l.id.as_str()).collect::<Vec<_>>(), ["clean"]);
+    }
+
+    #[test]
+    fn a_secret_looking_lesson_written_by_hand_is_refused_on_import() {
+        let body = serde_json::to_string(&BundleLesson::from(&lesson(
+            "leaky",
+            "cargo test",
+            "token: abc123",
+        )))
+        .unwrap();
+        let (accepted, refused) = accepted_lessons(&(body + "\n")).unwrap();
+        assert!(accepted.is_empty());
+        assert_eq!(refused, 1);
+    }
+
+    #[test]
+    fn a_lesson_that_names_an_env_file_is_refused() {
+        let mut leaky = lesson("env", "cargo test", "assert failed");
+        leaky.paths = vec![".env".into()];
+        assert!(lessons_jsonl(&[leaky]).is_empty());
+    }
 }

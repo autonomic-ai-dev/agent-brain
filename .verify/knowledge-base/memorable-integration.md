@@ -64,3 +64,7 @@ Before anything is written, each trace is reduced to its prompt (up to 2000 char
 ## Stop-gate mode (H1-5)
 
 - `gates.stop` (`enforce` or `watch`) is read from the settings file; `TEKMOR_STOP_GATE` overrides it. An unknown value in the file fails the whole file, so `load` falls back to defaults. That is the current behaviour, tested, and changing it is a separate change.
+
+## main.rs arms changed (stop-gate match)
+
+- This feature's code is unchanged. `tekmor/src/main.rs` changed in the `export` and `verify summary` arms, which belong to the sync bundle and verify features (ADR 0003 amendments 1 and 2).

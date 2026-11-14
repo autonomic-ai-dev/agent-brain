@@ -45,7 +45,7 @@ Summary: `tekmor serve` runs in two roles. A shared daemon holds the brain datab
 
 ## Code
 
-- `tekmor/src/main.rs` (`serve` branch)
+- `tekmor/src/main.rs` (`serve` branch; the `export` and `verify summary` arms changed in this turn, and neither is part of this feature)
 - `tekmor/src/mcp/server.rs` (`run_proxy`, `serve_one_proxy_connection`)
 - `tekmor/src/engine.rs` (`spawn_embedder_idle_unload`)
 - `tekmor/src/embed.rs` (`Embedder::unload_if_idle`, `is_loaded`, `IDLE_UNLOAD_AFTER`)

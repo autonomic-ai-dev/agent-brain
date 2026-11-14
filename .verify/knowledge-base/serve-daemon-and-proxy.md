@@ -41,3 +41,7 @@ Every agent host session starts `tekmor serve` as an MCP server. One of those pr
 ## Static route text sent once per session (R-6, R-16)
 
 - On MCP, each warning topic and the native-tool list are sent once per connection. Later routes omit them. The per-connection state is in `BrainMcp`.
+
+## main.rs arms changed (stop-gate match)
+
+- This feature's code is unchanged. `tekmor/src/main.rs` changed in the `export` and `verify summary` arms, which belong to the sync bundle and verify features (ADR 0003 amendments 1 and 2).

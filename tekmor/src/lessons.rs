@@ -25,6 +25,18 @@ pub struct Lesson {
     pub created_at: i64,
 }
 
+fn lesson_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Lesson> {
+    let paths_json: String = row.get(2)?;
+    Ok(Lesson {
+        id: row.get(0)?,
+        project_key: row.get(1)?,
+        paths: serde_json::from_str(&paths_json).unwrap_or_default(),
+        cmd: row.get(3)?,
+        excerpt: row.get(4)?,
+        created_at: row.get(5)?,
+    })
+}
+
 pub fn excerpt_of(output: &str) -> String {
     let lines: Vec<&str> = output
         .lines()
@@ -184,6 +196,19 @@ impl BrainStore {
         })
     }
 
+    pub fn lessons_all(&self, now: i64) -> Result<Vec<Lesson>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, project_key, paths_json, cmd, excerpt, created_at FROM lessons
+                 WHERE created_at >= ?1 ORDER BY created_at DESC",
+            )?;
+            let rows = stmt
+                .query_map(params![now - LESSON_TTL_MS], lesson_from_row)?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        })
+    }
+
     pub fn lessons_for_project(&self, project_key: &str, now: i64) -> Result<Vec<Lesson>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
@@ -191,17 +216,7 @@ impl BrainStore {
                  WHERE project_key = ?1 AND created_at >= ?2 ORDER BY created_at DESC",
             )?;
             let rows = stmt
-                .query_map(params![project_key, now - LESSON_TTL_MS], |row| {
-                    let paths_json: String = row.get(2)?;
-                    Ok(Lesson {
-                        id: row.get(0)?,
-                        project_key: row.get(1)?,
-                        paths: serde_json::from_str(&paths_json).unwrap_or_default(),
-                        cmd: row.get(3)?,
-                        excerpt: row.get(4)?,
-                        created_at: row.get(5)?,
-                    })
-                })?
+                .query_map(params![project_key, now - LESSON_TTL_MS], lesson_from_row)?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             Ok(rows)
         })

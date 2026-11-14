@@ -472,9 +472,17 @@ async fn main() -> Result<()> {
         "export" => {
             let config = Config::load()?;
             config.ensure_dirs()?;
-            let dest = args.get(2).map(std::path::PathBuf::from);
+            let dest = args
+                .iter()
+                .skip(2)
+                .find(|a| !a.starts_with("--"))
+                .map(std::path::PathBuf::from);
             let store = tekmor::db::store::BrainStore::open(&config.db_path)?;
-            let path = tekmor::sync::export_bundle(&store, &config.home, dest.as_deref())?;
+            let path = if args.iter().any(|a| a == "--with-lessons") {
+                tekmor::sync::export_bundle_with_lessons(&store, &config.home, dest.as_deref())?
+            } else {
+                tekmor::sync::export_bundle(&store, &config.home, dest.as_deref())?
+            };
             println!("Exported sync bundle to {}", path.display());
         }
         "import" => {
