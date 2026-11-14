@@ -80,7 +80,7 @@ pub fn rpc(home: &Path, tool: &str, args: &serde_json::Value) -> anyhow::Result<
         .spawn()
         .with_context(|| {
             format!(
-                "graphify extension is not installed ({}); install it with ext add graphify",
+                "graphify extension is not installed ({}); install it with `tekmor ext add graphify`",
                 bin.display()
             )
         })?;

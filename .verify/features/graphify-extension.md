@@ -36,7 +36,7 @@ Summary: The codebase graph engine, shipped as the optional `tekmor-graphify` ex
 
 ## How to get to it (user POV)
 
-- `tekmor ext add graphify`, then `tekmor graphify status`
+- `tekmor ext add graphify`, then `tekmor graphify status`. When the binary is missing, the error names this command (H3-5, ADR 0002 amendment 5). The registry manifest for graphify is outside this repo and still needs publishing.
 - Graph MCP tools need the extension installed. Without it they return an error that names the install command.
 - Developers can run `./target/debug/tekmor-graphify graphify status` after `cargo build -p tekmor-graphify`.
 

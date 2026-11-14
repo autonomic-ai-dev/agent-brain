@@ -72,3 +72,9 @@ Not converted: the protected-changes check (`protected_changes` in `tekmor/src/r
 
 Every evidence query goes through `tekmor/src/evidence_reader.rs` (`recent_runs`, `project_runs`), which returns `EvidenceRecord`. Callers: receipt, stop gate, verify and suggest. `EvidenceRecord.source` stays optional, because a `NULL` source is not counted by the stop gate but is counted as cli by the receipt. Keeping the column faithful to the row keeps both behaviours. The dashboard, doctor and stats commands do not read evidence rows, and status reads only the route state file, so they have no evidence query to move.
 Known inconsistency, not changed: the stop gate and the receipt disagree on rows with a `NULL` source. The stop gate does not count them; the receipt does. Resolving it changes gate behaviour, so it needs its own decision.
+
+## Amendment 5: extension delivery (H3-5)
+
+- The graphify install hint now names the real command: `tekmor ext add graphify`. It said `ext add graphify`, which the CLI does not accept.
+- The graphify manifest is missing from the agent-registry checkout that `ext add` reads (`registry_sync`). That repo is outside this one, so the fix belongs there. Blocker: someone with access must publish the manifest.
+- `get_local_graph` and the other extras-only tools stay advertised in release builds. Gating the method with `#[cfg(feature = "extras")]` does not work: the `#[tool_router]` macro still references it and the build fails. Hiding them needs a `list_tools` override, which is a follow-up. Their error already names the feature to build with.

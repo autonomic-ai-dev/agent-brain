@@ -44,3 +44,7 @@ The codebase graph moved out of the core binary into the `tekmor-graphify` exten
 - Bench consumer: [[bench-extension]]
 
 - Formatting pass (rustfmt, 2026-11-07): line breaks and spacing only, no behaviour change.
+
+## Extension install hint (H3-5, ADR 0002 amendment 5)
+
+- The missing-binary message points to `tekmor ext add graphify`, the real command.
