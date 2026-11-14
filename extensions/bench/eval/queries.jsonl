@@ -26,3 +26,33 @@
 {"query":"document the new MCP tool","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
 {"query":"check the installed hooks are healthy","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
 {"query":"optimise a slow query","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"commit and push the changes","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"create a pull request for these changes","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"run the verification suite before committing","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"review the open pull request for bugs","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"add a regression test for the lesson expiry bug","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"remove duplicated policy text from the agents file","expect_types":["rule"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"route_task must run before other tools each turn","expect_types":["rule"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"check the diff for comments that were added","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"bump the version and tag a release","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"rebuild and reinstall the agent-brain binary","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"the read gate is denying my file read","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"store the decision that the tool surface defaults to full","expect_types":["memory"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"what did we decide about the stop gate watch mode","expect_types":["memory"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"remember the lesson from the failed clippy run","expect_types":["memory"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"fix the clippy lint in the stop gate module","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"add a database migration for a new column","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"update the knowledge base for this feature","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"find which feature owns this source file","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"measure the eval score before and after this change","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"run the bench eval and report per-case results","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"the pre-commit hook rejected my commit","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"write a commit message for the staged changes","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"run cargo fmt and check formatting","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"investigate why index counts changed after sync","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"harden the MCP server against prompt injection","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"agents should not write under the home directory","expect_types":["rule"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"run the tests with a single test thread","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"explain how host hooks are installed","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"the setup score is low, what should I change","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}
+{"query":"restore the stashed work in progress","expect_types":["skill"],"forbid_topics":["README.md","CHANGELOG.md","eng-outside.md","slate_host.md"]}

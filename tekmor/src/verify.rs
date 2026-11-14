@@ -573,7 +573,9 @@ pub fn init_verify(project_root: &Path, force: bool) -> Result<PathBuf> {
         if project_root.join("Makefile").exists() {
             commands.push("make test".to_string());
         }
-        commands.push(".verify/run.sh".to_string());
+        if !commands.is_empty() {
+            commands.push(".verify/run.sh".to_string());
+        }
 
         let mut toml_content = String::from("[verify]\ncommands = [\n");
         for cmd in &commands {
@@ -1338,6 +1340,25 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
         assert!(toml_str.contains("\"pnpm test\""));
         assert!(!toml_str.contains("\"npm test\""));
         assert!(toml_str.contains("\"deno test\""));
+    }
+
+    #[test]
+    fn init_verify_in_an_unrecognised_project_allowlists_nothing() {
+        let dir = tempdir().unwrap();
+        let verify_path = init_verify(dir.path(), false).unwrap();
+        let toml_str = fs::read_to_string(verify_path.join("verify.toml")).unwrap();
+        assert!(!toml_str.contains("run.sh"));
+        assert!(load_command_allowlist(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn init_verify_detects_a_makefile_as_a_test_runner() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("Makefile"), b"test:\n\ttrue\n").unwrap();
+        let verify_path = init_verify(dir.path(), false).unwrap();
+        let toml_str = fs::read_to_string(verify_path.join("verify.toml")).unwrap();
+        assert!(toml_str.contains("\"make test\""));
+        assert!(toml_str.contains("\".verify/run.sh\""));
     }
 
     #[test]

@@ -8,13 +8,13 @@ related:
 
 # ci-pipeline
 
-Summary: GitHub Actions for agent-brain. One CI workflow runs clippy, the Rust tests and the hook tests on every push and pull request to master. A release on a `v*` tag runs that same CI workflow, then builds the signed macOS binary and publishes the GitHub release.
+Summary: GitHub Actions for tekmor. One CI workflow runs clippy, the Rust tests and the hook tests on every push and pull request to master. A release on a `v*` tag runs that same CI workflow, then builds the signed macOS binary and publishes the GitHub release.
 
 ## Sub-features
 
 - `ci-check`: One job that gates merges to master.
   - Intent: Give a single, plain place to see whether a change builds, lints and passes its tests.
-  - Behaviour: `.github/workflows/ci.yml` runs `cargo clippy` with warnings denied, `cargo test --release -p agent-brain --features extras -- --test-threads=1`, and `python3 agent-brain/hooks/test_route_gate.py`. It runs on push and pull request to master, and it is reusable by the release workflow.
+  - Behaviour: `.github/workflows/ci.yml` runs `cargo clippy` with warnings denied, `cargo test --release -p tekmor --features extras -- --test-threads=1`, and `python3 tekmor/hooks/test_route_gate.py`. It runs on push and pull request to master, and it is reusable by the release workflow.
   - Outcome: A failing lint, test or hook test fails the workflow.
 - `release-publish`: Tag-driven release.
   - Intent: Ship a signed binary and release notes from a `v*` tag without a second pipeline.

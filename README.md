@@ -11,6 +11,14 @@ Part of [Autonomic AI](https://autonomic-ai.dev), alongside [agent-spine](https:
 
 ---
 
+## Name
+
+**tekmor** is a short spelling of *tekmērion* (τεκμήριον), Greek for proof or evidence: the sure sign that settles a question. The name fits the product: every check tekmor runs leaves recorded evidence, and a turn is not done until that evidence exists.
+
+Sources: [Strong's G5039 on Bible Hub](https://biblehub.com/greek/5039.htm) and [OpenBible Strong's G5039](https://openbible.com/strongs/greek/5039.htm).
+
+---
+
 ## Architectural Overview
 
 ```mermaid

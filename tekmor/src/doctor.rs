@@ -134,6 +134,13 @@ pub fn run(fix: bool) -> Result<()> {
         mcp_step.warn("mcp.json not found");
     }
 
+    println!(
+        "  stop gate:             {}",
+        crate::settings::AgentBrainSettings::load(&config.home)
+            .gates
+            .stop
+            .as_str()
+    );
     let hooks_step = progress.step("Cursor hooks");
     if hooks_path.exists() {
         let raw = fs::read_to_string(&hooks_path)?;
@@ -396,8 +403,8 @@ pub fn run(fix: bool) -> Result<()> {
             }
         }
     }
-    for (first, second) in crate::packages::duplicate_packages(&config.home) {
-        println!("  duplicate package:     {first} and {second} ship the same skills; remove one: tekmor package remove {second}");
+    for line in duplicate_package_lines(&config.home) {
+        println!("{line}");
     }
     _hosts.done();
 
@@ -859,5 +866,53 @@ fn antigravity_integration_detail(home: &Path) -> String {
         "OK (MCP + shared hooks + route-rule)".into()
     } else {
         format!("partial — missing {}", issues.join(", "))
+    }
+}
+
+fn duplicate_package_lines(home: &std::path::Path) -> Vec<String> {
+    crate::packages::duplicate_packages(home)
+        .into_iter()
+        .map(|(first, second)| {
+            format!("  duplicate package:     {first} and {second} ship the same skills; remove one: agent-brain package remove {second}")
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn write_package_skill(home: &std::path::Path, package: &str, body: &str) {
+        let dir = home.join("packages").join(package).join("skills/demo");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("SKILL.md"), body).unwrap();
+    }
+
+    #[test]
+    fn two_packages_with_the_same_skills_get_a_removal_hint() {
+        let home = tempfile::tempdir().unwrap();
+        write_package_skill(home.path(), "one", "same skill");
+        write_package_skill(home.path(), "two", "same skill");
+        let lines = duplicate_package_lines(home.path());
+        assert_eq!(lines.len(), 1);
+        assert!(
+            lines[0].contains("one and two ship the same skills"),
+            "{}",
+            lines[0]
+        );
+        assert!(
+            lines[0].ends_with("agent-brain package remove two"),
+            "{}",
+            lines[0]
+        );
+    }
+
+    #[test]
+    fn packages_with_different_skills_get_no_warning() {
+        let home = tempfile::tempdir().unwrap();
+        write_package_skill(home.path(), "one", "first skill");
+        write_package_skill(home.path(), "two", "second skill");
+        assert!(duplicate_package_lines(home.path()).is_empty());
     }
 }

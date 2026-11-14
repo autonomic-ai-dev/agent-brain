@@ -2067,6 +2067,13 @@ const CORE_TOOLS: &[&str] = &[
     "route_to_mcp",
 ];
 
+fn visible_tools(tools: Vec<rmcp::model::Tool>, core: bool) -> Vec<rmcp::model::Tool> {
+    tools
+        .into_iter()
+        .filter(|tool| !core || CORE_TOOLS.contains(&tool.name.as_ref()))
+        .collect()
+}
+
 #[tool_handler]
 impl ServerHandler for BrainMcp {
     async fn list_tools(
@@ -2080,12 +2087,7 @@ impl ServerHandler for BrainMcp {
                 .tool_surface,
             crate::settings::ToolSurface::Core
         );
-        let tools = self
-            .tool_router
-            .list_all()
-            .into_iter()
-            .filter(|tool| !core || CORE_TOOLS.contains(&tool.name.as_ref()))
-            .collect();
+        let tools = visible_tools(self.tool_router.list_all(), core);
         Ok(rmcp::model::ListToolsResult {
             tools,
             meta: None,
@@ -3255,6 +3257,33 @@ mod tests {
             .await
             .expect("route_task must succeed");
         json_body(result)
+    }
+
+    #[test]
+    fn the_core_surface_lists_exactly_the_core_tools() {
+        let dir = TempDir::new().expect("tempdir");
+        let server = skill_test_server(&dir, &[]);
+        let mut listed: Vec<String> = visible_tools(server.tool_router.list_all(), true)
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect();
+        listed.sort();
+        let mut expected: Vec<String> = CORE_TOOLS.iter().map(|name| name.to_string()).collect();
+        expected.sort();
+        assert_eq!(listed, expected);
+    }
+
+    #[test]
+    fn the_full_surface_lists_every_routed_tool_and_hidden_tools_stay_routed() {
+        let dir = TempDir::new().expect("tempdir");
+        let server = skill_test_server(&dir, &[]);
+        let routed = server.tool_router.list_all();
+        let full = visible_tools(server.tool_router.list_all(), false);
+        assert_eq!(full.len(), routed.len());
+        assert!(routed.len() > CORE_TOOLS.len());
+        assert!(routed
+            .iter()
+            .any(|tool| !CORE_TOOLS.contains(&tool.name.as_ref())));
     }
 
     #[test]

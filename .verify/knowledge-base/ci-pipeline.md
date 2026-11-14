@@ -6,7 +6,7 @@ feature: "[[../features/ci-pipeline]]"
 
 ## What it does
 
-GitHub Actions builds, lints and tests agent-brain, and publishes releases from `v*` tags.
+GitHub Actions builds, lints and tests tekmor, and publishes releases from `v*` tags.
 
 ## How it works
 

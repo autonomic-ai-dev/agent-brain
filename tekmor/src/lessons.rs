@@ -95,6 +95,10 @@ pub fn learn_from_fix(
     })
 }
 
+pub fn prune_expired_lessons(store: &BrainStore, now: i64) -> Result<u64> {
+    store.delete_lessons_created_before(now - LESSON_TTL_MS)
+}
+
 pub fn route_lessons(store: &BrainStore, root: &Path, open_files: &[String]) -> Vec<LessonRec> {
     let Some(project_key) = crate::project_key::project_key_if_known(root) else {
         return Vec::new();
@@ -172,6 +176,14 @@ impl BrainStore {
         })
     }
 
+    pub fn delete_lessons_created_before(&self, cutoff: i64) -> Result<u64> {
+        self.with_conn(|conn| {
+            let removed =
+                conn.execute("DELETE FROM lessons WHERE created_at < ?1", params![cutoff])?;
+            Ok(removed as u64)
+        })
+    }
+
     pub fn lessons_for_project(&self, project_key: &str, now: i64) -> Result<Vec<Lesson>> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
@@ -243,6 +255,22 @@ mod tests {
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].paths, ["src/a.rs"]);
         assert!(store.lessons_for_project("other", now).unwrap().is_empty());
+    }
+
+    #[test]
+    fn lessons_past_the_ttl_are_pruned_and_recent_ones_are_kept() {
+        let dir = tempdir().unwrap();
+        let store = BrainStore::open(&dir.path().join("t.db")).unwrap();
+        let now = chrono::Utc::now().timestamp_millis();
+        store.insert_lesson(&lesson(&["src/a.rs"], now)).unwrap();
+        store
+            .insert_lesson(&lesson(&["src/old.rs"], now - LESSON_TTL_MS - DAY_MS))
+            .unwrap();
+        assert_eq!(prune_expired_lessons(&store, now).unwrap(), 1);
+        let listed = store.lessons_for_project("p", now).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].paths, ["src/a.rs"]);
+        assert_eq!(prune_expired_lessons(&store, now).unwrap(), 0);
     }
 
     #[test]

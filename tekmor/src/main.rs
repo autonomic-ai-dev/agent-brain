@@ -699,6 +699,9 @@ async fn main() -> Result<()> {
                     });
                 let path = tekmor::verify::init_verify(&target_dir, force)?;
                 println!("Initialized verification suite in {}", path.display());
+                if tekmor::verify::load_command_allowlist(&target_dir).is_empty() {
+                    println!("no test command detected; add yours to .verify/verify.toml");
+                }
                 return Ok(());
             }
             let config = Config::load()?;

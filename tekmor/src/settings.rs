@@ -46,10 +46,27 @@ pub enum GateMode {
     Watch,
 }
 
+impl GateMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            GateMode::Enforce => "enforce",
+            GateMode::Watch => "watch",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct GateSettings {
     #[serde(default)]
     pub stop: GateMode,
+}
+
+fn stop_gate_override(value: Option<&str>) -> Option<GateMode> {
+    match value {
+        Some("watch") => Some(GateMode::Watch),
+        Some("enforce") => Some(GateMode::Enforce),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -680,10 +697,10 @@ impl AgentBrainSettings {
     }
 
     fn apply_env_overrides(&mut self) {
-        match std::env::var("TEKMOR_STOP_GATE").as_deref() {
-            Ok("watch") => self.gates.stop = GateMode::Watch,
-            Ok("enforce") => self.gates.stop = GateMode::Enforce,
-            _ => {}
+        if let Some(mode) =
+            stop_gate_override(std::env::var("TEKMOR_STOP_GATE").ok().as_deref())
+        {
+            self.gates.stop = mode;
         }
         if env_disabled("TEKMOR_AUTO_UPDATE") {
             self.auto_update.enabled = false;
@@ -875,5 +892,48 @@ routing:
         settings.apply_env_overrides();
         assert!(settings.routing.prefer_agstack);
         std::env::remove_var("TEKMOR_PREFER_AGSTACK");
+    }
+
+    #[test]
+    fn stop_gate_env_values_other_than_watch_and_enforce_are_ignored() {
+        assert_eq!(stop_gate_override(Some("watch")), Some(GateMode::Watch));
+        assert_eq!(stop_gate_override(Some("enforce")), Some(GateMode::Enforce));
+        assert_eq!(stop_gate_override(Some("sometimes")), None);
+        assert_eq!(stop_gate_override(None), None);
+    }
+
+    #[test]
+    fn stop_gate_mode_is_read_from_the_gates_section() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("config.yaml"), "gates:\n  stop: watch\n").unwrap();
+        let settings = AgentBrainSettings::from_file(dir.path()).unwrap();
+        assert_eq!(settings.gates.stop, GateMode::Watch);
+    }
+
+    #[test]
+    fn a_missing_gates_section_defaults_the_stop_gate_to_enforce() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("config.yaml"),
+            "auto_update:\n  enabled: true\n",
+        )
+        .unwrap();
+        let settings = AgentBrainSettings::from_file(dir.path()).unwrap();
+        assert_eq!(settings.gates.stop, GateMode::Enforce);
+    }
+
+    #[test]
+    fn an_unknown_stop_gate_value_fails_the_whole_file_so_load_uses_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(
+            dir.path().join("config.yaml"),
+            "gates:\n  stop: sometimes\n",
+        )
+        .unwrap();
+        assert!(AgentBrainSettings::from_file(dir.path()).is_err());
+        assert_eq!(
+            AgentBrainSettings::load(dir.path()).gates.stop,
+            GateMode::Enforce
+        );
     }
 }
