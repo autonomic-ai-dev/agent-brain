@@ -30,6 +30,10 @@ related:
   - Behaviour: The normal dependency tree of `agent-brain-core` is checked against a denylist of IO and runtime crate names.
   - Outcome: `.verify/checks/core_boundary.sh` exits 0 and prints the holding message.
 
+- `route-file-context-types`: `FileContext` and `LessonRec` are optional fields of `RouteTaskResponse`.
+  - Behaviour: `crates/agent-brain-core/src/types.rs` defines both structs. `file_context` and `lessons` are omitted from the serialized response when empty.
+  - Outcome: Clients that ignore the fields see no change.
+
 ## Code
 
 - `agent-brain/crates/agent-brain-core`
@@ -66,3 +70,4 @@ related:
 - `commit_gate` reads stdin, so it stays in the adapter crate. It is not covered by the core boundary.
 - The re-exports in `src/lib.rs` keep the old `agent_brain::<module>` paths valid. Removing a re-export is a breaking change for any caller that uses the old path.
 - Version: 1.0.0-rc5, set in `agent-brain/crates/agent-brain-core/Cargo.toml`. See CHANGELOG.md for the release contents.
+- `RouteTaskResponse.response_tokens` (2026-11-13) is optional and omitted when unset. The MCP handler fills it with the size of the whole serialized response; the engine leaves it `None`.

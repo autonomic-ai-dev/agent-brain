@@ -1,15 +1,29 @@
 use std::io::Write;
+use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 
 use serde_json::Value;
+use tempfile::TempDir;
+
+fn isolated_home() -> &'static Path {
+    static HOME: OnceLock<TempDir> = OnceLock::new();
+    HOME.get_or_init(|| tempfile::tempdir().expect("temp agent-brain home"))
+        .path()
+}
 
 fn run_bash_gate(command: &str, cwd: &str) -> Value {
+    run_bash_gate_in(isolated_home(), command, cwd)
+}
+
+fn run_bash_gate_in(home: &Path, command: &str, cwd: &str) -> Value {
     let payload = serde_json::json!({
         "cwd": cwd,
         "tool_input": { "command": command }
     });
     let mut child = Command::new(env!("CARGO_BIN_EXE_agent-brain"))
         .arg("bash-gate")
+        .env("AGENT_BRAIN_HOME", home)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -107,4 +121,20 @@ fn destructive_and_bypass_commands_are_denied() {
             "{command} must explain the block"
         );
     }
+}
+
+#[test]
+fn gate_events_are_written_under_the_configured_home() {
+    let home = tempfile::tempdir().expect("temp agent-brain home");
+    let output = run_bash_gate_in(home.path(), "rm -rf /", PROJECT);
+    assert_eq!(decision(&output), Some("deny"));
+
+    let log = std::fs::read_to_string(home.path().join("logs/gate-events.jsonl"))
+        .expect("gate log under the configured home");
+    let events: Vec<Value> = log
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("event is json"))
+        .collect();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["kind"], "bash-block");
 }

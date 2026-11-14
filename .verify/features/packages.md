@@ -38,6 +38,7 @@ Summary: Installs skill packages from GitHub into the brain home, records each o
 ## Verification Suites (Targeted Test Commands)
 
 - **Unit Tests:** `cargo test --all-features -- --skip graphify_1k_ci_gate --skip scale_1k_passes_gate --test-threads=1` (whole crate; the `packages::` tests are included)
+- **Local-repository tests:** clone, update, registry, removal and `update_packages` run against `file://` git repositories in `packages::tests`, so they need no network.
 - **Targeted package test:** `cargo test --all-features packages::tests::package_name_includes_owner_so_same_repo_names_differ`
 - **Allowlisted Verification:** `.verify/run.sh`, listed in `.verify/verify.toml`
 - **Preconditions:** Rust toolchain and network access to GitHub for `package add`. Run install checks against a temporary `HOME`, not the user's `~/.autonomic`.

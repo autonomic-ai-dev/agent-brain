@@ -389,6 +389,16 @@ pub fn run(fix: bool) -> Result<()> {
     for line in crate::gate_events::summarize(&config.logs_dir.join("gate-events.jsonl"), 5) {
         println!("    {line}");
     }
+    if let Ok(cwd) = std::env::current_dir() {
+        if let Some(root) = crate::config::find_repo_root(&cwd) {
+            if !root.join(".verify/verify.toml").exists() {
+                println!("  verify allowlist:      missing — run: agent-brain verify init");
+            }
+        }
+    }
+    for (first, second) in crate::packages::duplicate_packages(&config.home) {
+        println!("  duplicate package:     {first} and {second} ship the same skills; remove one: agent-brain package remove {second}");
+    }
     _hosts.done();
 
     progress.finish();

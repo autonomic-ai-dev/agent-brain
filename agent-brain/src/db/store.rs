@@ -45,6 +45,12 @@ const BM25_FACTS_TOP: usize = 40;
 const MIN_CANDIDATES: usize = 15;
 const FALLBACK_RECENT: usize = 80;
 const QUERY_EMBEDDING_CACHE_MAX: usize = 500;
+const BOUNDED_READ_TOOLS: &[&str] = &[
+    "read_file_head",
+    "read_file_tail",
+    "grep_search",
+    "file_summary",
+];
 const BM25_FAST_PATH_MIN_STRENGTH: f64 = 2.5;
 
 pub(crate) struct SearchIndexCache {
@@ -2463,6 +2469,18 @@ impl BrainStore {
         })
     }
 
+    pub fn opened_paths_for_route(&self, route_log_id: &str) -> Result<Vec<String>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT DISTINCT path FROM tool_log WHERE route_log_id = ?1 AND path IS NOT NULL",
+            )?;
+            let paths = stmt
+                .query_map(params![route_log_id], |row| row.get(0))?
+                .collect::<rusqlite::Result<Vec<String>>>()?;
+            Ok(paths)
+        })
+    }
+
     pub fn tool_log_stats_since(&self, since_ms: i64) -> Result<(usize, u64, f64, usize)> {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
@@ -2484,7 +2502,9 @@ impl BrainStore {
             let mut inefficient_reads = 0usize;
 
             for (name, saved, pct) in rows {
-                tool_calls += 1;
+                if BOUNDED_READ_TOOLS.contains(&name.as_str()) {
+                    tool_calls += 1;
+                }
                 if name == "cursor_read" {
                     inefficient_reads += 1;
                 }
@@ -2689,19 +2709,18 @@ impl BrainStore {
                             total_must_apply += n;
                         }
                     }
+                    if cache_hit {
+                        cache_hits += 1;
+                    }
+                    latencies.push(latency);
                 }
-                if cache_hit {
-                    cache_hits += 1;
-                }
-                latencies.push(latency);
                 *phase_counts.entry(phase).or_default() += 1;
             }
 
-            let total = route_calls + upstream_calls;
-            let cache_hit_rate = if total == 0 {
+            let cache_hit_rate = if route_calls == 0 {
                 0.0
             } else {
-                cache_hits as f64 / total as f64
+                cache_hits as f64 / route_calls as f64
             };
             let avg_latency_ms = if latencies.is_empty() {
                 0.0
@@ -3458,6 +3477,86 @@ fn scoped_fallback_rows<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn upstream_calls_do_not_count_toward_route_latency_or_cache_rate() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = BrainStore::open(&dir.path().join("t.db")).unwrap();
+        let route = |id: &str, cache_hit: bool, latency_ms: u64| {
+            store
+                .insert_retrieval_log(
+                    id,
+                    "q",
+                    "implementing",
+                    "[]",
+                    400,
+                    false,
+                    cache_hit,
+                    latency_ms,
+                    Some(100),
+                    None,
+                    Some(0),
+                )
+                .unwrap()
+        };
+        route("r1", true, 100);
+        route("r2", false, 300);
+        store
+            .insert_retrieval_log(
+                "u1",
+                "upstream",
+                "upstream_call",
+                "[]",
+                50,
+                false,
+                false,
+                9000,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+
+        let stats = store.retrieval_stats_since(0).unwrap();
+        assert_eq!(stats.route_calls, 2);
+        assert_eq!(stats.upstream_calls, 1);
+        assert_eq!(stats.p95_latency_ms, 300);
+        assert!((stats.avg_latency_ms - 200.0).abs() < 1e-9);
+        assert!((stats.cache_hit_rate - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn prune_removes_stored_rules_that_are_not_rule_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = BrainStore::open(&dir.path().join("t.db")).unwrap();
+        for (topic, path) in [
+            ("fixture", "/p/docs/design.md"),
+            ("style", "/p/rules/style.mdc"),
+        ] {
+            store
+                .upsert_indexed_item(
+                    ItemType::Rule,
+                    topic,
+                    "text",
+                    path,
+                    "global",
+                    None,
+                    &content_hash(topic),
+                    None,
+                )
+                .unwrap();
+        }
+        assert_eq!(store.prune_noise_rule_rows().unwrap(), 1);
+        assert_eq!(store.prune_noise_rule_rows().unwrap(), 0);
+    }
+
+    #[test]
+    fn feedback_multiplier_demotes_repeatedly_useless_items_and_boosts_proven_ones() {
+        assert!((feedback_multiplier(0, 3) - 0.5).abs() < 1e-9);
+        assert!((feedback_multiplier(2, 3) - 1.0).abs() < 1e-9);
+        assert!((feedback_multiplier(3, 0) - 1.15).abs() < 1e-9);
+        assert!((feedback_multiplier(2, 0) - 1.0).abs() < 1e-9);
+    }
 
     #[test]
     fn dashboard_breakdowns_count_only_recorded_rows() {

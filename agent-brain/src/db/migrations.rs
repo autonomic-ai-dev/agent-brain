@@ -340,7 +340,41 @@ pub fn run(conn: &Connection) -> rusqlite::Result<()> {
         conn.execute("UPDATE schema_version SET version = 26", [])?;
     }
 
+    if version < 27 {
+        migrate_v27(conn)?;
+        conn.execute("UPDATE schema_version SET version = 27", [])?;
+    }
+
+    if version < 28 {
+        migrate_v28(conn)?;
+        conn.execute("UPDATE schema_version SET version = 28", [])?;
+    }
+
     Ok(())
+}
+
+fn migrate_v28(conn: &Connection) -> rusqlite::Result<()> {
+    if !column_exists(conn, "verify_outcomes", "changed_paths_json")? {
+        conn.execute(
+            "ALTER TABLE verify_outcomes ADD COLUMN changed_paths_json TEXT",
+            [],
+        )?;
+    }
+    Ok(())
+}
+
+fn migrate_v27(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS lessons (
+            id TEXT PRIMARY KEY,
+            project_key TEXT NOT NULL,
+            paths_json TEXT NOT NULL,
+            cmd TEXT NOT NULL,
+            excerpt TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_lessons_project ON lessons(project_key, created_at);",
+    )
 }
 
 fn migrate_v26(conn: &Connection) -> rusqlite::Result<()> {

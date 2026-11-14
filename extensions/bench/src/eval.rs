@@ -384,7 +384,7 @@ pub fn seed_filler_skills(store: &Arc<BrainStore>, count: usize) -> Result<()> {
     Ok(())
 }
 
-fn upsert_skill(
+pub(crate) fn upsert_skill(
     store: &Arc<BrainStore>,
     embedder: &Embedder,
     topic: &str,

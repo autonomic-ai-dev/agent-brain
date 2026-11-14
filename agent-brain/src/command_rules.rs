@@ -57,6 +57,8 @@ const READ_ONLY_AND_BUILD: &[&str] = &[
     "strings",
     "tree",
     "ps",
+    "pgrep",
+    "mktemp",
     "column",
     "make",
     "cargo",
@@ -178,6 +180,9 @@ pub fn defaults() -> Vec<Rule> {
         Rule::new("crontab", "warn")
             .trigger("-r")
             .reason("crontab -r removes the user's crontab"),
+        Rule::new("gh", "warn")
+            .trigger("delete")
+            .reason("gh delete removes a remote resource"),
         Rule::new("rm", "operands")
             .role("delete")
             .recursive_on("short:r,--recursive"),

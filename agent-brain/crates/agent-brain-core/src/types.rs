@@ -185,6 +185,21 @@ pub struct ContextBundle {
     pub observations: Vec<MemoryRec>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LessonRec {
+    pub paths: Vec<String>,
+    pub cmd: String,
+    pub excerpt: String,
+    pub age_days: u32,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileContext {
+    pub path: String,
+    pub features: Vec<String>,
+    pub commands: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryRec {
     pub topic: String,
@@ -263,6 +278,8 @@ pub struct RouteTaskResponse {
     pub recommended_phase: String,
     pub tokens_used: usize,
     pub tokens_budget: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_tokens: Option<usize>,
     pub cache_hit: bool,
     pub latency_ms: u64,
     pub log_id: String,
@@ -281,6 +298,10 @@ pub struct RouteTaskResponse {
     pub escalate_recommended: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_bundle: Option<ContextBundle>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub file_context: Vec<FileContext>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub lessons: Vec<LessonRec>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_context: Option<crate::code_nav::CodeContext>,
     /// Cross-agent scratchpad entries (most recent first).

@@ -39,8 +39,10 @@ agent-brain is the routing layer every agent calls at the start of a turn. Its C
 
 - CLI and verify: `agent-brain/src/verify.rs`, `count_tests` for the cargo count
 - Stop gate: `agent-brain/src/stop_gate.rs` (`changed_paths`, `feature_map_missing`, `feature_map_gap`, `evaluate_stop`)
-- Host hooks: `agent-brain/src/host_hooks.rs` (`claude_code_gate_fragment` installs the `Stop` hook)
+- Host hooks: `agent-brain/src/host_hooks.rs` (`claude_code_gate_fragment` installs the `Stop` hook; `install_gemini_hooks` installs the `AfterAgent` stop gate for Gemini and Antigravity)
+- Gemini stop gate (2026-11-10): `install_gemini_hooks` writes an `AfterAgent` entry that runs `agent-brain stop-gate` with a millisecond timeout (`gemini_stop_gate_entry`). Gemini CLI documents `AfterAgent` and accepts `decision: "block"`. Antigravity CLI replaced Gemini CLI on 2026-06-18. The installer's docs say it shares `~/.gemini/settings.json`, which is not verified. Its own hook file, `~/.gemini/config/hooks.json`, has a `Stop` event, owned by cmux, and was left alone. Not yet verified live on either CLI: a turn without a passing verify should get a retry prompt. The installed binary needs `agent-brain install --gemini --global` before the hook is live.
 - MCP tools: `route_task`, `store_memory`, `verify_run`, `record_verify_outcome`, `file_summary`, `grep_search`, `read_file_head`, `read_file_tail`
+- Retrieval algorithm (route suggestions and memory search): `agent-brain/docs/retrieval-algorithm.md`. Its numbers come from `db/store.rs` (`score_items_with_bm25`), `retrieval.rs`, `recall.rs`, `engine.rs` (per-type floors), and `memory_decay.rs`. Update it in the same change as any of those constants.
 - Memory write path: `agent-brain/src/mcp/server.rs` (`store_memory`, `delete_memory`), `agent-brain/src/db/write_handler.rs` (`send_and_recv`), `agent-brain/src/db/store.rs` (`store_fact_full`)
 - graphify subprocess timeouts: `agent-brain/src/graphify/process.rs` (`output_with_timeout`), used by `graphify/jobs.rs` and `graphify/query.rs`
 - Session digest tests: `agent-brain/src/sessions/digest.rs` tests that set `AGENT_BRAIN_SESSION_HOME` serialize on `SESSION_HOME_ENV`, because the variable is process-wide and the test harness runs tests in parallel.
@@ -91,11 +93,16 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 - `mcp add` warns about an empty header value and an unset `${VAR}` placeholder. A server with a bad key still lists its tools, so the warning is the only signal before a call fails.
 - The MCP proxy answers any request that runs longer than 300 seconds with a timeout error (`PROXY_REQUEST_TIMEOUT` in `src/mcp/server.rs`). The upstream call keeps running after that, so the agent can miss a result that finishes later. The limit is one value for every request, not per upstream server. The proxy runs inside each host session's `serve` process, so a session started before the change keeps the old 30-second limit until its MCP server restarts.
 - `mcp add --env` accepts both `--env KEY=VAL` and `--env=KEY=VAL`. Before the fix in `src/mcp_cli.rs` (`parse_env_flags`), the space-separated form was dropped silently, so the server ran with an empty env.
+- Servers past `upstream_mcp.max_servers` (default 2, `src/settings.rs`) are dropped by `enabled_servers` with no error, so their tools never reach the index. A server that shows 0 tools in `mcp list` may simply be over the cap. Since the over-cap change (2026-11-11), `mcp list` prints `not indexed (over max_servers)` for those servers (`is_over_max_servers` in `src/upstream/mod.rs`). Raise `max_servers` in `config.yaml` to index them. `mcp sync` does not name them.
 - `grep_search` accepts `query` as an alias for `pattern`, and `path` defaults to `"."`. Callers that send `query` no longer fail with a missing-field error.
 - Storing the same content twice returns the existing id with `deduplicated: true`. The dedupe check and the insert share one connection lock, so concurrent identical stores persist one active fact.
 - graphify subprocesses are bounded: a build job is killed after 30 minutes, and `query_codebase` after 60 seconds. The helper drains stdout and stderr while it waits, so large output cannot deadlock the wait.
 - The `brain_git_*` tools run `git` with the working directory set to the given path. Git does not climb past a mount boundary, so a non-repository path reports a hint to pass the repository root.
 - `GIT_DISCOVERY_ACROSS_FILESYSTEM` is deliberately not set globally. Setting it would let git find an unrelated parent repository.
+- The bash gate classifies the command after a shell keyword (`then`, `do`, `{`, `!`, and the rest of `COMMAND_PREFIX_KEYWORDS` in `src/command_policy.rs`). Before 2026-11-13 a segment that began with one of these was allowed whole, so `if true; then rm -rf /; fi` passed.
+- Heredoc bodies are data unless the heredoc's own line names a shell or interpreter (`HEREDOC_EXECUTORS`, `INTERPRETERS`). A heredoc is recognised only when `<<` is outside quotes and arithmetic and its closing delimiter line exists; otherwise every line is classified as before. `$(...)` is classified in all heredocs, quoted or not.
+- Hook-observed shell commands are stored in `verify_outcomes` with source `hook`, but only `cli` and `orchestrator` rows count as verification (`ran_a_check` in `src/verify.rs`). Older rows are unchanged; they simply stop appearing as recipes or as the last verification.
+- Gate events recorded before 2026-11-13 include entries written by the test suite, about 90 copies of each case in `tests/bash_gate.rs`. Counts from `doctor` and the feedback report over that period overstate real blocks.
 
 ## Known limits
 
@@ -115,4 +122,32 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 - Formatting pass (rustfmt, 2026-11-07): line breaks and spacing only, no behaviour change.
 - Receipts need commit tracking: `code_tree_hash` covers only uncommitted code paths, so on a clean tree it is the same for every commit. The receipt therefore also requires `head_sha` (git HEAD, schema v26). A receipt only matches a run recorded after v26; older runs show NOT VERIFIED until re-run.
 - Egress guard: network use is found by markers (`ureq::`, `opendal::`, `Command::new("curl")`, git `fetch`/`clone`/`pull`/`push` argument lists). A new client that uses a different API will not be caught. Add its marker to `NETWORK_CLIENT_MARKERS` when you add one.
-- Dashboard savings: the bounded-read saving sums the bytes of every file a directory `grep_search` scans (`full_bytes` in `src/token_tools.rs`), not only the files an agent would open. Read it as an upper bound, never as a measured saving. The dashboard labels it that way.
+- Dashboard savings: the bounded-read saving sums the bytes of every file in which a directory `grep_search` finds a match (`full_bytes` in `src/token_tools.rs`), whether or not an agent would have opened it. Read it as an upper bound, never as a measured saving. The dashboard labels it that way.
+- Route stats recorded before 2026-11-13 mixed upstream MCP calls into route latency and cache-hit rate. The slow "routes" in that period (72 of 413 over five seconds on one machine) were `upstream_call` rows; real routes ran in 100 to 500 ms.
+- `still-applies` is a reserved `must_apply` topic written by the MCP handler, not by a rule. A client that needs every constraint in full on each call should read them on the first route of the session, or after the 30-minute resend.
+- `context_bundle.team_rules[].text` is empty by design since 2026-11-13. Read rule text from `applicable_rules`.
+
+## Stop gate hand-back, watch mode, and the verify-init guard
+
+- The stop gate no longer ends a turn silently after the block limit. `StopOutcome::HandBack` produces a `systemMessage` with NOT VERIFIED, and `hook_output` never sets a `decision` key for it, so the host still lets the turn end. Hosts that do not show `systemMessage` will not show the line; check each host (`src/host_hooks.rs`, `gemini_stop_gate_entry`) before relying on it.
+- Watch mode (`gates.stop: watch` or `AGENT_BRAIN_STOP_GATE=watch`) never writes block state, so the block counter is not advanced and nothing is ever blocked. The reason is still computed, so the would-be block is recorded as `stop-would-block`.
+- `agent-brain verify init --force` is blocked by the Bash guard because it rewrites `.verify/verify.toml`. Plain `verify init` is allowed; it only writes when the file is missing.
+
+## Protected checks, requirements, and route reuse
+
+- A requirement line starts with `R<number>.` at the start of a line. Its check is the first backticked command after `check:`, on the same line or on the next indented line. An `R<n>` inside a list item or heading is not a requirement.
+- `check_protected_edit` covers edit tools whose path resolves inside the nearest repository's `.verify/verify.toml` or `.verify/checks/`. It also covers `.verify/run.sh`.
+- `init_verify` allowlists only the detected test commands and `.verify/run.sh`. A project without a recognised build file must add its test command by hand.
+
+## Horizon 2 notes
+
+- Rules are indexed only from `.mdc`, entry files and `rules/` directories. A stored rule from before the change is removed on the next sync.
+
+- The lesson excerpt is the first failure-marker line of the failing run's saved output. A run with no saved output creates no lesson.
+
+- `lessons` and `file_context` are filled from the route's `open_files`; a route with no open files returns neither.
+- Lesson paths are the paths changed at the failing run that are still changed at the passing run. Each verify row stores its changed code paths (`changed_paths_json`, migration v28), and `learn_from_fix` in `src/lessons.rs` intersects them.
+- `init_verify` adds `bundle exec rspec` only when the Gemfile names rspec. A Gemfile without rspec yields no Ruby test command.
+- Context feedback credits a routed item only when the agent read its source path in that route (`opened_paths_for_route`, `src/db/store.rs`). Route items store `source_path` for this join.
+- The index pruning test covers rules dropped on sync (prune_removes_stored_rules_that_are_not_rule_files, src/db/store.rs).
+- Index and package coverage: index.rs tests cover parsing, classification and skip rules; tests/index_sync.rs drives sync_index_opts against a temp HOME. packages/mod.rs tests cover registry, removal, source parsing and git clone/update against local repositories.

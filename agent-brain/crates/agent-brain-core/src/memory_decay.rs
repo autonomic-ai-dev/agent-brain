@@ -24,6 +24,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn decay_is_exp_of_elapsed_days_over_stability() {
+        let now = 1_700_000_000_000_i64;
+        let thirty_days_ms = 30_i64 * 24 * 3600 * 1000;
+        let m = ebbinghaus_multiplier(now - thirty_days_ms, 0.5, 0, now);
+        assert!((m - (-0.5_f64).exp()).abs() < 1e-9, "got {m}");
+    }
+
+    #[test]
     fn fresh_memory_retains_full_weight() {
         let now = 1_700_000_000_000_i64;
         assert!((ebbinghaus_multiplier(now, 0.9, 0, now) - 1.0).abs() < f64::EPSILON);

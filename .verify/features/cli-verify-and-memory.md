@@ -25,6 +25,9 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
 - `upstream-mcp-add`: Registers an upstream MCP server that agent-brain proxies through `route_to_mcp`.
   - Behaviour: `agent-brain mcp add <name> [--env KEY=VAL | --env=KEY=VAL] -- <command> [args...]` saves the server in `config.yaml` under `upstream_mcp`, then indexes its tools.
   - Outcome: The server and its env are stored, and its tool count is printed. `src/mcp_cli.rs` `parse_env_flags` reads both `--env` forms. `config_warnings` prints a `warning:` line for an empty header value or a `${VAR}` placeholder that is set neither in the server env nor in the environment. Indexing only proves the tools are listed, not that calls will authenticate.
+- `upstream-mcp-over-cap`: An enabled upstream server past `upstream_mcp.max_servers` is not indexed, and `mcp list` says so.
+  - Behaviour: `enabled_servers` keeps the first `max_servers` enabled servers. `is_over_max_servers` (`src/upstream/mod.rs`) flags the rest. `mcp list` shows `-` in the TOOLS column and `not indexed (over max_servers)` for each flagged server (`src/mcp_cli.rs`).
+  - Outcome: Unit tests `upstream::tests::enabled_server_past_max_servers_is_over_cap` and `upstream::tests::disabled_servers_and_disabled_upstream_are_not_over_cap`. `mcp sync` still prints only a count and does not name skipped servers.
 - `verify-init-scaffold`: Creates the harness files for a repository.
   - Behaviour: `agent-brain verify init` writes `.verify/verify.toml`, an executable `run.sh`, and `README.md`.
   - Outcome: The three files exist and `run.sh` is executable.
@@ -107,6 +110,12 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
   - Intent: A block raised while working in one repo must not look like it belongs to another.
   - Behaviour: `run_stop_gate` prefixes each block reason with `Repo <name> is blocked:` (`named_reason` in `src/stop_gate.rs`). The gate evaluates only the git root of the session's cwd.
   - Outcome: The block headline names the repo. Regression test: `stop_gate::tests::blocking_reason_names_the_repo`.
+- `gemini-stop-gate`: Gemini-family hosts run the stop gate at the end of each turn.
+  - Behaviour: `install_gemini_hooks` (`src/host_hooks.rs`) registers `AfterAgent` in the Gemini settings file and runs `agent-brain stop-gate`, with a timeout in milliseconds (`gemini_stop_gate_entry`). Reinstalling replaces only agent-brain's entry and keeps user hooks.
+  - Outcome: Regression tests: `host_hooks::tests::gemini_stop_gate_timeout_is_in_milliseconds` and `host_hooks::tests::gemini_stop_gate_reinstall_replaces_own_entry_and_keeps_user_hook`. Not yet verified live: whether the Gemini CLI and Antigravity CLI run `AfterAgent` and honor its block decision.
+- `retrieval-algorithm-doc`: The scoring used for route suggestions and memory search is written down.
+  - Behaviour: `agent-brain/docs/retrieval-algorithm.md` gives the candidate sources (BM25, HNSW, RRF), the base blend, every adjustment, the thresholds, and the keyword and semantic memory modes, each with its source location.
+  - Outcome: Documentation only. Its constants are checked by hand against the code, not by a test.
 
 - `route-budget-report`: A route that drops items to stay within its token budget says so.
   - Behaviour: `try_add_route_item` (`src/engine.rs`) counts each item it leaves out, and the route appends a `budget` warning to `warnings` that names the count and the budget. The warning points to `skill_search` and `explain_last_context`.
@@ -126,6 +135,92 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
 - `read-denial-message`: The route gate's denial for a native read leads with the unlock step.
   - Behaviour: `hooks/route_gate.py` names the path, the scout tool to call first, and the number of seconds the unlock lasts, then gives the reason read is denied.
   - Outcome: The unlock step is visible even when a host shows only the first part of the message.
+- `bash-gate-shell-structure`: The bash gate classifies commands inside shell structure and ignores text that is only data.
+  - Behaviour: `src/command_policy.rs` classifies the command that follows `if`, `then`, `else`, `elif`, `while`, `until`, `do`, `{`, `!`, and `function NAME`. A heredoc body is dropped before classification unless its line feeds a shell or interpreter; `$(...)` inside any heredoc is still classified. A function defined in the same command is not reported as unrecognised, and a function name never overrides a command rule. `gh`, `mktemp`, and `pgrep` have default rules (`src/command_rules.rs`); `gh ... delete` warns.
+  - Outcome: `if true; then rm -rf /; fi` and `{ rm -rf /; }` are blocked. Commit messages and file bodies passed through a heredoc no longer produce "unrecognised command" warnings.
+- `bash-gate-alternatives`: A block that has a safe alternative names it.
+  - Behaviour: The block reasons for a computed command name, `eval` of computed code, code piped into a shell, a recursive delete of an unresolved path, a force push, and a git config change each end with what to do instead. The closing sentence is "If it is intended, ask the user to run it."
+  - Outcome: The agent can correct the command from the message alone.
+- `gate-tests-isolated-home`: The bash-gate integration tests write gate events under a temporary `AGENT_BRAIN_HOME`.
+  - Behaviour: `tests/bash_gate.rs` sets `AGENT_BRAIN_HOME` for every spawned `bash-gate`, and one test asserts the event lands in that home's `logs/gate-events.jsonl`.
+  - Outcome: Running the test suite no longer adds block and warn events to the user's real gate log.
+- `stop-gate-nearest-feature`: The stop gate suggests an owner for unclaimed code.
+  - Behaviour: `gap` in `src/feature_map.rs` adds `(nearest feature: .verify/features/<file>)` to each unclaimed path, choosing the feature whose `## Code` entry shares the most leading path components. A path that shares none gets no suggestion.
+  - Outcome: The block names the feature file to edit instead of only listing paths.
+- `verification-from-checks-only`: Only `cli` and `orchestrator` runs count as verification.
+  - Behaviour: `ran_a_check` in `src/verify.rs` gates `last_verification`, `suggest_verified_recipes`, and the success rate in `verify report`. Hook-observed shell commands are still stored but are not offered as recipes or reported as the last verification. A recipe needs a keyword match or execution intent; source alone no longer qualifies it.
+  - Outcome: A route no longer recommends a past `git add` or `ls` as a "verified recipe".
+- `bounded-read-count`: The stats count only bounded-read tools as token-tool calls.
+  - Behaviour: `tool_log_stats_since` in `src/db/store.rs` counts `read_file_head`, `read_file_tail`, `grep_search`, and `file_summary`. Logged `bash`, `edit`, `write`, and `cursor_read` rows are excluded from the count.
+  - Outcome: "Token tools: N bounded-read calls" matches the reader rows in `tool_log`.
+- `suggested-tool-brief`: A suggested upstream tool carries a one-line description.
+  - Behaviour: `brief` in `src/upstream/suggest.rs` keeps the first non-empty line of the tool description, cut to 160 characters. The full schema stays available through `get_mcp`.
+  - Outcome: A route response no longer embeds multi-paragraph upstream tool descriptions.
+- `constraints-sent-once`: A `must_apply` entry is sent in full once per MCP session, then named in one line.
+  - Behaviour: `collapse_repeats` in `src/mcp/sent_constraints.rs` keeps entries whose topic and text were not sent in the last 30 minutes, and replaces the rest with one `still-applies` entry that lists their topics. A changed text counts as new. The list is never emptied while constraints apply, so the host hook still sees them as active.
+  - Outcome: A repeat route carries one line for unchanged constraints instead of every rule again.
+- `route-response-tokens`: `route_task` reports the size of the whole response.
+  - Behaviour: The MCP handler in `src/mcp/server.rs` sets `response_tokens` to the token estimate of the serialized response. `tokens_used` still counts only the budgeted context.
+  - Outcome: The cost of a route to the agent can be read from the response instead of inferred from the budget.
+- `route-rule-dedupe`: A rule indexed from several paths is returned once, and the bundle does not repeat rule text.
+  - Behaviour: `build_route_response` in `src/engine.rs` skips a rule whose topic and text are already in `applicable_rules`. `build_context_bundle` in `src/bridge.rs` clears `text` on `team_rules`, as it already does for skill text; the text stays in `applicable_rules`.
+  - Outcome: The same `AGENTS.md` installed for three hosts no longer takes three rule slots.
+- `route-stats-exclude-upstream`: Route latency and cache-hit rate ignore upstream MCP calls.
+  - Behaviour: `retrieval_stats_since` in `src/db/store.rs` counts latency and cache hits only for rows whose phase is not `upstream_call`, and divides cache hits by route calls.
+  - Outcome: A five-second upstream tool call no longer shows up as a slow route.
+
+- `stop-gate-handback`: After the block limit, the stop gate hands the turn back with a NOT VERIFIED line.
+  - Behaviour: `evaluate_stop` in `src/stop_gate.rs` returns `StopOutcome::HandBack` once `decide` allows the stop after `STOP_BLOCK_LIMIT` blocks. `hook_output` prints a `systemMessage` with no `decision` key, naming the repo, the first line of the reason, and `agent-brain verify receipt`. `gate_event` records `stop-handback`.
+  - Outcome: A turn no longer ends silently unverified on hosts that show `systemMessage`.
+- `stop-gate-verified-line`: A turn that ended on a passing check on the current code prints one VERIFIED line.
+  - Behaviour: `StopOutcome::Verified` from `evaluate_stop` in `src/stop_gate.rs` yields a `systemMessage` naming the repo, the passing command and the first twelve characters of the code hash, and pointing at `agent-brain verify receipt`. No gate event is written.
+  - Outcome: The user reads one line to judge a turn that changed code.
+- `stop-gate-watch-mode`: Watch mode reports would-be stop blocks without blocking.
+  - Behaviour: `GateMode` in `src/settings.rs` selects the mode, set by `gates.stop` in the settings file or by `AGENT_BRAIN_STOP_GATE=watch`. In watch mode `evaluate_stop` returns `HandBack` without writing block state, and the event is `stop-would-block`. The default is `enforce`.
+  - Outcome: A new install can see what the gate would do before it enforces anything.
+- `verify-init-force-blocked`: The agent cannot rewrite the allowlist through the binary.
+  - Behaviour: `src/command_policy.rs` blocks `agent-brain verify init` when `--force` is present. Plain `verify init` stays allowed because it never overwrites an existing file. Cases are in `src/command_policy_cases.txt`.
+  - Outcome: The binary cannot bypass the Bash guard on `.verify/verify.toml`.
+
+- `spec-requirements-receipt`: The receipt reports each requirement in `.verify/specs/*.md`.
+  - Behaviour: `src/spec.rs` parses `R<n>.` lines with an optional backticked `check:` command. `receipt_for_project` in `src/receipt.rs` marks each requirement proven, failed, not run, no check yet, or not allowlisted.
+  - Outcome: The receipt says "N of M requirements proven" instead of only that a command passed.
+- `protected-checks`: The agent cannot change `.verify/verify.toml`, `.verify/run.sh` or `.verify/checks/` through Bash or an edit tool.
+  - Behaviour: `is_protected_check` in `src/command_policy.rs` blocks writes and deletes of those paths. `check_protected_edit` in `hooks/route_gate.py` denies edit tools targeting them; `AGENT_BRAIN_ALLOW_CHECK_EDITS=1` lifts the hook rule. The receipt lists these files when they differ from the last commit.
+  - Outcome: An allowlist or check script cannot be weakened silently.
+- `read-gate-large-files`: The read gate denies only large files that have not been scouted.
+  - Behaviour: `check_read_tool_gate` in `hooks/route_gate.py` no longer denies a read because `must_apply` is active. The 64 KB threshold is unchanged.
+  - Outcome: Small files are read and edited without an unlock call.
+- `route-reuse-by-checkout`: A route is reused across directory changes inside one repository.
+  - Behaviour: `session_route_reusable` in `hooks/route_gate.py` compares `checkout_key`, the nearest ancestor with `.git`, instead of the raw directory.
+  - Outcome: A `cd` inside the repository no longer forces a new `route_task`.
+- `verify-init-scaffold`: `init_verify` allowlists `.verify/run.sh` and no longer guesses commands.
+  - Behaviour: `init_verify` in `src/verify.rs` lists the detected test commands and then `.verify/run.sh`. The Node runner comes from the lockfile (pnpm, yarn, bun, or npm). Deno, Maven, Gradle and mix projects are detected too. A Gemfile that names rspec gives `bundle exec rspec`; a Gemfile without rspec gives no test command. It no longer adds `.verify/` as a command or fills in four guessed commands when nothing is detected.
+  - Outcome: The allowlist holds only commands the repository has, plus the verification entry point.
+
+- `doctor-verify-allowlist`: Doctor says when the current repository has no verification allowlist.
+  - Behaviour: `run` in `src/doctor.rs` prints `verify allowlist: missing — run: agent-brain verify init` when `config::find_repo_root` finds a repository whose `.verify/verify.toml` does not exist.
+  - Outcome: A new repository gets its first check set up from one command.
+
+- `index-rule-scope`: Only `.mdc` files, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, and files under a `rules` directory are indexed as rules. Test, fixture, example, spec and docs directories inside installed packages are not indexed.
+  - Behaviour: `is_rule_file` and `is_package_support_dir` in `src/index.rs`. `is_noise_rule_source` makes `prune_noise_rule_rows` drop stored rules that no longer qualify on the next sync. `prune_removes_stored_rules_that_are_not_rule_files` in `src/db/store.rs` covers it.
+  - Outcome: Fixture READMEs and package docs no longer come back as applicable rules.
+- `package-duplicates`: Doctor reports installed packages that ship identical skill text.
+  - Coverage: `index.rs` line coverage is 94% across all test targets, including `tests/index_sync.rs`, which runs `sync_index_opts` against a temp HOME and checks that unchanged files are skipped on the second run. `packages/mod.rs` line coverage is 92%.
+  - Behaviour: `duplicate_packages` in `src/packages/mod.rs` digests the `SKILL.md` files of each package under `packages/`. `run` in `src/doctor.rs` prints one line per duplicate pair with the `package remove` command.
+  - Outcome: A package installed twice under two names is visible, and nothing is removed automatically.
+- `lessons-from-fixes`: A passing check that follows a failing run of the same command stores one lesson for the changed code.
+  - Behaviour: `learn_from_fix` in `src/lessons.rs` is called from `record_from_result` in `src/verify.rs` for `cli` and `orchestrator` runs only. The excerpt is the first failure-marker line of the failing run's saved output, or its last line. Lessons are keyed by project, command and paths, expire after 60 days, and are skipped when the excerpt looks like a secret. `route_lessons` returns up to three lessons that touch an open file or a changed code path. Migration v27 adds the `lessons` table. A lesson keeps the paths changed at the failing run that are still changed at the passing run; each verify row stores its changed code paths in `changed_paths_json` (migration v28).
+  - Outcome: The next route that touches the files a fix changed shows the earlier failure and its excerpt.
+- `file-context`: A route names the owning feature and up to two allowlisted verification commands for up to five open files.
+  - Behaviour: `route_file_context` and `parse_verification_commands` in `src/feature_map.rs`, called from the `route_task` handler in `src/mcp/server.rs`. Files with no owner use the nearest feature, as `nearest_owner` does for unclaimed code. The response field is `file_context`.
+  - Outcome: The agent sees which feature owns a file and which command proves it, without searching.
+- `feedback-real-checks-only`: Only `cli` and `orchestrator` runs credit or debit routed items.
+  - Behaviour: The attribution block in `record_from_result` (`src/verify.rs`) is gated on `ran_checks`. Hook-observed commands record no context feedback. Only items whose source path the agent read in the same route are credited (`opened_paths_for_route` in `src/db/store.rs`, read from `tool_log`).
+  - Outcome: Routed items are no longer credited for an unrelated `ls` or `grep`.
+- `mcp-tool-surface`: `mcp.tool_surface: core` in the settings file lists twelve core tools.
+  - Behaviour: `list_tools` in `src/mcp/server.rs` filters `CORE_TOOLS` when the setting is `core`; the default `full` lists every tool. `call_tool` is unchanged, so a hidden tool still runs when called by name. `McpSettings` and `ToolSurface` are in `src/settings.rs`.
+  - Outcome: A smaller tool list for agents that choose by name, with no change for hosts that call hidden tools.
 
 ## Code
 

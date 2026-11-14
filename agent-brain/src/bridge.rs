@@ -156,7 +156,14 @@ pub fn build_context_bundle(resp: &RouteTaskResponse, scored: &[ScoredItem]) -> 
     let negative_memory = negative_memories(resp, scored);
     let observations = observation_memories(resp, scored);
     ContextBundle {
-        team_rules: resp.applicable_rules.clone(),
+        team_rules: resp
+            .applicable_rules
+            .iter()
+            .map(|rule| crate::types::RuleRec {
+                text: String::new(),
+                ..rule.clone()
+            })
+            .collect(),
         negative_memory,
         skill_docs: resp
             .recommended_skills
@@ -329,6 +336,10 @@ mod tests {
         );
         assert_eq!(bundle.negative_memory.len(), 1);
         assert_eq!(bundle.team_rules.len(), 1);
+        assert_eq!(bundle.team_rules[0].topic, "lint");
+        assert_eq!(bundle.team_rules[0].source_path, "/r.md");
+        assert!(bundle.team_rules[0].text.is_empty());
+        assert_eq!(resp.applicable_rules[0].text, "run clippy");
     }
 
     #[test]

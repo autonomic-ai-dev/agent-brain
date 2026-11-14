@@ -32,6 +32,38 @@ pub struct AgentBrainSettings {
     pub feedback_report: FeedbackReportSettings,
     #[serde(default)]
     pub memorable: MemorableSettings,
+    #[serde(default)]
+    pub gates: GateSettings,
+    #[serde(default)]
+    pub mcp: McpSettings,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum GateMode {
+    #[default]
+    Enforce,
+    Watch,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct GateSettings {
+    #[serde(default)]
+    pub stop: GateMode,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolSurface {
+    #[default]
+    Full,
+    Core,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct McpSettings {
+    #[serde(default)]
+    pub tool_surface: ToolSurface,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -644,10 +676,17 @@ impl AgentBrainSettings {
             routing: RoutingSettings::default(),
             feedback_report: FeedbackReportSettings::default(),
             memorable: MemorableSettings::default(),
+            gates: GateSettings::default(),
+            mcp: McpSettings::default(),
         }
     }
 
     fn apply_env_overrides(&mut self) {
+        match std::env::var("AGENT_BRAIN_STOP_GATE").as_deref() {
+            Ok("watch") => self.gates.stop = GateMode::Watch,
+            Ok("enforce") => self.gates.stop = GateMode::Enforce,
+            _ => {}
+        }
         if env_disabled("AGENT_BRAIN_AUTO_UPDATE") {
             self.auto_update.enabled = false;
         } else if env_enabled("AGENT_BRAIN_AUTO_UPDATE") {

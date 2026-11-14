@@ -54,6 +54,18 @@ block `echo rm` -rf /
 block $(echo git) commit -n -m x
 block agent-brain rules add command=ls mode=allow
 block agent-brain rules add command=rm mode=allow
+block agent-brain verify init --force
+allow agent-brain verify init
+block echo x > .verify/verify.toml
+block sed -i '' s/a/b/ .verify/verify.toml
+block rm .verify/checks/core_boundary.sh
+block echo x > .verify/run.sh
+block mv .verify/verify.toml /tmp/x
+block cp /tmp/x .verify/checks/a.sh
+allow cat .verify/verify.toml
+allow echo x > .verify/artifacts/x.log
+allow echo x > .verify/features/a.md
+allow echo x > .verify/specs/a.md
 block agent-brain rules remove 1
 block agent-brain rules remove 3
 block agent-brain rules reset
@@ -219,7 +231,8 @@ warn echo x > /Users/aeswibon/notes.txt
 warn find . -delete
 warn find . -exec rm -rf {} +
 warn find . -name '*.o' -delete
-warn gh pr view 104
+warn gh repo delete owner/name
+warn terraform apply
 warn git checkout .
 warn git clean -fd
 warn git reset --hard HEAD~1
@@ -234,6 +247,12 @@ warn rm -rf build
 warn rm -rf build/cache
 warn source ./env.sh
 allow for f in a b; do echo $f; done
+allow gh pr view 104
+allow if true; then echo ok; else echo no; fi
+allow { echo a; echo b; }
+block if true; then rm -rf /; fi
+block for f in a b; do rm -rf /; done
+block { rm -rf /; }
 allow export GOFLAGS=-mod=mod
 allow set -e
 allow true

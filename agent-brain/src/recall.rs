@@ -249,6 +249,15 @@ mod tests {
     }
 
     #[test]
+    fn keyword_score_is_the_fraction_of_query_tokens_found() {
+        let rows = vec![row("a", "ops", "We deploy to the cluster nightly", 1)];
+        let items = rank(rows, Some("deploy staging cluster"), 10);
+        assert_eq!(items.len(), 1);
+        let score = items[0].score.expect("query ranks carry a score");
+        assert!((score - 2.0 / 3.0).abs() < 1e-9, "got {score}");
+    }
+
+    #[test]
     fn empty_input_ranks_to_an_empty_list() {
         assert!(rank(Vec::new(), None, 10).is_empty());
         assert!(rank(Vec::new(), Some("anything"), 10).is_empty());

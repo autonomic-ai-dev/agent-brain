@@ -79,6 +79,7 @@ SESSION_ROUTE_TTL_SECS = float(os.environ.get("AGENT_BRAIN_ROUTE_SESSION_TTL_SEC
 # all = gate every tool (hard blocking across all agents); brain_mcp = gate only agent-brain tools.
 GATE_SCOPE = os.environ.get("AGENT_BRAIN_ROUTE_GATE_SCOPE", "all").strip().lower()
 SILENT_WATCHER = os.environ.get("AGENT_BRAIN_SILENT_WATCHER", "0").strip().lower() in {"1", "true", "yes"}
+ALLOW_CHECK_EDITS = os.environ.get("AGENT_BRAIN_ALLOW_CHECK_EDITS", "0").strip().lower() in {"1", "true", "yes"}
 READ_GATE_MODE = os.environ.get("AGENT_BRAIN_READ_GATE", "hard").strip().lower()
 READ_WARN_BYTES = int(os.environ.get("AGENT_BRAIN_READ_WARN_BYTES", "65536"))
 # After a bounded MCP scout on a path, allow native Read/StrReplace for this long
@@ -798,8 +799,8 @@ def check_read_tool_gate(event: dict) -> dict | None:
 
     size = file_size_bytes(path) if path else None
     large = size is not None and size > READ_WARN_BYTES
-    if must_apply or large:
-        reason = "must_apply active" if must_apply else f"file > {READ_WARN_BYTES} bytes"
+    if large:
+        reason = f"file > {READ_WARN_BYTES} bytes"
         if path:
             write_anti_pattern_suggestion(path, reason)
         append_tool_event(
@@ -813,11 +814,7 @@ def check_read_tool_gate(event: dict) -> dict | None:
             }
         )
         if READ_GATE_MODE == "hard":
-            detail = (
-                "must_apply constraints are active"
-                if must_apply
-                else f"file exceeds {READ_WARN_BYTES} bytes"
-            )
+            detail = f"file exceeds {READ_WARN_BYTES} bytes"
             return {
                 "permission": "deny",
                 "agent_message": (
@@ -895,11 +892,16 @@ def current_cwd(event: dict | None) -> str:
     return str(cwd) if cwd else os.getcwd()
 
 
+def checkout_key(cwd: str) -> Path:
+    return repo_root_of(cwd) or Path(cwd).expanduser().resolve()
+
+
 def session_route_reusable(state: dict, cwd: str) -> bool:
     routed_at = state.get("routed_at")
     if state.get("needs_route") or not isinstance(routed_at, (int, float)):
         return False
-    if state.get("routed_cwd") != cwd:
+    routed_cwd = state.get("routed_cwd")
+    if not isinstance(routed_cwd, str) or checkout_key(routed_cwd) != checkout_key(cwd):
         return False
     return time.time() - routed_at < SESSION_ROUTE_TTL_SECS
 
@@ -1230,7 +1232,41 @@ def gate_tool_use(event: dict) -> dict:
     return {"permission": "allow"}
 
 
+def repo_root_of(cwd: str) -> Path | None:
+    start = Path(cwd).expanduser().resolve()
+    return next((p for p in (start, *start.parents) if (p / ".git").exists()), None)
+
+
+def is_protected_check_path(path: str, cwd: str) -> bool:
+    root = repo_root_of(cwd)
+    if root is None:
+        return False
+    target = Path(path).expanduser()
+    if not target.is_absolute():
+        target = Path(cwd).expanduser().resolve() / target
+    target = target.resolve()
+    verify = root / ".verify"
+    protected = (verify / "verify.toml", verify / "run.sh", verify / "checks")
+    return any(target == p or p in target.parents for p in protected)
+
+
+def check_protected_edit(event: dict) -> dict | None:
+    if ALLOW_CHECK_EDITS or not is_cursor_edit_tool(event):
+        return None
+    path = extract_read_path(event)
+    if not path or not is_protected_check_path(path, current_cwd(event)):
+        return None
+    return {
+        "permission": "deny",
+        "agent_message": f"`{path}` is a verification check. The user makes this change; ask them to.",
+        "user_message": "agent-brain: verification checks are changed by the user, not by the agent.",
+    }
+
+
 def handle_pre_tool_use(event: dict) -> dict:
+    protected = check_protected_edit(event)
+    if protected is not None:
+        return protected
     read_gate = check_read_tool_gate(event)
     if read_gate is not None:
         return read_gate

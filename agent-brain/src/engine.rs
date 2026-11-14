@@ -1907,6 +1907,13 @@ fn try_add_route_item(
                 source_path: item.source_path.clone().unwrap_or_default(),
                 score: item.score,
             };
+            if resp
+                .applicable_rules
+                .iter()
+                .any(|known| known.topic == rec.topic && known.text == rec.text)
+            {
+                return;
+            }
             let t = estimate_json_tokens(&serde_json::to_value(&rec).unwrap_or_default());
             (PendingRec::Rule(rec), t)
         }
@@ -2619,6 +2626,47 @@ mod tests {
         // Rules: react-hooks-rule filtered by domain; rust-minor-style (0.50) dropped by relative gap
         assert_eq!(resp.applicable_rules.len(), 1);
         assert_eq!(resp.applicable_rules[0].topic, "rust-safety-rule");
+    }
+
+    #[test]
+    fn the_same_rule_installed_twice_is_returned_once() {
+        let scored = vec![
+            rule("rust-safety-rule", 0.88, "Always use RAII and avoid unwrap"),
+            rule("rust-safety-rule", 0.88, "Always use RAII and avoid unwrap"),
+            rule("rust-safety-rule", 0.86, "Never leak file handles in rust"),
+        ];
+        let limits = RouteLimits {
+            agents: 0,
+            skills: 0,
+            rules: 5,
+            memory: 0,
+        };
+        let ws_tags = vec!["rust".to_string()];
+        let resp = build_route_response(
+            &scored,
+            &limits,
+            RouteContext {
+                phase: "implementing",
+                max_tokens: 800,
+                project_key: None,
+                repo_root: None,
+            },
+            &ws_tags,
+            "write safe rust",
+            true,
+        );
+        let texts: Vec<&str> = resp
+            .applicable_rules
+            .iter()
+            .map(|rule| rule.text.as_str())
+            .collect();
+        assert_eq!(
+            texts,
+            [
+                "Always use RAII and avoid unwrap",
+                "Never leak file handles in rust"
+            ]
+        );
     }
 
     #[test]

@@ -8,7 +8,7 @@ use anyhow::{bail, Context, Result};
 use crate::config::Config;
 use crate::engine::Engine;
 use crate::settings::{AgentBrainSettings, UpstreamServerConfig};
-use crate::upstream::{list_server_tools, refresh_upstream_index};
+use crate::upstream::{is_over_max_servers, list_server_tools, refresh_upstream_index};
 
 fn config_warnings(server: &UpstreamServerConfig) -> Vec<String> {
     let mut warnings = Vec::new();
@@ -87,18 +87,29 @@ pub async fn handle_mcp_command(args: &[String]) -> Result<()> {
                 } else {
                     "disabled"
                 };
-                let tool_count = indexed_tools
-                    .iter()
-                    .filter(|t| t.server.eq_ignore_ascii_case(&server.name))
-                    .count();
+                let over_cap = is_over_max_servers(&settings.upstream_mcp, server);
+                let tool_count = if over_cap {
+                    "-".to_string()
+                } else {
+                    indexed_tools
+                        .iter()
+                        .filter(|t| t.server.eq_ignore_ascii_case(&server.name))
+                        .count()
+                        .to_string()
+                };
                 let cmd_display = if server.args.is_empty() {
                     server.command.clone()
                 } else {
                     format!("{} {}", server.command, server.args.join(" "))
                 };
+                let note = if over_cap {
+                    "  not indexed (over max_servers)"
+                } else {
+                    ""
+                };
                 println!(
-                    "{:<18} {:<10} {:<8} {}",
-                    server.name, status, tool_count, cmd_display
+                    "{:<18} {:<10} {:<8} {}{}",
+                    server.name, status, tool_count, cmd_display, note
                 );
             }
         }

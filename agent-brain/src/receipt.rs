@@ -1,10 +1,11 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use serde::Serialize;
 
 use crate::db::store::{BrainStore, VerifyOutcomeRow};
 use crate::project_key;
+use crate::spec::{self, Requirement};
 use crate::verify;
 
 const RECEIPT_SCAN_LIMIT: usize = 200;
@@ -28,16 +29,42 @@ pub struct Evidence {
     pub artifact: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RequirementState {
+    Proven,
+    Failed,
+    NotRun,
+    NoCheck,
+    NotAllowlisted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RequirementStatus {
+    pub id: String,
+    pub text: String,
+    pub state: RequirementState,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Receipt {
     pub verdict: Verdict,
     pub head_sha: Option<String>,
     pub code_hash: Option<String>,
     pub evidence: Option<Evidence>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub requirements: Vec<RequirementStatus>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub protected_changes: Vec<String>,
 }
 
-fn ran_under_verify_runner(source: Option<&str>) -> bool {
-    matches!(source.unwrap_or("cli"), "cli" | "orchestrator")
+fn is_run_for(row: &VerifyOutcomeRow, head: &str, hash: &str) -> bool {
+    row.head_sha.as_deref() == Some(head)
+        && row.code_hash.as_deref() == Some(hash)
+        && matches!(
+            row.source.as_deref().unwrap_or("cli"),
+            "cli" | "orchestrator"
+        )
 }
 
 pub fn build_receipt(
@@ -47,11 +74,7 @@ pub fn build_receipt(
 ) -> Receipt {
     let evidence = head_sha.zip(code_hash).and_then(|(head, hash)| {
         rows.iter()
-            .find(|row| {
-                row.head_sha.as_deref() == Some(head)
-                    && row.code_hash.as_deref() == Some(hash)
-                    && ran_under_verify_runner(row.source.as_deref())
-            })
+            .find(|row| is_run_for(row, head, hash))
             .map(|row| Evidence {
                 id: row.id.clone(),
                 cmd: row.cmd.clone(),
@@ -71,7 +94,93 @@ pub fn build_receipt(
         head_sha: head_sha.map(str::to_string),
         code_hash: code_hash.map(str::to_string),
         evidence,
+        requirements: Vec::new(),
+        protected_changes: Vec::new(),
     }
+}
+
+fn latest_run<'a>(
+    rows: &'a [VerifyOutcomeRow],
+    check: &str,
+    head_sha: Option<&str>,
+    code_hash: Option<&str>,
+) -> Option<&'a VerifyOutcomeRow> {
+    let (head, hash) = head_sha.zip(code_hash)?;
+    rows.iter()
+        .find(|row| row.cmd == check && is_run_for(row, head, hash))
+}
+
+pub fn requirement_states(
+    specs: &[(String, Vec<Requirement>)],
+    rows: &[VerifyOutcomeRow],
+    head_sha: Option<&str>,
+    code_hash: Option<&str>,
+    allowlisted: impl Fn(&str) -> bool,
+) -> Vec<RequirementStatus> {
+    let allowlisted = &allowlisted;
+    specs
+        .iter()
+        .flat_map(|(slug, requirements)| {
+            requirements.iter().map(move |requirement| {
+                let state = match &requirement.check {
+                    None => RequirementState::NoCheck,
+                    Some(check) if !allowlisted(check) => RequirementState::NotAllowlisted,
+                    Some(check) => match latest_run(rows, check, head_sha, code_hash) {
+                        None => RequirementState::NotRun,
+                        Some(run) if run.exit_code == 0 => RequirementState::Proven,
+                        Some(_) => RequirementState::Failed,
+                    },
+                };
+                RequirementStatus {
+                    id: format!("{slug}/{}", requirement.id),
+                    text: requirement.text.clone(),
+                    state,
+                }
+            })
+        })
+        .collect()
+}
+
+fn protected_changes(root: &Path) -> Vec<String> {
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args([
+            "status",
+            "--porcelain",
+            "--",
+            ".verify/verify.toml",
+            ".verify/run.sh",
+            ".verify/checks",
+        ])
+        .output()
+        .map(|output| {
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .filter_map(|line| line.get(3..))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn load_specs(root: &Path) -> Vec<(String, Vec<Requirement>)> {
+    let Ok(entries) = std::fs::read_dir(root.join(".verify/specs")) else {
+        return Vec::new();
+    };
+    let mut files: Vec<PathBuf> = entries
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|path| path.extension().is_some_and(|ext| ext == "md"))
+        .collect();
+    files.sort();
+    files
+        .into_iter()
+        .filter_map(|path| {
+            let slug = path.file_stem()?.to_string_lossy().to_string();
+            let text = std::fs::read_to_string(&path).ok()?;
+            Some((slug, spec::parse(&text)))
+        })
+        .collect()
 }
 
 pub fn receipt_for_project(store: &BrainStore, root: &Path) -> Result<Receipt> {
@@ -82,6 +191,14 @@ pub fn receipt_for_project(store: &BrainStore, root: &Path) -> Result<Receipt> {
         None => Vec::new(),
     };
     let mut receipt = build_receipt(&rows, head.as_deref(), code.as_deref());
+    receipt.requirements = requirement_states(
+        &load_specs(root),
+        &rows,
+        head.as_deref(),
+        code.as_deref(),
+        |cmd| verify::command_is_allowlisted(cmd, Some(root)),
+    );
+    receipt.protected_changes = protected_changes(root);
     if let Some(evidence) = receipt.evidence.as_mut() {
         let artifact = verify::repo_artifact_path(root, &evidence.id);
         if artifact.is_file() {
@@ -140,11 +257,68 @@ pub fn render_text(receipt: &Receipt) -> String {
         }
         None => out.push_str(&format!("  {}\n", not_verified_hint(receipt))),
     }
+    out.push_str(&requirements_text(&receipt.requirements));
+    if !receipt.protected_changes.is_empty() {
+        out.push_str(&format!(
+            "  checks changed since last commit: {}\n",
+            receipt.protected_changes.join(", ")
+        ));
+    }
     if let Some(head) = &receipt.head_sha {
         out.push_str(&format!("  commit:    {}\n", short(head)));
     }
     if let Some(hash) = &receipt.code_hash {
         out.push_str(&format!("  code hash: {}\n", short(hash)));
+    }
+    out
+}
+
+fn requirement_label(state: RequirementState) -> Option<&'static str> {
+    match state {
+        RequirementState::Proven => None,
+        RequirementState::Failed => Some("failed"),
+        RequirementState::NotRun => Some("not run"),
+        RequirementState::NoCheck => Some("no check yet"),
+        RequirementState::NotAllowlisted => Some("check is not in the allowlist"),
+    }
+}
+
+fn requirement_count(requirements: &[RequirementStatus]) -> (usize, usize) {
+    let proven = requirements
+        .iter()
+        .filter(|item| item.state == RequirementState::Proven)
+        .count();
+    (proven, requirements.len())
+}
+
+fn requirements_text(requirements: &[RequirementStatus]) -> String {
+    if requirements.is_empty() {
+        return String::new();
+    }
+    let (proven, total) = requirement_count(requirements);
+    let mut out = format!("  requirements: {proven} of {total} proven\n");
+    for item in requirements {
+        if let Some(label) = requirement_label(item.state) {
+            out.push_str(&format!("    {}: {label} - {}\n", item.id, item.text));
+        }
+    }
+    out
+}
+
+fn requirements_markdown(requirements: &[RequirementStatus]) -> String {
+    if requirements.is_empty() {
+        return String::new();
+    }
+    let (proven, total) = requirement_count(requirements);
+    let mut out = format!("\n**Requirements: {proven} of {total} proven**\n\n");
+    for item in requirements {
+        if let Some(label) = requirement_label(item.state) {
+            out.push_str(&format!(
+                "- `{}`: {label} - {}\n",
+                item.id,
+                markdown_cell(&item.text)
+            ));
+        }
     }
     out
 }
@@ -182,6 +356,13 @@ pub fn render_markdown(receipt: &Receipt) -> String {
             }
         }
         None => out.push_str(&format!("{}.\n", not_verified_hint(receipt))),
+    }
+    out.push_str(&requirements_markdown(&receipt.requirements));
+    if !receipt.protected_changes.is_empty() {
+        out.push_str(&format!(
+            "\n**Checks changed since last commit:** {}\n",
+            receipt.protected_changes.join(", ")
+        ));
     }
     out
 }
@@ -362,5 +543,156 @@ mod tests {
         let json = serde_json::to_value(&receipt).expect("serialize");
         assert_eq!(json["verdict"], "not_verified");
         assert!(json["evidence"].is_null());
+    }
+
+    fn spec(slug: &str, text: &str) -> (String, Vec<Requirement>) {
+        (slug.to_string(), spec::parse(text))
+    }
+
+    fn states(
+        specs: &[(String, Vec<Requirement>)],
+        rows: &[VerifyOutcomeRow],
+        allowed: &[&str],
+    ) -> Vec<RequirementState> {
+        requirement_states(specs, rows, Some(HEAD), Some(HASH), |cmd| {
+            allowed.contains(&cmd)
+        })
+        .into_iter()
+        .map(|item| item.state)
+        .collect()
+    }
+
+    #[test]
+    fn a_requirement_is_proven_by_a_passing_run_for_this_tree() {
+        let specs = [spec(
+            "login",
+            "R1. Users log in. check: `cargo test login`\n",
+        )];
+        let rows = [row(
+            "cargo test login",
+            0,
+            Some(HEAD),
+            Some(HASH),
+            Some("cli"),
+        )];
+        assert_eq!(
+            states(&specs, &rows, &["cargo test login"]),
+            [RequirementState::Proven]
+        );
+    }
+
+    #[test]
+    fn the_latest_run_decides_and_a_failing_run_is_failed() {
+        let specs = [spec(
+            "login",
+            "R1. Users log in. check: `cargo test login`\n",
+        )];
+        let rows = [
+            row("cargo test login", 1, Some(HEAD), Some(HASH), Some("cli")),
+            row("cargo test login", 0, Some(HEAD), Some(HASH), Some("cli")),
+        ];
+        assert_eq!(
+            states(&specs, &rows, &["cargo test login"]),
+            [RequirementState::Failed]
+        );
+    }
+
+    #[test]
+    fn runs_for_another_tree_or_from_hooks_do_not_prove_a_requirement() {
+        let specs = [spec(
+            "login",
+            "R1. Users log in. check: `cargo test login`\n",
+        )];
+        let rows = [
+            row(
+                "cargo test login",
+                0,
+                Some("other"),
+                Some(HASH),
+                Some("cli"),
+            ),
+            row("cargo test login", 0, Some(HEAD), Some(HASH), Some("hook")),
+        ];
+        assert_eq!(
+            states(&specs, &rows, &["cargo test login"]),
+            [RequirementState::NotRun]
+        );
+    }
+
+    #[test]
+    fn a_requirement_with_no_check_or_an_unlisted_check_says_so() {
+        let specs = [spec(
+            "login",
+            "R1. Looks nice.\nR2. Works. check: `rm -rf build`\n",
+        )];
+        assert_eq!(
+            states(&specs, &[], &[]),
+            [RequirementState::NoCheck, RequirementState::NotAllowlisted]
+        );
+    }
+
+    #[test]
+    fn requirement_ids_are_namespaced_by_spec_file() {
+        let specs = [spec("login", "R1. A.\n"), spec("cart", "R1. B.\n")];
+        let ids: Vec<String> = requirement_states(&specs, &[], None, None, |_| true)
+            .into_iter()
+            .map(|item| item.id)
+            .collect();
+        assert_eq!(ids, ["login/R1", "cart/R1"]);
+    }
+
+    #[test]
+    fn text_lists_the_count_and_each_unproven_requirement() {
+        let mut receipt = build_receipt(&[], Some(HEAD), Some(HASH));
+        receipt.requirements = requirement_states(
+            &[spec("login", "R1. A.\nR2. B. check: `cargo test b`\n")],
+            &[row("cargo test b", 0, Some(HEAD), Some(HASH), Some("cli"))],
+            Some(HEAD),
+            Some(HASH),
+            |_| true,
+        );
+        let text = render_text(&receipt);
+        assert!(text.contains("  requirements: 1 of 2 proven\n"));
+        assert!(text.contains("    login/R1: no check yet - A.\n"));
+        assert!(!text.contains("login/R2"));
+        let markdown = render_markdown(&receipt);
+        assert!(markdown.contains("**Requirements: 1 of 2 proven**"));
+    }
+
+    #[test]
+    fn a_project_without_specs_renders_no_requirement_lines() {
+        let receipt = build_receipt(&[], Some(HEAD), Some(HASH));
+        assert!(!render_text(&receipt).contains("requirements"));
+        assert!(!render_markdown(&receipt).contains("Requirements"));
+        let json = serde_json::to_value(&receipt).expect("serialize");
+        assert!(json.get("requirements").is_none());
+    }
+
+    #[test]
+    fn a_check_file_changed_since_the_last_commit_is_listed() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .arg("-C")
+                .arg(root)
+                .args(["-c", "user.email=t@t", "-c", "user.name=t"])
+                .args(args)
+                .status()
+                .unwrap();
+        };
+        git(&["init", "-q"]);
+        std::fs::create_dir_all(root.join(".verify")).unwrap();
+        std::fs::write(root.join(".verify/verify.toml"), "[verify]\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-qm", "base"]);
+        assert!(protected_changes(root).is_empty());
+
+        std::fs::write(
+            root.join(".verify/verify.toml"),
+            "[verify]\ncommands = []\n",
+        )
+        .unwrap();
+        assert_eq!(protected_changes(root), [".verify/verify.toml"]);
     }
 }

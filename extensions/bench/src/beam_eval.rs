@@ -39,6 +39,10 @@ struct JsonlCase {
     #[serde(default)]
     _cwd_hint: Option<String>,
     expect_types: Vec<String>,
+    #[serde(default)]
+    forbid_types: Vec<String>,
+    #[serde(default)]
+    forbid_topics: Vec<String>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -65,6 +69,7 @@ pub fn run_beam_eval_isolated() -> Result<BeamEvalReport> {
 pub fn run_beam_eval(engine: &Engine) -> Result<BeamEvalReport> {
     seed_eval_fixture(&engine.store)?;
     seed_beam_extensions(&engine.store)?;
+    seed_skill_corpus(&engine.store, &engine.embedder)?;
     engine.store.bump_index_version()?;
 
     let recall = run_ci_eval_seeded(engine)?;
@@ -540,10 +545,19 @@ fn run_jsonl_file_suite(
             explicit_task_kind: None,
         })?;
         let present = response_types(&resp);
+        let topics = response_topics(&resp);
         let ok = case
             .expect_types
             .iter()
-            .all(|t| present.contains(&t.to_ascii_lowercase()));
+            .all(|t| present.contains(&t.to_ascii_lowercase()))
+            && !case
+                .forbid_types
+                .iter()
+                .any(|t| present.contains(&t.to_ascii_lowercase()))
+            && !case
+                .forbid_topics
+                .iter()
+                .any(|t| topics.contains(&t.to_ascii_lowercase()));
         if ok {
             passed += 1;
         } else {
@@ -592,6 +606,28 @@ fn response_types(resp: &RouteTaskResponse) -> HashSet<String> {
         out.insert("memory".into());
     }
     out
+}
+
+fn response_topics(resp: &RouteTaskResponse) -> HashSet<String> {
+    resp.recommended_skills
+        .iter()
+        .map(|skill| skill.name.to_ascii_lowercase())
+        .chain(
+            resp.applicable_rules
+                .iter()
+                .map(|rule| rule.topic.to_ascii_lowercase()),
+        )
+        .chain(
+            resp.recommended_agents
+                .iter()
+                .map(|agent| agent.name.to_ascii_lowercase()),
+        )
+        .chain(
+            resp.relevant_memory
+                .iter()
+                .map(|memory| memory.topic.to_ascii_lowercase()),
+        )
+        .collect()
 }
 
 fn jsonl_fixture_path() -> std::path::PathBuf {
@@ -694,6 +730,28 @@ fn seed_observation_inputs(store: &Arc<BrainStore>) -> Result<()> {
         )?;
     }
     Ok(())
+}
+
+#[derive(serde::Deserialize)]
+struct CorpusSkill {
+    topic: String,
+    text: String,
+}
+
+fn seed_skill_corpus(
+    store: &Arc<BrainStore>,
+    embedder: &agent_brain::embed::Embedder,
+) -> Result<()> {
+    let raw = fs::read_to_string(skill_corpus_path())?;
+    for line in raw.lines().filter(|line| !line.trim().is_empty()) {
+        let skill: CorpusSkill = serde_json::from_str(line)?;
+        crate::eval::upsert_skill(store, embedder, &skill.topic, &skill.text)?;
+    }
+    Ok(())
+}
+
+fn skill_corpus_path() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("eval/skills.jsonl")
 }
 
 fn seed_jsonl_fixture(store: &Arc<BrainStore>) -> Result<()> {

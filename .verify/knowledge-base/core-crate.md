@@ -44,3 +44,4 @@ Version 1.0.0-rc5 (`agent-brain/crates/agent-brain-core/Cargo.toml`). See CHANGE
 
 - Feature map: [[../features/core-crate]]
 - Routing and verify CLI: [cli-verify-and-memory](cli-verify-and-memory.md)
+- `RouteTaskResponse` in `src/types.rs` gained `response_tokens: Option<usize>` on 2026-11-13. It is set by the MCP handler in the main crate, not by core. It is not in the gRPC proto.

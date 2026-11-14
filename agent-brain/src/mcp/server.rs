@@ -22,8 +22,9 @@ use crate::db::write_queue::{store_memory_payload, WriteOp};
 use crate::engine::{Engine, RouteRequest};
 use crate::gc;
 use crate::mcp::route_gate::McpRouteGate;
+use crate::mcp::sent_constraints::SentConstraints;
 use crate::skill_registry::{read_skill_file, search_terms, MAX_SKILL_RESULTS};
-use crate::types::{deserialize_route_limits, ItemType, RouteLimits};
+use crate::types::{deserialize_route_limits, ItemType, RouteLimits, RouteTaskResponse};
 
 #[derive(Clone)]
 pub struct BrainMcp {
@@ -31,6 +32,7 @@ pub struct BrainMcp {
     #[allow(dead_code)]
     tool_router: ToolRouter<Self>,
     route_gate: Arc<McpRouteGate>,
+    sent_constraints: Arc<SentConstraints>,
     active_cwd: Arc<std::sync::RwLock<Option<PathBuf>>>,
 }
 
@@ -38,6 +40,7 @@ impl BrainMcp {
     pub fn new(engine: Arc<Engine>) -> Self {
         Self {
             route_gate: Arc::new(McpRouteGate::from_config(&engine.config)),
+            sent_constraints: Arc::new(SentConstraints::default()),
             engine,
             tool_router: Self::tool_router(),
             active_cwd: Arc::new(std::sync::RwLock::new(None)),
@@ -752,7 +755,29 @@ impl BrainMcp {
             })
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         self.route_gate.record_route(&p.user_message);
-        json_result(resp)
+        let repo_root = cwd.as_deref().and_then(crate::config::find_repo_root);
+        let file_context = repo_root
+            .as_deref()
+            .map(|root| crate::feature_map::route_file_context(root, &p.open_files))
+            .unwrap_or_default();
+        let lessons = repo_root
+            .as_deref()
+            .map(|root| crate::lessons::route_lessons(&self.engine.store, root, &p.open_files))
+            .unwrap_or_default();
+        let resp = RouteTaskResponse {
+            file_context,
+            lessons,
+            must_apply: self.sent_constraints.collapse(&resp.must_apply),
+            ..resp
+        };
+        let response_tokens = crate::tokens::estimate_json_tokens(
+            &serde_json::to_value(&resp)
+                .map_err(|e| McpError::internal_error(format!("{e}"), None))?,
+        );
+        json_result(RouteTaskResponse {
+            response_tokens: Some(response_tokens),
+            ..resp
+        })
     }
 
     #[tool(
@@ -2027,8 +2052,47 @@ impl BrainMcp {
     }
 }
 
+const CORE_TOOLS: &[&str] = &[
+    "route_task",
+    "read_file_head",
+    "read_file_tail",
+    "grep_search",
+    "file_summary",
+    "verify_run",
+    "store_memory",
+    "skill_search",
+    "skill_get",
+    "mcp_search",
+    "get_mcp",
+    "route_to_mcp",
+];
+
 #[tool_handler]
 impl ServerHandler for BrainMcp {
+    async fn list_tools(
+        &self,
+        _request: Option<rmcp::model::PaginatedRequestParams>,
+        _context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<rmcp::model::ListToolsResult, McpError> {
+        let core = matches!(
+            crate::settings::AgentBrainSettings::load(&self.engine.config.home)
+                .mcp
+                .tool_surface,
+            crate::settings::ToolSurface::Core
+        );
+        let tools = self
+            .tool_router
+            .list_all()
+            .into_iter()
+            .filter(|tool| !core || CORE_TOOLS.contains(&tool.name.as_ref()))
+            .collect();
+        Ok(rmcp::model::ListToolsResult {
+            tools,
+            meta: None,
+            next_cursor: None,
+        })
+    }
+
     fn get_info(&self) -> ServerInfo {
         let mut info = ServerInfo::default();
         info.instructions = Some(
@@ -2038,8 +2102,8 @@ impl ServerHandler for BrainMcp {
               other agent-brain tools return errors until route_task succeeds. \
               Use returned paths to load skills; apply applicable_rules and must_apply. \
               For inspecting unfamiliar files, prefer token-efficient tools: grep_search, file_summary, read_file_head, read_file_tail — not full-file reads. \
-              For git operations, prefer brain_git_log, brain_git_diff, brain_git_tags, brain_git_compare over raw bash. \
-              When exploring code architecture in a repo with graphify enabled, use query_codebase after route_task. \
+              For git operations, use brain_git_log, brain_git_diff, brain_git_tags or brain_git_compare when they are listed; otherwise use git. \
+              When exploring code architecture in a repo with graphify enabled, use query_codebase after route_task when it is listed. \
               To ingest framework docs from an allowlisted HTTPS URL, use learn_from_url (see docs.allowed_domains in config). \
               At task end, call store_memory for durable outcomes (max 50 words). \
               Native tools (read, grep, edit, write, bash, glob) are fine for operations agent-brain does not provide alternatives for."
@@ -3177,5 +3241,83 @@ mod tests {
         let list_body = json_body(list_res);
         let entries = list_body["entries"].as_array().unwrap();
         assert!(entries.iter().any(|e| e["name"] == "sample.txt"));
+    }
+
+    async fn route_body(server: &BrainMcp, cwd: &TempDir) -> serde_json::Value {
+        let result = server
+            .route_task(Parameters(RouteTaskParams {
+                user_message: "inspect workspace files".into(),
+                current_working_directory: Some(cwd.path().display().to_string()),
+                open_files: vec![],
+                max_tokens: 500,
+                limits: RouteLimits::default(),
+                phase: None,
+                task_kind: None,
+            }))
+            .await
+            .expect("route_task must succeed");
+        json_body(result)
+    }
+
+    #[test]
+    fn every_core_tool_is_a_real_tool() {
+        let dir = TempDir::new().expect("tempdir");
+        let server = skill_test_server(&dir, &[]);
+        let names: Vec<String> = server
+            .tool_router
+            .list_all()
+            .into_iter()
+            .map(|tool| tool.name.to_string())
+            .collect();
+        for core in CORE_TOOLS {
+            assert!(names.iter().any(|name| name == core), "missing {core}");
+        }
+    }
+
+    #[tokio::test]
+    async fn route_task_reports_the_size_of_the_whole_response() {
+        let dir = TempDir::new().expect("tempdir");
+        let server = skill_test_server(&dir, &[]);
+        let ws = TempDir::new().expect("workspace");
+
+        let body = route_body(&server, &ws).await;
+        let reported = body["response_tokens"].as_u64().expect("response_tokens") as usize;
+        let rest: serde_json::Map<String, serde_json::Value> = body
+            .as_object()
+            .expect("object")
+            .iter()
+            .filter(|(field, _)| field.as_str() != "response_tokens")
+            .map(|(field, value)| (field.clone(), value.clone()))
+            .collect();
+        assert_eq!(
+            reported,
+            crate::tokens::estimate_json_tokens(&serde_json::Value::Object(rest))
+        );
+        assert!(reported >= body["tokens_used"].as_u64().expect("tokens_used") as usize);
+    }
+
+    #[tokio::test]
+    async fn a_second_route_does_not_repeat_constraint_text() {
+        let dir = TempDir::new().expect("tempdir");
+        let server = skill_test_server(&dir, &[]);
+        let ws = TempDir::new().expect("workspace");
+
+        let first = route_body(&server, &ws).await;
+        let second = route_body(&server, &ws).await;
+        let sent: Vec<&serde_json::Value> = first["must_apply"]
+            .as_array()
+            .map(|rules| rules.iter().collect())
+            .unwrap_or_default();
+        let repeated: Vec<&serde_json::Value> = second["must_apply"]
+            .as_array()
+            .map(|rules| rules.iter().filter(|rule| sent.contains(rule)).collect())
+            .unwrap_or_default();
+        assert!(repeated.is_empty(), "repeated in full: {repeated:?}");
+        if !sent.is_empty() {
+            assert_eq!(
+                second["must_apply"][0]["topic"],
+                crate::mcp::sent_constraints::STILL_APPLIES_TOPIC
+            );
+        }
     }
 }

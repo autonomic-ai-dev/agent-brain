@@ -49,3 +49,9 @@ feature: "[[../features/bench-extension]]"
 - Extension mechanism: [[cli-verify-and-memory]]
 
 - Formatting pass (rustfmt, 2026-11-07): line breaks and spacing only, no behaviour change.
+
+## Eval fixture location
+
+- The three fixture files moved from `agent-brain/eval/` to `extensions/bench/eval/` in the Horizon 2 change, where the loader already expected them.
+- The skill pool for the eval is `eval/skills.jsonl`: 120 skills exported from the brain database (`skill` rows of at most 600 characters, ordered by topic). Regenerate it from a read-only query of the database; the export is not refreshed automatically.
+- Review of the 28 eval cases: kept cases have a skill, rule or memory in the corpus that could answer them. The real-model run was worse on this fixture, so the deterministic embedder stays. The four misses return memory, not skills; they are recorded, not tuned.

@@ -349,6 +349,7 @@ fn should_skip(path: &Path) -> bool {
         // Skill-pack supporting docs are not routeable Rules (noise vs .mdc policy).
         || s.contains("/references/")
         || is_non_entry_skill_tree_doc(path)
+        || is_package_support_dir(&s)
         || s.ends_with(".pyc")
         || s.ends_with(".pyo")
         || s.ends_with(".so")
@@ -385,7 +386,34 @@ fn is_non_entry_skill_tree_doc(path: &Path) -> bool {
 
 /// True when an indexed Rule path should not remain in the DB.
 pub fn is_noise_rule_source(path: &str) -> bool {
-    path.contains("/references/") || is_non_entry_skill_tree_doc(Path::new(path))
+    path.contains("/references/")
+        || is_non_entry_skill_tree_doc(Path::new(path))
+        || !is_rule_file(Path::new(path))
+}
+
+fn is_rule_file(path: &Path) -> bool {
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default();
+    name.ends_with(".mdc")
+        || matches!(name, "AGENTS.md" | "CLAUDE.md" | "GEMINI.md")
+        || path.components().any(|c| c.as_os_str() == "rules")
+}
+
+fn is_package_support_dir(path: &str) -> bool {
+    path.contains("/.autonomic/memory/packages/")
+        && [
+            "/test/",
+            "/tests/",
+            "/fixtures/",
+            "/__fixtures__/",
+            "/examples/",
+            "/spec/",
+            "/docs/",
+        ]
+        .iter()
+        .any(|dir| path.contains(dir))
 }
 
 struct ParsedItem {
@@ -451,8 +479,7 @@ fn parse_file(path: &Path, repo: Option<&Path>, package: Option<String>) -> Opti
             name.clone(),
             extract_agent_text(&content, &name),
         )
-    } else if file_name.ends_with(".mdc") || file_name == "AGENTS.md" || file_name.ends_with(".md")
-    {
+    } else if is_rule_file(path) {
         (
             ItemType::Rule,
             file_name.clone(),
@@ -591,5 +618,192 @@ mod tests {
         assert!(should_skip(state));
         let log = Path::new("/h/.autonomic/memory/logs/route.log");
         assert!(should_skip(log));
+    }
+
+    #[test]
+    fn only_mdc_entry_files_and_files_under_rules_are_rules() {
+        assert!(is_rule_file(Path::new("/p/.cursor/rules/style.mdc")));
+        assert!(is_rule_file(Path::new("/home/u/.claude/rules/route.md")));
+        assert!(is_rule_file(Path::new("/p/AGENTS.md")));
+        assert!(!is_rule_file(Path::new("/p/docs/design.md")));
+        assert!(!is_rule_file(Path::new("/p/README.md")));
+    }
+
+    #[test]
+    fn package_test_fixture_and_doc_files_are_not_indexed() {
+        let pkg = "/home/u/.autonomic/memory/packages/acme-skills";
+        assert!(should_skip(Path::new(&format!(
+            "{pkg}/test/fixtures/app/README.md"
+        ))));
+        assert!(should_skip(Path::new(&format!("{pkg}/docs/guide.md"))));
+        assert!(!should_skip(Path::new(&format!("{pkg}/rules/style.mdc"))));
+        assert!(!should_skip(Path::new("/p/docs/design.md")));
+    }
+
+    fn write_file(root: &Path, rel: &str, body: &str) -> std::path::PathBuf {
+        let path = root.join(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, body).unwrap();
+        path
+    }
+
+    #[test]
+    fn skill_is_indexed_by_directory_name_with_description_and_activation() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = write_file(
+            dir.path(),
+            "skills/alpha/SKILL.md",
+            "---\nname: alpha\ndescription: Fixture dispatcher for routing.\n---\n# Alpha\n\n## When to use\nUse when the user asks for a fixture dispatch.\n",
+        );
+        let item = parse_file(&path, None, None).unwrap();
+        assert_eq!(item.item_type, ItemType::Skill);
+        assert_eq!(item.topic, "alpha");
+        assert_eq!(item.scope, "global");
+        assert_eq!(item.scope_key, None);
+        assert!(item.text.contains("Fixture dispatcher for routing."));
+        assert!(item
+            .text
+            .contains("Use when the user asks for a fixture dispatch."));
+    }
+
+    #[test]
+    fn commands_and_agents_are_indexed_under_their_own_types() {
+        let dir = tempfile::tempdir().unwrap();
+        let command = write_file(dir.path(), "commands/deploy.md", "Ship the build.\n");
+        let agent = write_file(dir.path(), "agents/reviewer.md", "Reviews diffs.\n");
+        let command_item = parse_file(&command, None, None).unwrap();
+        assert_eq!(command_item.item_type, ItemType::Skill);
+        assert_eq!(command_item.topic, "command:deploy");
+        let agent_item = parse_file(&agent, None, None).unwrap();
+        assert_eq!(agent_item.item_type, ItemType::Agent);
+        assert_eq!(agent_item.topic, "reviewer");
+        assert!(agent_item.text.starts_with("reviewer Reviews diffs."));
+    }
+
+    #[test]
+    fn rule_files_take_their_scope_from_the_package_or_the_repo() {
+        let dir = tempfile::tempdir().unwrap();
+        let rule = write_file(dir.path(), "rules/style.mdc", "Prefer small functions.");
+        let repo = dir.path().join("repo");
+        let project = parse_file(&rule, Some(&repo), None).unwrap();
+        assert_eq!(project.item_type, ItemType::Rule);
+        assert_eq!(project.topic, "style.mdc");
+        assert_eq!(project.scope, "project");
+        assert_eq!(project.scope_key, Some(repo.display().to_string()));
+        let packaged = parse_file(&rule, Some(&repo), Some("acme".into())).unwrap();
+        assert_eq!(packaged.scope, "package");
+        assert_eq!(packaged.scope_key, Some("acme".to_string()));
+    }
+
+    #[test]
+    fn unclassified_files_are_not_indexed() {
+        let dir = tempfile::tempdir().unwrap();
+        let notes = write_file(dir.path(), "notes/readme.txt", "scratch");
+        assert!(parse_file(&notes, None, None).is_none());
+        assert!(parse_file(&dir.path().join("missing.md"), None, None).is_none());
+    }
+
+    #[test]
+    fn skill_text_falls_back_to_the_body_when_no_activation_section_exists() {
+        assert_eq!(extract_skill_text("just words", "beta"), "beta just words");
+        assert_eq!(
+            extract_skill_text("---\nname: beta\n---\nbody line", "beta"),
+            "beta body line"
+        );
+    }
+
+    #[test]
+    fn skill_text_keeps_a_frontmatter_name_that_differs_from_the_directory() {
+        let content = "---\nname: other\ndescription: Does things.\n---\nbody";
+        assert_eq!(
+            extract_skill_text(content, "alpha"),
+            "alpha Does things. other body"
+        );
+    }
+
+    #[test]
+    fn yaml_scalar_fields_are_unquoted_and_block_scalars_are_skipped() {
+        let front = "description: >\n  folded\nname: \"quoted\"\nempty:\n";
+        assert_eq!(yaml_scalar_field(front, "description"), None);
+        assert_eq!(yaml_scalar_field(front, "name"), Some("quoted".into()));
+        assert_eq!(yaml_scalar_field(front, "empty"), None);
+        assert_eq!(yaml_scalar_field(front, "missing"), None);
+    }
+
+    #[test]
+    fn frontmatter_needs_both_delimiters() {
+        assert!(split_yaml_frontmatter("name: x\n---\nbody").is_none());
+        assert!(split_yaml_frontmatter("---\nname: x\nbody").is_none());
+        assert_eq!(
+            split_yaml_frontmatter("---\nname: x\n---\nbody"),
+            Some(("\nname: x", "body"))
+        );
+    }
+
+    #[test]
+    fn a_trigger_phrase_with_too_little_text_is_not_an_activation_section() {
+        assert_eq!(extract_activation_section("use when"), None);
+        assert!(extract_activation_section("Use when reviewing a diff for risk.").is_some());
+    }
+
+    #[test]
+    fn generated_build_caches_and_fixture_trees_are_skipped() {
+        for path in [
+            "/p/node_modules/x/index.js",
+            "/p/target/debug/a.rs",
+            "/p/.git/config",
+            "/p/.venv/lib/a.py",
+            "/p/dist/app.js",
+            "/p/build/out.txt",
+            "/p/__pycache__/a.pyc",
+            "/p/.cache/x.md",
+            "/p/vendor/lib.md",
+            "/p/skills/deprecated/old/SKILL.md",
+            "/p/skills/alpha/references/api.md",
+            "/p/bin/tool.exe",
+            "/p/lib/libx.dylib",
+        ] {
+            assert!(should_skip(Path::new(path)), "{path} should be skipped");
+        }
+        assert!(should_skip(Path::new("/h/.autonomic/memory/logs/run.txt")));
+        assert!(!should_skip(Path::new("/h/.autonomic/agents/reviewer.md")));
+    }
+
+    #[test]
+    fn only_non_entry_docs_inside_skill_trees_are_skill_tree_docs() {
+        assert!(is_non_entry_skill_tree_doc(Path::new(
+            "/p/skills/alpha/notes.md"
+        )));
+        assert!(!is_non_entry_skill_tree_doc(Path::new(
+            "/p/skills/alpha/SKILL.md"
+        )));
+        assert!(!is_non_entry_skill_tree_doc(Path::new(
+            "/p/skills/alpha/rules.mdc"
+        )));
+        assert!(!is_non_entry_skill_tree_doc(Path::new(
+            "/p/agents/skills/notes.md"
+        )));
+        assert!(!is_non_entry_skill_tree_doc(Path::new(
+            "/p/random/notes.md"
+        )));
+    }
+
+    #[test]
+    fn noise_rule_sources_are_the_non_rule_files_and_reference_docs() {
+        assert!(!is_noise_rule_source("/p/rules/style.mdc"));
+        assert!(!is_noise_rule_source("/p/AGENTS.md"));
+        assert!(is_noise_rule_source("/p/docs/design.md"));
+        assert!(is_noise_rule_source("/p/rules/references/x.mdc"));
+        assert!(is_noise_rule_source("/p/skills/alpha/notes.md"));
+    }
+
+    #[test]
+    fn package_context_names_the_package_directory_under_home() {
+        let home = Path::new("/h/.autonomic/memory");
+        assert_eq!(
+            package_context(&home.join("packages/acme/rules/a.mdc"), home),
+            Some("acme".to_string())
+        );
+        assert_eq!(package_context(Path::new("/elsewhere/a.mdc"), home), None);
     }
 }
