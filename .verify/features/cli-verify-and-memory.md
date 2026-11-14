@@ -236,9 +236,7 @@ Summary: tekmor is the routing layer that every agent calls at turn start. Its C
 - `tekmor/hooks`
 - `tekmor/Cargo.toml`
 - `tekmor/config.example.yaml`
-- `.cursor/mcp.json`
-- `.cursor/mcp.json.example`
-- `.cursor/rules`
+- `.cursor`
 - `Cargo.lock`
 - `README.md`
 - `LICENSE`

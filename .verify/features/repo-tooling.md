@@ -19,7 +19,7 @@ Summary: The scripts, Makefile and Containerfile that install, build, sign, rele
   - Behaviour: `scripts/build-release-macos.sh` builds the release binary, `scripts/sign-macos.sh` signs it, and `scripts/sync-local-release.sh` copies it to the local install.
   - Outcome: A signed macOS binary ready for the release workflow.
 - `migrate-to-tekmor`: Moves a machine from the agent-brain name to tekmor.
-  - Behaviour: `scripts/migrate-to-tekmor.sh` copies the legacy data home, renames the old rule files, rewrites names in host configs and shell files with a backup for each edited file, and reinstalls host hooks. `--dry-run` only prints the changes.
+  - Behaviour: `scripts/migrate-to-tekmor.sh` copies the legacy data home, renames the old rule files, rewrites names in host configs, the shell files and `~/.autonomic/memory/config.yaml` (where tekmor reads its settings) with a backup for each edited file, and reinstalls host hooks. `--dry-run` only prints the changes.
   - Outcome: Each machine runs under the tekmor name. See `tekmor/docs/migrate-to-tekmor.md`.
 - `product-init`: Creates a product scaffold from the repository's templates.
   - Behaviour: `scripts/product-init.sh`.

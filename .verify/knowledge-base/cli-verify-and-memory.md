@@ -164,3 +164,7 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 - The retrieval log no longer writes `saved_pct`. The stored column stays, and new rows write it as empty.
 - Stats no longer report `total_saved_tokens`, `avg_saved_pct` or `routes_with_savings`. The dashboard headline counts tool savings only.
 - The estimate assumed every indexed item would be loaded, so it was never a measurement.
+
+## Repo-level host files
+
+- The root `AGENTS.md` and the `.cursor/` folder were removed from the repository. They were project-install output, not runtime inputs. `tekmor install` or `tekmor mode install` recreates them in a project that needs them.
