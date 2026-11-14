@@ -1054,25 +1054,7 @@ impl Engine {
             .collect();
         if !memory_ids.is_empty() {
             if let Ok(stats) = self.store.load_retrieval_stats(&memory_ids) {
-                let mut retrieval_stats = Vec::new();
-                for scored_item in &scored {
-                    if !matches!(scored_item.item_type, crate::types::ItemType::Memory) {
-                        continue;
-                    }
-                    if let Some(&(useful, useless)) = stats.get(&scored_item.id) {
-                        let topic_listed = retrieval_stats
-                            .iter()
-                            .any(|stat: &crate::types::MemoryRetrievalStat| stat.topic == scored_item.topic);
-                        if (useful > 0 || useless > 0) && !topic_listed {
-                            retrieval_stats.push(crate::types::MemoryRetrievalStat {
-                                topic: scored_item.topic.clone(),
-                                useful_count: useful,
-                                useless_count: useless,
-                            });
-                        }
-                    }
-                }
-                resp.retrieval_stats = retrieval_stats;
+                resp.retrieval_stats = memory_retrieval_stats(&scored, &stats);
             }
         }
 
@@ -2150,10 +2132,68 @@ fn auto_observe_topics(
     Ok(())
 }
 
+fn memory_retrieval_stats(
+    scored: &[ScoredItem],
+    stats: &HashMap<String, (u32, u32)>,
+) -> Vec<crate::types::MemoryRetrievalStat> {
+    let mut listed: Vec<crate::types::MemoryRetrievalStat> = Vec::new();
+    for item in scored
+        .iter()
+        .filter(|item| matches!(item.item_type, crate::types::ItemType::Memory))
+    {
+        let Some(&(useful, useless)) = stats.get(&item.id) else {
+            continue;
+        };
+        let topic_listed = listed.iter().any(|stat| stat.topic == item.topic);
+        if (useful > 0 || useless > 0) && !topic_listed {
+            listed.push(crate::types::MemoryRetrievalStat {
+                topic: item.topic.clone(),
+                useful_count: useful,
+                useless_count: useless,
+            });
+        }
+    }
+    listed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::types::{ItemType, RouteLimits, ScoredItem};
+
+    fn scored_memory(id: &str, topic: &str) -> ScoredItem {
+        ScoredItem {
+            id: id.into(),
+            item_type: ItemType::Memory,
+            topic: topic.into(),
+            text: String::new(),
+            source_path: None,
+            scope: "project".into(),
+            score: 1.0,
+            polarity: None,
+            apply_when_matched: false,
+            lexical: 0.0,
+            scope_key: None,
+        }
+    }
+
+    #[test]
+    fn memory_retrieval_stats_lists_each_topic_once() {
+        let scored = [
+            scored_memory("m1", "ci-beam"),
+            scored_memory("m2", "ci-beam"),
+            scored_memory("m3", "rust-style"),
+        ];
+        let stats = HashMap::from([
+            ("m1".to_string(), (2, 0)),
+            ("m2".to_string(), (5, 1)),
+            ("m3".to_string(), (0, 0)),
+        ]);
+        let listed = memory_retrieval_stats(&scored, &stats);
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].topic, "ci-beam");
+        assert_eq!(listed[0].useful_count, 2);
+    }
 
     #[test]
     fn an_unclear_message_keeps_the_phase_of_the_last_clear_one() {

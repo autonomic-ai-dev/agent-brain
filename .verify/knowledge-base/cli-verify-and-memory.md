@@ -176,3 +176,7 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 ## Retrieval stats deduped by topic (R-17)
 
 - A route lists each memory topic once in `retrieval_stats`, even when two memories share it.
+
+## Retrieval stats dedupe is tested (R-17)
+
+- The dedupe is the pure function `memory_retrieval_stats` in `tekmor/src/engine.rs`, with a regression test.
