@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/autonomic-ai-dev/agent-brain/master/scripts/install.sh | bash
 #   curl -fsSL ... | bash -s -- --from-source
 #   curl -fsSL ... | bash -s -- --global
 #
 set -euo pipefail
 
-REPO="${TEKMOR_REPO:-autonomic-ai-dev/agent-brain}"
+REPO="${TEKMOR_REPO:-autonomic-ai-dev/tekmor}"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 FROM_SOURCE=0
 GLOBAL=0
@@ -33,7 +32,7 @@ Options:
 
 Environment:
   INSTALL_DIR     Binary install location (default: ~/.local/bin)
-  TEKMOR_REPO  GitHub repo (default: autonomic-ai-dev/agent-brain)
+  TEKMOR_REPO  GitHub repo (default: autonomic-ai-dev/tekmor)
 EOF
       exit 0
       ;;

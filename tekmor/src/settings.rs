@@ -580,7 +580,7 @@ fn default_true() -> bool {
 }
 
 fn default_repo() -> String {
-    "autonomic-ai-dev/agent-brain".into()
+    "autonomic-ai-dev/tekmor".into()
 }
 
 fn default_bin_path() -> String {
@@ -782,7 +782,7 @@ auto_update:
     names: [ecc]
   mcp:
     enabled: false
-    repo: autonomic-ai-dev/agent-brain
+    repo: autonomic-ai-dev/tekmor
 "#,
         )
         .unwrap();

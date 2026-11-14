@@ -12,8 +12,9 @@ agent-brain is now called tekmor. Each machine that ran agent-brain needs one mi
 | legacy data home `~/.agent_brain` | `~/.tekmor` (copied, original kept) |
 | rules `agent-brain-route.md`, `agent-brain.mdc` | `tekmor-route.md`, `tekmor.mdc` |
 | host hooks and marker blocks `agent-brain:begin` | `tekmor:begin` |
+| workflow engine `agent-spine` and data home `~/.config/agent-spine` | `thesmos` and `~/.config/thesmos` (copied, original kept) |
 
-Unchanged: the shared memory store under `~/.autonomic/memory`, and the GitHub repository `autonomic-ai-dev/agent-brain` until it is renamed on GitHub.
+Unchanged: the shared memory store under `~/.autonomic/memory`. The GitHub repos are renamed: `autonomic-ai-dev/tekmor` and `autonomic-ai-dev/thesmos`. Old URLs redirect.
 
 ## Steps on each machine
 

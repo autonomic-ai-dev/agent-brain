@@ -4,7 +4,7 @@ set -euo pipefail
 DRY=0
 if [ "${1:-}" = "--dry-run" ]; then DRY=1; fi
 STAMP=$(date +%Y%m%d%H%M%S)
-GITHUB_REPO="autonomic-ai-dev/agent-brain"
+GITHUB_REPO="autonomic-ai-dev/tekmor"
 
 say() { printf '%s\n' "$*"; }
 act() {
@@ -24,9 +24,14 @@ if [ -d .agent_brain ] && [ ! -e .tekmor ]; then
   act cp -R .agent_brain .tekmor
 fi
 
+if [ -d .config/agent-spine ] && [ ! -e .config/thesmos ]; then
+  say "copy ~/.config/agent-spine to ~/.config/thesmos (original kept)"
+  act cp -R .config/agent-spine .config/thesmos
+fi
+
 rewrite_names_in() {
   local file="$1"
-  grep -q -i -E 'agent[-_]brain|AGENT_BRAIN' "$file" || return 0
+  grep -q -i -E 'agent[-_](brain|spine)|AGENT_BRAIN' "$file" || return 0
   say "rewrite names in ~/$file"
   if [ "$DRY" = 0 ]; then
     cp "$file" "$file.pre-tekmor-$STAMP"
@@ -35,6 +40,7 @@ rewrite_names_in() {
       -e 's/AGENT_BRAIN/TEKMOR/g' \
       -e 's/agent_brain/tekmor/g' \
       -e 's/agent-brain/tekmor/g' \
+      -e 's/agent-spine/thesmos/g' \
       -e "s#@@REPO@@#$GITHUB_REPO#g" \
       "$file"
   fi

@@ -31,7 +31,7 @@ pub fn print_onboarding(home: &Path, has_briefing: bool) {
     }
     println!();
     println!("Curated packs:  tekmor registry list");
-    println!("Team setup:       docs/TEAM-WORKFLOW.md (github.com/autonomic-ai-dev/agent-brain)");
+    println!("Team setup:       docs/TEAM-WORKFLOW.md (github.com/autonomic-ai-dev/tekmor)");
     println!("Dev proofs: tekmor proofs --ci");
     if let Ok(config) = crate::config::Config::load() {
         if let Ok(store) = crate::db::store::BrainStore::open(&config.db_path) {

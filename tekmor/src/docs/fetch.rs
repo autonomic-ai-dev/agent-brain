@@ -8,7 +8,7 @@ pub fn fetch_url(url: &str, max_bytes: usize) -> Result<Vec<u8>> {
     let response = ureq::get(url)
         .header(
             "User-Agent",
-            "tekmor/0.18 (+https://github.com/autonomic-ai-dev/agent-brain)",
+            "tekmor/0.18 (+https://github.com/autonomic-ai-dev/tekmor)",
         )
         .header(
             "Accept",

@@ -8,7 +8,7 @@ auto_update:
     # names: [ecc]   # omit or leave empty to update all installed packages
   mcp:
     enabled: true
-    repo: autonomic-ai-dev/agent-brain
+    repo: autonomic-ai-dev/tekmor
     bin_path: ~/.local/bin/tekmor
     refresh_cursor: true
     restart_after_update: true
