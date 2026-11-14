@@ -35,6 +35,10 @@ Summary: `tekmor serve` runs in two roles. A shared daemon holds the brain datab
 - **Tool surface filter:** `visible_tools` in `src/mcp/server.rs` applies `mcp.tool_surface` to `list_tools`. Hidden tools stay in the router, so a call by name still works.
   - Outcome: Tests `the_core_surface_lists_exactly_the_core_tools` and `the_full_surface_lists_every_routed_tool_and_hidden_tools_stay_routed`.
 
+- `mcp-core-route-response`: Under `mcp.tool_surface: core`, the MCP route response omits `context_bundle` (R-8).
+  - Behaviour: `core_tool_surface` in `tekmor/src/mcp/server.rs` clears `context_bundle` before `route_task` serializes the response. The gRPC response keeps it.
+  - Outcome: Core-surface agents get a smaller route response. Full-surface agents see no change.
+
 ## Code
 
 - `tekmor/src/main.rs` (`serve` branch)

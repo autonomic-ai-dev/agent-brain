@@ -770,6 +770,14 @@ impl BrainMcp {
             must_apply: self.sent_constraints.collapse(&resp.must_apply),
             ..resp
         };
+        let resp = if core_tool_surface(&self.engine.config.home) {
+            RouteTaskResponse {
+                context_bundle: None,
+                ..resp
+            }
+        } else {
+            resp
+        };
         let response_tokens = crate::tokens::estimate_json_tokens(
             &serde_json::to_value(&resp)
                 .map_err(|e| McpError::internal_error(format!("{e}"), None))?,
@@ -2067,6 +2075,13 @@ const CORE_TOOLS: &[&str] = &[
     "route_to_mcp",
 ];
 
+fn core_tool_surface(home: &Path) -> bool {
+    matches!(
+        crate::settings::AgentBrainSettings::load(home).mcp.tool_surface,
+        crate::settings::ToolSurface::Core
+    )
+}
+
 fn visible_tools(tools: Vec<rmcp::model::Tool>, core: bool) -> Vec<rmcp::model::Tool> {
     tools
         .into_iter()
@@ -3284,6 +3299,14 @@ mod tests {
         assert!(routed
             .iter()
             .any(|tool| !CORE_TOOLS.contains(&tool.name.as_ref())));
+    }
+
+    #[test]
+    fn core_tool_surface_follows_the_setting() {
+        let dir = TempDir::new().expect("tempdir");
+        assert!(!core_tool_surface(dir.path()));
+        fs::write(dir.path().join("config.yaml"), "mcp:\n  tool_surface: core\n").unwrap();
+        assert!(core_tool_surface(dir.path()));
     }
 
     #[test]

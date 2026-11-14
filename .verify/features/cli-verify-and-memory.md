@@ -237,6 +237,10 @@ Summary: tekmor is the routing layer that every agent calls at turn start. Its C
   - Behaviour: `tekmor/src/engine.rs` skips a memory whose topic is already listed in `retrieval_stats`.
   - Outcome: A topic that matches two memories appears once in the route response.
 
+- `mcp-core-route-response`: Under `mcp.tool_surface: core`, the MCP route response omits `context_bundle` (R-8). See [[serve-daemon-and-proxy]].
+  - Behaviour: `core_tool_surface` in `tekmor/src/mcp/server.rs`.
+  - Outcome: Core-surface agents get a smaller route response.
+
 ## Code
 
 - `tekmor/src`
