@@ -1060,7 +1060,10 @@ impl Engine {
                         continue;
                     }
                     if let Some(&(useful, useless)) = stats.get(&scored_item.id) {
-                        if useful > 0 || useless > 0 {
+                        let topic_listed = retrieval_stats
+                            .iter()
+                            .any(|stat: &crate::types::MemoryRetrievalStat| stat.topic == scored_item.topic);
+                        if (useful > 0 || useless > 0) && !topic_listed {
                             retrieval_stats.push(crate::types::MemoryRetrievalStat {
                                 topic: scored_item.topic.clone(),
                                 useful_count: useful,
