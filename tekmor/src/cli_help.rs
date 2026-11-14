@@ -475,6 +475,7 @@ Usage:  tekmor verify [OPTIONS] -- <cmd> [args...]
         tekmor verify record --exit N [OPTIONS] -- <cmd summary...>
         tekmor verify run [--project <DIR>] [--json]
         tekmor verify receipt [--project <DIR>] [--markdown|--json]
+        tekmor verify summary [--json]
 
 Run an allowlisted verification command and record trusted outcome.
 
@@ -484,6 +485,8 @@ Subcommands:
   run                   Run the [verify.default] step declared in verify.toml, with its timeout
   receipt               Show whether the current commit and code state passed its verify run.
                         Exit 0 only when PASSED. --markdown prints a block to paste into a PR.
+  summary               Per check: failed runs out of all runs, and the latest exit code.
+                        Failing checks come first. --json prints the same as JSON.
 
 Options:
       --source <SOURCE>    Outcome source: cli (default) or orchestrator (spine/muscle)

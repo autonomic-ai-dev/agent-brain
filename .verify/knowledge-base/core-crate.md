@@ -65,3 +65,7 @@ Version 1.0.0-rc5 (`tekmor/crates/tekmor-core/Cargo.toml`). See CHANGELOG.md for
 ## Evidence reader (H3-4, ADR 0002)
 
 - Verify-run queries go through `evidence_reader` (recent_runs, project_runs). Receipt and stop gate still differ on rows with a NULL source; see ADR 0002 amendment 4.
+
+## Per-check summary (H4-4, ADR 0003 amendment 1)
+
+- `tekmor verify summary` groups recent runs by command: failed runs out of all runs, and the latest exit code. Failing checks come first. Local only; a team view needs a shared store (own ADR).
