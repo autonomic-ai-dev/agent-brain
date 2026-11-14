@@ -3803,6 +3803,20 @@ pub struct VerifyOutcomeRow {
     pub head_sha: Option<String>,
 }
 
+impl From<VerifyOutcomeRow> for tekmor_core::evidence::EvidenceRecord {
+    fn from(row: VerifyOutcomeRow) -> Self {
+        Self {
+            id: row.id,
+            cmd: row.cmd,
+            exit_code: row.exit_code,
+            recorded_at: row.recorded_at,
+            source: row.source.unwrap_or_else(|| "cli".to_string()),
+            code_hash: row.code_hash,
+            head_sha: row.head_sha,
+        }
+    }
+}
+
 pub struct StoreFactResult {
     pub id: String,
     pub stored: bool,

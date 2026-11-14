@@ -56,3 +56,9 @@ The first draft gave `ContextItem` an id, a kind, a token cost and a "why now" r
 `ContextItem` now carries a typed payload: `File(FileContext)` or `Lesson(LessonRec)`, both defined in `tekmor-core`. The route response keeps its current fields, so clients see no change.
 
 Token cost and "why now" are dropped for now. They come back with the budget merger, which is the first thing that needs them. The provider trait is still deferred. Each provider is a plain function, and one gather step builds the items.
+
+## Amendment 2: evidence source (H3-2)
+
+The evidence socket is `EvidenceRecord` in `tekmor-core`. It holds the fields the receipt reads, and `is_run_for` decides whether a record proves a given head and code tree. The store row converts into it at the store boundary, so the receipt no longer depends on storage types.
+
+The bench proofs are not a second source yet. The bench baseline files under `.verify/baseline` record no code hash or head SHA, so they cannot satisfy `is_run_for`. A second source waits until bench records both. Adding a source then means adding a row mapping, with no change to the receipt.
