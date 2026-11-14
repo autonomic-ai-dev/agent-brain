@@ -94,18 +94,10 @@ Summary: tekmor is the routing layer that every agent calls at turn start. Its C
   - Intent: a repeatable demo of the claim that verified runs make later work faster.
   - Behaviour: two `verify --` runs for the same command produce trajectories that `retrieval::recall_procedures` groups into one procedure with total_runs 2 and success_rate 0.5.
   - Outcome: Regression tests: `tests/procedure_reuse.rs`. Demo: `docs/procedure-reuse-demo.md`.
-- `dashboard-tiles`: Each dashboard tile opens to show what it counts and its source.
-  - Behaviour: each card is a `<details>` element, so it works without scripts. The detail text states whether a figure is measured or an estimate.
-  - Outcome: Regression test: `tests/dashboard_tiles.rs`.
 - `egress-statement`: Every network path tekmor can open is listed in `docs/egress.md`.
   - Intent: A reviewer or user can check the no-telemetry and no-LLM claims against the code.
   - Behaviour: `tests/egress_guard.rs` finds files that use a network client or spawn `curl` or git network subcommands, and fails unless they match `EXPECTED_NETWORK_FILES`. It also checks that no LLM provider host appears in source and that no telemetry SDK is a dependency.
   - Outcome: Adding a network path requires updating the doc and the list together. Regression tests: the three `egress_guard` tests.
-- `dashboard-measured-figures`: The local dashboard labels each figure by how it is produced.
-  - Intent: Savings shown to a user must be measured or clearly marked as an estimate or upper bound.
-  - Behaviour: `tekmor dashboard` renders `OperatorStats` (`src/stats.rs`). Its daily series comes from `BrainStore::daily_usage_since` (`src/db/store.rs`): routed tokens from `retrieval_log`, bounded-read saving from `tool_log.tokens_saved`, and verify passed/failed from `verify_outcomes.exit_code`. The bounded-read saving is an upper bound (bytes scanned ÷ 4 minus tokens returned). The naive-load figure assumes 120 tokens per indexed item.
-  - Breakdowns: daily route calls, cache hit rate, and context tokens; latency buckets from `retrieval_log`; route phases; bounded tools by calls from `tool_log`; verify runs by command from `verify_outcomes`; indexed items by type. Every label from data is HTML-escaped.
-  - Outcome: Charts are inline SVG and bars are HTML, with no network calls. Regression tests: `dashboard::tests` (empty period, scaling, zero values, escaping, stacked rows, line clamping) and `db::store::tests::dashboard_breakdowns_count_only_recorded_rows`.
 - `stop-gate-repo-name`: The stop-gate block names the repo it blocks.
   - Intent: A block raised while working in one repo must not look like it belongs to another.
   - Behaviour: `run_stop_gate` prefixes each block reason with `Repo <name> is blocked:` (`named_reason` in `src/stop_gate.rs`). The gate evaluates only the git root of the session's cwd.
@@ -241,9 +233,6 @@ Summary: tekmor is the routing layer that every agent calls at turn start. Its C
   - Behaviour: `core_tool_surface` in `tekmor/src/mcp/server.rs`.
   - Outcome: Core-surface agents get a smaller route response.
 
-- `savings-upper-bound-labels`: Bounded-read savings are labelled as an upper bound everywhere in the dashboard (R-10).
-  - Behaviour: `tekmor/src/dashboard.rs` labels the tile and the per-tool hint "upper bound", and the tile's note says it is not a measurement. The estimated-vs-naive wording is removed.
-  - Outcome: No dashboard figure is presented as a measurement when it is an upper bound.
 
 - `upstream-tool-name-match`: An upstream tool is suggested only when the query matches its server or tool name (R-5).
   - Behaviour: `score_tool` in `tekmor/src/upstream/suggest.rs` returns zero for a description-only match.

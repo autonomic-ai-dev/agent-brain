@@ -448,22 +448,6 @@ async fn main() -> Result<()> {
             }
         }
 
-        "dashboard" => {
-            let days = flag_value(&args, "--days")
-                .and_then(|v| v.parse::<u32>().ok())
-                .unwrap_or(7);
-            let open = args.iter().any(|a| a == "--open");
-            let config = Config::load()?;
-            let store = tekmor::db::store::BrainStore::open(&config.db_path)?;
-            let snapshot = tekmor::stats::collect(&store, &config, days)?;
-            let path = tekmor::dashboard::write_dashboard_html(&config.home, &snapshot)?;
-            println!("{}", tekmor::stats::format_text(&snapshot));
-            println!("Dashboard: {}", path.display());
-            if open {
-                open_dashboard_in_browser(&path)?;
-            }
-        }
-
         "onboarding" => {
             let config = Config::load()?;
             let briefing = config.logs_dir.join("last-route.md");
@@ -1434,25 +1418,6 @@ fn flag_value(args: &[String], flag: &str) -> Option<String> {
         .position(|a| a == flag)
         .and_then(|idx| args.get(idx + 1))
         .cloned()
-}
-
-fn open_dashboard_in_browser(path: &std::path::Path) -> Result<()> {
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("open").arg(path).status()?;
-    }
-    #[cfg(target_os = "linux")]
-    {
-        let _ = std::process::Command::new("xdg-open").arg(path).status();
-    }
-    #[cfg(windows)]
-    {
-        std::process::Command::new("cmd")
-            .args(["/C", "start", ""])
-            .arg(path)
-            .status()?;
-    }
-    Ok(())
 }
 
 fn parse_session_sources(args: &[String]) -> Result<Vec<tekmor::sessions::SessionSource>> {

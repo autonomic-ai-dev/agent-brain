@@ -54,7 +54,6 @@ Memory & Sync:
 
 Ops:
   stats         Local route / latency metrics
-  dashboard     Write a local HTML metrics page
   inspect       Retrieval logs, facts, conflicts
   learn         Ingest allowlisted docs into skills + memory
   log           Print or follow a named log file
@@ -421,17 +420,6 @@ Options:
       --days N    Lookback window (default: 7)
       --json      Machine-readable JSON
       --markdown  Shareable summary of measured figures only, for a weekly update
-"
-        }
-        "dashboard" => {
-            "\
-Usage:  tekmor dashboard [OPTIONS]
-
-Write a local HTML metrics page (routes, latency, activity).
-
-Options:
-      --days N    Lookback window (default: 7)
-      --open      Open the HTML file in the default browser
 "
         }
         "inspect" => {

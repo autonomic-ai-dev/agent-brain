@@ -222,3 +222,7 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 ## Lessons in the sync bundle (H4-3, ADR 0003 amendment 2)
 
 - `tekmor export --with-lessons` writes lessons.jsonl, checksummed in the manifest. Each lesson is secret-checked on export and on import. Default export is unchanged.
+
+## Dashboard removed (proof-core scope)
+
+- `tekmor dashboard` and `src/dashboard.rs` were removed. Earlier notes in this file about the dashboard describe the removed code and are kept as history.

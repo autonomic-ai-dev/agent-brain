@@ -414,7 +414,6 @@ pub fn run(fix: bool) -> Result<()> {
     println!("Tips:");
     println!("  • tekmor briefing — readable route + estimated token savings vs full index");
     println!("  • tekmor stats — index size, latency, local route activity");
-    println!("  • tekmor dashboard --open — local HTML metrics (routes, latency, activity)");
     println!("  • tekmor onboarding — 5-minute getting started checklist");
     println!("  • tekmor install --all --global — MCP + instructions for Cursor, OpenCode, Claude Code, VS Code, Codex, Gemini, Antigravity");
     println!("  • Claude Code, Codex, Gemini, Antigravity, OpenCode: route gate hooks installed via install --<host> [--global]");
