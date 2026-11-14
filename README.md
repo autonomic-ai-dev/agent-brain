@@ -1,223 +1,112 @@
 # tekmor
 
-> **Local-First Cognitive Governor, Turn Router & Procedure Graph for Coding Agents.**
+A local router for coding agents. tekmor gives the agent the skills, rules and memory a task needs, makes sure the agent routes every turn, and records what really passed.
 
-[![Version](https://img.shields.io/badge/version-1.0.0--rc7-blue.svg)](CHANGELOG.md)
+[![crates.io](https://img.shields.io/crates/v/tekmor.svg)](https://crates.io/crates/tekmor)
+[![Version](https://img.shields.io/badge/version-1.1.0--rc2-blue.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon)-lightgrey.svg)](https://autonomic-ai.dev)
-[![Documentation](https://img.shields.io/badge/docs-autonomic--ai.dev-black.svg)](https://autonomic-ai.dev)
 
-Part of [Autonomic AI](https://autonomic-ai.dev), alongside [thesmos](https://github.com/autonomic-ai-dev/thesmos). Operates locally over stdio MCP. Route-gate hooks are installed for **Claude Code**, **Cursor**, **Antigravity (AGY)**, **OpenCode**, **Codex** and **Gemini CLI**. **VS Code** and GitHub Copilot get an MCP entry and instructions only.
+tekmor runs on your machine over stdio MCP. Routing, memory and verification stay local.
 
----
+## Why tekmor
 
-## Name
+- **Less context per turn.** The agent gets the few skills and rules that match the task, within a fixed token budget.
+- **Routing that holds.** Host hooks block the agent's tool calls until the turn has been routed.
+- **Proof, not claims.** `tekmor verify -- <cmd>` records a command's real exit code. A receipt says PASSED, FAILED or NOT VERIFIED for the code as it is now.
+- **Shell guard.** Destructive shell commands are blocked before they run, and the block names a safe alternative.
+- **Memory across sessions.** Facts you store are recalled in later sessions.
 
-**tekmor** is a short spelling of *tekmērion* (τεκμήριον), Greek for proof or evidence: the sure sign that settles a question. The name fits the product: every check tekmor runs leaves recorded evidence, and a turn is not done until that evidence exists.
+## Supported hosts
 
-Sources: [Strong's G5039 on Bible Hub](https://biblehub.com/greek/5039.htm) and [OpenBible Strong's G5039](https://openbible.com/strongs/greek/5039.htm).
+| Host | What tekmor sets up |
+|------|---------------------|
+| Claude Code | MCP server and route-gate hook |
+| Cursor | MCP server, route-gate hook and rules |
+| Codex | MCP server and hooks |
+| Gemini CLI and Antigravity | MCP server and hooks |
+| OpenCode | MCP server and route-gate plugin |
+| Claude Desktop and VS Code | MCP server |
 
----
+Hook enforcement depends on the host. Claude Desktop and VS Code get the MCP server only.
 
-## Architectural Overview
-
-```mermaid
-flowchart LR
-    Host["AI Agent / IDE Host"] --> Gate{"route_gate<br/>(Host Pre-Tool Hook)"}
-    Gate --> Engine[("SQLite + HNSW Engine<br/>Local Store")]
-    Engine --> Context["Dynamic Knapsack (350–700 Tok)<br/>Skills · Rules · Invariants"]
-    Engine --> Graph[("Procedure Graph<br/>Schema v26 Recursive CTEs")]
-    Context --> Host
-    Host --> Verify["tekmor verify -- <cmd>"]
-    Verify --> Trajectory[("Automatic Trajectory Capture<br/>& Outcome Attribution")]
-```
-
----
-
-## Why tekmor?
-
-| Challenge in Coding Agent Tooling | tekmor Solution | Verified Mechanism |
-| :--- | :--- | :--- |
-| **Context Window Bloat** | Turn router packs the top-ranked skills, rules and memory into a fixed per-task token budget (350–700 tokens) | Knapsack token packer with a 120-token memory reservation (`engine.rs`) |
-| **Instruction Drift & Ignored Prompts** | Host pre-tool hooks enforce `route_task` on every turn | Routing regression suite (`tekmor/tests/jailbreak_routing.rs`, 250 cases) passes |
-| **Destructive Shell Hazards** | The shell command policy blocks dangerous commands before they run | Command policy rules (`tekmor/src/command_policy.rs`) |
-| **Repetitive Execution Amnesia** | Procedure Graph (`recall_procedures`) stores structured, multi-step execution graphs | Schema v26 SQLite recursive CTEs (`procedure_edges`) |
-| **Discarded Verification Evidence** | Automatic trajectory capture and outcome attribution (exit 0 vs non-zero) | `verify.rs` & `trajectory.rs` closed loop |
-| **High Prompt Turn Latency** | Turn cache and session stickiness reuse recent routing decisions | `routing.turn_ttl_secs`, `routing.session_stickiness_secs` (`config.rs`) |
-
----
-
-## Why teams adopt it
-
-**1. Proof on day one.** `tekmor dashboard` writes a local HTML page with total tokens saved by routing and bounded reads, route counts and latency. Run it after your first session:
+## Install
 
 ```bash
-tekmor dashboard --days 7
-```
-
-`tekmor stats` prints the route, cache and token-tool counters in the terminal. It does not print a tokens-saved total; the dashboard does.
-
-**2. One install for every host.** One binary configures Claude Code, Cursor, Codex, Gemini CLI and OpenCode:
-
-```bash
-tekmor install --all --global
-```
-
-Antigravity and VS Code are available per host (`--antigravity`, `--vscode`). Hook enforcement is not available on every host; see the Supported Runtimes table below.
-
-**3. Local and private.** Routing, memory, verification and the token budget run on your machine against a local SQLite database. The route path makes no network calls. Outbound network happens only for the one-time embedding model download on first use, and for commands you run yourself: `learn`, `package add`, extension install and `sync cloud`. Nothing is sent to a hosted service by default.
-
----
-
-## Supported Runtimes
-
-| Runtime | Hook Mode | Integration Type |
-| :--- | :--- | :--- |
-| **Claude Code** | PreToolUse Hook | Native CLI stdio MCP + route gate |
-| **Cursor** | `beforeShellExecution` hook | `.cursor/mcp.json` + `cursor-user-rules.mdc` |
-| **Antigravity (AGY)** | BeforeTool Hook | Native CLI stdio MCP + route gate |
-| **OpenCode** | Session / tool plugin | `route-gate.js` plugin (`tekmor/hooks/opencode/`) |
-| **Codex CLI / Gemini CLI** | Shell / tool hooks | Direct stdio MCP client |
-| **VS Code / GitHub Copilot** | None (instructions only) | `.vscode/mcp.json` entry + Copilot instructions |
-
----
-
-## Quickstart & Installation
-
-### Option 1: Homebrew (macOS — Recommended)
-
-```bash
-brew tap autonomic-ai-dev/tap
-brew install tekmor
+cargo install tekmor
 tekmor install --global
-```
-
-### Option 2: Direct Download / Curl (Apple Silicon Developer ID–Signed)
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/autonomic-ai-dev/tekmor/master/scripts/install.sh | bash -s -- --global
-```
-
-### Option 3: Compile From Source (Rust)
-
-```bash
-git clone https://github.com/autonomic-ai-dev/tekmor.git
-cd tekmor
-cargo build --release -p tekmor
-./target/release/tekmor install --global
-```
-
-### Verify Host Installation
-
-```bash
-tekmor version
 tekmor doctor
 ```
 
-`install --global` writes MCP configuration, hooks, and mode snippets. Paste `~/.tekmor/cursor-user-rules.mdc` into Cursor **User Rules** if using Cursor. The host runtime spawns `serve` automatically over stdio.
+`tekmor install --global` registers the MCP server and hooks with the hosts it finds. Add `--all` to write every host's files, or pick one host with a flag such as `--cursor`, `--claude-code` or `--vscode`. Restart the host afterwards.
 
-To target specific agent runtimes:
+`tekmor doctor` checks the binary, the hooks and the local store.
 
-```bash
-tekmor install --all --global
-# or selectively: --claude-code | --cursor | --opencode | --gemini | --antigravity | --vscode | --codex
-```
+The first run downloads the embedding model (about 90 MB).
 
-### Your first verify receipt
+## Quick start
 
-After install, run `tekmor verify init` in a project, then `tekmor verify -- <your test command>`. `tekmor verify receipt` then reports whether that command passed for your current commit and code, and `--markdown` prints a block for a pull request. The full walk-through is in [docs/first-receipt.md](tekmor/docs/first-receipt.md).
-
-- Which hosts get which gates: [docs/support-matrix.md](tekmor/docs/support-matrix.md)
-- Every network path tekmor can open, and its default: [docs/egress.md](tekmor/docs/egress.md)
-
----
-
-## Core Pillars
-
-### 1. Dynamic Cognitive Governor (Token Knapsack)
-Instead of dumping full documentation trees into your agent's system prompt, `tekmor` intercepts each turn and calculates an exact token knapsack. Token budgets scale elastically by task kind:
-- **Verification**: 350 tokens
-- **Code Review**: 550 tokens
-- **Implementation**: 600 tokens
-- **Debugging**: 650 tokens
-- **Architecture**: 700 tokens
-
-A 120-token reservation is set aside for memory items in each route.
-
-### 2. Procedure Graph & Associative Memory
-Built on local SQLite with schema v26 migrations, `recall_procedures` queries multi-step engineering recipes. Connected downstream procedures and dependent execution nodes are dynamically hydrated using SQLite recursive Common Table Expressions (`procedure_edges`), ranked by task similarity and historical pass rate.
-
-### 3. Deterministic Security & Host Hook Enforcement (`bash-gate`)
-Agent execution is governed by these hooks:
-- **`route_gate`**: Blocks agent tool calls until the turn has been routed with `route_task`.
-- **`bash-gate`**: Inspects shell commands, including the contents of scripts they run (`bash`, `sh`, `source`). Blocks `rm -rf /` and force pushes before they run.
-
-### 4. Closed-Loop Verification & Trajectory Attribution
-Test runs executed through `tekmor verify -- <cmd>` are recorded with their exit code and the hash of the code they tested:
-- Verified recipes from passing runs are offered as `must_apply` items on later turns.
-- Recipes whose latest run failed are withheld from recommendations.
-- With `auto_trajectory` enabled, execution steps are captured in the `workflow_trajectory` table.
-
----
-
-## CLI Reference
-
-| Command | Description |
-| :--- | :--- |
-| `tekmor install --global` | Configure MCP server, host hooks, and runtime permissions |
-| `tekmor doctor` / `--fix` | Diagnostic health check (validates binary, hooks, SQLite store) |
-| `tekmor briefing` | Summarizes last `route_task` decision and active token budget |
-| `tekmor stats` | Route, cache, token-tool and memory counters for the last period |
-| `tekmor dashboard [--days N]` | Writes the local HTML page with total tokens saved |
-| `tekmor index` | Indexes local skills, rules, and workspace memory into SQLite |
-| `tekmor verify -- <cmd>` | Execute and record verified command with trusted exit attribution |
-| `tekmor remember --text TEXT --tag TAG` | Store one durable fact or architectural decision |
-| `tekmor package add <pkg>` | Install skill packages from registry (e.g. `@supervisor`, `@matt-skills`) |
-| `tekmor sync git\|cloud` | Synchronize memory graph and skills across development machines |
-
----
-
-## Configuration & Local Store
-
-Configuration resides in `~/.autonomic/config.yaml` or `~/.autonomic/memory/config.json`:
-
-```yaml
-routing:
-  prefer_agstack: true
-  auto_trajectory: true
-  turn_ttl_secs: 60
-  session_stickiness_secs: 1800
-```
-
-- **Default Database**: `~/.autonomic/memory/brain.db` (override with `TEKMOR_HOME`).
-- **Embedding Model**: Uses the local `all-MiniLM-L6-v2` model, loaded on first use and unloaded after 10 minutes of inactivity (`IDLE_UNLOAD_AFTER`, `embed.rs`).
-
----
-
-## Verification & Development
-
-Run the test suite and verify architectural boundaries:
+In a project, verify a change against a real command:
 
 ```bash
-# Verify boundaries and unit tests
-tekmor verify -- .verify/checks/core_boundary.sh
-tekmor verify -- cargo test -p tekmor-core
-
-# Full verification suite
-tekmor verify -- .verify/run.sh
+tekmor verify init
+tekmor verify -- cargo test
+tekmor verify receipt
 ```
 
----
+`verify receipt` prints PASSED only when the recorded run passed on the current code. Add `--markdown` to paste the receipt into a pull request. The walk-through is in [docs/first-receipt.md](docs/first-receipt.md).
 
-## Ecosystem & Documentation
+## Commands
 
-- **Documentation Portal**: [https://autonomic-ai.dev](https://autonomic-ai.dev)
-- **Memory & Routing Architecture**: [https://autonomic-ai.dev/docs/memory](https://autonomic-ai.dev/docs/memory)
-- **Ecosystem Architecture Guide**: [https://autonomic-ai.dev/docs/architecture](https://autonomic-ai.dev/docs/architecture)
-- **Workflows & Procedures**: [https://autonomic-ai.dev/docs/workflows](https://autonomic-ai.dev/docs/workflows)
+| Command | What it does |
+|---------|--------------|
+| `tekmor serve` | Runs the MCP server. Hosts start it for you. |
+| `tekmor install` | Registers tekmor with hosts. |
+| `tekmor doctor` | Checks the install and the local store. |
+| `tekmor verify -- <cmd>` | Runs a command and records its exit code. |
+| `tekmor verify receipt` | Shows PASSED, FAILED or NOT VERIFIED for the current code. |
+| `tekmor dashboard --days 7` | Writes a local HTML page with routing figures. |
+| `tekmor stats` | Prints routing and token counters in the terminal. |
+| `tekmor remember` | Stores a fact for later sessions. |
+| `tekmor package add <owner/repo>` | Installs a skill pack. |
+| `tekmor sync` | Syncs memory and skills between machines. |
 
----
+Run `tekmor --help` for the full list.
+
+## Configuration
+
+tekmor reads its settings from `~/.autonomic/memory/config.yaml`. Set `TEKMOR_HOME` to use another directory. Environment variables use the `TEKMOR_` prefix.
+
+The memory store is in `~/.autonomic/memory`. It is shared with other Autonomic AI tools.
+
+## Coming from agent-brain
+
+agent-brain is now tekmor. The binary, config and environment variables changed names. Your data stays where it was. Read the [migration guide](tekmor/docs/migrate-to-tekmor.md) and run `scripts/migrate-to-tekmor.sh --dry-run` before you apply the change.
+
+## Documentation
+
+- [Changelog](CHANGELOG.md)
+- [Support matrix](docs/support-matrix.md): what each host gets
+- [Network egress](docs/egress.md): every network call tekmor can make
+- [First receipt](docs/first-receipt.md): your first verified change
+- [Migration from agent-brain](tekmor/docs/migrate-to-tekmor.md)
+
+## Name
+
+tekmor is a short spelling of *tekmērion* (τεκμήριον), Greek for proof or evidence: the sure sign that settles a question. Sources: [Strong's G5039 on Bible Hub](https://biblehub.com/greek/5039.htm) and [OpenBible](https://openbible.com/strongs/greek/5039.htm).
+
+## Related
+
+- [thesmos](https://github.com/autonomic-ai-dev/thesmos) runs multi-step workflows with approval gates. It works alongside tekmor.
+
+## Contributing
+
+```bash
+cargo test --release -p tekmor
+.verify/run.sh
+```
+
+Pull requests run the same checks in CI.
 
 ## License
 
-MIT © [Autonomic AI](https://github.com/autonomic-ai-dev) · See [CHANGELOG.md](CHANGELOG.md) for release history.
+MIT. See [LICENSE](LICENSE).

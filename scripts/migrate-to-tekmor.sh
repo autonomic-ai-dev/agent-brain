@@ -67,7 +67,7 @@ HOST_FILES=(
   .gemini/antigravity/mcp_config.json
   .gemini/config/mcp_config.json
   .config/opencode/AGENTS.md
-  .tekmor/config.yaml
+  .autonomic/memory/config.yaml
   .zshrc
   .zprofile
   .bashrc
