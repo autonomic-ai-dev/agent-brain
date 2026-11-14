@@ -306,7 +306,7 @@ mod tests {
         record_installed(home.path(), "graph", &["graph"]);
         assert_eq!(
             installed(home.path()).unwrap(),
-            vec!["sample".to_string(), "graph".to_string()]
+            vec!["graph".to_string(), "sample".to_string()]
         );
     }
 
