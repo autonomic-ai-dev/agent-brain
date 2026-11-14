@@ -184,3 +184,7 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 ## Context bundle dropped on core surface (R-8)
 
 - Under `mcp.tool_surface: core`, `route_task` over MCP omits `context_bundle`. It duplicates top-level fields. The gRPC response keeps it, and the field can go after one release with no consumer.
+
+## Savings labels (R-10)
+
+- Bounded-read savings are an upper bound: the full size of each matched file, minus tokens returned. The dashboard labels them that way. The old "naive load" tile wording is gone (R-9 removed its estimate).

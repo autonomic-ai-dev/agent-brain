@@ -241,6 +241,10 @@ Summary: tekmor is the routing layer that every agent calls at turn start. Its C
   - Behaviour: `core_tool_surface` in `tekmor/src/mcp/server.rs`.
   - Outcome: Core-surface agents get a smaller route response.
 
+- `savings-upper-bound-labels`: Bounded-read savings are labelled as an upper bound everywhere in the dashboard (R-10).
+  - Behaviour: `tekmor/src/dashboard.rs` labels the tile and the per-tool hint "upper bound", and the tile's note says it is not a measurement. The estimated-vs-naive wording is removed.
+  - Outcome: No dashboard figure is presented as a measurement when it is an upper bound.
+
 ## Code
 
 - `tekmor/src`
