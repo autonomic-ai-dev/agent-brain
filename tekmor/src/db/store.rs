@@ -2657,7 +2657,7 @@ impl BrainStore {
     pub fn retrieval_stats_since(&self, since_ms: i64) -> Result<RetrievalStats> {
         let mut stats = self.with_conn(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT phase, cache_hit, latency_ms, tokens_used, index_total, saved_pct, must_apply_count FROM retrieval_log WHERE timestamp >= ?1",
+                "SELECT phase, cache_hit, latency_ms, tokens_used, must_apply_count FROM retrieval_log WHERE timestamp >= ?1",
             )?;
             let rows = stmt
                 .query_map(params![since_ms], |row| {
@@ -2667,8 +2667,6 @@ impl BrainStore {
                         row.get::<_, u64>(2)?,
                         row.get::<_, i64>(3)? as usize,
                         row.get::<_, Option<i64>>(4)?,
-                        row.get::<_, Option<i64>>(5)?,
-                        row.get::<_, Option<i64>>(6)?,
                     ))
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -2678,30 +2676,18 @@ impl BrainStore {
             let mut cache_hits = 0usize;
             let mut latencies = Vec::new();
             let mut phase_counts: HashMap<String, usize> = HashMap::new();
-            let mut savings_pcts = Vec::new();
-            let mut total_saved_tokens = 0u64;
             let mut routed_token_sum = 0u64;
             let mut routed_token_rows = 0usize;
             let mut routes_with_constraints = 0usize;
             let mut total_must_apply = 0usize;
 
-            for (phase, cache_hit, latency, tokens_used, index_total, saved_pct, must_apply_count) in rows {
+            for (phase, cache_hit, latency, tokens_used, must_apply_count) in rows {
                 if phase == "upstream_call" {
                     upstream_calls += 1;
                 } else {
                     route_calls += 1;
                     routed_token_sum += tokens_used as u64;
                     routed_token_rows += 1;
-                    if let Some(pct) = saved_pct {
-                        savings_pcts.push(pct as u8);
-                        if let Some(index_n) = index_total {
-                            let index_n = index_n.max(0) as usize;
-                            let naive = index_n
-                                .saturating_mul(crate::route_briefing::NAIVE_TOKENS_PER_INDEXED_ITEM);
-                            let saved = naive.saturating_sub(tokens_used);
-                            total_saved_tokens += saved as u64;
-                        }
-                    }
                     if let Some(n) = must_apply_count {
                         let n = n.max(0) as usize;
                         if n > 0 {
@@ -2736,11 +2722,6 @@ impl BrainStore {
                     .min(latencies.len() - 1);
                 latencies[idx]
             };
-            let avg_saved_pct = if savings_pcts.is_empty() {
-                0.0
-            } else {
-                savings_pcts.iter().map(|p| *p as f64).sum::<f64>() / savings_pcts.len() as f64
-            };
             let avg_routed_tokens = if routed_token_rows == 0 {
                 0.0
             } else {
@@ -2757,9 +2738,6 @@ impl BrainStore {
                 avg_latency_ms,
                 p95_latency_ms,
                 phases,
-                routes_with_savings: savings_pcts.len(),
-                avg_saved_pct,
-                total_saved_tokens,
                 avg_routed_tokens,
                 routes_with_constraints,
                 total_must_apply,
@@ -3924,9 +3902,6 @@ pub struct RetrievalStats {
     pub avg_latency_ms: f64,
     pub p95_latency_ms: u64,
     pub phases: Vec<(String, usize)>,
-    pub routes_with_savings: usize,
-    pub avg_saved_pct: f64,
-    pub total_saved_tokens: u64,
     pub avg_routed_tokens: f64,
     pub routes_with_constraints: usize,
     pub total_must_apply: usize,

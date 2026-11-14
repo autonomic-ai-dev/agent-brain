@@ -48,7 +48,7 @@ fn render_html(stats: &OperatorStats) -> String {
         .map(|(item_type, count)| format!("{item_type} {count}"))
         .collect::<Vec<_>>()
         .join(" · ");
-    let total_saved_tokens = p.total_saved_tokens + p.tool_tokens_saved;
+    let total_saved_tokens = p.tool_tokens_saved;
     let generated = chrono::Utc::now().format("%Y-%m-%d %H:%M UTC");
     let charts = render_charts(stats);
     let agstack_routes = stats.agstack.routes_with_agstack_skill;

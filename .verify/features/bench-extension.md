@@ -31,6 +31,10 @@ Summary: The benchmark and CI-proof harness, shipped as the optional `tekmor-ben
   - Behaviour: The eval seeds the 120-skill corpus with the same embedder that embeds queries (seed_skill_corpus in extensions/bench/src/beam_eval.rs). Two of the original 30 cases were removed because the corpus has no skill that could answer them. The four failing cases return memory only. The real embedding model was tried and scored worse on this fixture (18 of 28, with the other suites collapsing), so the deterministic embedder stays.
   - Outcome: The reviewed suite scores 24 of 28 (0.86). The four misses are a known limit of the deterministic harness, not tuned around.
 
+- `supervisor-budget-gate`: The supervisor bench gates on routes that stay within their token budget, measured from `tokens_used` and `tokens_budget`.
+  - Behaviour: `extensions/bench/src/supervisor_bench.rs` counts routes with `tokens_used <= tokens_budget`. The gate passes when the share of routes within budget reaches `WITHIN_BUDGET_MIN`. The estimated `saved_pct` gate was removed (R-9).
+  - Outcome: A route that overspends its budget fails the bench. No estimated figure is involved.
+
 ## Code
 
 - `extensions/bench`

@@ -157,3 +157,10 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 - Every H1 and H2 item in the delegation plan now has code and a test, except H2-6 (retrieval eval). That item needs owner approval for the new cases and for adding them to the gate.
 - Lessons past their TTL are deleted by `run_gc` (`lessons_removed`), not only hidden on read.
 - The eval gate is not part of `.verify/run.sh`; see bench-extension for its current 15 of 28 result.
+
+## Estimated savings removed (R-9)
+
+- The route briefing no longer prints an estimated savings figure. It shows the index size and routed tokens against the budget.
+- The retrieval log no longer writes `saved_pct`. The stored column stays, and new rows write it as empty.
+- Stats no longer report `total_saved_tokens`, `avg_saved_pct` or `routes_with_savings`. The dashboard headline counts tool savings only.
+- The estimate assumed every indexed item would be loaded, so it was never a measurement.
