@@ -213,7 +213,7 @@ fn render_html(stats: &OperatorStats) -> String {
       <summary>
         <div class="label">Bounded tool calls</div>
         <div class="num">{tool_calls}</div>
-        <div class="hint">grep, head, tail, file_summary · avg {tool_avg:.0}% saved per call (estimate)</div>
+        <div class="hint">grep, head, tail, file_summary · avg {tool_avg:.0}% saved per call (upper bound)</div>
       </summary>
       <p class="detail">Calls to the bounded tools in the period. The average saving uses the same counterfactual as the bounded-read saving above, so it is an estimate.</p>
     </details>
@@ -235,11 +235,11 @@ fn render_html(stats: &OperatorStats) -> String {
     </details>
     <details class="card tile">
       <summary>
-        <div class="label">Estimated saving vs naive load</div>
+        <div class="label">Bounded-read saving (upper bound)</div>
         <div class="num" style="color:var(--muted);">{total_saved_tokens}</div>
-        <div class="hint">Assumes each indexed item would cost 120 tokens if loaded. An estimate, not a measurement.</div>
+        <div class="hint">Upper bound: the full size of each matched file, minus tokens returned. Not a measurement.</div>
       </summary>
-      <p class="detail">Modelled, not measured: indexed items × 120 tokens, minus tokens routed, plus the bounded-read estimate. Shown for context only and left out of the weekly summary.</p>
+      <p class="detail">An upper bound, not a measurement. Left out of the weekly summary.</p>
     </details>
     <details class="card tile">
       <summary>
