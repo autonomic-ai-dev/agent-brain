@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0-rc1] - 2026-11-14
+
+### Changed
+- Renamed agent-brain to **tekmor**: binary, crates, `TEKMOR_*` env vars, MCP server and tool names, hooks and docs.
+- Renamed agent-spine to **thesmos** in code, registry and docs.
+- GitHub repos: `autonomic-ai-dev/tekmor` and `autonomic-ai-dev/thesmos`.
+- Install scripts and `tekmor install` print shorter messages.
+- One CI workflow with no path filter. Release reuses it, then builds and publishes.
+
+### Added
+- `scripts/migrate-to-tekmor.sh`: moves a machine to the new names. `--dry-run` first. Backs up each edited file. Steps in `tekmor/docs/migrate-to-tekmor.md`.
+
+### Removed
+- Protected-path CI and the protected-check boundaries for `.verify/verify.toml`, `.verify/run.sh` and `.verify/checks/`. The verify receipt still lists changed check files.
+- The `verify init --force` guard.
+- `CLAUDE.md`. Policy lives in `AGENTS.md`.
+
 ## [1.0.0-rc8] - 2026-11-08
 
 ### Added

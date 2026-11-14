@@ -1,6 +1,6 @@
 [package]
 name = "tekmor"
-version = "1.0.0-rc8"
+version = "1.1.0-rc1"
 edition = "2021"
 description = "Fast local MCP router for agents, skills, rules, and memory"
 license = "MIT"

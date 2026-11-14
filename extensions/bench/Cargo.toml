@@ -1,6 +1,6 @@
 [package]
 name = "tekmor-bench"
-version = "1.0.0-rc5"
+version = "1.1.0-rc1"
 edition = "2021"
 description = "tekmor extension: benchmarks, CI proofs, and latency gates"
 license = "MIT"

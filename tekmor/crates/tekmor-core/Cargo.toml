@@ -1,6 +1,6 @@
 [package]
 name = "tekmor-core"
-version = "1.0.0-rc8"
+version = "1.1.0-rc1"
 edition = "2021"
 license = "MIT"
 description = "Pure routing types and scoring logic for tekmor; no storage, process, or network IO"
