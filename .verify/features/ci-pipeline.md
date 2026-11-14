@@ -16,6 +16,10 @@ Summary: GitHub Actions for tekmor. One CI workflow runs clippy, the Rust tests 
   - Intent: Give a single, plain place to see whether a change builds, lints and passes its tests.
   - Behaviour: `.github/workflows/ci.yml` runs `cargo clippy` with warnings denied, `cargo test --release -p tekmor --features extras -- --test-threads=1`, and `python3 tekmor/hooks/test_route_gate.py`. It runs on push and pull request to master, and it is reusable by the release workflow.
   - Outcome: A failing lint, test or hook test fails the workflow.
+- `ci-receipt`: A change's verified receipt, recorded by CI itself (H4-1, H4-2, ADR 0004).
+  - Intent: Let a merge depend on evidence CI produced, not on a receipt the author made locally.
+  - Behaviour: `.github/workflows/receipt.yml` builds tekmor, runs `tekmor verify -- .verify/run.sh` in a fresh `TEKMOR_HOME`, then runs `tekmor verify receipt --markdown`. It writes the receipt to the job summary and fails unless the verdict is Passed. It has `contents: read` only.
+  - Outcome: The check fails without a passing run for the current tree. It blocks merges only after the owner adds it to the ruleset.
 - `release-publish`: Tag-driven release.
   - Intent: Ship a signed binary and release notes from a `v*` tag without a second pipeline.
   - Behaviour: `.github/workflows/release.yml` runs the CI check, then `.github/workflows/reusable-build.yml`, then publishes a GitHub release from `dist/*` with notes from `.github/scripts/changelog-extract.sh`.

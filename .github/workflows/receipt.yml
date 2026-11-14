@@ -1,0 +1,42 @@
+name: Receipt
+
+on:
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  receipt:
+    name: Verified receipt for this change
+    runs-on: ubuntu-latest
+    env:
+      TEKMOR_HOME: ${{ runner.temp }}/tekmor-home
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-protoc
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2.9.1
+
+      - name: Build tekmor
+        run: cargo build -p tekmor --all-features
+
+      - name: Record this change's verification run
+        run: ./target/debug/tekmor verify -- .verify/run.sh
+
+      - name: Check the receipt
+        run: |
+          set +e
+          ./target/debug/tekmor verify receipt --markdown > receipt.md
+          code=$?
+          cat receipt.md >> "$GITHUB_STEP_SUMMARY"
+          exit $code
