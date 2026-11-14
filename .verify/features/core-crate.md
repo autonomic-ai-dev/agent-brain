@@ -34,6 +34,10 @@ related:
   - Behaviour: `crates/tekmor-core/src/types.rs` defines both structs. `file_context` and `lessons` are omitted from the serialized response when empty.
   - Outcome: Clients that ignore the fields see no change.
 
+- `context-provider-contract`: The request and item types a context provider uses (H3-1, ADR 0002).
+  - Behaviour: `ContextRequest` and `ContextItem` in `crates/tekmor-core/src/context_provider.rs` are plain serializable data. No provider runs yet.
+  - Outcome: Providers can be moved one at a time against one shared shape.
+
 ## Code
 
 - `tekmor/crates/tekmor-core`
