@@ -1,5 +1,6 @@
 pub mod adoption;
 pub mod ann;
+pub mod route_gate_decision;
 pub mod route_gate_event;
 #[cfg(feature = "extras")]
 pub mod ast_indexer;

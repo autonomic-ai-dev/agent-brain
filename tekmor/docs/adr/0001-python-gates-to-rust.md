@@ -46,6 +46,12 @@ Out of scope: the command policy (already `tekmor bash-gate`), the stop gate (al
 - Shadow mode records zero disagreements over one week of owner use.
 - Warm-path p95 under 15 ms, measured with `tekmor bench` on the same machine as the Python baseline.
 
+## Amendment 1: step 2 scope
+
+Step 2 delivers the pure route decision in `tekmor/src/route_gate_decision.rs`. It takes the tool name, the route state and the current time, and returns allow, allow without route (with its reason), or deny. It covers route_task, discovery tools, the grace window, MCP offline mode and the stale-route timeout.
+
+The `tekmor route-gate` subcommand and the reading and writing of `route_state.json` move to step 3, with shadow mode. Step 2 wires nothing into a host. The silent-watcher setting, the read gate, and the Python shell policy are not ported yet. Step 3 must port or explicitly exclude each before the switchover in step 4.
+
 ## Rollback
 
 Set `TEKMOR_ROUTE_GATE_IMPL=python` to return to the Python gate. Reverting the commit restores the Python file. The state file format does not change, so no migration is needed.
