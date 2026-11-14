@@ -1,19 +1,8 @@
-.PHONY: release-macos test-release sync-release
+.PHONY: release test
 
-release-macos:
-	./scripts/build-release-macos.sh
+release:
+	cargo build --release -p tekmor
 
-test-release:
-	cargo test --release -p tekmor --features extras
-
-sync-release:
-	./scripts/sync-local-release.sh
-
-.PHONY: container-check container-check-extras
-
-# Apple Container (not Docker): build image and compile tekmor
-container-check:
-	container build -t tekmor-check -f Containerfile .
-
-container-check-extras:
-	container build -t tekmor-check-extras -f Containerfile --build-arg FEATURES=extras .
+test:
+	cargo test -p tekmor-core
+	cargo test -p tekmor -- --test-threads=1

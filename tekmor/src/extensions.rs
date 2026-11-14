@@ -219,7 +219,6 @@ pub fn run(home: &Path, name: &str, args: &[String]) -> Result<i32> {
     let status = Command::new(binary_path(home, name))
         .args(args)
         .env("TEKMOR_HOME", home)
-        .env("TEKMOR_SOCKET", home.join("serve.sock"))
         .status()
         .with_context(|| format!("run extension `{name}`"))?;
     Ok(status.code().unwrap_or(1))

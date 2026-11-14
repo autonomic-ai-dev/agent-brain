@@ -2,11 +2,11 @@
 name = "tekmor"
 version = "1.1.0-rc2"
 edition = "2021"
-description = "Fast local MCP router for agents, skills, rules, and memory"
+description = "A proof eval for coding agents: allowlisted checks, receipts and gates"
 license = "MIT"
 repository = "https://github.com/autonomic-ai-dev/tekmor"
 readme = "README.md"
-keywords = ["mcp", "cursor", "agent", "router"]
+keywords = ["verify", "receipt", "agent", "proof"]
 categories = ["command-line-utilities"]
 
 [[bin]]
@@ -28,7 +28,6 @@ keyring = "3"
 opendal = { version = "0.52", features = ["services-s3", "services-fs", "layers-blocking"] }
 lru = "0.16.3"
 regex = "1"
-rmcp = { version = "2.1.0", features = ["server", "transport-io", "macros", "client", "transport-child-process"] }
 rusqlite = { version = "0.32", features = ["bundled", "functions"] }
 schemars = "1"
 serde = { version = "1", features = ["derive"] }

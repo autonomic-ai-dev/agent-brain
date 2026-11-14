@@ -66,7 +66,7 @@ pub fn migrate_legacy_storage(legacy_home: &Path, memory_dir: &Path) -> Result<(
         }
     }
 
-    for dir in &["packages", "export", "workflows"] {
+    for dir in &["export"] {
         let src = legacy_home.join(dir);
         let dst = memory_dir.join(dir);
         if src.is_dir() && !dst.exists() {
