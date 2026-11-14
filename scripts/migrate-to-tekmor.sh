@@ -12,7 +12,7 @@ act() {
 }
 
 if ! command -v tekmor >/dev/null 2>&1; then
-  say "tekmor is not on PATH. Install it first (scripts/install.sh), then rerun this script."
+  say "tekmor not on PATH. Install first: scripts/install.sh. Then rerun."
   exit 1
 fi
 
@@ -20,7 +20,7 @@ cd "$HOME"
 shopt -s nullglob
 
 if [ -d .agent_brain ] && [ ! -e .tekmor ]; then
-  say "copy legacy data home ~/.agent_brain -> ~/.tekmor (original kept)"
+  say "copy ~/.agent_brain to ~/.tekmor (original kept)"
   act cp -R .agent_brain .tekmor
 fi
 
@@ -43,7 +43,7 @@ rewrite_names_in() {
 rename_file() {
   local old="$1"
   local new="${old//agent-brain/tekmor}"
-  say "rename ~/$old -> ~/$new"
+  say "rename ~/$old to ~/$new"
   act mv "$old" "$new"
 }
 
@@ -77,14 +77,14 @@ for file in "${HOST_FILES[@]}"; do
 done
 
 if [ -e .local/bin/agent-brain ]; then
-  say "old binary ~/.local/bin/agent-brain is kept; remove it once tekmor works"
+  say "old binary kept: ~/.local/bin/agent-brain. Remove after tekmor works."
 fi
 
-say "reinstall host hooks with the new binary"
+say "reinstall host hooks"
 act tekmor install --global
 
-say "restart running host sessions and any tekmor serve process"
+say "restart host sessions and tekmor serve"
 if [ "$DRY" = 0 ]; then
   say "check: tekmor doctor"
-  tekmor doctor || say "doctor reported problems; read its output above"
+  tekmor doctor || say "doctor reported problems. See output above."
 fi

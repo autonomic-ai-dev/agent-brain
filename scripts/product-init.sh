@@ -44,7 +44,7 @@ if [[ ! -f "$DIR/CONSTITUTION.md" ]]; then
   cp "$TEMPL/CONSTITUTION.template.md" "$DIR/CONSTITUTION.md"
   echo "created CONSTITUTION.md"
 else
-  echo "CONSTITUTION.md exists — skipped"
+  echo "CONSTITUTION.md exists, skipped"
 fi
 
 if [[ ! -f "$DIR/.cursor/rules/product-layer.mdc" ]]; then
@@ -71,5 +71,5 @@ if [[ -n "$FEATURE" ]]; then
   fi
 fi
 
-echo "Done. Edit CONSTITUTION.md and docs/features/*.md then run:"
+echo "Done. Edit CONSTITUTION.md and docs/features/*.md. Then run:"
 echo "  agent-spine init --with feature-from-spec"

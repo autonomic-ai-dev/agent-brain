@@ -204,11 +204,11 @@ fn print_cursor_next_steps() {
     println!("Cursor next steps:");
     println!("  1. Paste User Rules from ~/.tekmor/cursor-user-rules.mdc");
     println!("     Optional mode: ~/.tekmor/cursor-tekmor-mode.mdc");
-    println!("     (Settings → Rules, Memories, and Commands → User Rules)");
-    println!("  2. Restart Cursor or toggle tekmor under Settings → MCP");
-    println!("  3. Confirm hooks under Settings → Hooks (route_task gate)");
+    println!("     (Settings, Rules, Memories, and Commands, User Rules)");
+    println!("  2. Restart Cursor, or toggle tekmor in Settings, MCP");
+    println!("  3. Check hooks in Settings, Hooks (route_task gate)");
     println!("  4. Other hosts: tekmor mode paths");
-    println!("  5. After rebuilds or brew upgrade: tekmor install --global --reload");
+    println!("  5. After rebuild or upgrade: tekmor install --global --reload");
     println!();
     println!("Other hosts: tekmor install --claude-desktop | --vscode | --claude-code | --opencode | --codex | --gemini | --antigravity [--global] | --all");
 }
@@ -327,8 +327,8 @@ pub fn install_cursor_user_rules_snippet(quiet: bool) -> Result<()> {
         );
         println!("  File: {}", path.display());
         println!("  agstack Rule File: {}", agstack_path.display());
-        println!("  Cursor → Settings → Rules, Memories, and Commands → User Rules → paste file contents");
-        println!("  Hooks in ~/.cursor/hooks.json are installed globally (route_task gate).");
+        println!("  Cursor: Settings, Rules, Memories, and Commands, User Rules. Paste file contents.");
+        println!("  Cursor hooks in ~/.cursor/hooks.json: global (route_task gate).");
     }
     Ok(())
 }
@@ -391,7 +391,7 @@ fn install_cursor_hooks(quiet: bool) -> Result<()> {
         .with_context(|| format!("write hooks config to {}", hooks_config.display()))?;
 
     if !command_exists("python3") {
-        eprintln!("Warning: python3 not found on PATH — route_gate hook requires python3");
+        eprintln!("Warning: python3 not found. route_gate hook needs python3.");
     }
 
     if !quiet {

@@ -65,21 +65,21 @@ prepare_macos_release_binary() {
     return 0
   fi
   if ! command -v codesign >/dev/null 2>&1; then
-    echo "ERROR: macOS requires Xcode Command Line Tools to run tekmor under Cursor." >&2
+    echo "ERROR: macOS needs Xcode Command Line Tools for tekmor under Cursor." >&2
     echo "  xcode-select --install" >&2
     return 1
   fi
   xattr -cr "$bin" 2>/dev/null || true
   if ! codesign --verify --verbose "$bin" >/dev/null 2>&1; then
     echo "ERROR: codesign verify failed for $bin" >&2
-    echo "  Re-download the release artifact (it must be Developer ID–signed at build)." >&2
+    echo "  Re-download the release. It must be Developer ID signed." >&2
     return 1
   fi
   local cs_out
   cs_out="$(codesign -dv --verbose=2 "$bin" 2>&1 || true)"
   if ! echo "$cs_out" | grep -q 'Authority=Developer ID Application:'; then
     echo "ERROR: $bin is not Developer ID–signed" >&2
-    echo "  Release artifacts are signed in CI; install does not re-sign." >&2
+    echo "  CI signs release artifacts. Install does not re-sign." >&2
     echo "  For local builds use: make release-macos" >&2
     return 1
   fi
@@ -91,7 +91,7 @@ install_from_release() {
   target="$(detect_target)"
   if [[ "$target" == "unsupported" ]]; then
     echo "Unsupported platform for release install." >&2
-    echo "Shipped artifacts: aarch64-apple-darwin only (for now)." >&2
+    echo "Shipped: aarch64-apple-darwin only." >&2
     echo "Use --from-source, or: make release-macos && cp target/release/tekmor ~/.local/bin/" >&2
     exit 1
   fi
@@ -117,16 +117,16 @@ install_from_release() {
 
 install_from_cargo() {
   if ! command -v cargo >/dev/null 2>&1; then
-    echo "cargo not found. Install Rust from https://rustup.rs or download a release binary." >&2
+    echo "cargo not found. Install Rust (https://rustup.rs) or use a release binary." >&2
     exit 1
   fi
-  echo "Building from source. Prefer: make release-macos (Developer ID–signs the binary)." >&2
+  echo "Building from source. Prefer make release-macos (Developer ID signed)." >&2
   cargo install --git "https://github.com/${REPO}" --locked --force tekmor
   local bin
   bin="$(command -v tekmor)"
   # From-source is linker-signed unless the user signed separately — verify only.
   prepare_macos_release_binary "$bin" || {
-    echo "Hint: plain cargo install is not Developer ID–signed. Run make release-macos and install that binary." >&2
+    echo "Hint: cargo install is not Developer ID signed. Use make release-macos." >&2
     exit 1
   }
 }
@@ -135,7 +135,7 @@ ensure_path() {
   case ":$PATH:" in
     *":${INSTALL_DIR}:"*) ;;
     *)
-      echo "Add ${INSTALL_DIR} to your PATH, e.g.:"
+      echo "Add to PATH:"
       echo "  export PATH=\"${INSTALL_DIR}:\$PATH\""
       ;;
   esac
@@ -146,7 +146,7 @@ main() {
     install_from_cargo
   else
     if ! install_from_release; then
-      echo "Release download failed; trying --from-source ..." >&2
+      echo "Download failed. Trying --from-source." >&2
       install_from_cargo
     fi
   fi
@@ -166,24 +166,24 @@ main() {
   [[ "$GLOBAL" -eq 1 ]] && args+=(--global)
   [[ "$PRINT_ONLY" -eq 1 ]] && args+=(--print-only)
 
-  echo "Configuring Cursor MCP ..."
+  echo "Configuring Cursor MCP"
   "$bin" "${args[@]}"
 
   if [[ "$WITH_STARTER" -eq 1 && "$PRINT_ONLY" -eq 0 ]]; then
-    echo "Installing starter skill pack (@starter) ..."
-    "$bin" add @starter || echo "Warning: starter pack install failed (network/git). Run: tekmor add @starter" >&2
+    echo "Installing starter pack (@starter)"
+    "$bin" add @starter || echo "Warning: starter pack failed. Run: tekmor add @starter" >&2
   fi
 
   if [[ "$PRINT_ONLY" -eq 0 ]]; then
     echo ""
     echo "✓ tekmor installed"
-    echo "  Route ~500 tokens from thousands of skills — hooks enforce routing."
+    echo "  Routes ~500 tokens from thousands of skills. Hooks enforce routing."
     if [[ "$WITH_STARTER" -eq 1 ]]; then
-      echo "  Starter pack (@starter) — see output above."
+      echo "  Starter pack: see output above."
     else
       echo "  Next: tekmor add @starter"
     fi
-    echo "  Then: restart Cursor · enable MCP · tekmor onboarding"
+    echo "  Then: restart Cursor, enable MCP, run tekmor onboarding"
     if [[ "$(uname -s)" == "Darwin" ]]; then
       echo "  macOS: if MCP is blocked, run: tekmor doctor --fix"
     fi

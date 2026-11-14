@@ -133,7 +133,7 @@ fn install_claude_desktop(exe: &Path, quiet: bool) -> Result<Vec<PathBuf>> {
     write_mcp_servers_file(&path, mcp_server_entry(exe))?;
     if !quiet {
         println!("Installed Claude Desktop MCP at {}", path.display());
-        println!("  Restart Claude Desktop fully (Cmd+Q) to load tekmor.");
+        println!("  Restart Claude Desktop (Cmd+Q) to load tekmor.");
     }
     Ok(vec![path])
 }

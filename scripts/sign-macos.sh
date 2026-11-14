@@ -22,7 +22,7 @@ xattr -cr "$BIN" 2>/dev/null || true
 
 CS_OUT="$(codesign -dv --verbose=2 "$BIN" 2>&1 || true)"
 if echo "$CS_OUT" | grep -q 'Authority=Developer ID Application:'; then
-  echo "Already Developer ID–signed: $BIN"
+  echo "Already Developer ID signed: $BIN"
   exit 0
 fi
 
@@ -35,8 +35,8 @@ fi
 
 if [[ -z "$IDENTITY" ]]; then
   echo "sign-macos.sh: no Developer ID Application identity found" >&2
-  echo "  Set APPLE_IDENTITY or install a Developer ID Application certificate." >&2
-  echo "  Ad-hoc signing is disabled." >&2
+  echo "  Set APPLE_IDENTITY or install the certificate." >&2
+  echo "  Ad-hoc signing disabled." >&2
   exit 1
 fi
 
