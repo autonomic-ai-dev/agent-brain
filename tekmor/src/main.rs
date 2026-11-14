@@ -431,23 +431,6 @@ async fn main() -> Result<()> {
             }
         }
 
-        "stats" => {
-            let days = flag_value(&args, "--days")
-                .and_then(|v| v.parse::<u32>().ok())
-                .unwrap_or(7);
-            let json = args.iter().any(|a| a == "--json");
-            let config = Config::load()?;
-            let store = tekmor::db::store::BrainStore::open(&config.db_path)?;
-            let snapshot = tekmor::stats::collect(&store, &config, days)?;
-            if json {
-                println!("{}", serde_json::to_string_pretty(&snapshot)?);
-            } else if args.iter().any(|a| a == "--markdown") {
-                print!("{}", tekmor::stats::format_markdown(&snapshot));
-            } else {
-                print!("{}", tekmor::stats::format_text(&snapshot));
-            }
-        }
-
         "onboarding" => {
             let config = Config::load()?;
             let briefing = config.logs_dir.join("last-route.md");

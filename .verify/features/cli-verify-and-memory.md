@@ -83,9 +83,6 @@ Summary: tekmor is the routing layer that every agent calls at turn start. Its C
 - `project-mode-blocks`: A project install writes the agstack mode into the file each host reads.
   - Behaviour: `upsert_managed_block` (`src/host_install.rs`) writes text between `<!-- tekmor:begin <id> -->` and `<!-- tekmor:end <id> -->`. It leaves other content alone and does nothing on a second run. The VS Code copilot file uses a `copilot` block, so a team's own instructions are kept.
   - Outcome: Regression tests: `tests/project_mode.rs` (five hosts, idempotent, team content kept).
-- `agstack-skill-usage`: The stats count routes whose top results included the agstack-mode or verification skill.
-  - Behaviour: `agstack_usage` (`src/stats.rs`) counts `skill` items named `agstack-mode` or `verification` in each route log row. It shows in `stats`, `stats --markdown`, and a dashboard tile. It shows what route_task offered, not whether the agent read the skill.
-  - Outcome: Regression tests: `tests/agstack_usage.rs` (unit cases and a real route inserted and counted through the CLI).
 - `verify-init-layout`: `tekmor verify init` writes the agstack verification layout.
   - Intent: the harness an agent sets up matches the agstack verification skill, so its runs produce the same evidence.
   - Behaviour: `run.sh` runs phases in order (doctor, unit, static, functional), skips a phase the repository lacks with a stated reason, takes an optional feature argument, and writes `summary.txt` and one log per phase under `.verify/artifacts/<RUN_ID>/`. A failing doctor stops the run.

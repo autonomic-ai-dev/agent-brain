@@ -271,37 +271,6 @@ fn memory_gc_report_buckets_protected_negative() {
 }
 
 #[test]
-fn stats_collects_routed_tokens_from_retrieval_log() {
-    use tekmor::stats;
-
-    let dir = TempDir::new().unwrap();
-    let config = test_config(&dir);
-    config.ensure_dirs().unwrap();
-    let store = BrainStore::open(&config.db_path).unwrap();
-    store
-        .insert_retrieval_log(
-            "log-1",
-            "abc",
-            "implementing",
-            "[]",
-            120,
-            false,
-            false,
-            15,
-            Some(2000),
-            Some(95),
-            Some(2),
-        )
-        .unwrap();
-
-    let snapshot = stats::collect(&store, &config, 7).unwrap();
-    assert_eq!(snapshot.period.route_calls, 1);
-    assert_eq!(snapshot.period.routes_with_constraints, 1);
-    assert_eq!(snapshot.period.total_must_apply, 2);
-    assert_eq!(snapshot.period.avg_routed_tokens, 120.0);
-    assert!(stats::format_summary_line(&snapshot).contains("tok avg routed"));
-}
-
 #[test]
 fn adoption_milestones_record_first_route_once() {
     let dir = TempDir::new().unwrap();

@@ -451,12 +451,6 @@ pub fn run(fix: bool) -> Result<()> {
             );
         }
     }
-    if let Ok(store) = crate::db::store::BrainStore::open(&config.db_path) {
-        if let Ok(stats) = crate::stats::collect(&store, &config, 7) {
-            println!();
-            println!("Stats: {}", crate::stats::format_summary_line(&stats));
-        }
-    }
     crate::onboarding::print_onboarding(&config.home, briefing_path.is_file());
     Ok(())
 }

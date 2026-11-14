@@ -226,3 +226,7 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 ## Dashboard removed (proof-core scope)
 
 - `tekmor dashboard` and `src/dashboard.rs` were removed. Earlier notes in this file about the dashboard describe the removed code and are kept as history.
+
+## Stats removed (proof-core scope)
+
+- `tekmor stats` and `src/stats.rs` were removed, with `tests/agstack_usage.rs` and the stats route test. `doctor` and `onboarding` no longer print metrics. Notes above about stats describe the removed code.

@@ -53,7 +53,6 @@ Memory & Sync:
   import-corpus Store the paragraphs of a folder of Markdown files
 
 Ops:
-  stats         Local route / latency metrics
   inspect       Retrieval logs, facts, conflicts
   learn         Ingest allowlisted docs into skills + memory
   log           Print or follow a named log file
@@ -410,18 +409,6 @@ Commands:
   reject <staging-id>
 "
         }
-        "stats" => {
-            "\
-Usage:  tekmor stats [OPTIONS]
-
-Local index / routing / latency metrics (not product ROI claims).
-
-Options:
-      --days N    Lookback window (default: 7)
-      --json      Machine-readable JSON
-      --markdown  Shareable summary of measured figures only, for a weekly update
-"
-        }
         "inspect" => {
             "\
 Usage:  tekmor inspect COMMAND
@@ -507,7 +494,6 @@ fn print_extras_command(cmd: &str) {
             "\
 Commands:
   export [--out PATH] [--min-confidence N] [--all-outcomes]
-  stats
   ingest | pipeline ...
 "
         }

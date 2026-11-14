@@ -73,7 +73,6 @@ pub mod sessions;
 pub mod settings;
 pub mod skill_registry;
 pub mod spec;
-pub mod stats;
 pub mod stop_gate;
 pub mod suggest_memory;
 pub mod sync;
