@@ -214,3 +214,7 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 ## Route gate decision in Rust (R-15 step 2, ADR 0001)
 
 - `decide` is pure: it takes tool name, route state and time. It is not called yet. Subcommand, state I/O and shadow mode come in step 3.
+
+## Route gate shadow (R-15 step 3, ADR 0001 amendment 2)
+
+- Set TEKMOR_ROUTE_GATE_SHADOW=1 to log Python vs Rust route-gate disagreements to hooks/route_gate_shadow.jsonl. Off by default: the shadow call breaks the hook latency budget.

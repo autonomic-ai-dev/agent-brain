@@ -25,6 +25,8 @@ def default_brain_home() -> Path:
 
 
 STATE_PATH = default_brain_home() / "hooks" / "route_state.json"
+SHADOW_LOG_PATH = default_brain_home() / "hooks" / "route_gate_shadow.jsonl"
+SHADOW_ENABLED = os.environ.get("TEKMOR_ROUTE_GATE_SHADOW", "0").strip().lower() in {"1", "true", "yes"}
 # Thread-local / call-scoped session for load_state/save_state without threading event everywhere.
 _ACTIVE_SESSION: str | None = None
 
@@ -1143,7 +1145,51 @@ def maybe_log_tool_trace(event: dict) -> None:
     )
 
 
+def rust_route_permission(event: dict) -> str | None:
+    brain_bin = shutil.which("tekmor")
+    if brain_bin is None:
+        return None
+    try:
+        res = subprocess.run(
+            [brain_bin, "route-gate", "--state", str(STATE_PATH)],
+            input=json.dumps(event),
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+        )
+        return json.loads(res.stdout).get("permission")
+    except (OSError, subprocess.SubprocessError, ValueError, AttributeError):
+        return None
+
+
+def record_shadow_disagreement(event: dict, python_permission: str | None, rust_permission: str | None) -> None:
+    if rust_permission is None or rust_permission == python_permission:
+        return
+    line = {
+        "ts": time.time(),
+        "session": session_id_from_event(event),
+        "tool": str(event.get("tool_name") or ""),
+        "python": python_permission,
+        "rust": rust_permission,
+    }
+    try:
+        SHADOW_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with SHADOW_LOG_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(line) + "\n")
+    except OSError:
+        pass
+
+
 def gate_tool_use(event: dict) -> dict:
+    if not SHADOW_ENABLED:
+        return _gate_tool_use_python(event)
+    rust_permission = rust_route_permission(event)
+    decision = _gate_tool_use_python(event)
+    record_shadow_disagreement(event, decision.get("permission"), rust_permission)
+    return decision
+
+
+def _gate_tool_use_python(event: dict) -> dict:
     if is_route_task(event):
         return {"permission": "allow"}
     if is_meta_or_discovery_tool(event):

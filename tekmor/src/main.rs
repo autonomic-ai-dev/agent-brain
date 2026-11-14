@@ -685,6 +685,11 @@ async fn main() -> Result<()> {
         "bash-gate" => {
             tekmor::command_policy::run_bash_gate()?;
         }
+        "route-gate" => {
+            let state = flag_value(&args, "--state")
+                .ok_or_else(|| anyhow::anyhow!("route-gate needs --state <route_state.json>"))?;
+            tekmor::route_gate_cli::run_cli(std::path::Path::new(&state))?;
+        }
         "rules" => {
             tekmor::command_rules::run_cli(&args[2..])?;
         }

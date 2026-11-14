@@ -261,9 +261,9 @@ Summary: tekmor is the routing layer that every agent calls at turn start. Its C
   - Behaviour: `calculate_pricing` in `tekmor/src/telemetry.rs` returns cost and cache hit. The `estimated_dollars_saved` column is dropped by migration v29 (`tekmor/src/db/migrations.rs`).
   - Outcome: No dollar savings figure is stored or reported.
 
-- `route-gate-decision`: The pure allow, grace or deny decision for a tool call (R-15 step 2, ADR 0001 amendment 1).
-  - Behaviour: `decide` in `tekmor/src/route_gate_decision.rs` covers route_task, discovery tools, the grace window, MCP offline mode and the stale-route timeout. Nothing calls it yet.
-  - Outcome: Shadow mode in step 3 compares this against the Python gate.
+- `route-gate-decision`: The pure allow, grace or deny decision for a tool call (R-15 steps 2 and 3, ADR 0001 amendments 1 and 2).
+  - Behaviour: `decide` in `tekmor/src/route_gate_decision.rs` covers route_task, discovery tools, the grace window, MCP offline mode and the stale-route timeout. `tekmor route-gate --state <file>` reads a host event and prints the permission (`tekmor/src/route_gate_cli.rs`).
+  - Outcome: With `TEKMOR_ROUTE_GATE_SHADOW=1`, `tekmor/hooks/route_gate.py` logs each disagreement with the Python gate to `route_gate_shadow.jsonl`. The Python gate still decides. Off by default, so the hook's latency budget holds.
 - `route-gate-tool-kind`: The Rust side classifies host tool names into shell, edit, route_task or other (R-15 step 1, ADR 0001).
   - Behaviour: `classify_tool` in `tekmor/src/route_gate_event.rs` applies the same name rules as the Python route gate. Nothing calls it yet.
   - Outcome: The Python gate can move to Rust one gate at a time, with the same classification.
