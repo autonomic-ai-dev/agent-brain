@@ -34,9 +34,9 @@ related:
   - Behaviour: `crates/tekmor-core/src/types.rs` defines both structs. `file_context` and `lessons` are omitted from the serialized response when empty.
   - Outcome: Clients that ignore the fields see no change.
 
-- `context-provider-contract`: The request and item types a context provider uses (H3-1, ADR 0002).
-  - Behaviour: `ContextRequest` and `ContextItem` in `crates/tekmor-core/src/context_provider.rs` are plain serializable data. No provider runs yet.
-  - Outcome: Providers can be moved one at a time against one shared shape.
+- `context-provider-contract`: The typed items a context provider returns (H3-1, ADR 0002 amendment 1).
+  - Behaviour: `ContextItem` in `crates/tekmor-core/src/context_provider.rs` carries a `File` or `Lesson` payload. The binary gathers both in `tekmor/src/context.rs`, and route_task splits them back into its two response fields.
+  - Outcome: The route response is unchanged. New providers add a payload variant.
 
 ## Code
 

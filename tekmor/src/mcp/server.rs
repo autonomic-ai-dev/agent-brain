@@ -770,14 +770,11 @@ impl BrainMcp {
             .map_err(|e| McpError::internal_error(format!("{e}"), None))?;
         self.route_gate.record_route(&p.user_message);
         let repo_root = cwd.as_deref().and_then(crate::config::find_repo_root);
-        let file_context = repo_root
+        let items = repo_root
             .as_deref()
-            .map(|root| crate::feature_map::route_file_context(root, &p.open_files))
+            .map(|root| crate::context::gather(&self.engine.store, root, &p.open_files))
             .unwrap_or_default();
-        let lessons = repo_root
-            .as_deref()
-            .map(|root| crate::lessons::route_lessons(&self.engine.store, root, &p.open_files))
-            .unwrap_or_default();
+        let (file_context, lessons) = crate::context::split(items);
         let resp = RouteTaskResponse {
             file_context,
             lessons,

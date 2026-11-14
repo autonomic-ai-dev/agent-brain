@@ -48,3 +48,11 @@ Each step is one PR. Reverting it restores the previous wiring. No schema change
 - Two implementations may not be enough to shape the contract. The first socket may need a second revision.
 - Moving retrieval changes ranking. The eval is the only proof, and it is currently failing.
 - The core boundary check must still pass. Any socket that needs IO stays in the binary.
+
+## Amendment 1: typed context items (H3-1b)
+
+The first draft gave `ContextItem` an id, a kind, a token cost and a "why now" reason. The file-context and lesson providers return different shapes, and neither fits those fields. Neither can be rebuilt from a generic item without losing data the route response needs.
+
+`ContextItem` now carries a typed payload: `File(FileContext)` or `Lesson(LessonRec)`, both defined in `tekmor-core`. The route response keeps its current fields, so clients see no change.
+
+Token cost and "why now" are dropped for now. They come back with the budget merger, which is the first thing that needs them. The provider trait is still deferred. Each provider is a plain function, and one gather step builds the items.
