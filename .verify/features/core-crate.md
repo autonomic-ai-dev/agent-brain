@@ -30,6 +30,9 @@ related:
   - Behaviour: The normal dependency tree of `tekmor-core` is checked against a denylist of IO and runtime crate names.
   - Outcome: `.verify/checks/core_boundary.sh` exits 0 and prints the holding message.
 
+- `evidence-record`: The evidence a receipt reads, and when a run proves a head and code tree (H3-2, ADR 0002 amendment 2).
+  - Behaviour: `EvidenceRecord::is_run_for` in `crates/tekmor-core/src/evidence.rs` accepts only cli and orchestrator runs for the same head and code hash. The store converts rows into it.
+  - Outcome: The receipt is unchanged for users. Bench proofs are not a source yet.
 - `route-file-context-types`: `FileContext` and `LessonRec` are optional fields of `RouteTaskResponse`.
   - Behaviour: `crates/tekmor-core/src/types.rs` defines both structs. `file_context` and `lessons` are omitted from the serialized response when empty.
   - Outcome: Clients that ignore the fields see no change.

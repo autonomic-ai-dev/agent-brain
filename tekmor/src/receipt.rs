@@ -3,7 +3,9 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use serde::Serialize;
 
-use crate::db::store::{BrainStore, VerifyOutcomeRow};
+use tekmor_core::evidence::EvidenceRecord;
+
+use crate::db::store::BrainStore;
 use crate::project_key;
 use crate::spec::{self, Requirement};
 use crate::verify;
@@ -58,29 +60,20 @@ pub struct Receipt {
     pub protected_changes: Vec<String>,
 }
 
-fn is_run_for(row: &VerifyOutcomeRow, head: &str, hash: &str) -> bool {
-    row.head_sha.as_deref() == Some(head)
-        && row.code_hash.as_deref() == Some(hash)
-        && matches!(
-            row.source.as_deref().unwrap_or("cli"),
-            "cli" | "orchestrator"
-        )
-}
-
 pub fn build_receipt(
-    rows: &[VerifyOutcomeRow],
+    rows: &[EvidenceRecord],
     head_sha: Option<&str>,
     code_hash: Option<&str>,
 ) -> Receipt {
     let evidence = head_sha.zip(code_hash).and_then(|(head, hash)| {
         rows.iter()
-            .find(|row| is_run_for(row, head, hash))
+            .find(|row| row.is_run_for(head, hash))
             .map(|row| Evidence {
                 id: row.id.clone(),
                 cmd: row.cmd.clone(),
                 exit_code: row.exit_code,
                 recorded_at: row.recorded_at,
-                source: row.source.clone().unwrap_or_else(|| "cli".to_string()),
+                source: row.source.clone(),
                 artifact: None,
             })
     });
@@ -100,19 +93,19 @@ pub fn build_receipt(
 }
 
 fn latest_run<'a>(
-    rows: &'a [VerifyOutcomeRow],
+    rows: &'a [EvidenceRecord],
     check: &str,
     head_sha: Option<&str>,
     code_hash: Option<&str>,
-) -> Option<&'a VerifyOutcomeRow> {
+) -> Option<&'a EvidenceRecord> {
     let (head, hash) = head_sha.zip(code_hash)?;
     rows.iter()
-        .find(|row| row.cmd == check && is_run_for(row, head, hash))
+        .find(|row| row.cmd == check && row.is_run_for(head, hash))
 }
 
 pub fn requirement_states(
     specs: &[(String, Vec<Requirement>)],
-    rows: &[VerifyOutcomeRow],
+    rows: &[EvidenceRecord],
     head_sha: Option<&str>,
     code_hash: Option<&str>,
     allowlisted: impl Fn(&str) -> bool,
@@ -187,7 +180,11 @@ pub fn receipt_for_project(store: &BrainStore, root: &Path) -> Result<Receipt> {
     let head = verify::git_head_sha(root);
     let code = verify::code_tree_hash(root);
     let rows = match project_key::project_key_if_known(root) {
-        Some(key) => store.list_verify_outcomes_for_project(&key, RECEIPT_SCAN_LIMIT)?,
+        Some(key) => store
+            .list_verify_outcomes_for_project(&key, RECEIPT_SCAN_LIMIT)?
+            .into_iter()
+            .map(EvidenceRecord::from)
+            .collect(),
         None => Vec::new(),
     };
     let mut receipt = build_receipt(&rows, head.as_deref(), code.as_deref());
@@ -380,18 +377,13 @@ mod tests {
         head: Option<&str>,
         hash: Option<&str>,
         source: Option<&str>,
-    ) -> VerifyOutcomeRow {
-        VerifyOutcomeRow {
+    ) -> EvidenceRecord {
+        EvidenceRecord {
             id: format!("id-{cmd}-{exit}"),
-            route_log_id: None,
-            exit_code: exit,
-            cause_tag: None,
-            verify_config_hash: None,
-            scenario_dir_hash: None,
             cmd: cmd.to_string(),
-            device_id: None,
+            exit_code: exit,
             recorded_at: 1_794_000_000_000,
-            source: source.map(str::to_string),
+            source: source.unwrap_or("cli").to_string(),
             code_hash: hash.map(str::to_string),
             head_sha: head.map(str::to_string),
         }
@@ -551,7 +543,7 @@ mod tests {
 
     fn states(
         specs: &[(String, Vec<Requirement>)],
-        rows: &[VerifyOutcomeRow],
+        rows: &[EvidenceRecord],
         allowed: &[&str],
     ) -> Vec<RequirementState> {
         requirement_states(specs, rows, Some(HEAD), Some(HASH), |cmd| {

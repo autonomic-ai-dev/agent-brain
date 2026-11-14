@@ -53,3 +53,7 @@ Version 1.0.0-rc5 (`tekmor/crates/tekmor-core/Cargo.toml`). See CHANGELOG.md for
 ## Context gather (H3-1b, ADR 0002)
 
 - `tekmor/src/context.rs` gathers file and lesson context into one list of typed items, then splits it back for the route response. Its owner is the core-crate feature map.
+
+## Evidence source (H3-2, ADR 0002)
+
+- Receipts read `EvidenceRecord` from `tekmor-core`, converted from store rows at the store boundary. Bench proofs are not a source until bench records a code hash and head SHA.
