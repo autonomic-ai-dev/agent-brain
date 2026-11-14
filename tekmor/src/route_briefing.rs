@@ -6,48 +6,13 @@ use chrono::Local;
 
 use crate::types::RouteTaskResponse;
 
-/// Rough tokens if every indexed item were loaded (~120 tok/item). Informational only.
-pub const NAIVE_TOKENS_PER_INDEXED_ITEM: usize = 120;
-
-#[derive(Debug, Clone, Copy)]
-pub struct TokenSavings {
-    pub index_total: usize,
-    pub naive_tokens: usize,
-    pub routed_tokens: usize,
-    pub tokens_budget: usize,
-    pub saved_tokens: usize,
-    pub saved_pct: usize,
-}
-
-pub fn token_savings(resp: &RouteTaskResponse) -> Option<TokenSavings> {
+pub fn format_budget_line(resp: &RouteTaskResponse) -> String {
     if resp.index_total == 0 {
-        return None;
-    }
-    let naive_tokens = resp
-        .index_total
-        .saturating_mul(NAIVE_TOKENS_PER_INDEXED_ITEM);
-    let saved_tokens = naive_tokens.saturating_sub(resp.tokens_used);
-    let saved_pct = saved_tokens
-        .saturating_mul(100)
-        .checked_div(naive_tokens)
-        .unwrap_or(0);
-    Some(TokenSavings {
-        index_total: resp.index_total,
-        naive_tokens,
-        routed_tokens: resp.tokens_used,
-        tokens_budget: resp.tokens_budget,
-        saved_tokens,
-        saved_pct,
-    })
-}
-
-pub fn format_token_savings_line(resp: &RouteTaskResponse) -> String {
-    let Some(s) = token_savings(resp) else {
         return String::new();
-    };
+    }
     format!(
         "Index: {} items · routed {}/{} tok",
-        s.index_total, s.routed_tokens, s.tokens_budget
+        resp.index_total, resp.tokens_used, resp.tokens_budget
     )
 }
 
@@ -63,9 +28,9 @@ pub fn format_briefing(resp: &RouteTaskResponse) -> String {
         resp.tokens_used,
         resp.tokens_budget
     ));
-    let savings = format_token_savings_line(resp);
-    if !savings.is_empty() {
-        out.push_str(&format!("{savings}\n"));
+    let budget = format_budget_line(resp);
+    if !budget.is_empty() {
+        out.push_str(&format!("{budget}\n"));
     }
     if !resp.must_apply.is_empty() {
         out.push_str(&format!(
@@ -210,8 +175,8 @@ fn section_list_with_hint(
 pub fn format_summary_line(resp: &RouteTaskResponse) -> String {
     let skill_names = join_top_names(resp.recommended_skills.iter().map(|s| s.name.as_str()), 3);
     let agent_names = join_top_names(resp.recommended_agents.iter().map(|a| a.name.as_str()), 2);
-    let savings =
-        token_savings(resp).map(|s| format!(" · routed {}/{}", s.routed_tokens, s.tokens_budget));
+    let savings = (resp.index_total > 0)
+        .then(|| format!(" · routed {}/{}", resp.tokens_used, resp.tokens_budget));
     let constraints = if resp.must_apply.is_empty() {
         String::new()
     } else {
@@ -527,17 +492,18 @@ mod tests {
     }
 
     #[test]
-    fn token_savings_math() {
+    fn budget_line_shows_routed_tokens_and_index_size() {
         let resp = RouteTaskResponse {
             tokens_used: 477,
             tokens_budget: 500,
             index_total: 2000,
             ..Default::default()
         };
-        let s = token_savings(&resp).unwrap();
-        assert_eq!(s.naive_tokens, 240_000);
-        assert_eq!(s.saved_tokens, 239_523);
-        assert!(s.routed_tokens <= s.tokens_budget);
+        assert_eq!(
+            format_budget_line(&resp),
+            "Index: 2000 items · routed 477/500 tok"
+        );
+        assert!(format_budget_line(&RouteTaskResponse::default()).is_empty());
     }
 
     #[test]

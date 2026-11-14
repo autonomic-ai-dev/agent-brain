@@ -46,10 +46,7 @@ pub fn log_route(
     scored: &[ScoredItem],
     truncated: bool,
 ) -> Result<()> {
-    let savings = crate::route_briefing::token_savings(resp);
-    let (index_total, saved_pct) = savings
-        .map(|s| (Some(s.index_total), Some(s.saved_pct.min(100) as u8)))
-        .unwrap_or((None, None));
+    let index_total = (resp.index_total > 0).then_some(resp.index_total);
 
     let items: Vec<RetrievalItemLog> = scored
         .iter()
@@ -72,7 +69,7 @@ pub fn log_route(
         resp.cache_hit,
         resp.latency_ms,
         index_total,
-        saved_pct,
+        None,
         Some(resp.must_apply.len()),
     )?;
     crate::adoption::record_first_route(store)

@@ -23,6 +23,10 @@ Summary: The dataset export, weekly digest, architecture distill, and gRPC bridg
   - Behaviour: `tekmor grpc serve [--addr HOST:PORT]`. The extension loads the config, runs the bootstrap, and serves the routing service. The default address is `127.0.0.1:7842`.
   - Outcome: A gRPC server on the address. Any other `grpc` subcommand prints the usage line.
 
+- `extras-digest-measured`: The weekly digest reports measured routing figures only.
+  - Behaviour: `extensions/extras/src/operator_digest.rs` drops the estimated savings fields (`routes_with_savings`, `avg_saved_pct`, `total_saved_tokens`). It reports average routed tokens across `route_calls`.
+  - Outcome: The digest shows no estimated savings.
+
 ## Code
 
 - `extensions/extras`

@@ -158,6 +158,13 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 - Lessons past their TTL are deleted by `run_gc` (`lessons_removed`), not only hidden on read.
 - The eval gate is not part of `.verify/run.sh`; see bench-extension for its current 15 of 28 result.
 
+## Estimated savings removed (R-9)
+
+- The route briefing no longer prints an estimated savings figure. It shows the index size and routed tokens against the budget.
+- The retrieval log no longer writes `saved_pct`. The stored column stays, and new rows write it as empty.
+- Stats no longer report `total_saved_tokens`, `avg_saved_pct` or `routes_with_savings`. The dashboard headline counts tool savings only.
+- The estimate assumed every indexed item would be loaded, so it was never a measurement.
+
 ## Repo-level host files
 
 - The root `AGENTS.md` and the `.cursor/` folder were removed from the repository. They were project-install output, not runtime inputs. `tekmor install` or `tekmor mode install` recreates them in a project that needs them.

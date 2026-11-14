@@ -271,7 +271,7 @@ fn memory_gc_report_buckets_protected_negative() {
 }
 
 #[test]
-fn stats_collects_token_savings_from_retrieval_log() {
+fn stats_collects_routed_tokens_from_retrieval_log() {
     use tekmor::stats;
 
     let dir = TempDir::new().unwrap();
@@ -298,9 +298,7 @@ fn stats_collects_token_savings_from_retrieval_log() {
     assert_eq!(snapshot.period.route_calls, 1);
     assert_eq!(snapshot.period.routes_with_constraints, 1);
     assert_eq!(snapshot.period.total_must_apply, 2);
-    assert_eq!(snapshot.period.routes_with_savings, 1);
-    assert!(snapshot.period.avg_saved_pct >= 95.0);
-    assert!(snapshot.period.total_saved_tokens > 0);
+    assert_eq!(snapshot.period.avg_routed_tokens, 120.0);
     assert!(stats::format_summary_line(&snapshot).contains("tok avg routed"));
 }
 

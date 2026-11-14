@@ -14,9 +14,6 @@ pub struct WeeklyDigest {
     pub avg_latency_ms: f64,
     pub p95_latency_ms: u64,
     pub phases: Vec<PhaseCount>,
-    pub routes_with_savings: usize,
-    pub avg_saved_pct: f64,
-    pub total_saved_tokens: u64,
     pub avg_routed_tokens: f64,
     pub routes_with_constraints: usize,
     pub total_must_apply: usize,
@@ -63,9 +60,6 @@ pub fn weekly_digest(store: &BrainStore, days: u32) -> Result<WeeklyDigest> {
             .into_iter()
             .map(|(phase, count)| PhaseCount { phase, count })
             .collect(),
-        routes_with_savings: stats.routes_with_savings,
-        avg_saved_pct: stats.avg_saved_pct,
-        total_saved_tokens: stats.total_saved_tokens,
         avg_routed_tokens: stats.avg_routed_tokens,
         routes_with_constraints: stats.routes_with_constraints,
         total_must_apply: stats.total_must_apply,
@@ -101,10 +95,10 @@ pub fn format_weekly_digest(digest: &WeeklyDigest) -> String {
         digest.avg_latency_ms,
         digest.p95_latency_ms
     ));
-    if digest.routes_with_savings > 0 {
+    if digest.route_calls > 0 {
         out.push_str(&format!(
             "- Avg routed tokens: {:.0} across {} routes\n",
-            digest.avg_routed_tokens, digest.routes_with_savings
+            digest.avg_routed_tokens, digest.route_calls
         ));
     }
     if digest.routes_with_constraints > 0 {

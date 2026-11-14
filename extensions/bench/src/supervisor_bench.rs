@@ -13,14 +13,13 @@ use tekmor::db::store::{content_hash, BrainStore};
 use tekmor::embed::deterministic_embedding;
 use tekmor::engine::{Engine, RouteRequest};
 use tekmor::packages::install_bundled;
-use tekmor::route_briefing::token_savings;
 use tekmor::token_tools::{run_token_tools_bench, TokenToolsBenchReport};
 use tekmor::types::RouteLimits;
 
 pub const SUPERVISOR_SKILL_HIT_THRESHOLD: f64 = 1.0;
 pub const MUST_APPLY_HIT_THRESHOLD: f64 = 1.0;
 pub const SUPERVISOR_WARM_P95_MS: u64 = 100;
-pub const AVG_SAVED_PCT_MIN: usize = 90;
+pub const WITHIN_BUDGET_MIN: f64 = 1.0;
 
 const WARMUP_ROUTES: usize = 3;
 const LATENCY_SAMPLES: usize = 15;
@@ -56,7 +55,7 @@ pub struct SupervisorScenarioResult {
     pub expect_must_apply_topic: Option<String>,
     pub skill_hit: bool,
     pub must_apply_hit: bool,
-    pub saved_pct: usize,
+    pub within_budget: bool,
     pub latency_ms: u64,
     pub bm25_fast_path_eligible: bool,
     pub tokens_used: usize,
@@ -69,13 +68,13 @@ pub struct SupervisorBenchReport {
     pub scenarios: Vec<SupervisorScenarioResult>,
     pub skill_hit_rate: f64,
     pub must_apply_rate: f64,
-    pub avg_saved_pct: f64,
+    pub budget_within_rate: f64,
     pub bm25_fast_path_rate: f64,
     pub warm_route_p95_ms: u64,
     pub skill_hit_threshold: f64,
     pub must_apply_threshold: f64,
     pub warm_route_p95_threshold_ms: u64,
-    pub avg_saved_pct_min: usize,
+    pub budget_within_min: f64,
     pub token_tools: TokenToolsBenchReport,
     pub passed: bool,
 }
@@ -147,7 +146,7 @@ pub fn run_supervisor_bench_on_engine(engine: &Engine) -> Result<SupervisorBench
     let mut skill_hits = 0usize;
     let mut must_apply_checks = 0usize;
     let mut must_apply_hits = 0usize;
-    let mut saved_pcts = Vec::new();
+    let mut within_budget_count = 0usize;
     let mut fast_path_eligible = 0usize;
 
     for scenario in SCENARIOS {
@@ -166,8 +165,8 @@ pub fn run_supervisor_bench_on_engine(engine: &Engine) -> Result<SupervisorBench
             explicit_task_kind: None,
         })?;
 
-        let saved_pct = token_savings(&resp).map(|s| s.saved_pct).unwrap_or(0);
-        saved_pcts.push(saved_pct);
+        let within_budget = resp.tokens_used <= resp.tokens_budget;
+        within_budget_count += usize::from(within_budget);
 
         let skill_hit = scenario
             .expect_skill
@@ -195,7 +194,7 @@ pub fn run_supervisor_bench_on_engine(engine: &Engine) -> Result<SupervisorBench
             expect_must_apply_topic: scenario.expect_must_apply.map(str::to_string),
             skill_hit,
             must_apply_hit,
-            saved_pct,
+            within_budget,
             latency_ms: resp.latency_ms,
             bm25_fast_path_eligible: eligible,
             tokens_used: resp.tokens_used,
@@ -229,18 +228,14 @@ pub fn run_supervisor_bench_on_engine(engine: &Engine) -> Result<SupervisorBench
     } else {
         must_apply_hits as f64 / must_apply_checks as f64
     };
-    let avg_saved_pct = if saved_pcts.is_empty() {
-        0.0
-    } else {
-        saved_pcts.iter().sum::<usize>() as f64 / saved_pcts.len() as f64
-    };
+    let budget_within_rate = within_budget_count as f64 / SCENARIOS.len() as f64;
     let bm25_fast_path_rate = fast_path_eligible as f64 / SCENARIOS.len() as f64;
 
     let token_tools = run_token_tools_bench()?;
 
     let passed = skill_hit_rate >= SUPERVISOR_SKILL_HIT_THRESHOLD
         && must_apply_rate >= MUST_APPLY_HIT_THRESHOLD
-        && avg_saved_pct >= AVG_SAVED_PCT_MIN as f64
+        && budget_within_rate >= WITHIN_BUDGET_MIN
         && warm_route_p95_ms <= SUPERVISOR_WARM_P95_MS
         && token_tools.passed;
 
@@ -249,13 +244,13 @@ pub fn run_supervisor_bench_on_engine(engine: &Engine) -> Result<SupervisorBench
         scenarios,
         skill_hit_rate,
         must_apply_rate,
-        avg_saved_pct,
+        budget_within_rate,
         bm25_fast_path_rate,
         warm_route_p95_ms,
         skill_hit_threshold: SUPERVISOR_SKILL_HIT_THRESHOLD,
         must_apply_threshold: MUST_APPLY_HIT_THRESHOLD,
         warm_route_p95_threshold_ms: SUPERVISOR_WARM_P95_MS,
-        avg_saved_pct_min: AVG_SAVED_PCT_MIN,
+        budget_within_min: WITHIN_BUDGET_MIN,
         token_tools,
         passed,
     })
@@ -279,11 +274,11 @@ pub fn assert_supervisor_bench_gate(report: &SupervisorBenchReport) -> Result<()
             report.must_apply_threshold * 100.0
         );
     }
-    if report.avg_saved_pct < report.avg_saved_pct_min as f64 {
+    if report.budget_within_rate < report.budget_within_min {
         bail!(
-            "avg saved_pct {:.0}% below minimum {}%",
-            report.avg_saved_pct,
-            report.avg_saved_pct_min
+            "routes within token budget {:.0}% below minimum {:.0}%",
+            report.budget_within_rate * 100.0,
+            report.budget_within_min * 100.0
         );
     }
     if !report.token_tools.passed {

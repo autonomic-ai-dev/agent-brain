@@ -44,3 +44,7 @@ Dataset export, the weekly digest, architecture distill, and the gRPC bridge are
 - Feature map: [[../features/extras-extension]]
 - Extension mechanism: [[cli-verify-and-memory]]
 - Earlier slices: [[graphify-extension]], [[bench-extension]]
+
+## Estimated savings removed (R-9)
+
+- The weekly digest drops the estimated savings fields. It reports average routed tokens across routes.
