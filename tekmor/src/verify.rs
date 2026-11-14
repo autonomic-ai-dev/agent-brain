@@ -1003,6 +1003,10 @@ pub fn suggest_verified_recipes(
     .iter()
     .any(|k| lower.contains(k));
 
+    if !has_execution_intent {
+        return Vec::new();
+    }
+
     let Some(project_key) = project_key else {
         return Vec::new();
     };
@@ -1407,6 +1411,25 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
         assert_eq!(recipes[0].cmd, "cargo test -p tekmor");
         assert_eq!(recipes[0].exit_code, 0);
         assert_eq!(recipes[0].source, "orchestrator");
+    }
+
+    #[test]
+    fn suggest_verified_recipes_needs_execution_intent() {
+        let dir = tempdir().unwrap();
+        let store = BrainStore::open(&dir.path().join("t.db")).unwrap();
+        let _ = store.insert_verify_outcome(
+            None,
+            0,
+            None,
+            None,
+            None,
+            "cargo test -p tekmor",
+            "dev1",
+            "orchestrator",
+            Some("project-a"),
+        );
+        assert!(suggest_verified_recipes(&store, "summarize the design doc", Some("project-a"), 3).is_empty());
+        assert!(!suggest_verified_recipes(&store, "run the tests", Some("project-a"), 3).is_empty());
     }
 
     #[test]

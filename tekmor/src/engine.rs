@@ -990,20 +990,6 @@ impl Engine {
             crate::verify::suggest_verified_recipes(&self.store, user_message, project_key_opt, 3);
         resp.last_verification =
             project_key_opt.and_then(|key| crate::verify::last_verification(&self.store, key));
-        if let Some(top) = resp.verified_recipes.first() {
-            let cmd_display = if top.cmd.len() > 200 {
-                format!("{}...", &top.cmd[..197])
-            } else {
-                top.cmd.clone()
-            };
-            resp.must_apply.push(crate::types::MustApply {
-                topic: "verified-recipe".into(),
-                text: format!(
-                    "Prefer verified recipe `{}` (exit 0 verified via {}) over unverified raw commands.",
-                    cmd_display, top.source
-                ),
-            });
-        }
         if cwd.is_some_and(|path| path.join(".verify/run.sh").is_file()) {
             resp.must_apply.push(crate::types::MustApply {
                 topic: "verify-precedence".into(),
