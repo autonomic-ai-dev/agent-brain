@@ -229,6 +229,10 @@ Summary: tekmor is the routing layer that every agent calls at turn start. Its C
   - Behaviour: `format_budget_line` in `tekmor/src/route_briefing.rs` shows the index size and routed tokens. The retrieval log no longer writes `saved_pct`. Stats no longer report `total_saved_tokens`, `avg_saved_pct` or `routes_with_savings`. The dashboard headline counts tool savings only.
   - Outcome: No route output or stats figure rests on an estimate.
 
+- `recipe-execution-intent`: Verified recipes are offered only for requests that ask to run something (R-4).
+  - Behaviour: `suggest_verified_recipes` in `tekmor/src/verify.rs` returns nothing without execution intent. The route no longer adds a `verified-recipe` must-apply entry (`tekmor/src/engine.rs`).
+  - Outcome: Routes for non-execution tasks carry no recipe and no recipe must-apply entry.
+
 ## Code
 
 - `tekmor/src`

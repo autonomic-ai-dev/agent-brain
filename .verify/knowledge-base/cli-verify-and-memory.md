@@ -168,3 +168,7 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 ## Repo-level host files
 
 - The root `AGENTS.md` and the `.cursor/` folder were removed from the repository. They were project-install output, not runtime inputs. `tekmor install` or `tekmor mode install` recreates them in a project that needs them.
+
+## Verified recipes need execution intent (R-4)
+
+- `verified-recipe` is no longer a must-apply entry. Recipes come back in `verified_recipes` only when the request asks to run something (test, build, check, verify and similar).
