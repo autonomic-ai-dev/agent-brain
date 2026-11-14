@@ -1,6 +1,5 @@
 allow tekmor doctor
 allow tekmor rules list
-allow cargo test --features extras
 allow cat build/result.txt
 allow cat README.md | grep foo
 allow cd src && rm lib.rs

@@ -446,10 +446,10 @@ mod tests {
     }
 
     #[test]
-    fn hook_and_mcp_records_do_not_count_as_a_verify_run() {
+    fn hook_records_do_not_count_as_a_verify_run() {
         let rows = [
             row("cargo test", 0, Some(HEAD), Some(HASH), Some("hook")),
-            row("cargo test", 0, Some(HEAD), Some(HASH), Some("mcp")),
+            row("cargo test", 0, Some(HEAD), Some(HASH), Some("hook")),
         ];
         assert_eq!(
             build_receipt(&rows, Some(HEAD), Some(HASH)).verdict,

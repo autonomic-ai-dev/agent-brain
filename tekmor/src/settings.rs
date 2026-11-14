@@ -360,23 +360,6 @@ impl Default for RegistrySettings {
 }
 
 impl RegistrySettings {
-    pub fn raw_url_base(&self) -> String {
-        let sub = self.registry_subpath.trim_matches('/');
-        if sub.is_empty() {
-            format!(
-                "https://raw.githubusercontent.com/{}/{}",
-                self.remote_repo.trim(),
-                self.remote_ref.trim()
-            )
-        } else {
-            format!(
-                "https://raw.githubusercontent.com/{}/{}/{}",
-                self.remote_repo.trim(),
-                self.remote_ref.trim(),
-                sub
-            )
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -662,18 +645,8 @@ impl AgentBrainSettings {
         Ok(parsed)
     }
 
-    pub fn save_default(home: &Path) -> Result<PathBuf> {
-        let path = home.join("config.yaml");
-        if path.exists() {
-            return Ok(path);
-        }
-        fs::create_dir_all(home).context("create home dir")?;
-        let settings = Self::default_enabled_example();
-        let yaml = serde_yaml::to_string(&settings).context("serialize default config")?;
-        fs::write(&path, yaml).with_context(|| format!("write {}", path.display()))?;
-        Ok(path)
-    }
 
+    #[cfg(test)]
     fn default_enabled_example() -> Self {
         Self {
             auto_update: AutoUpdateSettings {

@@ -1,6 +1,6 @@
 #![allow(clippy::too_many_arguments)] // row-oriented SQLite APIs take many optional columns
 
-use std::collections::{HashMap, HashSet};
+
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 

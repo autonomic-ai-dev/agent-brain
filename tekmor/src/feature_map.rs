@@ -3,8 +3,6 @@ use std::path::Path;
 
 
 const CODE_HEADING: &str = "## Code";
-const FILE_CONTEXT_LIMIT: usize = 5;
-const FILE_CONTEXT_COMMANDS: usize = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FeatureMap {

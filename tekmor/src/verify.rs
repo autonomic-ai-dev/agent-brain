@@ -16,18 +16,11 @@ use crate::db::store::BrainStore;
 use crate::evidence_reader;
 use crate::types::{VerificationStatus, VerifiedRecipe};
 
-const MIN_SAMPLE_FOR_RATES: usize = 30;
 pub const VERIFY_DIR_NAME: &str = ".verify";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VerifySource {
     Cli,
-    /// Host Shell PostToolUse / hook captured a real exit.
-    Hook,
-    /// MCP `record_verify_outcome` (agent-asserted; not trusted for learning).
-    Mcp,
-    /// Explicit playbook-driven record.
-    Playbook,
     Orchestrator,
 }
 
@@ -35,27 +28,20 @@ impl VerifySource {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Cli => "cli",
-            Self::Hook => "hook",
-            Self::Mcp => "mcp",
-            Self::Playbook => "playbook",
             Self::Orchestrator => "orchestrator",
         }
     }
 
-    /// Full learning weight: orchestrator, cli (allowlisted), hook (allowlisted).
     pub fn is_trusted_for_learning(self) -> bool {
-        matches!(self, Self::Cli | Self::Hook | Self::Orchestrator)
+        matches!(self, Self::Cli | Self::Orchestrator)
     }
 
     pub fn parse(s: &str) -> Result<Self> {
         match s.trim().to_ascii_lowercase().as_str() {
             "cli" => Ok(Self::Cli),
-            "hook" => Ok(Self::Hook),
-            "mcp" => Ok(Self::Mcp),
-            "playbook" => Ok(Self::Playbook),
             "orchestrator" | "spine" => Ok(Self::Orchestrator),
             other => bail!(
-                "unknown verify source `{other}` (expected cli|hook|mcp|playbook|orchestrator)"
+                "unknown verify source `{other}` (expected cli|orchestrator)"
             ),
         }
     }
@@ -670,10 +656,6 @@ pub fn run_verify(store: &BrainStore, cmd: &[String], run: VerifyRun<'_>) -> Res
     if cmd.is_empty() {
         bail!("usage: tekmor verify [--source cli|orchestrator] [--config PATH] [--scenarios DIR] [--route-log-id ID] [--cause TAG] -- <cmd> [args...]");
     }
-    let source = match source {
-        VerifySource::Mcp | VerifySource::Playbook | VerifySource::Hook => VerifySource::Cli,
-        other => other,
-    };
     let joined = cmd.join(" ");
     let project_root = std::env::current_dir()
         .ok()
@@ -751,65 +733,6 @@ fn save_artifact_log(
     Ok(path)
 }
 
-pub fn print_report(store: &BrainStore) -> Result<()> {
-    let rows = evidence_reader::recent_runs(store, 500)?;
-    let n = rows.len();
-    let success = rows.iter().filter(|r| r.exit_code == 0).count();
-    let fail = n.saturating_sub(success);
-    println!("verify outcomes: n={n} success={success} failure={fail}");
-
-    let mut by_source: std::collections::BTreeMap<String, usize> =
-        std::collections::BTreeMap::new();
-    for r in &rows {
-        *by_source
-            .entry(r.source.clone().unwrap_or_else(|| "cli".to_string()))
-            .or_default() += 1;
-    }
-    if !by_source.is_empty() {
-        let parts: Vec<String> = by_source.iter().map(|(k, v)| format!("{k}={v}")).collect();
-        println!("by_source: {{{}}}", parts.join(", "));
-    }
-
-    let checks: Vec<_> = rows
-        .iter()
-        .filter(|r| ran_a_check(r.source.as_deref()))
-        .collect();
-    if checks.len() < MIN_SAMPLE_FOR_RATES {
-        println!("rates suppressed (need n>={MIN_SAMPLE_FOR_RATES} cli or orchestrator runs; showing counts only)");
-    } else {
-        let passed = checks.iter().filter(|r| r.exit_code == 0).count();
-        let rate = passed as f64 / checks.len() as f64;
-        println!(
-            "first-pass success rate: {rate:.3} (cli and orchestrator runs, n={})",
-            checks.len()
-        );
-    }
-
-    let mut config_counts: std::collections::HashMap<String, usize> =
-        std::collections::HashMap::new();
-    for r in &rows {
-        if let Some(h) = &r.verify_config_hash {
-            *config_counts.entry(h.clone()).or_default() += 1;
-        }
-    }
-    if let Some((baseline, _)) = config_counts.iter().max_by_key(|(_, c)| *c) {
-        let drifted: Vec<_> = rows
-            .iter()
-            .filter(|r| r.verify_config_hash.as_ref().is_some_and(|h| h != baseline))
-            .collect();
-        if !drifted.is_empty() {
-            println!(
-                "WARNING: {} runs used a different verify_config_hash than the modal baseline",
-                drifted.len()
-            );
-        }
-    }
-
-    println!(
-        "note: source=orchestrator|cli (allowlisted verify --) strongest; hook observational; mcp/playbook not trusted for learning"
-    );
-    Ok(())
-}
 
 fn hash_path(path: &Path) -> Result<String> {
     let bytes = fs::read(path).with_context(|| format!("read {}", path.display()))?;
@@ -1082,11 +1005,11 @@ mod tests {
                 config_path: None,
                 scenarios_dir: None,
                 cwd: Some(dir.path()),
-                source: VerifySource::Hook,
+                source: VerifySource::Cli,
             },
         )
         .unwrap();
-        assert_eq!(report.source, "hook");
+        assert_eq!(report.source, "cli");
         assert!(report.scenario_dir_hash.is_some());
         assert_eq!(
             report.verify_root.as_deref(),
@@ -1095,7 +1018,7 @@ mod tests {
 
         let rows = store.list_verify_outcomes(10).unwrap();
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].source.as_deref(), Some("hook"));
+        assert_eq!(rows[0].source.as_deref(), Some("cli"));
         assert!(rows[0].scenario_dir_hash.is_some());
     }
 
@@ -1110,7 +1033,7 @@ mod tests {
             VerifySource::Orchestrator
         );
         assert!(VerifySource::Orchestrator.is_trusted_for_learning());
-        assert!(!VerifySource::Mcp.is_trusted_for_learning());
+        assert!(VerifySource::parse("mcp").is_err());
     }
 
     #[test]
@@ -1522,7 +1445,7 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
             dir.path(),
             "[verify.default]\ncommand = [\"echo\", \"hi\"]\n",
         );
-        let err = run_default_step(&store, dir.path(), VerifySource::Hook).unwrap_err();
+        let err = run_default_step(&store, dir.path(), VerifySource::Orchestrator).unwrap_err();
         assert!(err.to_string().contains("not in the verify allowlist"));
     }
 
@@ -1534,7 +1457,7 @@ commands = ["./mvnw -q verify", ".verify/run.sh", "cargo test"]
             dir.path(),
             "[verify]\ncommands = [\"sh -c\"]\n\n[verify.default]\ncommand = [\"sh\", \"-c\", \"true\"]\n",
         );
-        let report = run_default_step(&store, dir.path(), VerifySource::Hook)
+        let report = run_default_step(&store, dir.path(), VerifySource::Orchestrator)
             .unwrap()
             .unwrap()
             .report;

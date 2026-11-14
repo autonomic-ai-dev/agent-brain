@@ -137,43 +137,6 @@ impl Config {
         })
     }
 
-    pub fn isolated(home: PathBuf) -> Self {
-        let data_dir = home.join("data");
-        Self {
-            home: home.clone(),
-            data_dir: data_dir.clone(),
-            logs_dir: home.join("logs"),
-            db_path: data_dir.join("brain.db"),
-            vectors_path: data_dir.join("vectors.bin"),
-            turn_ttl_secs: 60,
-            auto_capture_enabled: false,
-            session_ingest_enabled: false,
-            session_digest_enabled: false,
-            session_ingest_legacy: false,
-            session_max_age_days: 90,
-            prewarm_on_bootstrap: false,
-            bootstrap_background: false,
-            embedding_cache_enabled: true,
-            bm25_fast_path_enabled: false,
-            session_ingest_background: false,
-            turn_cache_ignore_open_files: true,
-            embedding_model: "mini".into(),
-            bootstrap_startup_delay_secs: 0,
-            bootstrap_interval_secs: 0,
-            auto_update_startup_delay_secs: 0,
-            session_ingest_delay_secs: 0,
-            session_ingest_route_interval_secs: 0,
-            route_briefing_enabled: false,
-            route_briefing_stderr: false,
-            mcp_gate_enabled: false,
-            mcp_gate_ttl_secs: 14_400,
-            session_stickiness_secs: 0,
-            precision_rerank_enabled: false,
-            query_decompose_enabled: false,
-            auto_trajectory_enabled: false,
-            workflow_dirs: vec![],
-        }
-    }
 
     pub fn ensure_dirs(&self) -> Result<()> {
         std::fs::create_dir_all(&self.home).context("create home dir")?;
@@ -207,15 +170,6 @@ pub fn find_repo_root(start: &Path) -> Option<PathBuf> {
     }
 }
 
-pub fn expand_home(path: &str) -> PathBuf {
-    if let Some(stripped) = path.strip_prefix("~/") {
-        dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(stripped)
-    } else {
-        PathBuf::from(path)
-    }
-}
 
 fn env_u64(key: &str, default: u64) -> u64 {
     std::env::var(key)
@@ -231,12 +185,6 @@ fn env_bool(key: &str, default: bool) -> bool {
     }
 }
 
-fn env_usize(key: &str, default: usize) -> usize {
-    std::env::var(key)
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(default)
-}
 
 fn env_flag(value: Option<String>, default: bool) -> bool {
     value.map(|v| v != "0" && v != "false").unwrap_or(default)

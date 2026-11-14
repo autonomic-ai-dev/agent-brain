@@ -164,7 +164,7 @@ async fn main() -> Result<()> {
                     args[idx + 1..].to_vec()
                 } else {
                     eprintln!(
-                        "Usage: tekmor verify record --exit N [--source hook|mcp|playbook|cli|orchestrator] [--config PATH] [--scenarios DIR] [--route-log-id ID] [--cause TAG] -- <cmd summary...>"
+                        "Usage: tekmor verify record --exit N [--source cli|orchestrator] [--config PATH] [--scenarios DIR] [--route-log-id ID] [--cause TAG] -- <cmd summary...>"
                     );
                     std::process::exit(1);
                 };

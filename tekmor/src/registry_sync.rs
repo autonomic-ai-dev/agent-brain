@@ -10,28 +10,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::settings::RegistrySettings;
 
-const EMBEDDED_FILES: &[(&str, &str)] = &[
-    ("manifest.json", include_str!("../registry/manifest.json")),
-    ("packages.json", include_str!("../registry/packages.json")),
-    ("utilities.json", include_str!("../registry/utilities.json")),
-    ("workflows.json", include_str!("../registry/workflows.json")),
-    (
-        "workflows/release-notes.yaml",
-        include_str!("../registry/workflows/release-notes.yaml"),
-    ),
-    (
-        "workflows/stacked-pr.yaml",
-        include_str!("../registry/workflows/stacked-pr.yaml"),
-    ),
-    (
-        "workflows/bugfix.yaml",
-        include_str!("../registry/workflows/bugfix.yaml"),
-    ),
-    (
-        "workflows/mcp-health-check.yaml",
-        include_str!("../registry/workflows/mcp-health-check.yaml"),
-    ),
-];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SyncMeta {
@@ -46,26 +24,7 @@ pub fn cache_dir(home: &Path) -> PathBuf {
     home.join("registry-cache")
 }
 
-/// Read registry JSON/YAML from cache when present, else compile-time embedded copy.
-pub fn read_registry_file(home: &Path, relative: &str, embedded: &str) -> String {
-    let path = cache_dir(home).join(relative);
-    fs::read_to_string(&path).unwrap_or_else(|_| embedded.to_string())
-}
 
-pub fn seed_embedded(home: &Path) -> Result<usize> {
-    let n = write_files(home, EMBEDDED_FILES, "embedded")?;
-    write_meta(
-        home,
-        SyncMeta {
-            source: "embedded".into(),
-            remote_repo: String::new(),
-            remote_ref: String::new(),
-            synced_at_ms: now_ms(),
-            files: n,
-        },
-    )?;
-    Ok(n)
-}
 
 pub fn validate_repo_slug(slug: &str) -> Result<()> {
     if slug.is_empty() || slug.starts_with('-') || slug.ends_with('-') {
@@ -219,57 +178,13 @@ pub fn sync_remote(home: &Path, settings: &RegistrySettings) -> Result<usize> {
 
 pub fn sync(home: &Path, settings: &RegistrySettings) -> Result<usize> {
     if settings.remote_repo.trim().is_empty() {
-        return seed_embedded(home);
+        return Ok(0);
     }
-    match sync_remote(home, settings) {
-        Ok(n) => Ok(n),
-        Err(err) => {
-            tracing::warn!(error = %err, "registry remote sync failed; seeding embedded snapshot");
-            seed_embedded(home)
-        }
-    }
+    sync_remote(home, settings)
 }
 
-/// Seed cache when empty; optionally refresh when stale per settings.
-pub fn ensure_cached(home: &Path, settings: &RegistrySettings) -> Result<()> {
-    let has_cache = cache_dir(home).join("registry.json").is_file()
-        || cache_dir(home).join("manifest.json").is_file()
-        || cache_dir(home).join("repo").is_dir();
-    if !has_cache {
-        seed_embedded(home)?;
-        return Ok(());
-    }
-    if !settings.enabled {
-        return Ok(());
-    }
-    if settings.sync_on_doctor && is_stale(home, settings.sync_interval_hours) {
-        let _ = sync(home, settings);
-    }
-    Ok(())
-}
 
-fn is_stale(home: &Path, interval_hours: u32) -> bool {
-    let Ok(raw) = fs::read_to_string(cache_dir(home).join("sync-meta.json")) else {
-        return true;
-    };
-    let Ok(meta) = serde_json::from_str::<SyncMeta>(&raw) else {
-        return true;
-    };
-    let age_ms = now_ms().saturating_sub(meta.synced_at_ms);
-    age_ms > i64::from(interval_hours) * 3_600_000
-}
 
-fn write_files(home: &Path, files: &[(&str, &str)], _source: &str) -> Result<usize> {
-    let base = cache_dir(home);
-    for (rel, content) in files {
-        let path = base.join(rel);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(&path, content).with_context(|| format!("write {}", path.display()))?;
-    }
-    Ok(files.len())
-}
 
 fn write_meta(home: &Path, meta: SyncMeta) -> Result<()> {
     let path = cache_dir(home).join("sync-meta.json");
@@ -288,55 +203,9 @@ fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
 
-    #[test]
-    fn registry_workflows_are_runnable_spine_files() {
-        let spine = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../agent-spine");
-        if !spine.join("workflows").is_dir() {
-            eprintln!("skipped: sibling thesmos checkout not found");
-            return;
-        }
-        let registry: serde_json::Value =
-            serde_json::from_str(include_str!("../registry/workflows.json")).unwrap();
-        let entries = registry["workflows"].as_object().unwrap();
-        assert!(!entries.is_empty());
-        for (name, entry) in entries {
-            let path = entry["path"].as_str().unwrap();
-            assert!(
-                spine.join(path).is_file(),
-                "registry entry '{name}' points at missing {path}"
-            );
-            assert_eq!(
-                entry["invoke"].as_str().unwrap(),
-                format!("thesmos run {path}"),
-                "registry entry '{name}' must be runnable as written"
-            );
-        }
-    }
 
-    #[test]
-    fn seed_embedded_writes_manifest() {
-        let dir = TempDir::new().unwrap();
-        let home = dir.path();
-        let n = seed_embedded(home).unwrap();
-        assert!(n >= 7);
-        assert!(cache_dir(home).join("manifest.json").is_file());
-        assert!(cache_dir(home)
-            .join("workflows/release-notes.yaml")
-            .is_file());
-    }
 
-    #[test]
-    fn read_prefers_cache_over_embedded() {
-        let dir = TempDir::new().unwrap();
-        let home = dir.path();
-        seed_embedded(home).unwrap();
-        let path = cache_dir(home).join("packages.json");
-        fs::write(&path, r#"{"version":99,"aliases":{}}"#).unwrap();
-        let raw = read_registry_file(home, "packages.json", "{}");
-        assert!(raw.contains("\"version\":99"));
-    }
 
     #[test]
     fn validates_repo_slug_formats() {

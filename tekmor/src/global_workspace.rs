@@ -30,9 +30,6 @@ pub fn executions_dir() -> PathBuf {
     spine_logs_dir().join("executions")
 }
 
-pub fn agents_md_path() -> PathBuf {
-    autonomic_root().join("AGENTS.md")
-}
 
 pub fn ensure_dirs() -> std::io::Result<()> {
     fs::create_dir_all(memory_dir())?;

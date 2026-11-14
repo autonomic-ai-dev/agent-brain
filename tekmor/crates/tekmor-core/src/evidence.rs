@@ -47,7 +47,7 @@ mod tests {
     fn a_run_for_another_head_tree_or_source_does_not_count() {
         assert!(!record("cli", "h", "c").is_run_for("other", "c"));
         assert!(!record("cli", "h", "c").is_run_for("h", "other"));
-        assert!(!record("bench", "h", "c").is_run_for("h", "c"));
+        assert!(!record("hook", "h", "c").is_run_for("h", "c"));
     }
 }
 
