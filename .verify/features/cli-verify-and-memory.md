@@ -257,6 +257,10 @@ Summary: tekmor is the routing layer that every agent calls at turn start. Its C
   - Behaviour: `tekmor/hooks/route_gate.py` no longer runs `tekmor verify record` after a shell command. Explicit `tekmor verify -- <cmd>` runs are unchanged.
   - Outcome: `verify_outcomes` holds only runs that were executed by `tekmor verify` or an orchestrator. Those are the only rows the stop gate, receipt and recipes ever counted.
 
+- `telemetry-no-dollar-estimate`: Turn telemetry reports cost and cache hit only, with no dollar savings (schema v29).
+  - Behaviour: `calculate_pricing` in `tekmor/src/telemetry.rs` returns cost and cache hit. The `estimated_dollars_saved` column is dropped by migration v29 (`tekmor/src/db/migrations.rs`).
+  - Outcome: No dollar savings figure is stored or reported.
+
 ## Code
 
 - `tekmor/src`

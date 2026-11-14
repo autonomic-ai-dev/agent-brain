@@ -3286,9 +3286,9 @@ impl BrainStore {
             conn.execute(
                 r#"INSERT INTO turn_telemetry 
                    (id, session_id, organ, provider, model, prompt_tokens, completion_tokens,
-                    cache_read_tokens, cache_write_tokens, estimated_cost_usd, estimated_dollars_saved,
+                    cache_read_tokens, cache_write_tokens, estimated_cost_usd,
                     cache_hit_pct, latency_ms, task_phase, created_at)
-                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)"#,
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"#,
                 params![
                     outcome.event_id,
                     outcome.session_id,
@@ -3300,7 +3300,6 @@ impl BrainStore {
                     outcome.cache_read_tokens as i64,
                     outcome.cache_write_tokens as i64,
                     outcome.estimated_cost_usd,
-                    outcome.estimated_dollars_saved,
                     outcome.cache_hit_pct,
                     0i64,
                     task_phase,
@@ -3320,7 +3319,7 @@ impl BrainStore {
         self.with_conn(|conn| {
             let mut stmt = conn.prepare(
                 r#"SELECT provider, model, prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens,
-                          estimated_cost_usd, estimated_dollars_saved
+                          estimated_cost_usd
                    FROM turn_telemetry
                    WHERE created_at >= ?1"#,
             )?;
@@ -3336,19 +3335,17 @@ impl BrainStore {
                     row.get::<_, i64>(4)? as u64,
                     row.get::<_, i64>(5)? as u64,
                     row.get::<_, f64>(6)?,
-                    row.get::<_, f64>(7)?,
                 ))
             })?;
 
             for row in rows {
-                let (provider, model, prompt, comp, c_read, c_write, cost, saved) = row?;
+                let (provider, model, prompt, comp, c_read, c_write, cost) = row?;
                 summary.total_turns += 1;
                 summary.total_prompt_tokens += prompt;
                 summary.total_completion_tokens += comp;
                 summary.total_cache_read_tokens += c_read;
                 summary.total_cache_write_tokens += c_write;
                 summary.total_cost_usd += cost;
-                summary.total_dollars_saved += saved;
 
                 let p_entry = summary.by_provider.entry(provider.clone()).or_default();
                 p_entry.prompt_tokens += prompt;
@@ -3356,7 +3353,6 @@ impl BrainStore {
                 p_entry.cache_read_tokens += c_read;
                 p_entry.cache_write_tokens += c_write;
                 p_entry.estimated_cost_usd += cost;
-                p_entry.estimated_dollars_saved += saved;
 
                 let m_entry = summary.by_model.entry(model.clone()).or_default();
                 m_entry.prompt_tokens += prompt;
@@ -3364,7 +3360,6 @@ impl BrainStore {
                 m_entry.cache_read_tokens += c_read;
                 m_entry.cache_write_tokens += c_write;
                 m_entry.estimated_cost_usd += cost;
-                m_entry.estimated_dollars_saved += saved;
             }
 
             let total_prompt_side = summary.total_prompt_tokens + summary.total_cache_read_tokens;
@@ -3702,7 +3697,6 @@ mod tests {
             cache_write_tokens: 5_000,
             total_tokens: 57_000,
             estimated_cost_usd: 0.15,
-            estimated_dollars_saved: 0.108,
             cache_hit_pct: 80.0,
         };
 

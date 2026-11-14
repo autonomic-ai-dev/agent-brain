@@ -350,6 +350,21 @@ pub fn run(conn: &Connection) -> rusqlite::Result<()> {
         conn.execute("UPDATE schema_version SET version = 28", [])?;
     }
 
+    if version < 29 {
+        migrate_v29(conn)?;
+        conn.execute("UPDATE schema_version SET version = 29", [])?;
+    }
+
+    Ok(())
+}
+
+fn migrate_v29(conn: &Connection) -> rusqlite::Result<()> {
+    if column_exists(conn, "turn_telemetry", "estimated_dollars_saved")? {
+        conn.execute(
+            "ALTER TABLE turn_telemetry DROP COLUMN estimated_dollars_saved",
+            [],
+        )?;
+    }
     Ok(())
 }
 
@@ -886,4 +901,20 @@ fn migrate_v22(conn: &Connection) -> rusqlite::Result<()> {
         )?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fresh_database_drops_the_dollars_saved_column_and_reaches_v29() {
+        let conn = Connection::open_in_memory().unwrap();
+        run(&conn).unwrap();
+        assert!(!column_exists(&conn, "turn_telemetry", "estimated_dollars_saved").unwrap());
+        let version: i64 = conn
+            .query_row("SELECT version FROM schema_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 29);
+    }
 }
