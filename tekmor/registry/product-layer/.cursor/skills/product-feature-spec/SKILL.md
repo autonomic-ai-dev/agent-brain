@@ -31,10 +31,10 @@ Run the spec test plan, then project linters. Do not skip failing tests.
 
 ## Spine handoff
 
-When `agent-spine` shows a pending Agent node:
+When `thesmos` shows a pending Agent node:
 
 ```bash
-agent-spine watch   # pending node + payload
+thesmos watch   # pending node + payload
 ```
 
 Paste into Cursor: node `description` + relevant spec sections + constitution constraints.
@@ -42,8 +42,8 @@ Paste into Cursor: node `description` + relevant spec sections + constitution co
 ## Workflow
 
 ```bash
-agent-spine init --with feature-from-spec
-agent-spine run ~/.config/agent-spine/workflows/feature-from-spec.yaml \
+thesmos init --with feature-from-spec
+thesmos run ~/.config/agent-spine/workflows/feature-from-spec.yaml \
   --payload '{"repo_root":".","constitution":"CONSTITUTION.md","feature_spec":"docs/features/my-feature.md"}'
 ```
 

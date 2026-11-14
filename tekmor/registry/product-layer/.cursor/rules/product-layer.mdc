@@ -12,4 +12,4 @@ When this repo has `CONSTITUTION.md` or `docs/features/`:
 3. Do not mark work complete until spec test plan commands pass.
 4. Call `store_memory` at task end for binding decisions.
 
-Spine workflow: `@feature-from-spec` via `agent-spine init --with feature-from-spec`.
+Spine workflow: `@feature-from-spec` via `thesmos init --with feature-from-spec`.

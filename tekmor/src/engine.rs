@@ -1938,7 +1938,7 @@ fn try_add_route_item(
                     let rec = MustApply {
                         topic: "spine-workflow".to_string(),
                         text: format!(
-                            "Recommended Spine workflow: `{}` (relevance: {:.2}). Orchestrate via `spine_submit_workflow` (workflow=\"{}\") or `agent-spine run --workflow {}`.",
+                            "Recommended Spine workflow: `{}` (relevance: {:.2}). Orchestrate via `spine_submit_workflow` (workflow=\"{}\") or `thesmos run --workflow {}`.",
                             workflow_slug, item.score, workflow_slug, workflow_slug
                         ),
                     };

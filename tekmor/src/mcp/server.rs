@@ -781,7 +781,7 @@ impl BrainMcp {
     }
 
     #[tool(
-        description = "Returns the capability catalog and delegation rules for tekmor and agent-spine. Call during agent initialization or before complex tasks to discover available tools."
+        description = "Returns the capability catalog and delegation rules for tekmor and thesmos. Call during agent initialization or before complex tasks to discover available tools."
     )]
     async fn get_autonomic_catalog(
         &self,
@@ -816,7 +816,7 @@ impl BrainMcp {
     }
 
     #[tool(
-        description = "Fetch specialized rules/skills/agents for a workflow node. Call from agent-spine before executing a node to hydrate subagent prompts with brain context."
+        description = "Fetch specialized rules/skills/agents for a workflow node. Call from thesmos before executing a node to hydrate subagent prompts with brain context."
     )]
     async fn get_context_for_node(
         &self,
@@ -2661,11 +2661,11 @@ async fn serve_health(addr: SocketAddr) {
 fn build_autonomic_catalog(organ_filter: Option<&str>, verbose: bool) -> serde_json::Value {
     let mut organs = vec![
         serde_json::json!({
-            "name": "agent-spine",
+            "name": "thesmos",
             "role": "Deterministic Workflow Runner",
             "description": "Runs YAML workflow DAGs with explicit state transitions and approval gates.",
             "primary_tools": [],
-            "delegation_guideline": "For multi-step repeatable tasks with approval gates, run agent-spine run --workflow <name>."
+            "delegation_guideline": "For multi-step repeatable tasks with approval gates, run thesmos run --workflow <name>."
         }),
         serde_json::json!({
             "name": "tekmor",
@@ -2707,7 +2707,7 @@ fn build_autonomic_catalog(organ_filter: Option<&str>, verbose: bool) -> serde_j
         "organs": organs,
         "governance_rules": [
             "1. Route Task: Call tekmor route_task at the beginning of each turn before using any other tools.",
-            "2. Delegation: Prefer the tools listed in suggested_tools and the agent-spine workflows over native host improvisation.",
+            "2. Delegation: Prefer the tools listed in suggested_tools and the thesmos workflows over native host improvisation.",
             "3. Durable Outcomes: Use tekmor verify -- <cmd> to produce cryptographically signed proof in brain.db.",
             "4. Feedback: Store learned facts and decisions via store_memory."
         ],
@@ -3167,15 +3167,15 @@ mod tests {
         assert_eq!(catalog["total_organs"], 2);
         let organs = catalog["organs"].as_array().unwrap();
         let names: Vec<_> = organs.iter().filter_map(|o| o["name"].as_str()).collect();
-        assert!(names.contains(&"agent-spine"));
+        assert!(names.contains(&"thesmos"));
         assert!(names.contains(&"tekmor"));
     }
 
     #[test]
     fn test_build_autonomic_catalog_filters_organ() {
-        let catalog = build_autonomic_catalog(Some("spine"), false);
+        let catalog = build_autonomic_catalog(Some("thesmos"), false);
         assert_eq!(catalog["total_organs"], 1);
-        assert_eq!(catalog["organs"][0]["name"], "agent-spine");
+        assert_eq!(catalog["organs"][0]["name"], "thesmos");
     }
 
     #[tokio::test]

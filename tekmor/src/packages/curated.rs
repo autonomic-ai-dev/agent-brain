@@ -419,7 +419,7 @@ mod tests {
         let shipped: UtilitiesRegistryFile = serde_json::from_str(EMBEDDED_UTILITIES).unwrap();
         let mut names: Vec<&str> = shipped.utilities.keys().map(String::as_str).collect();
         names.sort_unstable();
-        assert_eq!(names, ["agent-spine", "tekmor"]);
+        assert_eq!(names, ["tekmor", "thesmos"]);
     }
 
     #[test]

@@ -8,6 +8,6 @@ Enforces route_task before every turn — memory, skills, and cross-session cont
 - Call `store_memory` at task end for durable outcomes
 
 ## Autonomic utilities (delegate, don't improvise)
-- Workflows: `agent-spine run --meta "..."` or `agent-spine init --with @workflow`
+- Workflows: `thesmos run --meta "..."` or `thesmos init --with @workflow`
 - Discovery: `tekmor registry list` (skills + utilities)
 - Upstream MCP: `route_to_mcp` when `suggested_tools` appears in route_task

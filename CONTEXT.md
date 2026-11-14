@@ -74,7 +74,7 @@ flowchart TD
    - Direct calls to native full-file reads are restricted.
    - Agents must first scout paths using token-bounded utilities: `file_summary`, `read_file_head`, `read_file_tail`, or `grep_search`.
    - Scouting a file automatically unlocks native `read_file` and editing for that file path for 3,600 seconds (`scout_unlock_secs`).
-5. **Execution & Workflow Delegation:** The agent performs edits and executes commands. For multi-step tasks, the agent runs an `agent-spine` workflow with `agent-spine run --workflow <name>`.
+5. **Execution & Workflow Delegation:** The agent performs edits and executes commands. For multi-step tasks, the agent runs an `thesmos` workflow with `thesmos run --workflow <name>`.
 6. **Closed-Loop Verification & Trajectory Ingestion:** Command execution is run or recorded via `tekmor verify -- <cmd>` (or `--source orchestrator`). This links the execution outcome to the current `route_log_id` for reinforcement learning. Automated trajectory capture concurrently logs the executed transition into `workflow_trajectory` and builds the procedure graph (`procedure_edges`) for subsequent procedural recall.
 7. **Memory Persistence:** At milestone completion, the agent calls `store_memory` with a concise fact (max 50 words). If the host MCP socket disconnects unexpectedly, the resilient fallback queue stores the fact to `~/.autonomic/memory/pending/`.
 
@@ -220,7 +220,7 @@ When running in stdio MCP mode (`tekmor serve`), the following tools are exposed
   - `arguments` (object, required): Tool arguments map.
 
 ### 5.6 `get_autonomic_catalog`
-- **Description:** Returns the tekmor and agent-spine capability catalog and delegation rules. Bypasses turn route gates to allow instant discovery.
+- **Description:** Returns the tekmor and thesmos capability catalog and delegation rules. Bypasses turn route gates to allow instant discovery.
 
 ### 5.7 `recall_procedures` (Procedure Graph Retrieval)
 - **Description:** Recalls proven multi-step execution procedures matching a task query or kind, ranked by lexical match, task affinity, and historical success rate, with connected next-step graph nodes populated via recursive CTEs.

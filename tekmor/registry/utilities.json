@@ -12,10 +12,10 @@
       ],
       "mcp_tools": ["route_task", "store_memory", "skill_search", "skill_get"]
     },
-    "agent-spine": {
+    "thesmos": {
       "alias": "spine",
       "description": "Deterministic YAML workflow DAG execution",
-      "invoke": ["agent-spine run --workflow <name>", "agent-spine init"],
+      "invoke": ["thesmos run --workflow <name>", "thesmos init"],
       "when": "Multi-step repeatable tasks with approval gates (release notes, stacked PRs, bugfix loops)"
     }
   }

@@ -114,7 +114,7 @@ pub fn format_briefing(resp: &RouteTaskResponse) -> String {
     }
     if let Some(wf) = &resp.suggested_workflow {
         out.push_str(&format!(
-            "**Spine workflow:** prefer `agent-spine run --workflow {wf}`\n"
+            "**Spine workflow:** prefer `thesmos run --workflow {wf}`\n"
         ));
     }
     if !resp.log_id.is_empty() {

@@ -72,4 +72,4 @@ if [[ -n "$FEATURE" ]]; then
 fi
 
 echo "Done. Edit CONSTITUTION.md and docs/features/*.md. Then run:"
-echo "  agent-spine init --with feature-from-spec"
+echo "  thesmos init --with feature-from-spec"

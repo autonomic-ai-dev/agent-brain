@@ -4,14 +4,14 @@
     "engineering-safety": {
       "description": "Engineering Safety",
       "path": "workflows/engineering-safety.yaml",
-      "organ": "agent-spine",
-      "invoke": "agent-spine run workflows/engineering-safety.yaml"
+      "organ": "thesmos",
+      "invoke": "thesmos run workflows/engineering-safety.yaml"
     },
     "feature-from-spec": {
       "description": "Feature From Spec",
       "path": "workflows/feature-from-spec.yaml",
-      "organ": "agent-spine",
-      "invoke": "agent-spine run workflows/feature-from-spec.yaml"
+      "organ": "thesmos",
+      "invoke": "thesmos run workflows/feature-from-spec.yaml"
     }
   }
 }

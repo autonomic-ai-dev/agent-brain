@@ -532,7 +532,7 @@ Route every turn through tekmor before acting. tekmor supplies the skills, rules
 - Do not claim tests or checks pass without a recorded run that exited 0.
 
 ## 3. Workflows
-- For multi-step workflows with approval gates, run `agent-spine run --workflow <name>` instead of improvising the steps.
+- For multi-step workflows with approval gates, run `thesmos run --workflow <name>` instead of improvising the steps.
 
 ## 4. Route gate and upstream tools
 - If a route gate denies a tool, call `route_task` first. Do not work around the gate.
@@ -946,9 +946,9 @@ If the agent skips route_task, cross-agent ingest and shared memory provide **ze
 
 Prefer **`tekmor verify -- <cmd>`** (orchestrators: `--source orchestrator`) over MCP `record_verify_outcome`. Agent-asserted MCP exits are not trusted for learning. Allowlisted commands live in `.verify/verify.toml`.
 
-## Workflows (agent-spine)
+## Workflows (thesmos)
 
-For multi-step workflows with approval gates, run `agent-spine run --workflow <name>` instead of improvising the steps.
+For multi-step workflows with approval gates, run `thesmos run --workflow <name>` instead of improvising the steps.
 
 - `tekmor registry list` shows the skill and workflow catalog.
 

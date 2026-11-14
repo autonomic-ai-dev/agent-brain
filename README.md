@@ -7,7 +7,7 @@
 [![Platform](https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon)-lightgrey.svg)](https://autonomic-ai.dev)
 [![Documentation](https://img.shields.io/badge/docs-autonomic--ai.dev-black.svg)](https://autonomic-ai.dev)
 
-Part of [Autonomic AI](https://autonomic-ai.dev), alongside [agent-spine](https://github.com/autonomic-ai-dev/agent-spine). Operates locally over stdio MCP. Route-gate hooks are installed for **Claude Code**, **Cursor**, **Antigravity (AGY)**, **OpenCode**, **Codex** and **Gemini CLI**. **VS Code** and GitHub Copilot get an MCP entry and instructions only.
+Part of [Autonomic AI](https://autonomic-ai.dev), alongside [thesmos](https://github.com/autonomic-ai-dev/agent-spine). Operates locally over stdio MCP. Route-gate hooks are installed for **Claude Code**, **Cursor**, **Antigravity (AGY)**, **OpenCode**, **Codex** and **Gemini CLI**. **VS Code** and GitHub Copilot get an MCP entry and instructions only.
 
 ---
 

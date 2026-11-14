@@ -294,7 +294,7 @@ mod tests {
     fn registry_workflows_are_runnable_spine_files() {
         let spine = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../agent-spine");
         if !spine.join("workflows").is_dir() {
-            eprintln!("skipped: sibling agent-spine checkout not found");
+            eprintln!("skipped: sibling thesmos checkout not found");
             return;
         }
         let registry: serde_json::Value =
@@ -309,7 +309,7 @@ mod tests {
             );
             assert_eq!(
                 entry["invoke"].as_str().unwrap(),
-                format!("agent-spine run {path}"),
+                format!("thesmos run {path}"),
                 "registry entry '{name}' must be runnable as written"
             );
         }

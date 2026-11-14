@@ -71,7 +71,7 @@ pub fn enrich_route_response(
         if resp.must_apply.len() < 3 {
             resp.must_apply.push(crate::types::MustApply {
                 topic: "spine-workflow".into(),
-                text: format!("Recommended Spine workflow: `{default_wf}`. Orchestrate via `spine_submit_workflow` (workflow=\"{default_wf}\") or `agent-spine run --workflow {default_wf}`."),
+                text: format!("Recommended Spine workflow: `{default_wf}`. Orchestrate via `spine_submit_workflow` (workflow=\"{default_wf}\") or `thesmos run --workflow {default_wf}`."),
             });
         }
     }
