@@ -16,8 +16,6 @@ jobs:
   receipt:
     name: Verified receipt for this change
     runs-on: ubuntu-latest
-    env:
-      TEKMOR_HOME: ${{ runner.temp }}/tekmor-home
     steps:
       - uses: actions/checkout@v6
 
@@ -31,9 +29,13 @@ jobs:
         run: cargo build -p tekmor --all-features
 
       - name: Record this change's verification run
+        env:
+          TEKMOR_HOME: ${{ runner.temp }}/tekmor-home
         run: ./target/debug/tekmor verify -- .verify/run.sh
 
       - name: Check the receipt
+        env:
+          TEKMOR_HOME: ${{ runner.temp }}/tekmor-home
         run: |
           set +e
           ./target/debug/tekmor verify receipt --markdown > receipt.md
