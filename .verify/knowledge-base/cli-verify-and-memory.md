@@ -172,3 +172,11 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 ## Verified recipes need execution intent (R-4)
 
 - `verified-recipe` is no longer a must-apply entry. Recipes come back in `verified_recipes` only when the request asks to run something (test, build, check, verify and similar).
+
+## Retrieval stats deduped by topic (R-17)
+
+- A route lists each memory topic once in `retrieval_stats`, even when two memories share it.
+
+## Retrieval stats dedupe is tested (R-17)
+
+- The dedupe is the pure function `memory_retrieval_stats` in `tekmor/src/engine.rs`, with a regression test.

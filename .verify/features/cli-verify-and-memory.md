@@ -233,6 +233,10 @@ Summary: tekmor is the routing layer that every agent calls at turn start. Its C
   - Behaviour: `suggest_verified_recipes` in `tekmor/src/verify.rs` returns nothing without execution intent. The route no longer adds a `verified-recipe` must-apply entry (`tekmor/src/engine.rs`).
   - Outcome: Routes for non-execution tasks carry no recipe and no recipe must-apply entry.
 
+- `retrieval-stats-dedupe`: Memory feedback in a route lists each topic once (R-17).
+  - Behaviour: `tekmor/src/engine.rs` skips a memory whose topic is already listed in `retrieval_stats`.
+  - Outcome: A topic that matches two memories appears once in the route response.
+
 ## Code
 
 - `tekmor/src`
