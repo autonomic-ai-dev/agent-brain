@@ -6,16 +6,17 @@ pub struct EvidenceRecord {
     pub cmd: String,
     pub exit_code: i32,
     pub recorded_at: i64,
-    pub source: String,
+    pub source: Option<String>,
     pub code_hash: Option<String>,
     pub head_sha: Option<String>,
+    pub verify_config_hash: Option<String>,
 }
 
 impl EvidenceRecord {
     pub fn is_run_for(&self, head: &str, hash: &str) -> bool {
         self.head_sha.as_deref() == Some(head)
             && self.code_hash.as_deref() == Some(hash)
-            && matches!(self.source.as_str(), "cli" | "orchestrator")
+            && matches!(self.source.as_deref().unwrap_or("cli"), "cli" | "orchestrator")
     }
 }
 
@@ -29,9 +30,10 @@ mod tests {
             cmd: ".verify/run.sh".into(),
             exit_code: 0,
             recorded_at: 1,
-            source: source.into(),
+            source: Some(source.into()),
             code_hash: Some(hash.into()),
             head_sha: Some(head.into()),
+            verify_config_hash: None,
         }
     }
 

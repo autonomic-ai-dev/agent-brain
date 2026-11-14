@@ -67,3 +67,8 @@ The bench proofs are not a second source yet. The bench baseline files under `.v
 
 Gate rules implement `GateRule` in `tekmor-core` (`crates/tekmor-core/src/gate_rule.rs`). Each returns `Allow`, `Warn` or `Block`. `evaluate` returns the first block, otherwise the first warning, otherwise allow. Three gates use it: the command policy (`CommandRule`), the commit gate (`CommitRule`), and the route gate (`RouteRule`). The route rule reads its state at construction, so the input stays tool and command only.
 Not converted: the protected-changes check (`protected_changes` in `tekmor/src/receipt.rs`). It lists changed protected files in the receipt and never returns a block verdict, so it is a report, not a gate.
+
+## Amendment 4: evidence reader (H3-4)
+
+Every evidence query goes through `tekmor/src/evidence_reader.rs` (`recent_runs`, `project_runs`), which returns `EvidenceRecord`. Callers: receipt, stop gate, verify and suggest. `EvidenceRecord.source` stays optional, because a `NULL` source is not counted by the stop gate but is counted as cli by the receipt. Keeping the column faithful to the row keeps both behaviours. The dashboard, doctor and stats commands do not read evidence rows, and status reads only the route state file, so they have no evidence query to move.
+Known inconsistency, not changed: the stop gate and the receipt disagree on rows with a `NULL` source. The stop gate does not count them; the receipt does. Resolving it changes gate behaviour, so it needs its own decision.

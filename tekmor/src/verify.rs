@@ -13,6 +13,7 @@ use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
 use crate::db::store::BrainStore;
+use crate::evidence_reader;
 use crate::types::{VerificationStatus, VerifiedRecipe};
 
 const MIN_SAMPLE_FOR_RATES: usize = 30;
@@ -448,8 +449,7 @@ pub fn record_from_result(
     )?;
     if let (true, true, Some(key)) = (ran_checks, success, project_key.as_deref()) {
         if let Some(root) = cwd.and_then(crate::config::find_repo_root) {
-            let previous = store
-                .list_verify_outcomes_for_project(key, 100)?
+            let previous = evidence_reader::project_runs(store, key, 100)?
                 .into_iter()
                 .filter(|row| row.cmd == cmd)
                 .nth(1);
@@ -816,7 +816,7 @@ fn save_artifact_log(
 }
 
 pub fn print_report(store: &BrainStore) -> Result<()> {
-    let rows = store.list_verify_outcomes(500)?;
+    let rows = evidence_reader::recent_runs(store, 500)?;
     let n = rows.len();
     let success = rows.iter().filter(|r| r.exit_code == 0).count();
     let fail = n.saturating_sub(success);
@@ -961,8 +961,7 @@ pub fn ran_a_check(source: Option<&str>) -> bool {
 }
 
 pub fn last_verification(store: &BrainStore, project_key: &str) -> Option<VerificationStatus> {
-    let row = store
-        .list_verify_outcomes_for_project(project_key, 100)
+    let row = evidence_reader::project_runs(store, project_key, 100)
         .ok()?
         .into_iter()
         .find(|row| ran_a_check(row.source.as_deref()))?;
@@ -1010,7 +1009,7 @@ pub fn suggest_verified_recipes(
     let Some(project_key) = project_key else {
         return Vec::new();
     };
-    let Ok(outcomes) = store.list_verify_outcomes_for_project(project_key, 100) else {
+    let Ok(outcomes) = evidence_reader::project_runs(store, project_key, 100) else {
         return Vec::new();
     };
 

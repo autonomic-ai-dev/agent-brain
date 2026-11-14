@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::Config;
 use crate::db::store::BrainStore;
+use crate::evidence_reader;
 use crate::feature_map;
 use crate::settings::{AgentBrainSettings, GateMode};
 use crate::verify::{self, VerifySource};
@@ -174,8 +175,7 @@ fn feature_gap(root: &Path) -> Option<String> {
 
 fn load_evidence(store: &BrainStore, root: &Path) -> Result<Vec<Evidence>> {
     let has_harness = root.join(".verify").is_dir();
-    Ok(store
-        .list_verify_outcomes(EVIDENCE_LIMIT)?
+    Ok(evidence_reader::recent_runs(store, EVIDENCE_LIMIT)?
         .into_iter()
         .filter(|row| !has_harness || verify::repo_artifact_path(root, &row.id).is_file())
         .map(|row| Evidence {
