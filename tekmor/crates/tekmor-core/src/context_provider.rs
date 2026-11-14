@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::types::{FileContext, LessonRec};
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContextRequest {
     pub paths: Vec<String>,
@@ -8,11 +10,15 @@ pub struct ContextRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ContextPayload {
+    File(FileContext),
+    Lesson(LessonRec),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContextItem {
-    pub id: String,
-    pub kind: String,
-    pub token_cost: usize,
-    pub why_now: String,
+    pub payload: ContextPayload,
 }
 
 #[cfg(test)]
@@ -20,14 +26,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn context_item_round_trips_through_json() {
+    fn file_item_round_trips_through_json() {
         let item = ContextItem {
-            id: "lesson-42".into(),
-            kind: "lesson".into(),
-            token_cost: 120,
-            why_now: "a failing test touched src/engine.rs".into(),
+            payload: ContextPayload::File(FileContext {
+                path: "src/engine.rs".into(),
+                features: vec![".verify/features/engine.md".into()],
+                commands: vec![".verify/run.sh".into()],
+            }),
         };
         let json = serde_json::to_string(&item).unwrap();
+        let back: ContextItem = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, item);
+    }
+
+    #[test]
+    fn lesson_item_keeps_its_kind_tag() {
+        let item = ContextItem {
+            payload: ContextPayload::Lesson(LessonRec {
+                paths: vec!["src/a.rs".into()],
+                cmd: "cargo test".into(),
+                excerpt: "assert failed".into(),
+                age_days: 2,
+            }),
+        };
+        let json = serde_json::to_string(&item).unwrap();
+        assert!(json.contains(r#""kind":"lesson""#), "{json}");
         let back: ContextItem = serde_json::from_str(&json).unwrap();
         assert_eq!(back, item);
     }

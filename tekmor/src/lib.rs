@@ -14,6 +14,7 @@ pub mod command_policy;
 pub mod command_rules;
 pub mod commit_gate;
 pub mod config;
+pub mod context;
 pub use tekmor_core::cross_encoder_rerank;
 pub mod daemon_watchdog;
 pub mod dashboard;

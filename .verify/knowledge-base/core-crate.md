@@ -49,3 +49,7 @@ Version 1.0.0-rc5 (`tekmor/crates/tekmor-core/Cargo.toml`). See CHANGELOG.md for
 ## Context provider contract (H3-1, ADR 0002)
 
 - `ContextRequest` and `ContextItem` are data only, in `tekmor-core`. The provider trait and the first providers come in later PRs.
+
+## Context gather (H3-1b, ADR 0002)
+
+- `tekmor/src/context.rs` gathers file and lesson context into one list of typed items, then splits it back for the route response. Its owner is the core-crate feature map.
