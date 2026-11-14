@@ -188,3 +188,7 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 ## Savings labels (R-10)
 
 - Bounded-read savings are an upper bound: the full size of each matched file, minus tokens returned. The dashboard labels them that way. The old "naive load" tile wording is gone (R-9 removed its estimate).
+
+## Upstream tool suggestions need a name match (R-5)
+
+- An upstream tool is suggested only when the query matches its server or tool name. A match on the description alone scores zero.

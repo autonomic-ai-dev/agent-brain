@@ -133,19 +133,34 @@ fn score_tool(query: &str, query_tokens: &[&str], tool: &IndexedUpstreamTool) ->
         tool.name.to_ascii_lowercase(),
         tool.description.to_ascii_lowercase()
     );
+    let identity = format!(
+        "{} {}",
+        tool.server.to_ascii_lowercase(),
+        tool.name.to_ascii_lowercase()
+    );
     let mut score = 0.0;
+    let mut identity_hit = false;
     for token in query_tokens {
         if haystack.contains(token) {
             score += 1.0;
         }
+        if identity.contains(token) {
+            identity_hit = true;
+        }
     }
     if query.contains(&tool.name.to_ascii_lowercase()) {
         score += 2.0;
+        identity_hit = true;
     }
     if query.contains(&tool.server.to_ascii_lowercase()) {
         score += 1.5;
+        identity_hit = true;
     }
-    score
+    if identity_hit {
+        score
+    } else {
+        0.0
+    }
 }
 
 #[cfg(test)]
@@ -168,6 +183,22 @@ mod tests {
             .collect();
         let score = score_tool(&query_lower, &query_tokens, &tools[0]);
         assert!(score >= 2.0);
+    }
+
+    #[test]
+    fn description_only_match_is_not_a_suggestion() {
+        let tool = IndexedUpstreamTool {
+            server: "producthunt".into(),
+            name: "search_launches".into(),
+            description: "Search recent product launches for code tools".into(),
+        };
+        let query = "rust code audit of the parser";
+        let query_lower = query.to_ascii_lowercase();
+        let query_tokens: Vec<&str> = query_lower
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|t| t.len() >= 3)
+            .collect();
+        assert_eq!(score_tool(&query_lower, &query_tokens, &tool), 0.0);
     }
 
     #[test]
