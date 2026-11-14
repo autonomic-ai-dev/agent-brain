@@ -27,7 +27,7 @@ extras = [
 ]
 
 [dependencies]
-tekmor-core = { path = "crates/tekmor-core" }
+tekmor-core = { path = "crates/tekmor-core", version = "1.1.0-rc1" }
 libc = "0.2"
 age = "0.11"
 anyhow = "1"
@@ -59,10 +59,10 @@ walkdir = "2"
 zstd = "0.13"
 tempfile = "3"
 tree-sitter = { version = "0.24", optional = true }
-tree-sitter-rust = { git = "https://github.com/tree-sitter/tree-sitter-rust", optional = true }
-tree-sitter-typescript = { git = "https://github.com/tree-sitter/tree-sitter-typescript", optional = true }
-tree-sitter-python = { git = "https://github.com/tree-sitter/tree-sitter-python", optional = true }
-tree-sitter-go = { git = "https://github.com/tree-sitter/tree-sitter-go", optional = true }
+tree-sitter-rust = { version = "0.23.2", optional = true }
+tree-sitter-typescript = { version = "0.23.2", optional = true }
+tree-sitter-python = { version = "0.23.6", optional = true }
+tree-sitter-go = { version = "0.23.4", optional = true }
 rayon = "1.12.0"
 
 
