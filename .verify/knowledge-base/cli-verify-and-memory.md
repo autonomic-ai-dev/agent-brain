@@ -157,3 +157,7 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 - Every H1 and H2 item in the delegation plan now has code and a test, except H2-6 (retrieval eval). That item needs owner approval for the new cases and for adding them to the gate.
 - Lessons past their TTL are deleted by `run_gc` (`lessons_removed`), not only hidden on read.
 - The eval gate is not part of `.verify/run.sh`; see bench-extension for its current 15 of 28 result.
+
+## Repo-level host files
+
+- The root `AGENTS.md` and the `.cursor/` folder were removed from the repository. They were project-install output, not runtime inputs. `tekmor install` or `tekmor mode install` recreates them in a project that needs them.
