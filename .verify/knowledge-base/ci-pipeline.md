@@ -19,3 +19,7 @@ GitHub Actions builds, lints and tests tekmor, and publishes releases from `v*` 
 - One CI job instead of a staged pipeline. The stages existed only to pass a version and SHA between jobs, which the release now gets from the same run.
 - No path filter. Every push and pull request runs the full check, so a skipped check cannot be mistaken for a passing one.
 - No protected-path label check. The label gate blocked ordinary changes to tests and `.verify/`; review in the pull request replaces it.
+
+## Receipt check in CI (H4-1, H4-2, ADR 0004)
+
+- receipt.yml records a fresh run in a fresh TEKMOR_HOME and checks the receipt. The receipt goes to the job summary. Adding the check to the ruleset is an owner action.
