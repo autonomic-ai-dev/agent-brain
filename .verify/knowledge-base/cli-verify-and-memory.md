@@ -150,3 +150,4 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 - `init_verify` adds `bundle exec rspec` only when the Gemfile names rspec. A Gemfile without rspec yields no Ruby test command.
 - Context feedback credits a routed item only when the agent read its source path in that route (`opened_paths_for_route`, `src/db/store.rs`). Route items store `source_path` for this join.
 - The index pruning test covers rules dropped on sync (prune_removes_stored_rules_that_are_not_rule_files, src/db/store.rs).
+- Index and package coverage: index.rs tests cover parsing, classification and skip rules; tests/index_sync.rs drives sync_index_opts against a temp HOME. packages/mod.rs tests cover registry, removal, source parsing and git clone/update against local repositories.

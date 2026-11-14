@@ -206,6 +206,7 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
   - Behaviour: `is_rule_file` and `is_package_support_dir` in `src/index.rs`. `is_noise_rule_source` makes `prune_noise_rule_rows` drop stored rules that no longer qualify on the next sync. `prune_removes_stored_rules_that_are_not_rule_files` in `src/db/store.rs` covers it.
   - Outcome: Fixture READMEs and package docs no longer come back as applicable rules.
 - `package-duplicates`: Doctor reports installed packages that ship identical skill text.
+  - Coverage: `index.rs` line coverage is 94% across all test targets, including `tests/index_sync.rs`, which runs `sync_index_opts` against a temp HOME and checks that unchanged files are skipped on the second run. `packages/mod.rs` line coverage is 92%.
   - Behaviour: `duplicate_packages` in `src/packages/mod.rs` digests the `SKILL.md` files of each package under `packages/`. `run` in `src/doctor.rs` prints one line per duplicate pair with the `package remove` command.
   - Outcome: A package installed twice under two names is visible, and nothing is removed automatically.
 - `lessons-from-fixes`: A passing check that follows a failing run of the same command stores one lesson for the changed code.

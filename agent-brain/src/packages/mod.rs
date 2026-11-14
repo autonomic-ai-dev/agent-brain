@@ -671,4 +671,239 @@ mod tests {
         );
         assert_eq!(path_recommend_boost("/tmp/unrelated", &boosts), 0.0);
     }
+
+    fn record(name: &str, install_path: &Path) -> PackageRecord {
+        PackageRecord {
+            name: name.to_string(),
+            source: format!("acme/{name}"),
+            git_url: format!("https://github.com/acme/{name}.git"),
+            git_ref: "main".to_string(),
+            install_path: install_path.display().to_string(),
+            commit: Some("abc123".to_string()),
+            installed_at: 1,
+        }
+    }
+
+    #[test]
+    fn registry_round_trips_through_packages_json() {
+        let home = tempfile::tempdir().unwrap();
+        let installed = record("acme-skills", &home.path().join("packages/acme-skills"));
+        PackageRegistry {
+            packages: vec![installed.clone()],
+        }
+        .save(home.path())
+        .unwrap();
+
+        let loaded = PackageRegistry::load(home.path()).unwrap();
+        assert_eq!(loaded.get("acme-skills"), Some(&installed));
+        assert!(loaded.get("missing").is_none());
+    }
+
+    #[test]
+    fn a_missing_registry_loads_empty_and_a_corrupt_one_is_an_error() {
+        let home = tempfile::tempdir().unwrap();
+        assert!(PackageRegistry::load(home.path())
+            .unwrap()
+            .packages
+            .is_empty());
+        fs::write(home.path().join("packages.json"), "not json").unwrap();
+        assert!(PackageRegistry::load(home.path()).is_err());
+    }
+
+    #[test]
+    fn remove_takes_the_record_out_once() {
+        let home = tempfile::tempdir().unwrap();
+        let installed = record("acme-skills", &home.path().join("packages/acme-skills"));
+        let mut registry = PackageRegistry {
+            packages: vec![installed.clone()],
+        };
+        assert_eq!(registry.remove("acme-skills"), Some(installed));
+        assert_eq!(registry.remove("acme-skills"), None);
+    }
+
+    #[test]
+    fn remove_package_deletes_its_directory_registry_entry_and_indexed_rows() {
+        let home = tempfile::tempdir().unwrap();
+        let config = Config::isolated(home.path().to_path_buf());
+        config.ensure_dirs().unwrap();
+        let install = packages_dir(home.path()).join("acme-skills");
+        let skill = install.join("skills/demo/SKILL.md");
+        fs::create_dir_all(skill.parent().unwrap()).unwrap();
+        fs::write(&skill, "demo skill").unwrap();
+        PackageRegistry {
+            packages: vec![record("acme-skills", &install)],
+        }
+        .save(home.path())
+        .unwrap();
+        let store = crate::db::store::BrainStore::open(&config.db_path).unwrap();
+        store
+            .upsert_indexed_item(
+                crate::types::ItemType::Skill,
+                "demo",
+                "demo skill",
+                &skill.display().to_string(),
+                "package",
+                Some("acme-skills"),
+                &crate::db::store::content_hash("demo skill"),
+                None,
+            )
+            .unwrap();
+
+        let purged = remove_package(&config, "acme-skills").unwrap();
+
+        assert_eq!(purged, 1);
+        assert!(!install.exists());
+        assert!(PackageRegistry::load(home.path())
+            .unwrap()
+            .get("acme-skills")
+            .is_none());
+    }
+
+    #[test]
+    fn removing_a_package_that_is_not_installed_is_an_error() {
+        let home = tempfile::tempdir().unwrap();
+        let config = Config::isolated(home.path().to_path_buf());
+        config.ensure_dirs().unwrap();
+        let err = remove_package(&config, "ghost").unwrap_err();
+        assert!(err.to_string().contains("'ghost' is not installed"));
+    }
+
+    #[test]
+    fn source_inputs_resolve_to_owner_and_repo_or_fail_clearly() {
+        let ssh = parse_source("git@github.com:acme/skills.git").unwrap();
+        assert_eq!((ssh.owner.as_str(), ssh.repo.as_str()), ("acme", "skills"));
+        let bare = parse_source("github.com/acme/skills/").unwrap();
+        assert_eq!(
+            (bare.owner.as_str(), bare.repo.as_str()),
+            ("acme", "skills")
+        );
+        let http = parse_source("http://github.com/acme/skills").unwrap();
+        assert_eq!(http.git_ref, "main");
+        assert!(parse_source("https://github.com/acme").is_err());
+        assert!(parse_source("https://github.com//skills").is_err());
+        assert!(parse_source("not a source").is_err());
+    }
+
+    fn git(dir: &Path, args: &[&str]) {
+        let status = Command::new("git")
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .current_dir(dir)
+            .status()
+            .unwrap();
+        assert!(status.success(), "git {args:?} failed");
+    }
+
+    fn origin_repo(root: &Path) -> PathBuf {
+        let origin = root.join("origin");
+        fs::create_dir_all(&origin).unwrap();
+        git(&origin, &["init", "-q", "-b", "main"]);
+        fs::write(origin.join("SKILL.md"), "first").unwrap();
+        git(&origin, &["add", "."]);
+        git(&origin, &["commit", "-q", "-m", "first"]);
+        origin
+    }
+
+    fn file_url(path: &Path) -> String {
+        format!("file://{}", path.display())
+    }
+
+    #[test]
+    fn clone_package_checks_out_the_branch_and_refuses_an_existing_destination() {
+        let root = tempfile::tempdir().unwrap();
+        let origin = origin_repo(root.path());
+        let dest = root.path().join("installed/acme-skills");
+
+        clone_package(&file_url(&origin), &dest, "main").unwrap();
+        assert_eq!(fs::read_to_string(dest.join("SKILL.md")).unwrap(), "first");
+        assert!(clone_package(&file_url(&origin), &dest, "main")
+            .unwrap_err()
+            .to_string()
+            .contains("already exists"));
+    }
+
+    #[test]
+    fn clone_package_falls_back_to_the_default_branch_when_the_ref_is_missing() {
+        let root = tempfile::tempdir().unwrap();
+        let origin = origin_repo(root.path());
+        let dest = root.path().join("installed/acme-skills");
+
+        clone_package(&file_url(&origin), &dest, "no-such-branch").unwrap();
+        assert_eq!(fs::read_to_string(dest.join("SKILL.md")).unwrap(), "first");
+    }
+
+    #[test]
+    fn update_fast_forwards_an_install_to_the_new_commit() {
+        let root = tempfile::tempdir().unwrap();
+        let origin = origin_repo(root.path());
+        let dest = root.path().join("installed/acme-skills");
+        clone_package(&file_url(&origin), &dest, "main").unwrap();
+        let first_commit = git_head(&dest).unwrap();
+
+        fs::write(origin.join("SKILL.md"), "second").unwrap();
+        git(&origin, &["commit", "-q", "-am", "second"]);
+        update_package_at(&dest, "main").unwrap();
+
+        assert_eq!(fs::read_to_string(dest.join("SKILL.md")).unwrap(), "second");
+        let new_commit = git_head(&dest).unwrap();
+        assert_ne!(new_commit, first_commit);
+        assert_eq!(new_commit, git_head(&origin).unwrap());
+    }
+
+    #[test]
+    fn update_packages_refreshes_checkouts_and_skips_bundles_and_plain_directories() {
+        let root = tempfile::tempdir().unwrap();
+        let home = root.path().join("home");
+        let config = Config::isolated(home.clone());
+        config.ensure_dirs().unwrap();
+        let origin = origin_repo(root.path());
+        let checkout = packages_dir(&home).join("acme-skills");
+        clone_package(&file_url(&origin), &checkout, "main").unwrap();
+        let plain = packages_dir(&home).join("plain");
+        fs::create_dir_all(&plain).unwrap();
+        let mut bundled = record("bundled", &packages_dir(&home).join("bundled"));
+        bundled.source = "agent-brain/bundle:starter".into();
+        let mut checkout_record = record("acme-skills", &checkout);
+        checkout_record.git_ref = "main".into();
+        let plain_record = record("plain", &plain);
+        PackageRegistry {
+            packages: vec![checkout_record, bundled, plain_record],
+        }
+        .save(&home)
+        .unwrap();
+
+        fs::write(origin.join("SKILL.md"), "second").unwrap();
+        git(&origin, &["commit", "-q", "-am", "second"]);
+        let updated = update_packages(&config, None).unwrap();
+
+        assert_eq!(updated.len(), 1);
+        assert_eq!(updated[0].name, "acme-skills");
+        assert_eq!(updated[0].commit, Some(git_head(&origin).unwrap()));
+        let saved = PackageRegistry::load(&home).unwrap();
+        assert_eq!(saved.get("acme-skills"), Some(&updated[0]));
+        assert_eq!(saved.get("bundled").unwrap().commit, Some("abc123".into()));
+    }
+
+    #[test]
+    fn updating_a_package_that_is_not_installed_is_an_error() {
+        let home = tempfile::tempdir().unwrap();
+        let config = Config::isolated(home.path().to_path_buf());
+        config.ensure_dirs().unwrap();
+        let err = update_packages(&config, Some("ghost")).unwrap_err();
+        assert!(err.to_string().contains("'ghost' is not installed"));
+    }
+
+    #[test]
+    fn update_refuses_a_directory_that_is_not_a_git_checkout() {
+        let root = tempfile::tempdir().unwrap();
+        let err = update_package_at(root.path(), "main").unwrap_err();
+        assert!(err.to_string().contains("is not a git checkout"));
+    }
 }
