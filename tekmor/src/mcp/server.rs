@@ -33,6 +33,7 @@ pub struct BrainMcp {
     tool_router: ToolRouter<Self>,
     route_gate: Arc<McpRouteGate>,
     sent_constraints: Arc<SentConstraints>,
+    sent_static: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
     active_cwd: Arc<std::sync::RwLock<Option<PathBuf>>>,
 }
 
@@ -41,10 +42,23 @@ impl BrainMcp {
         Self {
             route_gate: Arc::new(McpRouteGate::from_config(&engine.config)),
             sent_constraints: Arc::new(SentConstraints::default()),
+            sent_static: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
             engine,
             tool_router: Self::tool_router(),
             active_cwd: Arc::new(std::sync::RwLock::new(None)),
         }
+    }
+
+    fn once_per_session(&self, mut resp: RouteTaskResponse) -> RouteTaskResponse {
+        let Ok(mut sent) = self.sent_static.lock() else {
+            return resp;
+        };
+        resp.warnings
+            .retain(|warning| sent.insert(format!("warning:{}", warning.topic)));
+        if !resp.suggested_native_tools.is_empty() && !sent.insert("native_tools".to_string()) {
+            resp.suggested_native_tools.clear();
+        }
+        resp
     }
 
     fn set_active_cwd(&self, cwd: PathBuf) {
@@ -778,6 +792,7 @@ impl BrainMcp {
         } else {
             resp
         };
+        let resp = self.once_per_session(resp);
         let response_tokens = crate::tokens::estimate_json_tokens(
             &serde_json::to_value(&resp)
                 .map_err(|e| McpError::internal_error(format!("{e}"), None))?,
@@ -3299,6 +3314,31 @@ mod tests {
         assert!(routed
             .iter()
             .any(|tool| !CORE_TOOLS.contains(&tool.name.as_ref())));
+    }
+
+    #[test]
+    fn static_route_text_is_sent_once_per_session() {
+        let dir = TempDir::new().expect("tempdir");
+        let server = skill_test_server(&dir, &[]);
+        let route = || RouteTaskResponse {
+            warnings: vec![crate::types::RouteWarning {
+                topic: "mcp_contract".into(),
+                message: "contract".into(),
+            }],
+            suggested_native_tools: vec![crate::types::SuggestedNativeTool {
+                tool: "grep_search".into(),
+                description: "search".into(),
+                rationale: "bounded".into(),
+                score: 1.0,
+            }],
+            ..Default::default()
+        };
+        let first = server.once_per_session(route());
+        assert_eq!(first.warnings.len(), 1);
+        assert_eq!(first.suggested_native_tools.len(), 1);
+        let second = server.once_per_session(route());
+        assert!(second.warnings.is_empty());
+        assert!(second.suggested_native_tools.is_empty());
     }
 
     #[test]

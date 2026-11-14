@@ -249,6 +249,10 @@ Summary: tekmor is the routing layer that every agent calls at turn start. Its C
   - Behaviour: `score_tool` in `tekmor/src/upstream/suggest.rs` returns zero for a description-only match.
   - Outcome: A code-audit query gets no Product Hunt tool. "search github issues" still suggests the GitHub tool.
 
+- `mcp-once-per-session`: Static route text is sent once per session on MCP (R-6, R-16). See [[serve-daemon-and-proxy]].
+  - Behaviour: `once_per_session` in `tekmor/src/mcp/server.rs`.
+  - Outcome: Repeated warnings and native-tool text drop out after the first route.
+
 ## Code
 
 - `tekmor/src`

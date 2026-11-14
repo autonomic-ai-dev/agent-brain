@@ -37,3 +37,7 @@ Every agent host session starts `tekmor serve` as an MCP server. One of those pr
 ## Context bundle dropped on core surface (R-8)
 
 - Under `mcp.tool_surface: core`, MCP `route_task` omits `context_bundle`. gRPC keeps it.
+
+## Static route text sent once per session (R-6, R-16)
+
+- On MCP, each warning topic and the native-tool list are sent once per connection. Later routes omit them. The per-connection state is in `BrainMcp`.

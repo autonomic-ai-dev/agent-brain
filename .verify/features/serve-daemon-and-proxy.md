@@ -39,6 +39,10 @@ Summary: `tekmor serve` runs in two roles. A shared daemon holds the brain datab
   - Behaviour: `core_tool_surface` in `tekmor/src/mcp/server.rs` clears `context_bundle` before `route_task` serializes the response. The gRPC response keeps it.
   - Outcome: Core-surface agents get a smaller route response. Full-surface agents see no change.
 
+- `mcp-once-per-session`: The MCP route response sends static text once per session (R-6, R-16).
+  - Behaviour: `once_per_session` in `tekmor/src/mcp/server.rs` sends each warning topic and the native-tool list once per connection. Later routes omit them.
+  - Outcome: The contract and native-tool text are not repeated on every turn.
+
 ## Code
 
 - `tekmor/src/main.rs` (`serve` branch)
