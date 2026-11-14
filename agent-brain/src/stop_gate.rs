@@ -54,6 +54,13 @@ pub enum Decision {
     Block(&'static str),
 }
 
+fn proof_line(cmd: &str, code_hash: Option<&str>) -> String {
+    match code_hash {
+        Some(hash) => format!("`{cmd}` passed on code {}", &hash[..hash.len().min(12)]),
+        None => format!("`{cmd}` passed on the current code"),
+    }
+}
+
 fn passing_run<'a>(code_hash: &str, evidence: &'a [Evidence]) -> Option<&'a Evidence> {
     evidence.iter().find(|e| {
         e.exit_code == 0
@@ -287,13 +294,7 @@ fn evaluate_stop(
         .then(|| verify::code_tree_hash(root))
         .flatten()
         .and_then(|hash| {
-            passing_run(&hash, &evidence).map(|run| {
-                format!(
-                    "`{}` passed on code {}",
-                    run.cmd,
-                    &hash[..hash.len().min(12)]
-                )
-            })
+            passing_run(&hash, &evidence).map(|run| proof_line(&run.cmd, Some(&hash)))
         });
     let passed = proof.is_some();
     if (!code_changed || passed) && gap.is_none() {
@@ -312,10 +313,11 @@ fn evaluate_stop(
         (Some(run), _) if !run.report.success => failure_reason(run),
         (_, Some(gap)) => gap.clone(),
         (Some(run), None) => {
-            return Ok(StopOutcome::Verified(format!(
-                "`{}` passed on the current code",
-                run.report.cmd
-            )))
+            let hash = verify::code_tree_hash(root);
+            return Ok(StopOutcome::Verified(proof_line(
+                &run.report.cmd,
+                hash.as_deref(),
+            )));
         }
         (None, None) => BLOCK_REASON.to_string(),
     };
@@ -568,12 +570,16 @@ mod tests {
         let state = aux.path().join("state.json");
 
         let outcome = evaluate_stop(&store, dir.path(), "s1", &state, GateMode::Enforce).unwrap();
-        assert!(matches!(outcome, StopOutcome::Verified(ref line) if line.contains("passed")));
+        let StopOutcome::Verified(line) = &outcome else {
+            panic!("expected VERIFIED, got {outcome:?}");
+        };
+        assert!(line.starts_with("`sh -c true` passed on code "), "{line}");
+        let hash_prefix = line.rsplit(' ').next().unwrap();
+        assert_eq!(hash_prefix.len(), 12, "{line}");
         let output = hook_output(&outcome, GateMode::Enforce, Path::new("/work/shop")).unwrap();
-        assert!(output["systemMessage"]
-            .as_str()
-            .unwrap()
-            .contains("shop VERIFIED"));
+        let message = output["systemMessage"].as_str().unwrap();
+        assert!(message.contains("shop VERIFIED"), "{message}");
+        assert!(message.contains("`sh -c true` passed"), "{message}");
         assert_eq!(
             gate_event(&outcome, GateMode::Enforce, Path::new("/work/shop")),
             None

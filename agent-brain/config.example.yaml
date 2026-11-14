@@ -1,4 +1,6 @@
 # Copy to ~/.agent_brain/config.yaml (or run: agent-brain config init)
+gates:
+  stop: enforce
 auto_update:
   enabled: true
   interval_hours: 24  # package updates only; MCP checks are separate
