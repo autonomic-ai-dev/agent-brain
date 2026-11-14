@@ -196,3 +196,8 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 ## Static route text sent once per session (R-6, R-16)
 
 - MCP route responses send static warnings and the native-tool list once per session.
+
+## Hook rows are not verify outcomes (R-11)
+
+- The host hook no longer records shell commands as verify outcomes. 643 of 884 old rows were `cd`, `grep`, `git` and `ls`, so the table was mostly noise.
+- Readers: the stop gate, receipt and recipes already counted only `cli` and `orchestrator` rows. The upstream historical adjustment in `tekmor/src/upstream/suggest.rs` read every source, so it loses the hook history as those rows age out.

@@ -253,6 +253,10 @@ Summary: tekmor is the routing layer that every agent calls at turn start. Its C
   - Behaviour: `once_per_session` in `tekmor/src/mcp/server.rs`.
   - Outcome: Repeated warnings and native-tool text drop out after the first route.
 
+- `hook-rows-not-recorded`: Shell commands observed by the host hook are no longer written as verify outcomes (R-11).
+  - Behaviour: `tekmor/hooks/route_gate.py` no longer runs `tekmor verify record` after a shell command. Explicit `tekmor verify -- <cmd>` runs are unchanged.
+  - Outcome: `verify_outcomes` holds only runs that were executed by `tekmor verify` or an orchestrator. Those are the only rows the stop gate, receipt and recipes ever counted.
+
 ## Code
 
 - `tekmor/src`
