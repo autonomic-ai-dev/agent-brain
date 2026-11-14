@@ -192,3 +192,7 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 ## Upstream tool suggestions need a name match (R-5)
 
 - An upstream tool is suggested only when the query matches its server or tool name. A match on the description alone scores zero.
+
+## Static route text sent once per session (R-6, R-16)
+
+- MCP route responses send static warnings and the native-tool list once per session.
