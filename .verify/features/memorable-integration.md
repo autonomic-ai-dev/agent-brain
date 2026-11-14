@@ -26,6 +26,9 @@ Summary: An opt-in, read-only link to the Memorable procedural-memory CLI. It is
   - Behaviour: `GateSettings` and `GateMode` in `src/settings.rs` add `gates.stop`, with values `enforce` (default) and `watch`. `AGENT_BRAIN_STOP_GATE` overrides the file value when it is `enforce` or `watch`. Any other value is ignored.
   - Outcome: The stop gate can run in watch mode from one setting, without changing other behaviour.
 
+- **Stop-gate mode setting:** `gates.stop` and `AGENT_BRAIN_STOP_GATE` in `src/settings.rs`. Only `watch` and `enforce` are read from the environment; any other value is ignored (`stop_gate_override`).
+  - Outcome: Tests `stop_gate_env_values_other_than_watch_and_enforce_are_ignored`, `stop_gate_mode_is_read_from_the_gates_section`, `a_missing_gates_section_defaults_the_stop_gate_to_enforce`, and `an_unknown_stop_gate_value_fails_the_whole_file_so_load_uses_defaults`.
+
 ## Code
 
 - `agent-brain/src/memorable.rs`

@@ -222,6 +222,9 @@ Summary: agent-brain is the routing layer that every agent calls at turn start. 
   - Behaviour: `list_tools` in `src/mcp/server.rs` filters `CORE_TOOLS` when the setting is `core`; the default `full` lists every tool. `call_tool` is unchanged, so a hidden tool still runs when called by name. `McpSettings` and `ToolSurface` are in `src/settings.rs`.
   - Outcome: A smaller tool list for agents that choose by name, with no change for hosts that call hidden tools.
 
+- **H1/H2 completion (status, doctor, verify init, lessons, duplicate packages):** `status` and `doctor` print the stop-gate mode (`GateMode::as_str`, `src/settings.rs`). `init_verify` allowlists nothing for a project with no recognised test runner, and `agent-brain verify init` then prints "no test command detected; add yours to .verify/verify.toml". The VERIFIED line names the command and a 12-character code hash on both proof paths (`proof_line`, `src/stop_gate.rs`). `run_gc` deletes lessons past their 60-day TTL and reports `lessons_removed` (`prune_expired_lessons`, `src/lessons.rs`). `doctor` prints a removal hint per duplicate package (`duplicate_package_lines`, `src/doctor.rs`). `gates.stop` is documented in `config.example.yaml`.
+  - Outcome: Tests: `init_verify_in_an_unrecognised_project_allowlists_nothing`, `init_verify_detects_a_makefile_as_a_test_runner`, `a_passing_check_on_changed_code_ends_the_turn_with_a_receipt_line` (command and hash), `lessons_past_the_ttl_are_pruned_and_recent_ones_are_kept`, `two_packages_with_the_same_skills_get_a_removal_hint`, and the settings tests for `gates.stop`.
+
 ## Code
 
 - `agent-brain/src`
