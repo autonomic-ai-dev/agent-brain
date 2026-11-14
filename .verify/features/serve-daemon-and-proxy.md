@@ -32,6 +32,9 @@ Summary: `agent-brain serve` runs in two roles. A shared daemon holds the brain 
   - Behaviour: `list_tools` in `src/mcp/server.rs` overrides the `#[tool_handler]` default, which the rmcp macro emits only when the method is absent. The route handler in the same file now also sets `file_context` and `lessons` on the response.
   - Outcome: Hidden tools are still callable by name, and the tool list shrinks only when the setting is `core`.
 
+- **Tool surface filter:** `visible_tools` in `src/mcp/server.rs` applies `mcp.tool_surface` to `list_tools`. Hidden tools stay in the router, so a call by name still works.
+  - Outcome: Tests `the_core_surface_lists_exactly_the_core_tools` and `the_full_surface_lists_every_routed_tool_and_hidden_tools_stay_routed`.
+
 ## Code
 
 - `agent-brain/src/main.rs` (`serve` branch)

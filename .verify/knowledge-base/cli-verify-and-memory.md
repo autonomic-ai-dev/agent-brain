@@ -151,3 +151,9 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 - Context feedback credits a routed item only when the agent read its source path in that route (`opened_paths_for_route`, `src/db/store.rs`). Route items store `source_path` for this join.
 - The index pruning test covers rules dropped on sync (prune_removes_stored_rules_that_are_not_rule_files, src/db/store.rs).
 - Index and package coverage: index.rs tests cover parsing, classification and skip rules; tests/index_sync.rs drives sync_index_opts against a temp HOME. packages/mod.rs tests cover registry, removal, source parsing and git clone/update against local repositories.
+
+## H1 and H2 completion
+
+- Every H1 and H2 item in the delegation plan now has code and a test, except H2-6 (retrieval eval). That item needs owner approval for the new cases and for adding them to the gate.
+- Lessons past their TTL are deleted by `run_gc` (`lessons_removed`), not only hidden on read.
+- The eval gate is not part of `.verify/run.sh`; see bench-extension for its current 15 of 28 result.

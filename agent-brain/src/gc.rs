@@ -9,6 +9,7 @@ pub struct GcStats {
     pub facts_removed: u64,
     pub index_items_deduped: u64,
     pub index_items_removed: u64,
+    pub lessons_removed: u64,
     pub bytes_reclaimed: u64,
 }
 
@@ -28,6 +29,10 @@ pub fn run_gc(
         index_items_deduped: dedup_indexed_items(store)?,
         facts_removed: prune_low_confidence(store, min_confidence)?,
         index_items_removed: prune_stale_index(store)?,
+        lessons_removed: crate::lessons::prune_expired_lessons(
+            store,
+            chrono::Utc::now().timestamp_millis(),
+        )?,
         ..GcStats::default()
     };
 
