@@ -9,8 +9,8 @@ pub mod types;
 
 use std::path::Path;
 
-use agent_brain::settings::GraphifySettings;
+use tekmor::settings::GraphifySettings;
 
 pub fn settings_or_default(home: &Path) -> GraphifySettings {
-    agent_brain::settings::AgentBrainSettings::load(home).graphify
+    tekmor::settings::AgentBrainSettings::load(home).graphify
 }

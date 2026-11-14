@@ -10,21 +10,21 @@ Memorable is a procedural-memory CLI. Its MCP server reads procedures that are s
 
 ## How it works
 
-1. `agent-brain memorable enable` sets `memorable.enabled: true` in the brain config and registers an upstream MCP server named `memorable`. The server runs `memorable mcp` and gets `MEMORABLE_API_URL=http://127.0.0.1:9`.
+1. `tekmor memorable enable` sets `memorable.enabled: true` in the brain config and registers an upstream MCP server named `memorable`. The server runs `memorable mcp` and gets `MEMORABLE_API_URL=http://127.0.0.1:9`.
 2. The registered server's tools (`memorable_recall`, `memorable_list`, `memorable_show`, `memorable_status`, `memorable_explain_recall`) are reached through `route_to_mcp`, like any other upstream server.
-3. `agent-brain memorable disable` removes the server and clears the flag.
+3. `tekmor memorable disable` removes the server and clears the flag.
 
 ## Where the code is
 
-- `agent-brain/src/memorable.rs`: `enable`, `disable`, and `is_registered`, with unit tests
-- `agent-brain/src/settings.rs`: the `memorable` section, defaulting to `enabled: false`
-- `agent-brain/src/mcp_cli.rs`: `persist_brain_settings` is public. This turn's change to the file only replaced a format argument in the `mcp list` header with a literal, so memorable behavior is unchanged.
-- `agent-brain/src/main.rs`: the `memorable` command
-- `agent-brain/src/upstream/mod.rs` (`is_over_max_servers`): when `upstream_mcp.max_servers` is lower than the number of enabled servers, memorable can fall past the cap and show `not indexed (over max_servers)` in `mcp list`. Raise `max_servers` to index it.
+- `tekmor/src/memorable.rs`: `enable`, `disable`, and `is_registered`, with unit tests
+- `tekmor/src/settings.rs`: the `memorable` section, defaulting to `enabled: false`
+- `tekmor/src/mcp_cli.rs`: `persist_brain_settings` is public. This turn's change to the file only replaced a format argument in the `mcp list` header with a literal, so memorable behavior is unchanged.
+- `tekmor/src/main.rs`: the `memorable` command
+- `tekmor/src/upstream/mod.rs` (`is_over_max_servers`): when `upstream_mcp.max_servers` is lower than the number of enabled servers, memorable can fall past the cap and show `not indexed (over max_servers)` in `mcp list`. Raise `max_servers` to index it.
 
 ## How it is verified
 
-- `cargo test -p agent-brain --lib memorable`
+- `cargo test -p tekmor --lib memorable`
 - Sandbox run: `AUTONOMIC_HOME` pointed at a scratch directory, `status`, `enable`, `status`, `disable`, `status` (the config changed as expected)
 - Phase 1 and 2 egress tests (sandbox, listener on localhost): `status`, `doctor`, `enable`, `recall`, `install-hooks`, the prompt hook, and the MCP server made 0 connections. `ingest` was refused before any connection, because it needs credentials.
 
@@ -32,8 +32,8 @@ Memorable is a procedural-memory CLI. Its MCP server reads procedures that are s
 
 Capture sends traces to Memorable's extraction service, so it has two gates on top of the read-only link:
 
-1. `memorable.capture` is set by `agent-brain memorable enable --capture`. It is off by default.
-2. The last `agent-brain verify` for the repo must have passed (`verify::last_verification`).
+1. `memorable.capture` is set by `tekmor memorable enable --capture`. It is off by default.
+2. The last `tekmor verify` for the repo must have passed (`verify::last_verification`).
 
 Before anything is written, each trace is reduced to its prompt (up to 2000 characters), a task description (up to 200), the harness, tool name, one target argument (`file_path`, `path`, `command`, `pattern`, or `url`, capped at 200 characters), and `exit_code` when known. Credential-shaped values are matched at token starts (`sk-`, `ghp_`, `AKIA`, `xox`) or as substrings (`-----BEGIN`, `Bearer `), so words like `task-` do not count. A payload with such a value is withheld, and the other payloads are still sent. The summary lists withheld payloads by number and marker. Each payload is written to `memorable/outbox.json` under the brain home and passed to `memorable ingest`, one workflow at a time. The file is removed after each send.
 
@@ -58,9 +58,9 @@ Before anything is written, each trace is reduced to its prompt (up to 2000 char
 
 ## Gate settings
 
-- `gates.stop` in the settings file takes `enforce` (default) or `watch`. The environment variable `AGENT_BRAIN_STOP_GATE` overrides it; other values are ignored.
+- `gates.stop` in the settings file takes `enforce` (default) or `watch`. The environment variable `TEKMOR_STOP_GATE` overrides it; other values are ignored.
 - Settings are loaded with `AgentBrainSettings::load`, which falls back to defaults for the whole file when it does not parse (`src/settings.rs`). One bad key therefore resets every setting silently. This is an existing behaviour that the gate settings inherit.
 
 ## Stop-gate mode (H1-5)
 
-- `gates.stop` (`enforce` or `watch`) is read from the settings file; `AGENT_BRAIN_STOP_GATE` overrides it. An unknown value in the file fails the whole file, so `load` falls back to defaults. That is the current behaviour, tested, and changing it is a separate change.
+- `gates.stop` (`enforce` or `watch`) is read from the settings file; `TEKMOR_STOP_GATE` overrides it. An unknown value in the file fails the whole file, so `load` falls back to defaults. That is the current behaviour, tested, and changing it is a separate change.

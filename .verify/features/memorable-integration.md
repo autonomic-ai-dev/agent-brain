@@ -12,37 +12,37 @@ Summary: An opt-in, read-only link to the Memorable procedural-memory CLI. It is
 ## Sub-features
 
 - `memorable-toggle`: Turns the read-only link on and off.
-  - Behaviour: `agent-brain memorable status | enable | disable`. `enable` sets `memorable.enabled: true` and registers an upstream server named `memorable` (`memorable mcp`, with `MEMORABLE_API_URL=http://127.0.0.1:9`). `disable` removes the server and clears the flag.
+  - Behaviour: `tekmor memorable status | enable | disable`. `enable` sets `memorable.enabled: true` and registers an upstream server named `memorable` (`memorable mcp`, with `MEMORABLE_API_URL=http://127.0.0.1:9`). `disable` removes the server and clears the flag.
   - Outcome: The flag and the server registration change together. Other upstream servers are left as they are.
 - `memorable-over-cap`: The memorable server is not indexed when it is past `upstream_mcp.max_servers`.
   - Behaviour: The server is registered, but `enabled_servers` only indexes the first `max_servers` enabled servers. `mcp list` then shows `not indexed (over max_servers)` for memorable instead of its tool count.
   - Outcome: Fix by raising `max_servers` in `config.yaml`. Unit tests are in `upstream::tests`.
 
 - `memorable-capture`: Sends verified sessions to Memorable's extraction service. Off by default, and needs its own flag.
-  - Behaviour: `agent-brain memorable enable --capture` sets `memorable.capture: true`. `agent-brain memorable capture <trace.json>` sends one trace. `agent-brain memorable capture-transcript <session.jsonl>` splits a Claude Code transcript into one workflow per human prompt, limited to records whose `cwd` is the current repo or below it. Only strong workflows are sent: at least 3 tool calls, at least one state-changing call (`Edit`, `MultiEdit`, `Write`, or `NotebookEdit`), since the Memorable CLI reference (https://www.memorable.sh/doc/cli) says a session that only read and searched is not stored, and a Bash run of a verifier (`cargo test`, `cargo clippy`, `agent-brain verify`, `pytest`, `npm test`, or `make test`) with an explicit `ok: true`. Weak workflows are skipped and counted in the summary. Both require the flag, a passing last `agent-brain verify` for the repo, and withholds any payload that holds a credential-shaped value, reporting it by number. Each payload carries the prompt (up to 2000 characters), a task description (the first substantive line of the prompt, up to 200 characters; lines that start with `<` or `/` are skipped), both scrubbed of the home directory (shown as `~`) and of email addresses (shown as `<email>`), as the gbrain page describes the derivation, the harness, and the tool calls reduced to name and the argument the tool used (`file_path`, `path`, `command`, `pattern`, or `url`, under its real key, not renamed), capped at 200 characters. Renaming the key to `target` made the service refuse every workflow (`no_postcondition, prefilter`), while the same steps under real keys were stored. Each payload is written to `memorable/outbox.json` under the brain home and passed to `memorable ingest`.
+  - Behaviour: `tekmor memorable enable --capture` sets `memorable.capture: true`. `tekmor memorable capture <trace.json>` sends one trace. `tekmor memorable capture-transcript <session.jsonl>` splits a Claude Code transcript into one workflow per human prompt, limited to records whose `cwd` is the current repo or below it. Only strong workflows are sent: at least 3 tool calls, at least one state-changing call (`Edit`, `MultiEdit`, `Write`, or `NotebookEdit`), since the Memorable CLI reference (https://www.memorable.sh/doc/cli) says a session that only read and searched is not stored, and a Bash run of a verifier (`cargo test`, `cargo clippy`, `tekmor verify`, `pytest`, `npm test`, or `make test`) with an explicit `ok: true`. Weak workflows are skipped and counted in the summary. Both require the flag, a passing last `tekmor verify` for the repo, and withholds any payload that holds a credential-shaped value, reporting it by number. Each payload carries the prompt (up to 2000 characters), a task description (the first substantive line of the prompt, up to 200 characters; lines that start with `<` or `/` are skipped), both scrubbed of the home directory (shown as `~`) and of email addresses (shown as `<email>`), as the gbrain page describes the derivation, the harness, and the tool calls reduced to name and the argument the tool used (`file_path`, `path`, `command`, `pattern`, or `url`, under its real key, not renamed), capped at 200 characters. Renaming the key to `target` made the service refuse every workflow (`no_postcondition, prefilter`), while the same steps under real keys were stored. Each payload is written to `memorable/outbox.json` under the brain home and passed to `memorable ingest`.
   - Outcome: Nothing is sent when the flag is off or the last verify failed. A payload with a credential-shaped value is withheld, not sent. The service receives the prompt text and tool targets for each workflow. It does not receive tool output or the transcript. A tool result is sent only from an explicit `exit_code` or `ok` flag. Transcripts carry an `is_error` flag on about 58% of results, and only those flags are used. A missing flag is not guessed.
 
 - `gate-settings`: The `gates` section of the settings file selects the stop-gate mode.
-  - Behaviour: `GateSettings` and `GateMode` in `src/settings.rs` add `gates.stop`, with values `enforce` (default) and `watch`. `AGENT_BRAIN_STOP_GATE` overrides the file value when it is `enforce` or `watch`. Any other value is ignored.
+  - Behaviour: `GateSettings` and `GateMode` in `src/settings.rs` add `gates.stop`, with values `enforce` (default) and `watch`. `TEKMOR_STOP_GATE` overrides the file value when it is `enforce` or `watch`. Any other value is ignored.
   - Outcome: The stop gate can run in watch mode from one setting, without changing other behaviour.
 
-- **Stop-gate mode setting:** `gates.stop` and `AGENT_BRAIN_STOP_GATE` in `src/settings.rs`. Only `watch` and `enforce` are read from the environment; any other value is ignored (`stop_gate_override`).
+- **Stop-gate mode setting:** `gates.stop` and `TEKMOR_STOP_GATE` in `src/settings.rs`. Only `watch` and `enforce` are read from the environment; any other value is ignored (`stop_gate_override`).
   - Outcome: Tests `stop_gate_env_values_other_than_watch_and_enforce_are_ignored`, `stop_gate_mode_is_read_from_the_gates_section`, `a_missing_gates_section_defaults_the_stop_gate_to_enforce`, and `an_unknown_stop_gate_value_fails_the_whole_file_so_load_uses_defaults`.
 
 ## Code
 
-- `agent-brain/src/memorable.rs`
-- `agent-brain/src/settings.rs` (the `memorable` section and its default)
-- `agent-brain/src/mcp_cli.rs` (`persist_brain_settings`, now public; the `mcp list` header now prints a literal `COMMAND` label, with the same output)
-- `agent-brain/src/main.rs` (the `memorable` command arm)
+- `tekmor/src/memorable.rs`
+- `tekmor/src/settings.rs` (the `memorable` section and its default)
+- `tekmor/src/mcp_cli.rs` (`persist_brain_settings`, now public; the `mcp list` header now prints a literal `COMMAND` label, with the same output)
+- `tekmor/src/main.rs` (the `memorable` command arm)
 
 ## How to get to it (user POV)
 
-- `agent-brain memorable status`, then `agent-brain memorable enable` and `agent-brain mcp sync`
+- `tekmor memorable status`, then `tekmor memorable enable` and `tekmor mcp sync`
 
 ## Verification Suites (Targeted Test Commands)
 
-- `cargo test -p agent-brain --lib memorable` (defaults off, enable registers the blackholed read-only server, enable is idempotent, disable keeps other servers)
+- `cargo test -p tekmor --lib memorable` (defaults off, enable registers the blackholed read-only server, enable is idempotent, disable keeps other servers)
 
 ## Gotchas
 

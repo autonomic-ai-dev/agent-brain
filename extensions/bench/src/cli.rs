@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use agent_brain::config::Config;
+use tekmor::config::Config;
 use anyhow::Result;
 
 pub fn dispatch(cmd: &str, args: &[String]) -> Result<()> {
@@ -109,15 +109,15 @@ pub fn dispatch(cmd: &str, args: &[String]) -> Result<()> {
                     std::process::exit(1);
                 }
             } else {
-                eprintln!("Usage: agent-brain bench --ci");
+                eprintln!("Usage: tekmor bench --ci");
                 eprintln!(
-                    "       agent-brain bench --beam              BEAM memory+routing harness"
+                    "       tekmor bench --beam              BEAM memory+routing harness"
                 );
-                eprintln!("       agent-brain bench --mcp [--assert] [--write PATH]");
-                eprintln!("       agent-brain bench --graphify [--full] [--assert] [--write PATH]");
-                eprintln!("       agent-brain bench --scale [--full] [--assert] [--write PATH]");
-                eprintln!("       agent-brain bench --supervisor [--assert] [--write PATH]");
-                eprintln!("       agent-brain bench --onnx [--fixture-db PATH] [--write PATH] [--assert-target]");
+                eprintln!("       tekmor bench --mcp [--assert] [--write PATH]");
+                eprintln!("       tekmor bench --graphify [--full] [--assert] [--write PATH]");
+                eprintln!("       tekmor bench --scale [--full] [--assert] [--write PATH]");
+                eprintln!("       tekmor bench --supervisor [--assert] [--write PATH]");
+                eprintln!("       tekmor bench --onnx [--fixture-db PATH] [--write PATH] [--assert-target]");
                 std::process::exit(1);
             }
         }
@@ -159,7 +159,7 @@ pub fn dispatch(cmd: &str, args: &[String]) -> Result<()> {
                         let config = Config::isolated(dir.path().to_path_buf());
                         config.ensure_dirs()?;
                         std::fs::copy(&path, &config.db_path)?;
-                        let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
+                        let store = tekmor::db::store::BrainStore::open(&config.db_path)?;
                         crate::fixture::fixture_db_breakdown(&store)?
                     };
                     #[derive(serde::Serialize)]
@@ -173,8 +173,8 @@ pub fn dispatch(cmd: &str, args: &[String]) -> Result<()> {
                     );
                 }
                 _ => {
-                    eprintln!("Usage: agent-brain fixture build [--snapshot PATH] [--index-size N] [--write PATH] [--allow-fillers]");
-                    eprintln!("       agent-brain fixture verify [--db PATH]");
+                    eprintln!("Usage: tekmor fixture build [--snapshot PATH] [--index-size N] [--write PATH] [--allow-fillers]");
+                    eprintln!("       tekmor fixture verify [--db PATH]");
                     std::process::exit(1);
                 }
             }
@@ -270,9 +270,9 @@ pub fn dispatch(cmd: &str, args: &[String]) -> Result<()> {
                     println!("{}", serde_json::to_string_pretty(&golden)?);
                 }
                 _ => {
-                    eprintln!("Usage: agent-brain skills-sh sync [--target N] [--merge] [--manifest PATH] [--write PATH] [--delay-ms N] [--required-only]");
-                    eprintln!("       agent-brain skills-sh retry-failed [--write PATH] [--max N] [--delay-ms N]");
-                    eprintln!("       agent-brain skills-sh golden-probe [--target N] [--fixture-db PATH] [--snapshot PATH] [--write PATH]");
+                    eprintln!("Usage: tekmor skills-sh sync [--target N] [--merge] [--manifest PATH] [--write PATH] [--delay-ms N] [--required-only]");
+                    eprintln!("       tekmor skills-sh retry-failed [--write PATH] [--max N] [--delay-ms N]");
+                    eprintln!("       tekmor skills-sh golden-probe [--target N] [--fixture-db PATH] [--snapshot PATH] [--write PATH]");
                     std::process::exit(1);
                 }
             }
@@ -313,8 +313,8 @@ pub fn dispatch(cmd: &str, args: &[String]) -> Result<()> {
                     std::process::exit(1);
                 }
             } else if !args.iter().any(|a| a == "--ci") {
-                eprintln!("Usage: agent-brain eval --ci [--live]");
-                eprintln!("       agent-brain eval --skills-sh [--fixture-db PATH] [--seed] [--write PATH]");
+                eprintln!("Usage: tekmor eval --ci [--live]");
+                eprintln!("       tekmor eval --skills-sh [--fixture-db PATH] [--seed] [--write PATH]");
                 eprintln!("  --ci            Run Recall@3 gate (default: isolated fixture DB)");
                 eprintln!(
                     "  --live          Embed with the real model on an isolated DB (not for CI)"
@@ -340,7 +340,7 @@ pub fn dispatch(cmd: &str, args: &[String]) -> Result<()> {
         }
         "proofs" => {
             if !args.iter().any(|a| a == "--ci") {
-                eprintln!("Usage: agent-brain proofs --ci [--write PATH]");
+                eprintln!("Usage: tekmor proofs --ci [--write PATH]");
                 std::process::exit(1);
             }
             let report = crate::proofs::run_ci_proofs()?;

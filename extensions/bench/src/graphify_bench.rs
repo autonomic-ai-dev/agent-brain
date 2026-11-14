@@ -11,8 +11,8 @@ use crate::bench::{percentiles, PercentileMs};
 use crate::fixture::{
     default_route_limits, new_isolated_engine, seed_bench_fixture, BENCH_FIXTURE_SKILLS,
 };
-use agent_brain::engine::RouteRequest;
-use agent_brain_graphify::ingest::ingest_graph_at_path;
+use tekmor::engine::RouteRequest;
+use tekmor_graphify::ingest::ingest_graph_at_path;
 
 pub const GRAPHIFY_INGEST_1K_THRESHOLD_MS: u64 = 5_000;
 pub const GRAPHIFY_ROUTE_P95_THRESHOLD_MS: u64 = 65;

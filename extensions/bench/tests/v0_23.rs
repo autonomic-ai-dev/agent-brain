@@ -1,10 +1,10 @@
 //! v0.23 — gRPC bridge, BEAM eval harness, and trace extraction.
 
-use agent_brain::db::store::BrainStore;
-use agent_brain::embed::Embedder;
-use agent_brain::trace_extract::{run_trace_extract, TraceExtractConfig};
+use tekmor::db::store::BrainStore;
+use tekmor::embed::Embedder;
+use tekmor::trace_extract::{run_trace_extract, TraceExtractConfig};
 #[cfg(feature = "extras")]
-use agent_brain_bench::beam_eval::{assert_beam_gate, run_beam_eval_isolated};
+use tekmor_bench::beam_eval::{assert_beam_gate, run_beam_eval_isolated};
 use tempfile::TempDir;
 
 #[cfg(feature = "extras")]
@@ -18,7 +18,7 @@ fn beam_eval_passes_isolated_harness() {
 #[test]
 fn trace_extract_creates_fact_from_shell_trace() {
     let dir = TempDir::new().unwrap();
-    let home = dir.path().join(".agent_brain");
+    let home = dir.path().join(".tekmor");
     std::fs::create_dir_all(&home).unwrap();
     let db = home.join("brain.db");
     let store = BrainStore::open(&db).unwrap();

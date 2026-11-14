@@ -62,105 +62,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "agent-brain"
-version = "1.0.0-rc8"
-dependencies = [
- "age",
- "agent-brain-core",
- "anyhow",
- "chrono",
- "dirs",
- "fastembed",
- "glob",
- "keyring",
- "libc",
- "lru",
- "opendal",
- "rayon",
- "regex",
- "rmcp",
- "rusqlite",
- "schemars",
- "secrecy",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "tar",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "toml 0.8.23",
- "tracing",
- "tracing-subscriber",
- "tree-sitter",
- "tree-sitter-go",
- "tree-sitter-python",
- "tree-sitter-rust",
- "tree-sitter-typescript",
- "ureq 3.3.0",
- "uuid",
- "walkdir",
- "zstd",
-]
-
-[[package]]
-name = "agent-brain-bench"
-version = "1.0.0-rc5"
-dependencies = [
- "agent-brain",
- "agent-brain-graphify",
- "anyhow",
- "chrono",
- "serde",
- "serde_json",
- "tempfile",
- "tracing",
- "ureq 3.3.0",
-]
-
-[[package]]
-name = "agent-brain-core"
-version = "1.0.0-rc8"
-dependencies = [
- "schemars",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "agent-brain-extras"
-version = "1.0.0-rc8"
-dependencies = [
- "agent-brain",
- "anyhow",
- "chrono",
- "prost",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tonic",
- "tonic-build",
- "tracing",
-]
-
-[[package]]
-name = "agent-brain-graphify"
-version = "1.0.0-rc8"
-dependencies = [
- "agent-brain",
- "anyhow",
- "chrono",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
- "tracing",
- "uuid",
-]
-
-[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3946,6 +3847,105 @@ dependencies = [
 ]
 
 [[package]]
+name = "tekmor"
+version = "1.1.0-rc2"
+dependencies = [
+ "age",
+ "anyhow",
+ "chrono",
+ "dirs",
+ "fastembed",
+ "glob",
+ "keyring",
+ "libc",
+ "lru",
+ "opendal",
+ "rayon",
+ "regex",
+ "rmcp",
+ "rusqlite",
+ "schemars",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "tar",
+ "tekmor-core",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml 0.8.23",
+ "tracing",
+ "tracing-subscriber",
+ "tree-sitter",
+ "tree-sitter-go",
+ "tree-sitter-python",
+ "tree-sitter-rust",
+ "tree-sitter-typescript",
+ "ureq 3.3.0",
+ "uuid",
+ "walkdir",
+ "zstd",
+]
+
+[[package]]
+name = "tekmor-bench"
+version = "1.1.0-rc1"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "serde",
+ "serde_json",
+ "tekmor",
+ "tekmor-graphify",
+ "tempfile",
+ "tracing",
+ "ureq 3.3.0",
+]
+
+[[package]]
+name = "tekmor-core"
+version = "1.1.0-rc2"
+dependencies = [
+ "schemars",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "tekmor-extras"
+version = "1.1.0-rc1"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "prost",
+ "serde",
+ "serde_json",
+ "tekmor",
+ "tempfile",
+ "tokio",
+ "tonic",
+ "tonic-build",
+ "tracing",
+]
+
+[[package]]
+name = "tekmor-graphify"
+version = "1.1.0-rc1"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tekmor",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "tempfile"
 version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4426,8 +4426,9 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter-go"
-version = "0.25.0"
-source = "git+https://github.com/tree-sitter/tree-sitter-go#2346a3ab1bb3857b48b29d779a1ef9799a248cd7"
+version = "0.23.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b13d476345220dbe600147dd444165c5791bf85ef53e28acbedd46112ee18431"
 dependencies = [
  "cc",
  "tree-sitter-language",
@@ -4441,8 +4442,9 @@ checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
 
 [[package]]
 name = "tree-sitter-python"
-version = "0.25.0"
-source = "git+https://github.com/tree-sitter/tree-sitter-python#26855eabccb19c6abf499fbc5b8dc7cc9ab8bc64"
+version = "0.23.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d065aaa27f3aaceaf60c1f0e0ac09e1cb9eb8ed28e7bcdaa52129cffc7f4b04"
 dependencies = [
  "cc",
  "tree-sitter-language",
@@ -4450,8 +4452,9 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter-rust"
-version = "0.24.2"
-source = "git+https://github.com/tree-sitter/tree-sitter-rust#77a3747266f4d621d0757825e6b11edcbf991ca5"
+version = "0.23.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca8ccb3e3a3495c8a943f6c3fd24c3804c471fd7f4f16087623c7fa4c0068e8a"
 dependencies = [
  "cc",
  "tree-sitter-language",
@@ -4460,7 +4463,8 @@ dependencies = [
 [[package]]
 name = "tree-sitter-typescript"
 version = "0.23.2"
-source = "git+https://github.com/tree-sitter/tree-sitter-typescript#75b3874edb2dc714fb1fd77a32013d0f8699989f"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c5f76ed8d947a75cc446d5fccd8b602ebf0cde64ccf2ffa434d873d7a575eff"
 dependencies = [
  "cc",
  "tree-sitter-language",

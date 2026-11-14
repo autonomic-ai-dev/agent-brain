@@ -8,11 +8,11 @@ use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
 
 use crate::eval::seed_eval_fixture;
-use agent_brain::config::Config;
-use agent_brain::db::store::BrainStore;
-use agent_brain::embed::{parse_embedding_model, Embedder};
-use agent_brain::engine::Engine;
-use agent_brain::types::RouteLimits;
+use tekmor::config::Config;
+use tekmor::db::store::BrainStore;
+use tekmor::embed::{parse_embedding_model, Embedder};
+use tekmor::engine::Engine;
+use tekmor::types::RouteLimits;
 
 pub const BENCH_FIXTURE_SKILLS: usize = 500;
 
@@ -68,7 +68,7 @@ pub fn open_fixture_engine_with_onnx(fixture_path: &Path, onnx: bool) -> Result<
 
 fn benchmark_path(rel: &str) -> PathBuf {
     if let Ok(cwd) = std::env::current_dir() {
-        if let Some(repo) = agent_brain::config::find_repo_root(&cwd) {
+        if let Some(repo) = tekmor::config::find_repo_root(&cwd) {
             return repo.join(rel);
         }
     }
@@ -195,7 +195,7 @@ pub fn fixture_db_breakdown(store: &BrainStore) -> Result<FixtureDbBreakdown> {
 fn verify_fixture_store(store: &BrainStore, meta: &FixtureDbMeta) -> Result<()> {
     if meta.recipe_version != FIXTURE_DB_RECIPE_VERSION {
         bail!(
-            "fixture recipe version {} != expected {} — rebuild with `agent-brain fixture build`",
+            "fixture recipe version {} != expected {} — rebuild with `tekmor fixture build`",
             meta.recipe_version,
             FIXTURE_DB_RECIPE_VERSION
         );

@@ -6,9 +6,9 @@ feature: "[[../features/core-crate]]"
 
 ## What it does
 
-Version 1.0.0-rc5 (`agent-brain/crates/agent-brain-core/Cargo.toml`). See CHANGELOG.md for the release contents.
+Version 1.0.0-rc5 (`tekmor/crates/tekmor-core/Cargo.toml`). See CHANGELOG.md for the release contents.
 
-`agent-brain-core` holds the pure routing logic of agent-brain: the behavior-contract rules, retrieval ranking, query decomposition, and memory decay. It has no storage, runtime, or IO dependency, so the logic can be tested with no database, daemon, or network.
+`tekmor-core` holds the pure routing logic of tekmor: the behavior-contract rules, retrieval ranking, query decomposition, and memory decay. It has no storage, runtime, or IO dependency, so the logic can be tested with no database, daemon, or network.
 
 ## How it works
 
@@ -20,18 +20,18 @@ Version 1.0.0-rc5 (`agent-brain/crates/agent-brain-core/Cargo.toml`). See CHANGE
 
 ## Where the code is
 
-- Crate: `agent-brain/crates/agent-brain-core`
-- Re-exports in `src/lib.rs` keep the old `agent_brain::<module>` paths valid
-- Boundary check: `agent-brain/.verify/checks/core_boundary.sh`
+- Crate: `tekmor/crates/tekmor-core`
+- Re-exports in `src/lib.rs` keep the old `tekmor::<module>` paths valid
+- Boundary check: `tekmor/.verify/checks/core_boundary.sh`
 
 ## How to use it
 
-- There is no separate user command. Running `agent-brain route_task` from any repository uses this logic.
-- Developers work on it through `cargo test -p agent-brain-core`.
+- There is no separate user command. Running `tekmor route_task` from any repository uses this logic.
+- Developers work on it through `cargo test -p tekmor-core`.
 
 ## How it is verified
 
-- `cargo test -p agent-brain-core`: 11 tests, all passing
+- `cargo test -p tekmor-core`: 11 tests, all passing
 - `sh .verify/checks/core_boundary.sh`: exits 0 with "core boundary holds"
 
 ## Known limits

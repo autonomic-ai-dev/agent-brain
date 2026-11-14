@@ -1,17 +1,17 @@
 {
   "mcpServers": {
-    "agent-brain": {
+    "tekmor": {
       "args": [
         "serve"
       ],
-      "command": "/opt/homebrew/bin/agent-brain",
+      "command": "/opt/homebrew/bin/tekmor",
       "env": {
-        "AGENT_BRAIN_AUTO_UPDATE_DELAY_SEC": "60",
-        "AGENT_BRAIN_BOOTSTRAP_BG": "1",
-        "AGENT_BRAIN_BOOTSTRAP_DELAY_SEC": "2",
-        "AGENT_BRAIN_BOOTSTRAP_INTERVAL_SEC": "3600",
-        "AGENT_BRAIN_SESSION_INGEST_DELAY_SEC": "180",
-        "RUST_LOG": "agent_brain=info"
+        "TEKMOR_AUTO_UPDATE_DELAY_SEC": "60",
+        "TEKMOR_BOOTSTRAP_BG": "1",
+        "TEKMOR_BOOTSTRAP_DELAY_SEC": "2",
+        "TEKMOR_BOOTSTRAP_INTERVAL_SEC": "3600",
+        "TEKMOR_SESSION_INGEST_DELAY_SEC": "180",
+        "RUST_LOG": "tekmor=info"
       }
     }
   }

@@ -1,22 +1,22 @@
 [package]
-name = "agent-brain-graphify"
-version = "1.0.0-rc8"
+name = "tekmor-graphify"
+version = "1.1.0-rc1"
 edition = "2021"
-description = "agent-brain extension: codebase graph (enable, ingest, query, and on-demand MCP tools)"
+description = "tekmor extension: codebase graph (enable, ingest, query, and on-demand MCP tools)"
 license = "MIT"
 publish = false
 
 [lib]
-name = "agent_brain_graphify"
+name = "tekmor_graphify"
 path = "src/lib.rs"
 
 [[bin]]
-name = "agent-brain-graphify"
+name = "tekmor-graphify"
 path = "src/main.rs"
 
 [dependencies]
 sha2 = "0.10"
-agent-brain = { path = "../../agent-brain", features = ["extras"] }
+tekmor = { path = "../../tekmor", features = ["extras"] }
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 rusqlite = { version = "0.32", features = ["bundled", "functions"] }

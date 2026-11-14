@@ -10,7 +10,7 @@ pub struct GraphifyRepoRecord {
     pub last_graph_mtime: Option<i64>,
 }
 
-pub use agent_brain::db::graph_store::GraphifyJobRecord;
+pub use tekmor::db::graph_store::GraphifyJobRecord;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphifyJobStatus {
@@ -24,7 +24,7 @@ pub struct GraphifyJobStatus {
     pub result: Option<serde_json::Value>,
 }
 
-pub use agent_brain::code_nav::{CodeContext, CodeContextNode};
+pub use tekmor::code_nav::{CodeContext, CodeContextNode};
 
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct GraphJson {

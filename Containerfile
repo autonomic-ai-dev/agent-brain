@@ -1,4 +1,4 @@
-# Apple Container / OCI build for agent-brain compile + extras tests
+# Apple Container / OCI build for tekmor compile + extras tests
 FROM rust:1.88-bookworm
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -11,4 +11,4 @@ COPY . .
 
 # Default: slim serve binary (no extras). Override with --build-arg FEATURES=extras
 ARG FEATURES=
-RUN cargo check -p agent-brain --features "${FEATURES}"
+RUN cargo check -p tekmor --features "${FEATURES}"

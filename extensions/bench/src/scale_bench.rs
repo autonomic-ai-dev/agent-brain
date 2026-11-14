@@ -4,12 +4,12 @@ use anyhow::{bail, Result};
 
 use crate::bench::{run_bench_on_engine, PercentileMs};
 use crate::fixture::{new_isolated_engine, seed_bench_fixture};
-use agent_brain::ann::DEFAULT_ANN_MIN_INDEX;
+use tekmor::ann::DEFAULT_ANN_MIN_INDEX;
 
 pub const SCALE_P95_THRESHOLD_MS: u64 = 50;
 
 pub fn scale_p95_threshold_ms() -> u64 {
-    if let Ok(v) = std::env::var("AGENT_BRAIN_BENCH_P95_MS") {
+    if let Ok(v) = std::env::var("TEKMOR_BENCH_P95_MS") {
         if let Ok(ms) = v.parse() {
             return ms;
         }

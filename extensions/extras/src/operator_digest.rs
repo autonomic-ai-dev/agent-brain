@@ -3,7 +3,7 @@
 use anyhow::Result;
 use serde::Serialize;
 
-use agent_brain::db::store::BrainStore;
+use tekmor::db::store::BrainStore;
 
 #[derive(Debug, Serialize)]
 pub struct WeeklyDigest {
@@ -90,7 +90,7 @@ pub fn weekly_digest(store: &BrainStore, days: u32) -> Result<WeeklyDigest> {
 pub fn format_weekly_digest(digest: &WeeklyDigest) -> String {
     let mut out = String::new();
     out.push_str(&format!(
-        "# agent-brain weekly digest ({} days)\n\n",
+        "# tekmor weekly digest ({} days)\n\n",
         digest.period_days
     ));
     out.push_str(&format!(
@@ -141,8 +141,8 @@ pub fn format_weekly_digest(digest: &WeeklyDigest) -> String {
 #[cfg(test)]
 mod tests {
     use super::weekly_digest;
-    use agent_brain::config::Config;
-    use agent_brain::db::store::BrainStore;
+    use tekmor::config::Config;
+    use tekmor::db::store::BrainStore;
     use tempfile::TempDir;
 
     #[test]

@@ -6,10 +6,10 @@ use std::sync::Arc;
 
 use anyhow::{bail, Result};
 
-use agent_brain::db::store::{content_hash, BrainStore};
-use agent_brain::embed::Embedder;
-use agent_brain::engine::{Engine, RouteRequest};
-use agent_brain::types::{ItemType, RouteLimits};
+use tekmor::db::store::{content_hash, BrainStore};
+use tekmor::embed::Embedder;
+use tekmor::engine::{Engine, RouteRequest};
+use tekmor::types::{ItemType, RouteLimits};
 
 pub const RECALL_AT_3_THRESHOLD: f64 = 0.85;
 
@@ -72,7 +72,7 @@ const MEMORY_GOLDEN: &[MemoryGoldenCase] = &[
     },
     MemoryGoldenCase {
         query: "mcp server stdio transport",
-        fact: "agent-brain MCP servers use stdio transport with rmcp",
+        fact: "tekmor MCP servers use stdio transport with rmcp",
         topic: "mcp-transport",
     },
     MemoryGoldenCase {
@@ -283,7 +283,7 @@ fn run_suite<F>(
     got_topics: F,
 ) -> Result<SuiteResult>
 where
-    F: Fn(&agent_brain::types::RouteTaskResponse) -> Vec<String>,
+    F: Fn(&tekmor::types::RouteTaskResponse) -> Vec<String>,
 {
     let golden: Vec<(&str, &str)> = if suite == "memory" {
         MEMORY_GOLDEN.iter().map(|c| (c.query, c.topic)).collect()

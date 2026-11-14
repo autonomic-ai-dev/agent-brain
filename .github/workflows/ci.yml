@@ -1,62 +1,38 @@
 name: CI
 
-# Only run when paths that affect the binary, tests, or CI itself change.
-# Skipped for docs/**, *.md, .cursor/**, and other non-runtime files.
-# (Proofs/eval/bench stay on schedule or workflow_dispatch — not PR CI.)
-# Manual runs always allowed via workflow_dispatch.
 on:
   push:
     branches: [master]
-    paths:
-      - "agent-brain/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "Makefile"
-      - "Containerfile"
-      - "scripts/**"
-      - ".github/workflows/**"
-      - ".github/pipelines/**"
-      - ".github/actions/**"
-      - ".github/scripts/**"
-      - "!**.md"
-      - "!docs/**"
   pull_request:
     branches: [master]
+  workflow_call:
   workflow_dispatch:
 
 permissions:
-  actions: write
-  statuses: write
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
 
 jobs:
-  run-pipeline:
-    name: Run CI pipeline
+  check:
+    name: Clippy, tests and hook tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
 
-      - name: Check runtime change paths
-        id: filter
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            BASE_REF="${{ github.base_ref }}"
-            git fetch origin "$BASE_REF" --depth=1 >/dev/null 2>&1 || true
-            CHANGED=$(git diff --name-only "origin/$BASE_REF...HEAD" 2>/dev/null || git diff --name-only HEAD~1 2>/dev/null || true)
-            NON_DOCS=$(echo "$CHANGED" | grep -v -E '\.md$' | grep -v -E '^docs/' | grep -v -E '^\.cursor/' | sed '/^[[:space:]]*$/d' || true)
-            if [ -z "$NON_DOCS" ]; then
-              echo "skip_pipeline=true" >> "$GITHUB_OUTPUT"
-              echo "Only non-runtime paths modified; skipping compose pipeline."
-              exit 0
-            fi
-          fi
-          echo "skip_pipeline=false" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/setup-protoc
 
-      - uses: aeswibon/pipeline-compose-run@v1.17.1
-        if: steps.filter.outputs.skip_pipeline != 'true'
-        with:
-          pipeline_file: .github/pipelines/ci.yml
-          github_token: ${{ github.token }}
-          ref: ${{ github.head_ref || github.ref_name }}
+      - uses: dtolnay/rust-toolchain@stable
 
+      - uses: Swatinem/rust-cache@v2.9.1
+
+      - name: Clippy
+        run: cargo clippy -p tekmor --all-features --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --release -p tekmor --features extras -- --test-threads=1
+
+      - name: Hook tests
+        run: python3 tekmor/hooks/test_route_gate.py

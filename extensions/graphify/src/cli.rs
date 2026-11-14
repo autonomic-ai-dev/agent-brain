@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 
-use agent_brain::engine::Engine;
+use tekmor::engine::Engine;
 
 use crate::ingest::ingest_repo;
 use crate::jobs::{enqueue_job, job_status, JobMode, JobTrigger};

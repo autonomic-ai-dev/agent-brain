@@ -1,4 +1,4 @@
-{"query":"fix a failing rust test in agent-brain","cwd_hint":"agent-brain","expect_types":["skill","rule"],"forbid_topics":["README.md","CHANGELOG.md"]}
+{"query":"fix a failing rust test in tekmor","cwd_hint":"tekmor","expect_types":["skill","rule"],"forbid_topics":["README.md","CHANGELOG.md"]}
 {"query":"review this PR for security issues","expect_types":["skill","agent"],"forbid_topics":["README.md","CHANGELOG.md"]}
 {"query":"what did we decide about memory dedup?","expect_types":["memory"],"forbid_topics":["README.md","CHANGELOG.md"]}
 {"query":"implement route_task MCP tool","expect_types":["skill","rule","agent"],"forbid_topics":["README.md","CHANGELOG.md"]}

@@ -6,7 +6,7 @@ use tonic::{Request, Response, Status};
 use crate::grpc::convert::{route_request_from_proto, route_response_to_proto};
 use crate::grpc::pb::routing_service_server::{RoutingService, RoutingServiceServer};
 use crate::grpc::pb::{HealthRequest, HealthResponse, RouteTaskRequest, RouteTaskResponse};
-use agent_brain::engine::{Engine, RouteRequest};
+use tekmor::engine::{Engine, RouteRequest};
 
 pub struct RoutingGrpc {
     engine: Arc<Engine>,
@@ -54,7 +54,7 @@ impl RoutingService for RoutingGrpc {
 
 pub async fn serve(engine: Arc<Engine>, addr: SocketAddr) -> anyhow::Result<()> {
     let svc = RoutingGrpc::new(engine);
-    tracing::info!(%addr, "agent-brain gRPC listening");
+    tracing::info!(%addr, "tekmor gRPC listening");
     tonic::transport::Server::builder()
         .add_service(RoutingServiceServer::new(svc))
         .serve(addr)

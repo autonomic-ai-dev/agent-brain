@@ -9,6 +9,6 @@ REPO_ROOT="$(cd "$DIR/../.." && pwd)"
 
 echo "==> [Playbook: Token Tools] Testing bounded reads, file summary, and token benchmarks..."
 cd "$REPO_ROOT"
-cargo test -p agent-brain --all-features token_tools::tests
+cargo test -p tekmor --all-features token_tools::tests
 
 echo "==> [Playbook: Token Tools] Passed cleanly (exit 0)."

@@ -1,12 +1,12 @@
 //! v0.24 — learning loop: trajectories, lineage, BEAM escalation suites.
 
-use agent_brain::db::store::BrainStore;
-use agent_brain::embed::Embedder;
-use agent_brain::observation::{run_observations, ObservationConfig};
-use agent_brain::trace_extract::{run_trace_extract, TraceExtractConfig};
-use agent_brain::trajectory::store_trajectory;
+use tekmor::db::store::BrainStore;
+use tekmor::embed::Embedder;
+use tekmor::observation::{run_observations, ObservationConfig};
+use tekmor::trace_extract::{run_trace_extract, TraceExtractConfig};
+use tekmor::trajectory::store_trajectory;
 #[cfg(feature = "extras")]
-use agent_brain_bench::beam_eval::{assert_beam_gate, run_beam_eval_isolated};
+use tekmor_bench::beam_eval::{assert_beam_gate, run_beam_eval_isolated};
 use tempfile::TempDir;
 
 #[test]
@@ -57,7 +57,7 @@ fn observation_records_source_lineage() {
                 None,
                 0.9,
                 "agent",
-                &agent_brain::db::store::content_hash(&fact),
+                &tekmor::db::store::content_hash(&fact),
                 &emb,
                 "positive",
                 Some(r#"["phase:implementing"]"#),
@@ -78,7 +78,7 @@ fn observation_records_source_lineage() {
 #[test]
 fn trace_extract_records_tool_log_lineage() {
     let dir = TempDir::new().unwrap();
-    let home = dir.path().join(".agent_brain");
+    let home = dir.path().join(".tekmor");
     std::fs::create_dir_all(&home).unwrap();
     let store = BrainStore::open(&home.join("brain.db")).unwrap();
     let embedder = Embedder::deterministic();
