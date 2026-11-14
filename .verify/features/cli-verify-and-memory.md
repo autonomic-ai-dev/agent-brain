@@ -261,6 +261,9 @@ Summary: tekmor is the routing layer that every agent calls at turn start. Its C
   - Behaviour: `calculate_pricing` in `tekmor/src/telemetry.rs` returns cost and cache hit. The `estimated_dollars_saved` column is dropped by migration v29 (`tekmor/src/db/migrations.rs`).
   - Outcome: No dollar savings figure is stored or reported.
 
+- `lessons-in-bundle`: Lessons can leave a machine in a sync bundle, opt-in (H4-3, ADR 0003 amendment 2).
+  - Behaviour: `tekmor export --with-lessons` writes `lessons.jsonl`, checksummed in the manifest. The secret rule drops any lesson that names a secret, `.env` or `.pem`, on export and on import (`tekmor/src/sync/bundle.rs`).
+  - Outcome: The default bundle is unchanged. Lessons reach another machine only when the user asks.
 - `route-gate-decision`: The pure allow, grace or deny decision for a tool call (R-15 steps 2 and 3, ADR 0001 amendments 1 and 2).
   - Behaviour: `decide` in `tekmor/src/route_gate_decision.rs` covers route_task, discovery tools, the grace window, MCP offline mode and the stale-route timeout. `tekmor route-gate --state <file>` reads a host event and prints the permission (`tekmor/src/route_gate_cli.rs`).
   - Outcome: With `TEKMOR_ROUTE_GATE_SHADOW=1`, `tekmor/hooks/route_gate.py` logs each disagreement with the Python gate to `route_gate_shadow.jsonl`. The Python gate still decides. Off by default, so the hook's latency budget holds.

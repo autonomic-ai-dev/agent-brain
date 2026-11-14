@@ -218,3 +218,7 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 ## Route gate shadow (R-15 step 3, ADR 0001 amendment 2)
 
 - Set TEKMOR_ROUTE_GATE_SHADOW=1 to log Python vs Rust route-gate disagreements to hooks/route_gate_shadow.jsonl. Off by default: the shadow call breaks the hook latency budget.
+
+## Lessons in the sync bundle (H4-3, ADR 0003 amendment 2)
+
+- `tekmor export --with-lessons` writes lessons.jsonl, checksummed in the manifest. Each lesson is secret-checked on export and on import. Default export is unchanged.

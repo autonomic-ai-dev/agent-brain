@@ -310,7 +310,7 @@ Commands:
         }
         "export" => {
             "\
-Usage:  tekmor export [dir]
+Usage:  tekmor export [dir] [--with-lessons]
 
 Export a sync bundle (manifest + facts.jsonl).
 Default dir: ~/.tekmor/export/

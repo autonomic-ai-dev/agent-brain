@@ -42,3 +42,10 @@ Nothing is built, so nothing to roll back.
 - H4-1 and H4-2 are implemented in ADR 0004: the CI workflow records its own run and checks the receipt, with the receipt in the job summary.
 - H4-4: a local per-check summary (`tekmor verify summary`) shows which checks fail most. A team view over several people needs a shared store, which is a separate decision and needs its own ADR. Not built.
 - H4-3 (lessons in the sync bundle): see the H4-3 PR for the export rule and secret check.
+
+## Amendment 2: lessons in the sync bundle (H4-3)
+
+- Lessons leave a machine only with `tekmor export --with-lessons`. The default bundle is unchanged. Owner decision: opt-in, because lesson excerpts are command output.
+- Each lesson is checked with the secret rule before it is written, and again on import. A lesson that names a secret, a `.env` or a `.pem` is left out, and counted as skipped on import.
+- `lessons.jsonl` is covered by a checksum in the manifest. A bundle that has the file but no checksum is refused.
+- Not verified end to end: importing a bundle that contains a lesson. The unit tests cover the filter and the parse. The store insert is the existing `insert_lesson`.
