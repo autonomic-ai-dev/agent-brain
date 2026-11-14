@@ -742,6 +742,22 @@ async fn main() -> Result<()> {
                 }
                 return Ok(());
             }
+            if sub == "summary" {
+                let summaries = tekmor_core::evidence::summarize(
+                    &tekmor::evidence_reader::recent_runs(&store, 500)?,
+                );
+                if args.iter().any(|a| a == "--json") {
+                    println!("{}", serde_json::to_string_pretty(&summaries)?);
+                } else {
+                    for s in &summaries {
+                        println!(
+                            "{}/{} failed  last exit {}  {}",
+                            s.failures, s.runs, s.last_exit_code, s.cmd
+                        );
+                    }
+                }
+                return Ok(());
+            }
             if sub == "receipt" {
                 let root = match flag_value(&args, "--project") {
                     Some(path) => std::path::PathBuf::from(path),

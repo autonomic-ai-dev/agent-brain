@@ -30,6 +30,9 @@ related:
   - Behaviour: The normal dependency tree of `tekmor-core` is checked against a denylist of IO and runtime crate names.
   - Outcome: `.verify/checks/core_boundary.sh` exits 0 and prints the holding message.
 
+- `check-summary`: Per check, how often it failed and its latest result (H4-4, ADR 0003 amendment 1).
+  - Behaviour: `summarize` in `crates/tekmor-core/src/evidence.rs` groups records by command, counts failures, and takes the latest exit code. `tekmor verify summary` prints it, failing checks first.
+  - Outcome: Shows the checks that fail most, locally. A team view needs a shared store and is not built.
 - `evidence-reader`: One query layer for stored verify runs (H3-4, ADR 0002 amendment 4).
   - Behaviour: `tekmor/src/evidence_reader.rs` (`recent_runs`, `project_runs`) returns `EvidenceRecord`s for receipt, stop gate, verify and suggest. `source` stays optional so each caller keeps its NULL-source behaviour.
   - Outcome: Evidence queries live in one module. The stop gate and receipt still disagree on NULL-source rows (ADR 0002 amendment 4).

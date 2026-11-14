@@ -36,3 +36,9 @@ None yet. Revisit after the review week. If retention holds, write the H4-2 rece
 ## Rollback
 
 Nothing is built, so nothing to roll back.
+
+## Amendment 1: decisions taken (H4, owner direction)
+
+- H4-1 and H4-2 are implemented in ADR 0004: the CI workflow records its own run and checks the receipt, with the receipt in the job summary.
+- H4-4: a local per-check summary (`tekmor verify summary`) shows which checks fail most. A team view over several people needs a shared store, which is a separate decision and needs its own ADR. Not built.
+- H4-3 (lessons in the sync bundle): see the H4-3 PR for the export rule and secret check.
