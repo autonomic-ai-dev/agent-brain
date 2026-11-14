@@ -965,7 +965,6 @@ def handle_post_tool_use(event: dict) -> dict:
     handle_route_outcome(event)
     maybe_log_tool_trace(event)
     maybe_record_scout_from_event(event)
-    maybe_record_verify_outcome(event)
     return {}
 
 
@@ -1113,67 +1112,6 @@ def tekmor_bin() -> str:
         return str(local)
     which = shutil.which("tekmor")
     return which or "tekmor"
-
-
-def maybe_record_verify_outcome(event: dict) -> None:
-    """Fire-and-forget: record matching Shell verification commands."""
-    tool = str(event.get("tool_name") or "").lower()
-    if not is_shell_tool(tool):
-        return
-    cmd = extract_shell_command(event)
-    if not cmd or not looks_like_verification(cmd):
-        return
-    # Prefer full command if available (extract truncates to 240 for traces).
-    full = cmd
-    for key in ("tool_input", "arguments", "args", "input"):
-        raw = event.get(key)
-        parsed = parse_json_value(raw)
-        if isinstance(parsed, dict):
-            for field in ("command", "cmd"):
-                value = parsed.get(field)
-                if isinstance(value, str) and value.strip():
-                    full = value.strip()
-                    break
-        elif isinstance(parsed, str) and parsed.strip():
-            full = parsed.strip()
-        if full:
-            break
-    exit_code = shell_exit_code(event)
-    cwd = None
-    for key in ("tool_input", "arguments", "args", "input"):
-        raw = event.get(key)
-        parsed = parse_json_value(raw)
-        if isinstance(parsed, dict):
-            for field in ("working_directory", "cwd", "workingDirectory"):
-                value = parsed.get(field)
-                if isinstance(value, str) and value.strip():
-                    cwd = value.strip()
-                    break
-        if cwd:
-            break
-    bin_path = tekmor_bin()
-    argv = [
-        bin_path,
-        "verify",
-        "record",
-        "--exit",
-        str(exit_code),
-        "--source",
-        "hook",
-        "--",
-        full,
-    ]
-    try:
-        kwargs = {
-            "stdout": subprocess.DEVNULL,
-            "stderr": subprocess.DEVNULL,
-            "start_new_session": True,
-        }
-        if cwd:
-            kwargs["cwd"] = cwd
-        subprocess.Popen(argv, **kwargs)
-    except Exception:
-        pass
 
 
 def maybe_log_tool_trace(event: dict) -> None:

@@ -54,7 +54,6 @@ from route_gate import (
     should_gate_tool,
     stale_needs_route,
     looks_like_verification,
-    maybe_record_verify_outcome,
     session_id_from_event,
     set_active_session,
     is_cursor_edit_tool,
@@ -952,31 +951,6 @@ def test_looks_like_verification_allowlist():
     assert looks_like_verification("./.verify/scripts/doctor.sh")
     assert not looks_like_verification("tekmor verify -- cargo test")
     assert not looks_like_verification("ls -la")
-
-
-def test_maybe_record_verify_skips_non_shell(monkeypatch):
-    called = []
-
-    def fake_popen(*args, **kwargs):
-        called.append((args, kwargs))
-        class P:
-            pass
-        return P()
-
-    monkeypatch.setattr("route_gate.subprocess.Popen", fake_popen)
-    maybe_record_verify_outcome({"tool_name": "Write", "tool_input": {"path": "x"}})
-    assert called == []
-    maybe_record_verify_outcome(
-        {
-            "tool_name": "Shell",
-            "success": True,
-            "tool_input": {"command": "cargo test"},
-        }
-    )
-    assert len(called) == 1
-    argv = called[0][0][0]
-    assert "verify" in argv and "record" in argv
-    assert "--source" in argv and "hook" in argv
 
 
 class SessionGateTests(unittest.TestCase):
