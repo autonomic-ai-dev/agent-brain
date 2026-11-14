@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""GAP-MET-01: OpenCode + agent-brain integration bench.
+"""GAP-MET-01: OpenCode + tekmor integration bench.
 
-Checks registry bootstrap, cache sync, cross-host agent-brain mode files,
-and optional route latency (``agent-brain bench --ci``).
+Checks registry bootstrap, cache sync, cross-host tekmor mode files,
+and optional route latency (``tekmor bench --ci``).
 
 Usage:
   python3 scripts/opencode_integration_bench.py
@@ -24,16 +24,16 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
 
-AGENT_BRAIN = os.environ.get("AGENT_BRAIN_BIN", "agent-brain")
-HOME = Path(os.environ.get("AGENT_BRAIN_HOME", Path.home() / ".agent_brain"))
+TEKMOR = os.environ.get("TEKMOR_BIN", "tekmor")
+HOME = Path(os.environ.get("TEKMOR_HOME", Path.home() / ".tekmor"))
 
 MODE_CANDIDATES: list[tuple[str, Path]] = [
-    ("cursor_project", Path(".cursor/rules/agent-brain-mode.mdc")),
-    ("codex", Path.home() / ".codex" / "agent-brain-mode.md"),
-    ("gemini", Path.home() / ".gemini" / "agent-brain-mode.md"),
-    ("opencode", Path.home() / ".config/opencode/modes/agent-brain.md"),
-    ("claude_code", Path.home() / ".claude" / "agent-brain-mode.md"),
-    ("vscode", Path.home() / ".vscode/agent-brain-mode.md"),
+    ("cursor_project", Path(".cursor/rules/tekmor-mode.mdc")),
+    ("codex", Path.home() / ".codex" / "tekmor-mode.md"),
+    ("gemini", Path.home() / ".gemini" / "tekmor-mode.md"),
+    ("opencode", Path.home() / ".config/opencode/modes/tekmor.md"),
+    ("claude_code", Path.home() / ".claude" / "tekmor-mode.md"),
+    ("vscode", Path.home() / ".vscode/tekmor-mode.md"),
 ]
 
 REQUIRED_ALIASES = ("supervisor", "starter")
@@ -62,13 +62,13 @@ def run(cmd: list[str], timeout: int = 120) -> tuple[subprocess.CompletedProcess
 
 
 def check_binary() -> Check:
-    path = shutil.which(AGENT_BRAIN)
+    path = shutil.which(TEKMOR)
     ok = path is not None
-    return Check("agent_brain.on_path", ok, path or f"{AGENT_BRAIN} not found")
+    return Check("tekmor.on_path", ok, path or f"{TEKMOR} not found")
 
 
 def check_registry_list() -> Check:
-    proc, ms = run([AGENT_BRAIN, "registry", "list"])
+    proc, ms = run([TEKMOR, "registry", "list"])
     text = proc.stdout
     missing: list[str] = []
     for alias in REQUIRED_ALIASES:
@@ -83,7 +83,7 @@ def check_registry_list() -> Check:
 
 
 def check_registry_sync_local() -> Check:
-    proc, ms = run([AGENT_BRAIN, "registry", "sync", "--local"])
+    proc, ms = run([TEKMOR, "registry", "sync", "--local"])
     manifest = HOME / "registry-cache" / "manifest.json"
     workflows = HOME / "registry-cache" / "workflows" / "release-notes.yaml"
     ok = proc.returncode == 0 and manifest.is_file() and workflows.is_file()
@@ -106,7 +106,7 @@ def check_mode_files() -> Check:
 
 
 def check_doctor_opencode() -> Check:
-    proc, ms = run([AGENT_BRAIN, "doctor"], timeout=180)
+    proc, ms = run([TEKMOR, "doctor"], timeout=180)
     line = next(
         (ln.strip() for ln in proc.stdout.splitlines() if "opencode" in ln.lower()),
         "",
@@ -120,7 +120,7 @@ def check_doctor_opencode() -> Check:
 def check_route_bench_ci() -> Check:
     times: list[float] = []
     for _ in range(3):
-        proc, ms = run([AGENT_BRAIN, "bench", "--ci"], timeout=300)
+        proc, ms = run([TEKMOR, "bench", "--ci"], timeout=300)
         if proc.returncode != 0:
             return Check(
                 "route.bench_ci",
@@ -140,7 +140,7 @@ def main() -> int:
     parser.add_argument(
         "--full",
         action="store_true",
-        help="include agent-brain bench --ci latency gate",
+        help="include tekmor bench --ci latency gate",
     )
     args = parser.parse_args()
 
@@ -156,7 +156,7 @@ def main() -> int:
 
     passed = sum(1 for c in checks if c.passed)
     report = {
-        "agent_brain": AGENT_BRAIN,
+        "tekmor": TEKMOR,
         "home": str(HOME),
         "passed": passed,
         "total": len(checks),

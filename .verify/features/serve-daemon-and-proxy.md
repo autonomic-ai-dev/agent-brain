@@ -7,17 +7,17 @@ related:
 
 # serve-daemon-and-proxy
 
-Summary: `agent-brain serve` runs in two roles. A shared daemon holds the brain database, the embedding model, and background work on a Unix socket. Each host session starts a stdio proxy that bridges the host to that socket. This map covers the daemon, the proxy lifecycle, and the embedder's idle unload.
+Summary: `tekmor serve` runs in two roles. A shared daemon holds the brain database, the embedding model, and background work on a Unix socket. Each host session starts a stdio proxy that bridges the host to that socket. This map covers the daemon, the proxy lifecycle, and the embedder's idle unload.
 
 ## Sub-features
 
 - `daemon-serve`: Runs the shared daemon for all host sessions.
   - Intent: One process owns the database and the model, so sessions do not each load them.
-  - Behaviour: `agent-brain serve --daemon` takes the serve lock, runs bootstrap and auto-update, writes `serve_meta`, runs auto-wire, and serves the daemon socket. It also starts the embedder idle check (`Engine::spawn_embedder_idle_unload`).
+  - Behaviour: `tekmor serve --daemon` takes the serve lock, runs bootstrap and auto-update, writes `serve_meta`, runs auto-wire, and serves the daemon socket. It also starts the embedder idle check (`Engine::spawn_embedder_idle_unload`).
   - Outcome: One daemon per home. A second start fails on the lock.
 - `proxy-stdio-bridge`: Bridges a host session's stdio to the daemon socket.
   - Intent: Let each host start its MCP server without owning the daemon.
-  - Behaviour: `agent-brain serve` without `--daemon` (`run_proxy` in `agent-brain/src/mcp/server.rs`) connects to `serve.sock`. If no daemon answers, it starts `serve --daemon` once, then retries. After a daemon restart it replays the `initialize` handshake.
+  - Behaviour: `tekmor serve` without `--daemon` (`run_proxy` in `tekmor/src/mcp/server.rs`) connects to `serve.sock`. If no daemon answers, it starts `serve --daemon` once, then retries. After a daemon restart it replays the `initialize` handshake.
   - Outcome: Requests reach the daemon, and a daemon restart does not end the host session.
 - `proxy-exits-with-host`: Stops a proxy when its host has gone.
   - Intent: A closed host must not leave a proxy running. Each one holds a process and a socket connection.
@@ -34,17 +34,17 @@ Summary: `agent-brain serve` runs in two roles. A shared daemon holds the brain 
 
 ## Code
 
-- `agent-brain/src/main.rs` (`serve` branch)
-- `agent-brain/src/mcp/server.rs` (`run_proxy`, `serve_one_proxy_connection`)
-- `agent-brain/src/engine.rs` (`spawn_embedder_idle_unload`)
-- `agent-brain/src/embed.rs` (`Embedder::unload_if_idle`, `is_loaded`, `IDLE_UNLOAD_AFTER`)
-- `agent-brain/src/daemon_watchdog.rs` (`DaemonActivity` implements `Default`, delegating to `new`)
-- `agent-brain/tests/proxy_lifecycle.rs`
+- `tekmor/src/main.rs` (`serve` branch)
+- `tekmor/src/mcp/server.rs` (`run_proxy`, `serve_one_proxy_connection`)
+- `tekmor/src/engine.rs` (`spawn_embedder_idle_unload`)
+- `tekmor/src/embed.rs` (`Embedder::unload_if_idle`, `is_loaded`, `IDLE_UNLOAD_AFTER`)
+- `tekmor/src/daemon_watchdog.rs` (`DaemonActivity` implements `Default`, delegating to `new`)
+- `tekmor/tests/proxy_lifecycle.rs`
 
 ## How to get to it (user POV)
 
-- CLI: `agent-brain serve --daemon` (shared daemon), `agent-brain serve` (proxy, started by the host)
-- Host config: the host's MCP entry runs `agent-brain serve`, so the proxy starts with each session
+- CLI: `tekmor serve --daemon` (shared daemon), `tekmor serve` (proxy, started by the host)
+- Host config: the host's MCP entry runs `tekmor serve`, so the proxy starts with each session
 
 ## Verification Suites (Targeted Test Commands)
 
@@ -52,7 +52,7 @@ Summary: `agent-brain serve` runs in two roles. A shared daemon holds the brain 
 - **Integration Test:** `cargo test --all-features --test proxy_lifecycle` (1 test, proxy exit with its host)
 - **Full suite:** `cargo test --all-features -- --skip graphify_1k_ci_gate --test-threads=1` (the serial gate; see `cli-verify-and-memory.md`)
 - **Functional tests:** not yet written for the daemon socket. The integration test above covers the proxy's exit with its host. Add a functional suite here when the daemon socket gains a documented surface.
-- **Preconditions:** Rust toolchain. The embedder tests load the ONNX model from the default cache directory, so they need the model cached or network access on first run. The proxy test binds a listener in a temporary `AGENT_BRAIN_HOME`, so it never reaches the real daemon.
+- **Preconditions:** Rust toolchain. The embedder tests load the ONNX model from the default cache directory, so they need the model cached or network access on first run. The proxy test binds a listener in a temporary `TEKMOR_HOME`, so it never reaches the real daemon.
 
 ### Verification Steps
 
@@ -73,7 +73,7 @@ Summary: `agent-brain serve` runs in two roles. A shared daemon holds the brain 
 
 - The daemon is shared and outlives the proxy that started it. It is not an orphan, and nothing ends it when its last proxy exits.
 - A proxy captures its parent PID when it starts. If the host exits before the proxy captures it, the proxy records the new parent (PID 1) and the parent check never fires. The host-stdin path still ends the proxy once a daemon connection exists. A proxy that never connects to a daemon, and whose host dies before it starts, is still a known gap.
-- The proxy test binds a listener that never accepts, so the proxy connects without starting a daemon. Do not point `AGENT_BRAIN_HOME` at the real home in a test.
+- The proxy test binds a listener that never accepts, so the proxy connects without starting a daemon. Do not point `TEKMOR_HOME` at the real home in a test.
 - Installed binaries keep the old behaviour until they are rebuilt and reinstalled from a merged `master`. Restart host sessions after reinstalling, or their old proxies keep running.
 
 - Formatting pass (rustfmt, 2026-11-07): line breaks and spacing only, no behaviour change.

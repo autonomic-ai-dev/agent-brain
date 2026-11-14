@@ -1,0 +1,4122 @@
+#![allow(clippy::too_many_arguments)] // row-oriented SQLite APIs take many optional columns
+
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
+use std::sync::{Arc, Mutex};
+
+use anyhow::{Context, Result};
+use rusqlite::{params, Connection, OptionalExtension};
+use uuid::Uuid;
+
+use crate::ann::AnnIndex;
+use crate::db::migrations;
+use crate::embed::{batch_dot_products, normalize_embedding};
+use crate::intelligence::{matches_apply_when, parse_apply_when, MatchContext};
+use crate::types::{ItemType, ScoredItem};
+
+/// A single item queued for batch index insertion.
+/// Pre-computed fields avoid re-hashing and re-embedding during the transaction.
+pub(crate) struct IndexBatchItem {
+    pub id: String,
+    pub item_type: ItemType,
+    pub topic: String,
+    pub text: String,
+    pub source_path: String,
+    pub scope: String,
+    pub scope_key: Option<String>,
+    pub content_hash: String,
+    pub embedding: Vec<f32>,
+    pub file_mtime: Option<i64>,
+}
+
+pub struct SkillItemRow {
+    pub name: String,
+    pub path: String,
+}
+
+fn escape_like(term: &str) -> String {
+    term.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
+const BM25_ITEMS_TOP: usize = 150;
+const BM25_FACTS_TOP: usize = 40;
+const MIN_CANDIDATES: usize = 15;
+const FALLBACK_RECENT: usize = 80;
+const QUERY_EMBEDDING_CACHE_MAX: usize = 500;
+const BOUNDED_READ_TOOLS: &[&str] = &[
+    "read_file_head",
+    "read_file_tail",
+    "grep_search",
+    "file_summary",
+];
+const BM25_FAST_PATH_MIN_STRENGTH: f64 = 2.5;
+
+pub(crate) struct SearchIndexCache {
+    version: u64,
+    indexed: Vec<CachedRow>,
+    indexed_by_id: HashMap<String, usize>,
+    global_indices: Vec<usize>,
+    scoped_indices: HashMap<String, Vec<usize>>,
+    memories: Vec<CachedRow>,
+    memories_by_id: HashMap<String, usize>,
+    ann: Option<AnnIndex>,
+}
+
+pub(crate) struct Bm25Prefilter {
+    item_ids: HashSet<String>,
+    memory_ids: HashSet<String>,
+    bm25_map: HashMap<String, f64>,
+    bm25_max: f64,
+}
+
+const SUPERVISOR_FAST_PATH_MIN_STRENGTH: f64 = 1.8;
+
+impl Bm25Prefilter {
+    pub(crate) fn fast_path_eligible(&self, query: &str) -> bool {
+        if self.item_ids.is_empty() {
+            return false;
+        }
+        if self.bm25_max >= BM25_FAST_PATH_MIN_STRENGTH {
+            return true;
+        }
+        crate::retrieval::supervisor_query_strength(query) >= 0.25
+            && self.bm25_max >= SUPERVISOR_FAST_PATH_MIN_STRENGTH
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct CachedRow {
+    pub(crate) id: String,
+    pub(crate) item_type: String,
+    pub(crate) topic: String,
+    pub(crate) text: String,
+    pub(crate) source_path: String,
+    pub(crate) scope: String,
+    pub(crate) scope_key: Option<String>,
+    pub(crate) embedding: Option<Vec<f32>>,
+    updated_at: i64,
+    polarity: Option<String>,
+    source: Option<String>,
+    confidence: f64,
+    apply_when: Option<String>,
+}
+
+#[cfg(test)]
+impl CachedRow {
+    pub(crate) fn test_with_embedding(id: &str, emb: Vec<f32>) -> Self {
+        Self::test_with_embedding_scoped(id, emb, "global", None)
+    }
+
+    pub(crate) fn test_with_embedding_scoped(
+        id: &str,
+        emb: Vec<f32>,
+        scope: &str,
+        scope_key: Option<&str>,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            item_type: "skill".into(),
+            topic: id.into(),
+            text: String::new(),
+            source_path: String::new(),
+            scope: scope.into(),
+            scope_key: scope_key.map(str::to_string),
+            embedding: Some(emb),
+            updated_at: 0,
+            polarity: None,
+            source: None,
+            confidence: 0.9,
+            apply_when: None,
+        }
+    }
+}
+
+pub struct BrainStore {
+    conn: Arc<Mutex<Connection>>,
+    pub index_version: Arc<Mutex<u64>>,
+    search_cache: Mutex<Option<Arc<SearchIndexCache>>>,
+}
+
+impl BrainStore {
+    pub fn open(db_path: &Path) -> Result<Self> {
+        if let Some(parent) = db_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let conn = Connection::open(db_path).context("open brain.db")?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        conn.pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))
+            .context("open brain.db: if an earlier build encrypted it (TEKMOR_ENCRYPT_DB), it cannot be read now; restore an unencrypted copy")?;
+        migrations::run(&conn).context("run migrations")?;
+        let index_version = conn
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'index_version'",
+                [],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(1);
+        Ok(Self {
+            conn: Arc::new(Mutex::new(conn)),
+            index_version: Arc::new(Mutex::new(index_version)),
+            search_cache: Mutex::new(None),
+        })
+    }
+
+    fn invalidate_search_cache(&self) {
+        if let Ok(mut guard) = self.search_cache.lock() {
+            *guard = None;
+        }
+    }
+
+    pub(crate) fn search_cache_snapshot(&self) -> Result<Arc<SearchIndexCache>> {
+        let version = self.get_index_version();
+        if let Ok(guard) = self.search_cache.lock() {
+            if let Some(cache) = guard.as_ref() {
+                if cache.version == version {
+                    return Ok(Arc::clone(cache));
+                }
+            }
+        }
+
+        let indexed = self.load_indexed_rows()?;
+        let memories = self.load_memory_rows()?;
+        let indexed_by_id: HashMap<String, usize> = indexed
+            .iter()
+            .enumerate()
+            .map(|(i, row)| (row.id.clone(), i))
+            .collect();
+        let mut global_indices = Vec::new();
+        let mut scoped_indices: HashMap<String, Vec<usize>> = HashMap::new();
+        for (i, row) in indexed.iter().enumerate() {
+            if row.scope == "global" || row.scope_key.is_none() {
+                global_indices.push(i);
+            } else if let Some(key) = &row.scope_key {
+                scoped_indices.entry(key.clone()).or_default().push(i);
+            }
+        }
+        let memories_by_id: HashMap<String, usize> = memories
+            .iter()
+            .enumerate()
+            .map(|(i, row)| (row.id.clone(), i))
+            .collect();
+        let ann = AnnIndex::from_rows(&indexed);
+        let cache = Arc::new(SearchIndexCache {
+            version,
+            indexed,
+            indexed_by_id,
+            global_indices,
+            scoped_indices,
+            memories,
+            memories_by_id,
+            ann,
+        });
+        if let Ok(mut guard) = self.search_cache.lock() {
+            *guard = Some(Arc::clone(&cache));
+        }
+        Ok(cache)
+    }
+
+    pub fn prewarm_search_cache(&self) -> Result<()> {
+        let _ = self.search_cache_snapshot()?;
+        Ok(())
+    }
+
+    fn load_indexed_rows(&self) -> Result<Vec<CachedRow>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT id, item_type, topic, text, source_path, scope, scope_key, embedding, updated_at
+                   FROM indexed_items"#,
+            )?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok(CachedRow {
+                        id: row.get(0)?,
+                        item_type: row.get(1)?,
+                        topic: row.get(2)?,
+                        text: row.get(3)?,
+                        source_path: row.get(4)?,
+                        scope: row.get(5)?,
+                        scope_key: row.get(6)?,
+                        embedding: row
+                            .get::<_, Option<Vec<u8>>>(7)?
+                            .map(|b| normalize_embedding(bytes_to_f32(&b))),
+                        updated_at: row.get(8)?,
+                        polarity: None,
+                        source: None,
+                        confidence: 0.9,
+                        apply_when: None,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
+    fn load_memory_rows(&self) -> Result<Vec<CachedRow>> {
+        self.with_conn(|conn| {
+            let now = chrono::Utc::now().timestamp_millis();
+            let mut stmt = conn.prepare(&format!(
+                r#"SELECT id, topic, fact, scope, scope_key, updated_at, polarity, source, confidence, apply_when
+                   FROM facts WHERE superseded_by IS NULL
+                     AND (expires_at IS NULL OR expires_at > ?1)
+                     AND {}"#,
+                crate::temporal::active_fact_sql("?1")
+            ))?;
+            let rows = stmt
+                .query_map(params![now], |row| {
+                    Ok(CachedRow {
+                        id: row.get(0)?,
+                        item_type: "memory".into(),
+                        topic: row.get(1)?,
+                        text: row.get(2)?,
+                        source_path: String::new(),
+                        scope: row.get(3)?,
+                        scope_key: row.get(4)?,
+                        embedding: None,
+                        updated_at: row.get(5)?,
+                        polarity: row.get(6)?,
+                        source: row.get(7)?,
+                        confidence: row.get(8)?,
+                        apply_when: row.get(9)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
+    pub fn with_conn<F, T>(&self, f: F) -> Result<T>
+    where
+        F: FnOnce(&Connection) -> Result<T>,
+    {
+        let guard = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        f(&guard)
+    }
+
+    pub fn bump_index_version(&self) -> Result<u64> {
+        let mut ver = self
+            .index_version
+            .lock()
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        *ver += 1;
+        self.invalidate_search_cache();
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT OR REPLACE INTO meta (key, value) VALUES ('index_version', ?1)",
+                params![ver.to_string()],
+            )?;
+            Ok(())
+        })?;
+        Ok(*ver)
+    }
+
+    pub fn get_index_version(&self) -> u64 {
+        self.index_version.lock().map(|v| *v).unwrap_or(1)
+    }
+
+    pub fn indexed_item_current_hash(&self, source_path: &str) -> Result<Option<String>> {
+        self.with_conn(|conn| {
+            conn.query_row(
+                "SELECT content_hash FROM indexed_items WHERE source_path = ?1 AND embedding IS NOT NULL LIMIT 1",
+                params![source_path],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(Into::into)
+        })
+    }
+
+    pub fn indexed_item_mtime(&self, source_path: &str) -> Result<Option<i64>> {
+        self.with_conn(|conn| {
+            conn.query_row(
+                "SELECT file_mtime FROM indexed_items WHERE source_path = ?1 AND file_mtime IS NOT NULL LIMIT 1",
+                params![source_path],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(Into::into)
+        })
+    }
+
+    pub fn get_all_indexed_mtimes(&self) -> Result<std::collections::HashMap<String, i64>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT source_path, file_mtime FROM indexed_items WHERE file_mtime IS NOT NULL",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+            })?;
+            let mut map = std::collections::HashMap::new();
+            for row in rows {
+                let (path, mtime) = row?;
+                map.insert(path, mtime);
+            }
+            Ok(map)
+        })
+    }
+
+    pub fn upsert_indexed_item(
+        &self,
+        item_type: ItemType,
+        topic: &str,
+        text: &str,
+        source_path: &str,
+        scope: &str,
+        scope_key: Option<&str>,
+        content_hash: &str,
+        embedding: Option<&[f32]>,
+    ) -> Result<()> {
+        let id = Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().timestamp_millis();
+        let blob = embedding.map(|e| {
+            let normalized = normalize_embedding(e.to_vec());
+            normalized
+                .iter()
+                .flat_map(|f| f.to_le_bytes())
+                .collect::<Vec<u8>>()
+        });
+        self.with_conn(|conn| {
+            conn.execute(
+                "DELETE FROM indexed_items WHERE source_path = ?1 AND content_hash != ?2",
+                params![source_path, content_hash],
+            )?;
+            conn.execute(
+                r#"INSERT INTO indexed_items (id, item_type, topic, text, source_path, scope, scope_key, content_hash, embedding, updated_at)
+                   VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
+                   ON CONFLICT(source_path, content_hash) DO UPDATE SET
+                     topic=excluded.topic, text=excluded.text, embedding=excluded.embedding, updated_at=excluded.updated_at"#,
+                params![
+                    id,
+                    item_type.as_str(),
+                    topic,
+                    text,
+                    source_path,
+                    scope,
+                    scope_key,
+                    content_hash,
+                    blob,
+                    now
+                ],
+            )?;
+            Ok(())
+        })?;
+        Ok(())
+    }
+
+    /// Batch upsert in a single SQLite transaction — ~100x faster than individual upserts.
+    pub(crate) fn upsert_indexed_items_batch(&self, items: &[IndexBatchItem]) -> Result<()> {
+        if items.is_empty() {
+            return Ok(());
+        }
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            conn.execute_batch("BEGIN")?;
+            for item in items {
+                let blob: Vec<u8> = item
+                    .embedding
+                    .iter()
+                    .flat_map(|f| f.to_le_bytes())
+                    .collect();
+                conn.execute(
+                    "DELETE FROM indexed_items WHERE source_path = ?1 AND content_hash != ?2",
+                    params![item.source_path, item.content_hash],
+                )?;
+                conn.execute(
+                    r#"INSERT INTO indexed_items (id, item_type, topic, text, source_path, scope, scope_key, content_hash, embedding, updated_at, file_mtime)
+                       VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
+                       ON CONFLICT(source_path, content_hash) DO UPDATE SET
+                         topic=excluded.topic, text=excluded.text, embedding=excluded.embedding, updated_at=excluded.updated_at, file_mtime=excluded.file_mtime"#,
+                    params![
+                        item.id,
+                        item.item_type.as_str(),
+                        item.topic,
+                        item.text,
+                        item.source_path,
+                        item.scope,
+                        item.scope_key,
+                        item.content_hash,
+                        blob,
+                        now,
+                        item.file_mtime,
+                    ],
+                )?;
+            }
+            conn.execute_batch("COMMIT")?;
+            Ok(())
+        })
+    }
+
+    pub fn set_indexed_item_mtime(&self, source_path: &str, mtime: i64) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE indexed_items SET file_mtime = ?1 WHERE source_path = ?2",
+                params![mtime, source_path],
+            )
+            .ok();
+            Ok(())
+        })
+    }
+
+    pub fn delete_indexed_items_under_prefix(&self, path_prefix: &str) -> Result<u64> {
+        let prefix = path_prefix.trim_end_matches('/');
+        self.with_conn(|conn| {
+            let n = conn.execute(
+                "DELETE FROM indexed_items WHERE source_path = ?1 OR source_path LIKE ?2",
+                params![prefix, format!("{prefix}/%")],
+            )?;
+            Ok(n as u64)
+        })
+    }
+
+    /// Remove Rule rows whose source_path matches skill-reference / skip noise paths.
+    pub fn prune_noise_rule_rows(&self) -> Result<u64> {
+        self.with_conn(|conn| {
+            let mut stmt =
+                conn.prepare("SELECT id, source_path FROM indexed_items WHERE item_type = 'rule'")?;
+            let rows: Vec<(String, String)> = stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .filter_map(|r| r.ok())
+                .collect();
+            let mut deleted = 0u64;
+            for (id, path) in rows {
+                if crate::index::is_noise_rule_source(&path) {
+                    deleted += conn
+                        .execute("DELETE FROM indexed_items WHERE id = ?1", params![id])?
+                        as u64;
+                }
+            }
+            Ok(deleted)
+        })
+    }
+
+    pub fn find_skill_items(&self, terms: &[String], limit: usize) -> Result<Vec<SkillItemRow>> {
+        let clauses: Vec<String> = (1..=terms.len())
+            .map(|i| format!("(topic || ' ' || text) LIKE ?{i} ESCAPE '\\'"))
+            .collect();
+        let sql = format!(
+            "SELECT topic, source_path FROM indexed_items WHERE item_type = 'skill' AND {} ORDER BY topic LIMIT {limit}",
+            clauses.join(" AND ")
+        );
+        let patterns: Vec<String> = terms
+            .iter()
+            .map(|term| format!("%{}%", escape_like(term)))
+            .collect();
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(rusqlite::params_from_iter(patterns.iter()), |row| {
+                Ok(SkillItemRow {
+                    name: row.get(0)?,
+                    path: row.get(1)?,
+                })
+            })?;
+            Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        })
+    }
+
+    pub fn skill_source_path(&self, name: &str) -> Result<Option<String>> {
+        self.with_conn(|conn| {
+            Ok(conn
+                .query_row(
+                    "SELECT source_path FROM indexed_items WHERE item_type = 'skill' AND topic = ?1 COLLATE NOCASE ORDER BY source_path LIMIT 1",
+                    params![name],
+                    |row| row.get(0),
+                )
+                .optional()?)
+        })
+    }
+
+    pub fn load_searchable_items(&self) -> Result<Vec<SearchRow>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT id, item_type, topic, text, source_path, scope, scope_key, embedding
+                   FROM indexed_items
+                   UNION ALL
+                   SELECT id, 'memory', topic, fact, '', scope, scope_key, NULL
+                   FROM facts WHERE superseded_by IS NULL AND (expires_at IS NULL OR expires_at > ?1)"#,
+            )?;
+            let now = chrono::Utc::now().timestamp_millis();
+            let rows = stmt
+                .query_map(params![now], |row| {
+                    Ok(SearchRow {
+                        id: row.get(0)?,
+                        item_type: row.get(1)?,
+                        topic: row.get(2)?,
+                        text: row.get(3)?,
+                        source_path: row.get(4)?,
+                        scope: row.get(5)?,
+                        scope_key: row.get(6)?,
+                        embedding: row.get(7)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
+    pub fn bm25_search_items(&self, query: &str, limit: usize) -> Result<Vec<(String, f64)>> {
+        let strict = crate::retrieval::fts_query_strict(query);
+        let hits = self.bm25_search_items_fts(&strict, limit)?;
+        if hits.len() >= 5 {
+            return Ok(hits);
+        }
+        let loose = crate::retrieval::fts_query_loose(query);
+        if loose == strict {
+            return Ok(hits);
+        }
+        let mut merged = hits;
+        let loose_hits = self.bm25_search_items_fts(&loose, limit)?;
+        for (id, score) in loose_hits {
+            if merged.iter().any(|(existing, _)| existing == &id) {
+                continue;
+            }
+            merged.push((id, score));
+            if merged.len() >= limit {
+                break;
+            }
+        }
+        Ok(merged)
+    }
+
+    fn bm25_search_items_fts(&self, fts_query: &str, limit: usize) -> Result<Vec<(String, f64)>> {
+        if fts_query == "\"\"" {
+            return Ok(Vec::new());
+        }
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT i.id, bm25(items_fts) AS score
+                   FROM items_fts
+                   JOIN indexed_items i ON i.rowid = items_fts.rowid
+                   WHERE items_fts MATCH ?1
+                   ORDER BY score
+                   LIMIT ?2"#,
+            )?;
+            let rows = stmt
+                .query_map(params![fts_query, limit as i64], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
+    pub fn bm25_search_facts(&self, query: &str, limit: usize) -> Result<Vec<(String, f64)>> {
+        let strict = crate::retrieval::fts_query_strict(query);
+        let hits = self.bm25_search_facts_fts(&strict, limit)?;
+        if hits.len() >= 3 {
+            return Ok(hits);
+        }
+        let loose = crate::retrieval::fts_query_loose(query);
+        if loose == strict {
+            return Ok(hits);
+        }
+        let mut merged = hits;
+        for (id, score) in self.bm25_search_facts_fts(&loose, limit)? {
+            if merged.iter().any(|(existing, _)| existing == &id) {
+                continue;
+            }
+            merged.push((id, score));
+            if merged.len() >= limit {
+                break;
+            }
+        }
+        Ok(merged)
+    }
+
+    fn bm25_search_facts_fts(&self, fts_query: &str, limit: usize) -> Result<Vec<(String, f64)>> {
+        if fts_query == "\"\"" {
+            return Ok(Vec::new());
+        }
+        self.with_conn(|conn| {
+            let now = chrono::Utc::now().timestamp_millis();
+            let mut stmt = conn.prepare(
+                r#"SELECT f.id, bm25(facts_fts) AS score
+                   FROM facts_fts
+                   JOIN facts f ON f.rowid = facts_fts.rowid
+                   WHERE facts_fts MATCH ?1
+                     AND f.superseded_by IS NULL
+                     AND (f.expires_at IS NULL OR f.expires_at > ?2)
+                   ORDER BY score
+                   LIMIT ?3"#,
+            )?;
+            let rows = stmt
+                .query_map(params![fts_query, now, limit as i64], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, f64>(1)?))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
+    #[allow(dead_code)]
+    pub fn bm25_search(&self, query: &str, limit: usize) -> Result<Vec<(String, f64)>> {
+        self.bm25_search_items(query, limit)
+    }
+
+    pub fn get_query_embedding(&self, query_hash: &str) -> Result<Option<Vec<f32>>> {
+        self.with_conn(|conn| {
+            let blob: Option<Vec<u8>> = conn
+                .query_row(
+                    "SELECT embedding FROM query_embeddings WHERE query_hash = ?1",
+                    params![query_hash],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            Ok(blob.map(|b| normalize_embedding(bytes_to_f32(&b))))
+        })
+    }
+
+    pub fn put_query_embedding(&self, query_hash: &str, embedding: &[f32]) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let normalized = normalize_embedding(embedding.to_vec());
+        let blob: Vec<u8> = normalized.iter().flat_map(|f| f.to_le_bytes()).collect();
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO query_embeddings (query_hash, embedding, updated_at) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(query_hash) DO UPDATE SET embedding = excluded.embedding, updated_at = excluded.updated_at",
+                params![query_hash, blob, now],
+            )?;
+            let count: i64 =
+                conn.query_row("SELECT COUNT(*) FROM query_embeddings", [], |r| r.get(0))?;
+            if count as usize > QUERY_EMBEDDING_CACHE_MAX {
+                let excess = count as usize - QUERY_EMBEDDING_CACHE_MAX;
+                conn.execute(
+                    "DELETE FROM query_embeddings WHERE query_hash IN (
+                        SELECT query_hash FROM query_embeddings ORDER BY updated_at ASC LIMIT ?1
+                    )",
+                    params![excess as i64],
+                )?;
+            }
+            Ok(())
+        })
+    }
+
+    pub fn ensure_embedding_model(&self, model_id: &str) -> Result<bool> {
+        let current = self.get_meta("embedding_model")?;
+        if current.as_deref() == Some(model_id) {
+            return Ok(false);
+        }
+        if current.is_none() {
+            self.set_meta("embedding_model", model_id)?;
+            return Ok(false);
+        }
+        self.with_conn(|conn| {
+            conn.execute("UPDATE indexed_items SET embedding = NULL", [])?;
+            conn.execute("DELETE FROM query_embeddings", [])?;
+            Ok(())
+        })?;
+        self.set_meta("embedding_model", model_id)?;
+        self.invalidate_search_cache();
+        self.bump_index_version()?;
+        tracing::info!(
+            target: "tekmor::index",
+            model = model_id,
+            "embedding model changed; cleared cached vectors for re-index"
+        );
+        Ok(true)
+    }
+
+    pub fn get_meta(&self, key: &str) -> Result<Option<String>> {
+        self.with_conn(|conn| {
+            conn.query_row("SELECT value FROM meta WHERE key = ?1", params![key], |r| {
+                r.get(0)
+            })
+            .optional()
+            .map_err(Into::into)
+        })
+    }
+
+    /// Flush WAL pages into the main db file (for committing a portable fixture).
+    pub fn checkpoint_wal(&self) -> Result<()> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
+        Ok(())
+    }
+
+    pub fn count_indexed_items(&self) -> Result<usize> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM indexed_items", [], |r| r.get(0))?;
+        Ok(n as usize)
+    }
+
+    pub fn count_indexed_items_matching(&self, sql: &str) -> Result<usize> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let n: i64 = conn.query_row(sql, [], |r| r.get(0))?;
+        Ok(n as usize)
+    }
+
+    pub fn count_active_facts(&self) -> Result<usize> {
+        let conn = self.conn.lock().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let now = chrono::Utc::now().timestamp_millis();
+        let n: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM facts WHERE superseded_by IS NULL AND (expires_at IS NULL OR expires_at > ?1)",
+            params![now],
+            |r| r.get(0),
+        )?;
+        Ok(n as usize)
+    }
+
+    /// Facts inserted since `since_ms` (includes superseded rows — each store counts as a commit).
+    pub fn count_facts_created_since(&self, since_ms: i64) -> Result<usize> {
+        self.with_conn(|conn| {
+            let n: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM facts WHERE created_at >= ?1",
+                params![since_ms],
+                |r| r.get(0),
+            )?;
+            Ok(n.max(0) as usize)
+        })
+    }
+
+    pub fn count_indexed_by_type(&self) -> Result<Vec<(String, usize)>> {
+        self.with_conn(|conn| {
+            let mut stmt =
+                conn.prepare("SELECT item_type, COUNT(*) FROM indexed_items GROUP BY item_type")?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
+    pub fn set_meta(&self, key: &str, value: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
+                params![key, value],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn replace_upstream_tools(
+        &self,
+        tools: &[crate::upstream::IndexedUpstreamTool],
+    ) -> Result<()> {
+        let json = serde_json::to_string(tools)?;
+        self.set_meta("upstream_tools_index", &json)
+    }
+
+    pub fn list_upstream_tools(&self) -> Result<Vec<crate::upstream::IndexedUpstreamTool>> {
+        match self.get_meta("upstream_tools_index")? {
+            Some(json) => Ok(serde_json::from_str(&json)?),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    pub fn store_fact(
+        &self,
+        topic: &str,
+        fact: &str,
+        scope: &str,
+        scope_key: Option<&str>,
+        confidence: f64,
+        source: &str,
+        content_hash: &str,
+        embedding: &[f32],
+        polarity: &str,
+    ) -> Result<StoreFactResult> {
+        self.store_fact_full(
+            topic,
+            fact,
+            scope,
+            scope_key,
+            confidence,
+            source,
+            content_hash,
+            embedding,
+            polarity,
+            None,
+            None,
+        )
+    }
+
+    pub fn store_fact_full(
+        &self,
+        topic: &str,
+        fact: &str,
+        scope: &str,
+        scope_key: Option<&str>,
+        confidence: f64,
+        source: &str,
+        content_hash: &str,
+        embedding: &[f32],
+        polarity: &str,
+        apply_when: Option<&str>,
+        temporal: Option<&FactTemporal>,
+    ) -> Result<StoreFactResult> {
+        let polarity = if polarity == "negative" {
+            "negative"
+        } else {
+            "positive"
+        };
+        let now = chrono::Utc::now().timestamp_millis();
+        let valid_from = temporal.and_then(|t| t.valid_from).unwrap_or(now);
+        let invalid_at = temporal.and_then(|t| t.invalid_at);
+        if let Some(until) = invalid_at {
+            if until <= valid_from {
+                anyhow::bail!("invalid_at must be after valid_from");
+            }
+        }
+        let expires = now + 90 * 24 * 3600 * 1000;
+        let id = Uuid::new_v4().to_string();
+
+        let deduplicated = self.with_conn(|conn| {
+            let existing: Option<String> = conn
+                .query_row(
+                    "SELECT id FROM facts WHERE content_hash = ?1 AND scope = ?2 AND IFNULL(scope_key,'') = IFNULL(?3,'') AND superseded_by IS NULL",
+                    params![content_hash, scope, scope_key],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if let Some(existing_id) = existing {
+                return Ok(Some(existing_id));
+            }
+            let prior: Option<String> = conn
+                .query_row(
+                    &format!(
+                        "SELECT id FROM facts WHERE topic = ?1 AND scope = ?2 AND IFNULL(scope_key,'') = IFNULL(?3,'') AND superseded_by IS NULL AND {}",
+                        crate::temporal::active_fact_sql("?4")
+                    ),
+                    params![topic, scope, scope_key, now],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            conn.execute(
+                r#"INSERT INTO facts (id, topic, fact, scope, scope_key, source, confidence, created_at, updated_at, expires_at, content_hash, polarity, apply_when, valid_from, invalid_at)
+                   VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?8,?9,?10,?11,?12,?13,?14)"#,
+                params![
+                    id,
+                    topic,
+                    fact,
+                    scope,
+                    scope_key,
+                    source,
+                    confidence,
+                    now,
+                    expires,
+                    content_hash,
+                    polarity,
+                    apply_when,
+                    valid_from,
+                    invalid_at
+                ],
+            )?;
+            if let Some(old_id) = &prior {
+                crate::temporal::link_fact_evolution(conn, &id, old_id, "evolved_from", now)?;
+            }
+            Ok(None)
+        })?;
+
+        if let Some(existing_id) = deduplicated {
+            return Ok(StoreFactResult {
+                id: existing_id,
+                stored: false,
+                deduplicated: true,
+            });
+        }
+
+        let blob: Vec<u8> = normalize_embedding(embedding.to_vec())
+            .iter()
+            .flat_map(|f| f.to_le_bytes())
+            .collect();
+        if crate::temporal::is_fact_active(now, valid_from, invalid_at) {
+            self.with_conn(|conn| {
+                conn.execute(
+                    r#"INSERT INTO indexed_items (id, item_type, topic, text, source_path, scope, scope_key, content_hash, embedding, updated_at)
+                       VALUES (?1,'memory',?2,?3,'',?4,?5,?6,?7,?8)
+                       ON CONFLICT(source_path, content_hash) DO UPDATE SET text=excluded.text, embedding=excluded.embedding, updated_at=excluded.updated_at"#,
+                    params![
+                        Uuid::new_v4().to_string(),
+                        topic,
+                        fact,
+                        scope,
+                        scope_key,
+                        content_hash,
+                        blob,
+                        now
+                    ],
+                )?;
+                Ok(())
+            })?;
+        }
+
+        // Imported sync facts must not re-enter the outbox (echo loop).
+        if source != "sync" {
+            let _ = self.enqueue_fact_put_outbox(
+                topic,
+                fact,
+                scope,
+                scope_key,
+                confidence,
+                polarity,
+                apply_when,
+                content_hash,
+                source,
+                Some(valid_from),
+                invalid_at,
+            );
+        }
+
+        self.invalidate_search_cache();
+        Ok(StoreFactResult {
+            id,
+            stored: true,
+            deduplicated: false,
+        })
+    }
+
+    pub fn invalidate_fact(&self, fact_id: &str) -> Result<()> {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let sql = "UPDATE facts SET invalid_at = ?1 WHERE id = ?2 AND invalid_at IS NULL";
+        self.with_conn(|conn| {
+            conn.execute(sql, rusqlite::params![now_ms, fact_id])?;
+            Ok(())
+        })
+    }
+
+    pub fn list_facts(&self, limit: usize) -> Result<Vec<serde_json::Value>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, topic, fact, scope, scope_key, confidence, updated_at FROM facts WHERE superseded_by IS NULL ORDER BY updated_at DESC LIMIT ?1",
+            )?;
+            let rows = stmt
+                .query_map(params![limit as i64], |row| {
+                    Ok(serde_json::json!({
+                        "id": row.get::<_, String>(0)?,
+                        "topic": row.get::<_, String>(1)?,
+                        "fact": row.get::<_, String>(2)?,
+                        "scope": row.get::<_, String>(3)?,
+                        "scope_key": row.get::<_, Option<String>>(4)?,
+                        "confidence": row.get::<_, f64>(5)?,
+                        "updated_at": row.get::<_, i64>(6)?,
+                    }))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
+    pub fn add_fact_tags(&self, fact_id: &str, tags: &[String]) -> Result<()> {
+        self.with_conn(|conn| {
+            for tag in tags {
+                conn.execute(
+                    "INSERT OR IGNORE INTO fact_tags (fact_id, tag) VALUES (?1, ?2)",
+                    params![fact_id, tag],
+                )?;
+            }
+            Ok(())
+        })
+    }
+
+    pub fn recall_rows(
+        &self,
+        tags: &[String],
+        since_ms: i64,
+        now_ms: i64,
+        cap: usize,
+    ) -> Result<Vec<RecallRow>> {
+        self.with_conn(|conn| {
+            let n = tags.len();
+            let filter = if n == 0 {
+                String::new()
+            } else {
+                let first = (1..=n).map(|i| format!("?{i}")).collect::<Vec<_>>().join(", ");
+                let second = (n + 1..=2 * n).map(|i| format!("?{i}")).collect::<Vec<_>>().join(", ");
+                format!(
+                    "AND (f.topic IN ({first}) OR f.id IN (SELECT fact_id FROM fact_tags WHERE tag IN ({second})))"
+                )
+            };
+            let sql = format!(
+                "SELECT f.id, f.topic, f.fact, f.source, f.created_at, f.updated_at, \
+                 (SELECT group_concat(tag, char(31)) FROM fact_tags WHERE fact_id = f.id), \
+                 (SELECT ii.embedding FROM indexed_items ii WHERE ii.item_type = 'memory' AND ii.content_hash = f.content_hash LIMIT 1) \
+                 FROM facts f \
+                 WHERE f.superseded_by IS NULL AND (f.expires_at IS NULL OR f.expires_at > ?{now_idx}) \
+                 AND f.created_at >= ?{since_idx} {filter} \
+                 ORDER BY f.updated_at DESC LIMIT ?{limit_idx}",
+                now_idx = 2 * n + 1,
+                since_idx = 2 * n + 2,
+                limit_idx = 2 * n + 3,
+            );
+            let mut values: Vec<rusqlite::types::Value> = Vec::with_capacity(2 * n + 3);
+            values.extend(tags.iter().map(|tag| rusqlite::types::Value::from(tag.clone())));
+            values.extend(tags.iter().map(|tag| rusqlite::types::Value::from(tag.clone())));
+            values.push(now_ms.into());
+            values.push(since_ms.into());
+            values.push((cap as i64).into());
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt
+                .query_map(rusqlite::params_from_iter(values), |row| {
+                    let topic: String = row.get(1)?;
+                    let extra: Option<String> = row.get(6)?;
+                    let mut tags: Vec<String> = extra
+                        .map(|joined| joined.split('\u{1f}').map(str::to_string).collect())
+                        .unwrap_or_default();
+                    if !tags.contains(&topic) {
+                        tags.push(topic.clone());
+                    }
+                    tags.sort();
+                    let embedding: Option<Vec<u8>> = row.get(7)?;
+                    Ok(RecallRow {
+                        id: row.get(0)?,
+                        topic,
+                        tags,
+                        fact: row.get(2)?,
+                        source: row.get(3)?,
+                        created_at_ms: row.get(4)?,
+                        updated_at_ms: row.get(5)?,
+                        embedding: embedding.map(|blob| bytes_to_f32(&blob)),
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
+    /// Topics with multiple active agent/user facts — candidates for observation synthesis.
+    pub fn list_recurring_memory_topics(
+        &self,
+        min_count: usize,
+        since_ms: i64,
+    ) -> Result<Vec<RecurringMemoryTopic>> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            let sql = format!(
+                "SELECT topic, scope, scope_key, COUNT(*) as cnt
+                 FROM facts
+                 WHERE superseded_by IS NULL
+                   AND source NOT IN ('observation')
+                   AND topic NOT LIKE 'obs/%'
+                   AND updated_at >= ?1
+                   AND {}
+                 GROUP BY topic, scope, scope_key
+                 HAVING cnt >= ?2",
+                crate::temporal::active_fact_sql("?3")
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let groups: Vec<(String, String, Option<String>, usize)> = stmt
+                .query_map(params![since_ms, min_count as i64, now], |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get::<_, i64>(3)? as usize,
+                    ))
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+
+            let mut out = Vec::new();
+            for (topic, scope, scope_key, fact_count) in groups {
+                let detail_sql = format!(
+                    "SELECT fact, polarity, apply_when FROM facts
+                     WHERE topic = ?1 AND scope = ?2 AND IFNULL(scope_key,'') = IFNULL(?3,'')
+                       AND superseded_by IS NULL AND source NOT IN ('observation')
+                       AND {}
+                     ORDER BY updated_at DESC",
+                    crate::temporal::active_fact_sql("?4")
+                );
+                let mut detail = conn.prepare(&detail_sql)?;
+                let rows: Vec<(String, String, Option<String>)> = detail
+                    .query_map(params![topic, scope, scope_key, now], |row| {
+                        Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                    })?
+                    .filter_map(|r| r.ok())
+                    .collect();
+                if rows.is_empty() {
+                    continue;
+                }
+                let latest_fact = rows[0].0.clone();
+                let negative_count = rows.iter().filter(|(_, pol, _)| pol == "negative").count();
+                let mut tag_set = std::collections::HashSet::new();
+                for (_, _, apply_when) in &rows {
+                    for tag in parse_apply_when(apply_when.as_deref()) {
+                        tag_set.insert(tag);
+                    }
+                }
+                let mut apply_when_tags: Vec<String> = tag_set.into_iter().collect();
+                apply_when_tags.sort();
+                out.push(RecurringMemoryTopic {
+                    topic,
+                    scope,
+                    scope_key,
+                    fact_count,
+                    latest_fact,
+                    negative_count,
+                    apply_when_tags,
+                });
+            }
+            Ok(out)
+        })
+    }
+
+    pub fn delete_fact(
+        &self,
+        id: Option<&str>,
+        topic: Option<&str>,
+        scope: Option<&str>,
+        scope_key: Option<&str>,
+    ) -> Result<u64> {
+        let n = self.with_conn(|conn| {
+            let n = if let Some(id) = id {
+                conn.execute("DELETE FROM facts WHERE id = ?1", params![id])?
+            } else {
+                conn.execute(
+                    "DELETE FROM facts WHERE topic = ?1 AND scope = ?2 AND IFNULL(scope_key,'') = IFNULL(?3,'')",
+                    params![topic.unwrap_or(""), scope.unwrap_or("project"), scope_key],
+                )?
+            };
+            Ok(n as u64)
+        })?;
+        if n > 0 {
+            let _ = self.enqueue_fact_tombstone_outbox(id, None, scope, scope_key);
+        }
+        Ok(n)
+    }
+
+    pub fn export_facts(&self, export_path: &Path) -> Result<String> {
+        let facts = self.list_facts(10_000)?;
+        let json = serde_json::to_string_pretty(&facts)?;
+        std::fs::write(export_path, &json)?;
+        Ok(export_path.display().to_string())
+    }
+
+    pub fn ensure_device_id(&self) -> Result<String> {
+        if let Some(id) = self.get_meta("device_id")? {
+            return Ok(id);
+        }
+        let id = Uuid::new_v4().to_string();
+        self.set_meta("device_id", &id)?;
+        Ok(id)
+    }
+
+    /// Upsert local mapping from path-independent project_key to this machine's repo_root.
+    pub fn upsert_project_root(
+        &self,
+        project_key: &str,
+        repo_root: &str,
+        domain: &str,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            conn.execute(
+                r#"INSERT INTO project_roots (project_key, repo_root, domain, updated_at)
+                   VALUES (?1, ?2, ?3, ?4)
+                   ON CONFLICT(project_key) DO UPDATE SET
+                     repo_root = excluded.repo_root,
+                     domain = excluded.domain,
+                     updated_at = excluded.updated_at"#,
+                params![project_key, repo_root, domain, now],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn project_key_for_repo_root(&self, repo_root: &str) -> Result<Option<String>> {
+        self.with_conn(|conn| {
+            Ok(conn
+                .query_row(
+                    "SELECT project_key FROM project_roots WHERE repo_root = ?1 LIMIT 1",
+                    params![repo_root],
+                    |r| r.get(0),
+                )
+                .optional()?)
+        })
+    }
+
+    pub fn domain_for_project_key(&self, project_key: &str) -> Result<String> {
+        self.with_conn(|conn| {
+            Ok(conn
+                .query_row(
+                    "SELECT domain FROM project_roots WHERE project_key = ?1",
+                    params![project_key],
+                    |r| r.get(0),
+                )
+                .optional()?
+                .unwrap_or_else(|| "unclassified".to_string()))
+        })
+    }
+
+    /// Map a legacy path-shaped scope_key to project_key when known.
+    pub fn map_legacy_scope_key(&self, scope_key: &str) -> Result<Option<String>> {
+        if !crate::project_key::looks_like_path_scope_key(scope_key) {
+            return Ok(Some(scope_key.to_string()));
+        }
+        self.project_key_for_repo_root(scope_key)
+    }
+
+    pub fn next_hlc(&self) -> Result<crate::sync::hlc::Hlc> {
+        use crate::sync::hlc::Hlc;
+        let now = chrono::Utc::now().timestamp_millis();
+        let wall: i64 = self
+            .get_meta("hlc_wall")?
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        let counter: u32 = self
+            .get_meta("hlc_counter")?
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        let next = Hlc { wall, counter }.tick(now);
+        self.set_meta("hlc_wall", &next.wall.to_string())?;
+        self.set_meta("hlc_counter", &next.counter.to_string())?;
+        Ok(next)
+    }
+
+    pub fn enqueue_sync_event(
+        &self,
+        event_type: &str,
+        project_key: Option<&str>,
+        domain: &str,
+        payload: &serde_json::Value,
+        origin: Option<&serde_json::Value>,
+    ) -> Result<String> {
+        let id = Uuid::new_v4().to_string();
+        let hlc = self.next_hlc()?;
+        let device_id = self.ensure_device_id()?;
+        let now = chrono::Utc::now().timestamp_millis();
+        let origin_json = origin.map(|v| v.to_string());
+        self.with_conn(|conn| {
+            conn.execute(
+                r#"INSERT INTO sync_events
+                   (id, hlc_wall, hlc_counter, device_id, project_key, domain, event_type, payload_json, origin_json, created_at, flushed_at)
+                   VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,NULL)"#,
+                params![
+                    id,
+                    hlc.wall,
+                    hlc.counter as i64,
+                    device_id,
+                    project_key,
+                    domain,
+                    event_type,
+                    payload.to_string(),
+                    origin_json,
+                    now
+                ],
+            )?;
+            Ok(())
+        })?;
+        Ok(id)
+    }
+
+    pub fn list_pending_sync_events(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<crate::sync::event::EventEnvelope>> {
+        use crate::sync::event::EventEnvelope;
+        use crate::sync::hlc::Hlc;
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT id, hlc_wall, hlc_counter, device_id, project_key, domain, event_type, payload_json, origin_json
+                   FROM sync_events WHERE flushed_at IS NULL
+                   ORDER BY hlc_wall ASC, hlc_counter ASC LIMIT ?1"#,
+            )?;
+            let rows = stmt
+                .query_map(params![limit as i64], |row| {
+                    let payload_raw: String = row.get(7)?;
+                    let origin_raw: Option<String> = row.get(8)?;
+                    let payload = serde_json::from_str(&payload_raw).unwrap_or(serde_json::json!({}));
+                    let origin = origin_raw.and_then(|s| serde_json::from_str(&s).ok());
+                    Ok(EventEnvelope {
+                        id: row.get(0)?,
+                        event_type: row.get(6)?,
+                        hlc: Hlc {
+                            wall: row.get(1)?,
+                            counter: row.get::<_, i64>(2)? as u32,
+                        },
+                        device_id: row.get(3)?,
+                        project_key: row.get(4)?,
+                        domain: row.get(5)?,
+                        origin,
+                        payload,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
+    pub fn mark_sync_events_flushed(&self, ids: &[String]) -> Result<()> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            for id in ids {
+                conn.execute(
+                    "UPDATE sync_events SET flushed_at = ?1 WHERE id = ?2",
+                    params![now, id],
+                )?;
+            }
+            Ok(())
+        })
+    }
+
+    pub fn get_sync_cursor(&self, remote_device_id: &str) -> Result<Option<crate::sync::hlc::Hlc>> {
+        use crate::sync::hlc::Hlc;
+        self.with_conn(|conn| {
+            Ok(conn
+                .query_row(
+                    "SELECT last_hlc_wall, last_hlc_counter FROM sync_cursors WHERE remote_device_id = ?1",
+                    params![remote_device_id],
+                    |r| {
+                        Ok(Hlc {
+                            wall: r.get(0)?,
+                            counter: r.get::<_, i64>(1)? as u32,
+                        })
+                    },
+                )
+                .optional()?)
+        })
+    }
+
+    pub fn set_sync_cursor(
+        &self,
+        remote_device_id: &str,
+        hlc: crate::sync::hlc::Hlc,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            conn.execute(
+                r#"INSERT INTO sync_cursors (remote_device_id, last_hlc_wall, last_hlc_counter, updated_at)
+                   VALUES (?1,?2,?3,?4)
+                   ON CONFLICT(remote_device_id) DO UPDATE SET
+                     last_hlc_wall = excluded.last_hlc_wall,
+                     last_hlc_counter = excluded.last_hlc_counter,
+                     updated_at = excluded.updated_at"#,
+                params![remote_device_id, hlc.wall, hlc.counter as i64, now],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn find_active_fact_id(
+        &self,
+        content_hash: &str,
+        scope: &str,
+        scope_key: Option<&str>,
+    ) -> Result<Option<String>> {
+        self.with_conn(|conn| {
+            Ok(conn
+                .query_row(
+                    "SELECT id FROM facts WHERE content_hash = ?1 AND scope = ?2 AND IFNULL(scope_key,'') = IFNULL(?3,'') AND superseded_by IS NULL LIMIT 1",
+                    params![content_hash, scope, scope_key],
+                    |r| r.get(0),
+                )
+                .optional()?)
+        })
+    }
+
+    pub fn enqueue_fact_put_outbox(
+        &self,
+        topic: &str,
+        fact: &str,
+        scope: &str,
+        scope_key: Option<&str>,
+        confidence: f64,
+        polarity: &str,
+        apply_when: Option<&str>,
+        content_hash: &str,
+        source: &str,
+        valid_from: Option<i64>,
+        invalid_at: Option<i64>,
+    ) -> Result<()> {
+        let domain = match scope_key {
+            Some(k) if !crate::project_key::looks_like_path_scope_key(k) => {
+                self.domain_for_project_key(k)?
+            }
+            _ => "unclassified".to_string(),
+        };
+        if domain == "unclassified" {
+            // Local-only until classified — still record outbox for later classify+push filtering.
+        }
+        let apply_when_v: Option<Vec<String>> =
+            apply_when.and_then(|s| serde_json::from_str(s).ok());
+        let payload = serde_json::json!({
+            "topic": topic,
+            "fact": fact,
+            "scope": scope,
+            "scope_key": scope_key,
+            "confidence": confidence,
+            "polarity": polarity,
+            "apply_when": apply_when_v,
+            "valid_from": valid_from,
+            "invalid_at": invalid_at,
+            "content_hash": content_hash,
+            "source": source,
+        });
+        self.enqueue_sync_event(
+            "fact_put",
+            scope_key.filter(|k| !crate::project_key::looks_like_path_scope_key(k)),
+            &domain,
+            &payload,
+            None,
+        )?;
+        Ok(())
+    }
+
+    pub fn enqueue_fact_tombstone_outbox(
+        &self,
+        fact_id: Option<&str>,
+        content_hash: Option<&str>,
+        scope: Option<&str>,
+        scope_key: Option<&str>,
+    ) -> Result<()> {
+        let domain = match scope_key {
+            Some(k) if !crate::project_key::looks_like_path_scope_key(k) => self
+                .domain_for_project_key(k)
+                .unwrap_or_else(|_| "unclassified".to_string()),
+            _ => "unclassified".to_string(),
+        };
+        let payload = serde_json::json!({
+            "fact_id": fact_id,
+            "content_hash": content_hash,
+            "scope": scope,
+            "scope_key": scope_key,
+        });
+        self.enqueue_sync_event("fact_tombstone", scope_key, &domain, &payload, None)?;
+        Ok(())
+    }
+
+    pub fn insert_verify_outcome(
+        &self,
+        route_log_id: Option<&str>,
+        exit_code: i32,
+        cause_tag: Option<&str>,
+        verify_config_hash: Option<&str>,
+        scenario_dir_hash: Option<&str>,
+        cmd: &str,
+        device_id: &str,
+        source: &str,
+        project_key: Option<&str>,
+    ) -> Result<String> {
+        let id = Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            conn.execute(
+                r#"INSERT INTO verify_outcomes
+                   (id, route_log_id, exit_code, cause_tag, verify_config_hash, scenario_dir_hash, cmd, device_id, recorded_at, source, project_key)
+                   VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)"#,
+                params![
+                    id,
+                    route_log_id,
+                    exit_code,
+                    cause_tag,
+                    verify_config_hash,
+                    scenario_dir_hash,
+                    cmd,
+                    device_id,
+                    now,
+                    source,
+                    project_key
+                ],
+            )?;
+            Ok(())
+        })?;
+        Ok(id)
+    }
+
+    pub fn set_verify_outcome_tests_run(&self, id: &str, tests_run: u64) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE verify_outcomes SET tests_run = ?1 WHERE id = ?2",
+                params![tests_run as i64, id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn set_verify_outcome_code_hash(&self, id: &str, code_hash: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE verify_outcomes SET code_hash = ?1 WHERE id = ?2",
+                params![code_hash, id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn set_verify_outcome_head_sha(&self, id: &str, head_sha: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE verify_outcomes SET head_sha = ?1 WHERE id = ?2",
+                params![head_sha, id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn verify_outcome_tests_run(&self, id: &str) -> Result<Option<i64>> {
+        self.with_conn(|conn| {
+            Ok(conn.query_row(
+                "SELECT tests_run FROM verify_outcomes WHERE id = ?1",
+                params![id],
+                |r| r.get::<_, Option<i64>>(0),
+            )?)
+        })
+    }
+
+    pub fn list_verify_outcomes(&self, limit: usize) -> Result<Vec<VerifyOutcomeRow>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT id, route_log_id, exit_code, cause_tag, verify_config_hash, scenario_dir_hash, cmd, device_id, recorded_at, source, code_hash, head_sha
+                   FROM verify_outcomes ORDER BY recorded_at DESC LIMIT ?1"#,
+            )?;
+            let rows = stmt
+                .query_map(params![limit as i64], map_verify_outcome_row)?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
+    pub fn list_verify_outcomes_for_project(
+        &self,
+        project_key: &str,
+        limit: usize,
+    ) -> Result<Vec<VerifyOutcomeRow>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT id, route_log_id, exit_code, cause_tag, verify_config_hash, scenario_dir_hash, cmd, device_id, recorded_at, source, code_hash, head_sha
+                   FROM verify_outcomes WHERE project_key = ?1 ORDER BY recorded_at DESC LIMIT ?2"#,
+            )?;
+            let rows = stmt
+                .query_map(params![project_key, limit as i64], map_verify_outcome_row)?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
+    pub fn list_secret_refs(&self) -> Result<Vec<crate::secrets::SecretRef>> {
+        self.with_conn(|conn| {
+            let mut stmt =
+                conn.prepare("SELECT name, used_by FROM secret_refs ORDER BY name ASC")?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok(crate::secrets::SecretRef {
+                        name: row.get(0)?,
+                        used_by: row.get(1)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
+    pub fn upsert_secret_ref(&self, name: &str, used_by: &str) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT INTO secret_refs (name, used_by, created_at) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(name) DO UPDATE SET used_by = excluded.used_by",
+                params![name, used_by, now],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn merge_secret_refs(&self, refs: &[crate::secrets::SecretRef]) -> Result<usize> {
+        let mut added = 0usize;
+        for reference in refs {
+            let exists = self.with_conn(|conn| {
+                Ok(conn
+                    .query_row(
+                        "SELECT 1 FROM secret_refs WHERE name = ?1 LIMIT 1",
+                        params![reference.name],
+                        |_| Ok(()),
+                    )
+                    .optional()?
+                    .is_some())
+            })?;
+            if !exists {
+                self.upsert_secret_ref(&reference.name, &reference.used_by)?;
+                added += 1;
+            }
+        }
+        Ok(added)
+    }
+
+    pub fn cloud_last_push_ms(&self) -> Result<Option<i64>> {
+        Ok(self
+            .get_meta("cloud_last_push_ms")?
+            .and_then(|v| v.parse().ok()))
+    }
+
+    pub fn cloud_last_pull_ms(&self) -> Result<Option<i64>> {
+        Ok(self
+            .get_meta("cloud_last_pull_ms")?
+            .and_then(|v| v.parse().ok()))
+    }
+
+    pub fn set_cloud_last_push(&self) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.set_meta("cloud_last_push_ms", &now.to_string())
+    }
+
+    pub fn set_cloud_last_pull(&self) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.set_meta("cloud_last_pull_ms", &now.to_string())
+    }
+
+    pub fn list_export_facts(&self) -> Result<Vec<serde_json::Value>> {
+        self.with_conn(|conn| {
+            let now = chrono::Utc::now().timestamp_millis();
+            let mut stmt = conn.prepare(
+                r#"SELECT id, topic, fact, scope, scope_key, source, confidence, polarity, apply_when, content_hash, created_at, updated_at
+                   FROM facts WHERE superseded_by IS NULL AND (expires_at IS NULL OR expires_at > ?1)"#,
+            )?;
+            let rows = stmt
+                .query_map(params![now], |row| {
+                    let apply_raw: Option<String> = row.get(8)?;
+                    let apply_when = apply_raw
+                        .as_deref()
+                        .and_then(|s| serde_json::from_str::<Vec<String>>(s).ok());
+                    Ok(serde_json::json!({
+                        "id": row.get::<_, String>(0)?,
+                        "topic": row.get::<_, String>(1)?,
+                        "fact": row.get::<_, String>(2)?,
+                        "scope": row.get::<_, String>(3)?,
+                        "scope_key": row.get::<_, Option<String>>(4)?,
+                        "source": row.get::<_, String>(5)?,
+                        "confidence": row.get::<_, f64>(6)?,
+                        "polarity": row.get::<_, String>(7)?,
+                        "apply_when": apply_when,
+                        "content_hash": row.get::<_, String>(9)?,
+                        "created_at": row.get::<_, i64>(10)?,
+                        "updated_at": row.get::<_, i64>(11)?,
+                    }))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
+    pub fn prune_expired_facts(&self) -> Result<crate::temporal::PruneReport> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| crate::temporal::prune_expired(conn, now))
+    }
+
+    pub fn fact_exists_by_hash(
+        &self,
+        content_hash: &str,
+        scope: &str,
+        scope_key: Option<&str>,
+    ) -> Result<bool> {
+        self.with_conn(|conn| {
+            Ok(conn
+                .query_row(
+                    "SELECT 1 FROM facts WHERE content_hash = ?1 AND scope = ?2 AND IFNULL(scope_key,'') = IFNULL(?3,'') AND superseded_by IS NULL LIMIT 1",
+                    params![content_hash, scope, scope_key],
+                    |_| Ok(()),
+                )
+                .optional()?
+                .is_some())
+        })
+    }
+
+    pub fn get_active_fact_by_topic(
+        &self,
+        topic: &str,
+        scope: &str,
+        scope_key: Option<&str>,
+    ) -> Result<Option<ActiveFactSnapshot>> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            conn.query_row(
+                &format!(
+                    "SELECT id, fact, updated_at FROM facts
+                     WHERE topic = ?1 AND scope = ?2 AND IFNULL(scope_key,'') = IFNULL(?3,'')
+                       AND superseded_by IS NULL
+                       AND {}
+                     ORDER BY updated_at DESC
+                     LIMIT 1",
+                    crate::temporal::active_fact_sql("?4")
+                ),
+                params![topic, scope, scope_key, now],
+                |row| {
+                    Ok(ActiveFactSnapshot {
+                        id: row.get(0)?,
+                        fact: row.get(1)?,
+                        updated_at: row.get(2)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(Into::into)
+        })
+    }
+
+    pub fn log_import_conflict(
+        &self,
+        sync_source: &str,
+        topic: &str,
+        scope: &str,
+        scope_key: Option<&str>,
+        loser_id: &str,
+        loser_fact: &str,
+        winner_id: &str,
+        winner_fact: &str,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let conflict_id = Uuid::new_v4().to_string();
+        self.with_conn(|conn| {
+            conn.execute(
+                r#"INSERT INTO conflict_log (id, timestamp, sync_source, topic, scope, scope_key, loser_id, loser_fact, winner_id, winner_fact, resolution)
+                   VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,'newer_updated_at')"#,
+                params![
+                    conflict_id,
+                    now,
+                    sync_source,
+                    topic,
+                    scope,
+                    scope_key,
+                    loser_id,
+                    loser_fact,
+                    winner_id,
+                    winner_fact
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn scope_conflict_warnings(&self, topics: &[String]) -> Result<Vec<(String, String)>> {
+        let mut warnings = Vec::new();
+        for topic in topics {
+            let rows: Vec<(String, String)> = self.with_conn(|conn| {
+                let mut stmt = conn.prepare(
+                    "SELECT scope, fact FROM facts WHERE topic = ?1 AND superseded_by IS NULL",
+                )?;
+                let rows = stmt
+                    .query_map(params![topic], |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    })?
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(rows)
+            })?;
+            if rows.len() < 2 {
+                continue;
+            }
+            let global = rows.iter().find(|(s, _)| s == "global");
+            let project = rows.iter().find(|(s, _)| s == "project");
+            if let (Some((_, g)), Some((_, p))) = (global, project) {
+                if g != p {
+                    warnings.push((
+                        topic.clone(),
+                        format!("Global vs project conflict on '{topic}'"),
+                    ));
+                }
+            }
+        }
+        Ok(warnings)
+    }
+
+    /// Test helper: backdate a fact for GC eligibility checks.
+    pub fn set_fact_updated_at_for_test(&self, id: &str, updated_at: i64) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE facts SET updated_at = ?1 WHERE id = ?2",
+                params![updated_at, id],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// Test helper: backdate context feedback for low-signal GC eligibility.
+    pub fn set_context_last_used_for_test(&self, item_id: &str, last_used_at: i64) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE context_weights SET last_used_at = ?1 WHERE item_id = ?2",
+                params![last_used_at, item_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn get_fact(&self, id: &str) -> Result<Option<serde_json::Value>> {
+        self.with_conn(|conn| {
+            conn.query_row(
+                "SELECT id, topic, fact, scope, scope_key, confidence, polarity, updated_at FROM facts WHERE id = ?1",
+                params![id],
+                |row| {
+                    Ok(serde_json::json!({
+                        "id": row.get::<_, String>(0)?,
+                        "topic": row.get::<_, String>(1)?,
+                        "fact": row.get::<_, String>(2)?,
+                        "scope": row.get::<_, String>(3)?,
+                        "scope_key": row.get::<_, Option<String>>(4)?,
+                        "confidence": row.get::<_, f64>(5)?,
+                        "polarity": row.get::<_, String>(6)?,
+                        "updated_at": row.get::<_, i64>(7)?,
+                    }))
+                },
+            )
+            .optional()
+            .map_err(Into::into)
+        })
+    }
+
+    pub fn insert_retrieval_log(
+        &self,
+        id: &str,
+        query_hash: &str,
+        phase: &str,
+        items_json: &str,
+        tokens_used: usize,
+        truncated: bool,
+        cache_hit: bool,
+        latency_ms: u64,
+        index_total: Option<usize>,
+        saved_pct: Option<u8>,
+        must_apply_count: Option<usize>,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            conn.execute(
+                r#"INSERT INTO retrieval_log (id, timestamp, query_hash, phase, items_returned, tokens_used, truncated, cache_hit, latency_ms, index_total, saved_pct, must_apply_count)
+                   VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)"#,
+                params![
+                    id,
+                    now,
+                    query_hash,
+                    phase,
+                    items_json,
+                    tokens_used as i64,
+                    truncated as i64,
+                    cache_hit as i64,
+                    latency_ms as i64,
+                    index_total.map(|n| n as i64),
+                    saved_pct.map(|n| n as i64),
+                    must_apply_count.map(|n| n as i64),
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn get_retrieval_log(&self, id: &str) -> Result<Option<RetrievalLogRow>> {
+        self.with_conn(|conn| {
+            conn.query_row(
+                "SELECT id, query_hash, phase, items_returned, tokens_used, truncated, cache_hit, latency_ms, index_total, saved_pct, must_apply_count FROM retrieval_log WHERE id = ?1",
+                params![id],
+                map_retrieval_log_row,
+            )
+            .optional()
+            .map_err(Into::into)
+        })
+    }
+
+    pub fn latest_retrieval_log(&self) -> Result<Option<RetrievalLogRow>> {
+        self.with_conn(|conn| {
+            conn.query_row(
+                "SELECT id, query_hash, phase, items_returned, tokens_used, truncated, cache_hit, latency_ms, index_total, saved_pct, must_apply_count FROM retrieval_log ORDER BY timestamp DESC LIMIT 1",
+                [],
+                map_retrieval_log_row,
+            )
+            .optional()
+            .map_err(Into::into)
+        })
+    }
+
+    pub fn list_retrieval_logs(&self, limit: usize) -> Result<Vec<RetrievalLogRow>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, query_hash, phase, items_returned, tokens_used, truncated, cache_hit, latency_ms, index_total, saved_pct, must_apply_count FROM retrieval_log ORDER BY timestamp DESC LIMIT ?1",
+            )?;
+            let rows = stmt
+                .query_map(params![limit as i64], map_retrieval_log_row)?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
+    pub fn list_conflicts(&self, limit: usize) -> Result<Vec<serde_json::Value>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, timestamp, sync_source, topic, scope, scope_key, loser_id, loser_fact, winner_id, winner_fact, resolution, restored FROM conflict_log ORDER BY timestamp DESC LIMIT ?1",
+            )?;
+            let rows = stmt
+                .query_map(params![limit as i64], |row| {
+                    Ok(serde_json::json!({
+                        "id": row.get::<_, String>(0)?,
+                        "timestamp": row.get::<_, i64>(1)?,
+                        "sync_source": row.get::<_, String>(2)?,
+                        "topic": row.get::<_, String>(3)?,
+                        "scope": row.get::<_, String>(4)?,
+                        "scope_key": row.get::<_, Option<String>>(5)?,
+                        "loser_id": row.get::<_, String>(6)?,
+                        "loser_fact": row.get::<_, String>(7)?,
+                        "winner_id": row.get::<_, String>(8)?,
+                        "winner_fact": row.get::<_, String>(9)?,
+                        "resolution": row.get::<_, String>(10)?,
+                        "restored": row.get::<_, i64>(11)? != 0,
+                    }))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
+    pub fn get_conflict(&self, id: &str) -> Result<Option<ConflictSnapshot>> {
+        self.with_conn(|conn| {
+            conn.query_row(
+                "SELECT id, topic, scope, scope_key, loser_id, loser_fact, winner_id, winner_fact, restored FROM conflict_log WHERE id = ?1",
+                params![id],
+                |row| {
+                    Ok(ConflictSnapshot {
+                        id: row.get(0)?,
+                        topic: row.get(1)?,
+                        scope: row.get(2)?,
+                        scope_key: row.get(3)?,
+                        loser_id: row.get(4)?,
+                        loser_fact: row.get(5)?,
+                        winner_id: row.get(6)?,
+                        winner_fact: row.get(7)?,
+                        restored: row.get::<_, i64>(8)? != 0,
+                    })
+                },
+            )
+            .optional()
+            .map_err(Into::into)
+        })
+    }
+
+    pub fn delete_fact_by_id(&self, id: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute("DELETE FROM facts WHERE id = ?1", rusqlite::params![id])?;
+            Ok(())
+        })
+    }
+
+    pub fn delete_fact_by_topic_text(
+        &self,
+        topic: &str,
+        scope: &str,
+        scope_key: Option<&str>,
+        fact: &str,
+    ) -> Result<usize> {
+        self.with_conn(|conn| {
+            let deleted = conn.execute(
+                "DELETE FROM facts WHERE topic = ?1 AND scope = ?2 AND IFNULL(scope_key,'') = IFNULL(?3,'') AND fact = ?4",
+                params![topic, scope, scope_key, fact],
+            )?;
+            Ok(deleted)
+        })
+    }
+
+    pub fn mark_conflict_restored(&self, id: &str) -> Result<()> {
+        self.with_conn(|conn| {
+            let updated = conn.execute(
+                "UPDATE conflict_log SET restored = 1 WHERE id = ?1",
+                params![id],
+            )?;
+            if updated == 0 {
+                anyhow::bail!("conflict not found: {id}");
+            }
+            Ok(())
+        })
+    }
+
+    pub fn count_unresolved_conflicts(&self) -> Result<usize> {
+        self.with_conn(|conn| {
+            let count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM conflict_log WHERE restored = 0",
+                [],
+                |r| r.get(0),
+            )?;
+            Ok(count as usize)
+        })
+    }
+
+    pub fn insert_skill_staging(
+        &self,
+        id: &str,
+        fact_id: &str,
+        topic: &str,
+        skill_name: &str,
+        draft_path: &str,
+        target_path: Option<&str>,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            conn.execute(
+                r#"INSERT INTO skill_staging (id, fact_id, topic, skill_name, draft_path, target_path, status, created_at)
+                   VALUES (?1,?2,?3,?4,?5,?6,'pending',?7)"#,
+                params![id, fact_id, topic, skill_name, draft_path, target_path, now],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn list_skill_staging(&self, status: Option<&str>) -> Result<Vec<SkillStagingRow>> {
+        self.with_conn(|conn| {
+            let mut rows = Vec::new();
+            if let Some(status) = status {
+                let mut stmt = conn.prepare(
+                    "SELECT id, fact_id, topic, skill_name, draft_path, target_path, status, created_at, resolved_at
+                     FROM skill_staging WHERE status = ?1 ORDER BY created_at DESC",
+                )?;
+                let mapped = stmt.query_map(params![status], map_skill_staging_row)?;
+                for row in mapped {
+                    rows.push(row?);
+                }
+            } else {
+                let mut stmt = conn.prepare(
+                    "SELECT id, fact_id, topic, skill_name, draft_path, target_path, status, created_at, resolved_at
+                     FROM skill_staging ORDER BY created_at DESC",
+                )?;
+                let mapped = stmt.query_map([], map_skill_staging_row)?;
+                for row in mapped {
+                    rows.push(row?);
+                }
+            }
+            Ok(rows)
+        })
+    }
+
+    pub fn get_skill_staging(&self, id: &str) -> Result<Option<SkillStagingRow>> {
+        self.with_conn(|conn| {
+            conn.query_row(
+                "SELECT id, fact_id, topic, skill_name, draft_path, target_path, status, created_at, resolved_at
+                 FROM skill_staging WHERE id = ?1",
+                params![id],
+                map_skill_staging_row,
+            )
+            .optional()
+            .map_err(Into::into)
+        })
+    }
+
+    pub fn resolve_skill_staging(&self, id: &str, status: &str) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            conn.execute(
+                "UPDATE skill_staging SET status = ?1, resolved_at = ?2 WHERE id = ?3",
+                params![status, now, id],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn list_gc_candidates(
+        &self,
+        now_ms: i64,
+        stale_ms: i64,
+        very_stale_ms: i64,
+    ) -> Result<Vec<GcCandidate>> {
+        let stale_cutoff = now_ms - stale_ms;
+        let very_stale_cutoff = now_ms - very_stale_ms;
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT f.id, f.topic, f.fact, f.scope, f.scope_key, f.source, f.confidence, f.polarity, f.apply_when,
+                          CASE
+                            WHEN cw.weight IS NOT NULL AND cw.weight < 0.6 AND cw.useless_count > cw.useful_count
+                                 AND IFNULL(cw.last_used_at, 0) < ?1 THEN 'low_signal'
+                            WHEN cw.item_id IS NULL AND f.source IN ('session_digest', 'legacy', 'legacy_cursor')
+                                 AND f.updated_at < ?2 THEN 'stale_session_digest'
+                            ELSE 'unknown'
+                          END AS gc_kind
+                   FROM facts f
+                   LEFT JOIN context_weights cw ON cw.item_id = f.id
+                   WHERE f.superseded_by IS NULL
+                     AND (
+                       (cw.weight IS NOT NULL AND cw.weight < 0.6 AND cw.useless_count > cw.useful_count
+                        AND IFNULL(cw.last_used_at, 0) < ?1)
+                       OR (cw.item_id IS NULL AND f.source IN ('session_digest', 'legacy', 'legacy_cursor')
+                           AND f.updated_at < ?2)
+                     )"#,
+            )?;
+            let rows = stmt
+                .query_map(params![stale_cutoff, very_stale_cutoff], |row| {
+                    Ok(GcCandidate {
+                        id: row.get(0)?,
+                        topic: row.get(1)?,
+                        fact: row.get(2)?,
+                        scope: row.get(3)?,
+                        scope_key: row.get(4)?,
+                        source: row.get(5)?,
+                        confidence: row.get(6)?,
+                        polarity: row.get(7)?,
+                        apply_when: row.get(8)?,
+                        gc_kind: row.get(9)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
+    pub fn archive_fact(&self, candidate: &GcCandidate, reason: &str) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let archive_id = Uuid::new_v4().to_string();
+        self.with_conn(|conn| {
+            conn.execute(
+                r#"INSERT INTO facts_archive (id, original_id, topic, fact, scope, scope_key, source, confidence, polarity, apply_when, archived_at, archive_reason)
+                   VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)"#,
+                params![
+                    archive_id,
+                    candidate.id,
+                    candidate.topic,
+                    candidate.fact,
+                    candidate.scope,
+                    candidate.scope_key,
+                    candidate.source,
+                    candidate.confidence,
+                    candidate.polarity,
+                    candidate.apply_when,
+                    now,
+                    reason
+                ],
+            )?;
+            conn.execute("DELETE FROM facts WHERE id = ?1", params![candidate.id])?;
+            conn.execute(
+                "DELETE FROM indexed_items WHERE item_type = 'memory' AND topic = ?1 AND scope = ?2 AND IFNULL(scope_key,'') = IFNULL(?3,'')",
+                params![candidate.topic, candidate.scope, candidate.scope_key],
+            )?;
+            conn.execute(
+                "DELETE FROM context_weights WHERE item_id = ?1",
+                params![candidate.id],
+            )?;
+            Ok(())
+        })?;
+        self.invalidate_search_cache();
+        Ok(())
+    }
+
+    pub fn insert_tool_log(
+        &self,
+        id: &str,
+        tool_name: &str,
+        path: Option<&str>,
+        detail: Option<&str>,
+        tokens_used: usize,
+        tokens_saved: Option<usize>,
+        savings_pct: Option<f64>,
+        must_apply_active: bool,
+        phase: Option<&str>,
+        route_log_id: Option<&str>,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            conn.execute(
+                r#"INSERT OR IGNORE INTO tool_log (id, timestamp, tool_name, path, detail, tokens_used, tokens_saved, savings_pct, must_apply_active, phase, route_log_id)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)"#,
+                params![
+                    id,
+                    now,
+                    tool_name,
+                    path,
+                    detail,
+                    tokens_used as i64,
+                    tokens_saved.map(|n| n as i64),
+                    savings_pct.map(|n| n.round() as i64),
+                    must_apply_active as i64,
+                    phase,
+                    route_log_id,
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn list_pending_tool_traces(&self, limit: usize) -> Result<Vec<ToolTraceRow>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT t.id, t.tool_name, t.path, t.detail
+                   FROM tool_log t
+                   LEFT JOIN trace_extract_log e ON e.tool_log_id = t.id
+                   WHERE e.tool_log_id IS NULL
+                   ORDER BY t.timestamp ASC
+                   LIMIT ?1"#,
+            )?;
+            let rows = stmt
+                .query_map(params![limit as i64], |row| {
+                    Ok(ToolTraceRow {
+                        id: row.get(0)?,
+                        tool_name: row.get(1)?,
+                        path: row.get(2)?,
+                        detail: row.get(3)?,
+                        scope_key: None,
+                    })
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+            Ok(rows)
+        })
+    }
+
+    pub fn mark_trace_extracted(&self, tool_log_id: &str, fact_id: Option<&str>) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            conn.execute(
+                "INSERT OR IGNORE INTO trace_extract_log (tool_log_id, fact_id, extracted_at) VALUES (?1, ?2, ?3)",
+                params![tool_log_id, fact_id, now],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn fact_exists_by_topic(&self, topic: &str) -> Result<bool> {
+        self.with_conn(|conn| {
+            let exists: bool = conn
+                .query_row(
+                    "SELECT 1 FROM facts WHERE topic = ?1 AND superseded_by IS NULL LIMIT 1",
+                    params![topic],
+                    |r| r.get::<_, i32>(0),
+                )
+                .optional()?
+                .is_some();
+            Ok(exists)
+        })
+    }
+
+    pub fn count_active_facts_for_topic(&self, topic: &str, since_ms: i64) -> Result<usize> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            let sql = format!(
+                "SELECT COUNT(*) FROM facts
+                 WHERE topic = ?1 AND superseded_by IS NULL
+                   AND source NOT IN ('observation')
+                   AND updated_at >= ?2
+                   AND {}",
+                crate::temporal::active_fact_sql("?3")
+            );
+            let count: i64 = conn.query_row(&sql, params![topic, since_ms, now], |r| r.get(0))?;
+            Ok(count as usize)
+        })
+    }
+
+    pub fn list_active_fact_ids_for_topic(
+        &self,
+        topic: &str,
+        scope: &str,
+        scope_key: Option<&str>,
+    ) -> Result<Vec<String>> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            let sql = format!(
+                "SELECT id FROM facts
+                 WHERE topic = ?1 AND scope = ?2 AND IFNULL(scope_key,'') = IFNULL(?3,'')
+                   AND superseded_by IS NULL AND {}
+                 ORDER BY updated_at DESC",
+                crate::temporal::active_fact_sql("?4")
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let ids = stmt
+                .query_map(params![topic, scope, scope_key, now], |row| row.get(0))?
+                .filter_map(|r| r.ok())
+                .collect();
+            Ok(ids)
+        })
+    }
+
+    pub fn insert_fact_lineage(
+        &self,
+        fact_id: &str,
+        source_type: &str,
+        source_id: &str,
+        relation: &str,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            conn.execute(
+                r#"INSERT INTO fact_lineage (id, fact_id, source_type, source_id, relation, created_at)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6)"#,
+                params![
+                    Uuid::new_v4().to_string(),
+                    fact_id,
+                    source_type,
+                    source_id,
+                    relation,
+                    now
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn count_fact_lineage(&self, fact_id: &str) -> Result<usize> {
+        self.with_conn(|conn| {
+            let count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM fact_lineage WHERE fact_id = ?1",
+                params![fact_id],
+                |row| row.get(0),
+            )?;
+            Ok(count as usize)
+        })
+    }
+
+    pub fn insert_workflow_trajectory(
+        &self,
+        workflow_id: &str,
+        node_id: &str,
+        outcome: &str,
+        route_log_id: Option<&str>,
+        task_kind: Option<&str>,
+        notes: Option<&str>,
+    ) -> Result<TrajectoryRecord> {
+        if route_log_id.is_some_and(|id| !id.trim().is_empty()) {
+            let id = route_log_id.unwrap().trim();
+            if self.get_retrieval_log(id)?.is_none() {
+                anyhow::bail!("route_log_id not found: {id}");
+            }
+        }
+        let id = Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            conn.execute(
+                r#"INSERT INTO workflow_trajectory
+                   (id, workflow_id, node_id, outcome, route_log_id, task_kind, notes, recorded_at)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)"#,
+                params![
+                    id,
+                    workflow_id,
+                    node_id,
+                    outcome,
+                    route_log_id,
+                    task_kind,
+                    notes,
+                    now
+                ],
+            )?;
+            Ok(())
+        })?;
+        Ok(TrajectoryRecord {
+            id,
+            workflow_id: workflow_id.to_string(),
+            node_id: node_id.to_string(),
+            outcome: outcome.to_string(),
+            route_log_id: route_log_id.map(str::to_string),
+            task_kind: task_kind.map(str::to_string),
+            notes: notes.map(str::to_string),
+            recorded_at: now,
+        })
+    }
+
+    pub fn query_trajectories(&self) -> Result<Vec<TrajectoryRecord>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, workflow_id, node_id, outcome, route_log_id, task_kind, notes, recorded_at
+                 FROM workflow_trajectory ORDER BY recorded_at ASC",
+            )?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok(TrajectoryRecord {
+                        id: row.get(0)?,
+                        workflow_id: row.get(1)?,
+                        node_id: row.get(2)?,
+                        outcome: row.get(3)?,
+                        route_log_id: row.get(4)?,
+                        task_kind: row.get(5)?,
+                        notes: row.get(6)?,
+                        recorded_at: row.get(7)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(rows)
+        })
+    }
+
+    pub fn record_procedure_edge(
+        &self,
+        source_workflow: &str,
+        source_node: &str,
+        target_node: &str,
+    ) -> Result<()> {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.with_conn(|conn| {
+            conn.execute(
+                r#"INSERT INTO procedure_edges (source_workflow, source_node, target_node, transition_count, last_transition_at)
+                   VALUES (?1, ?2, ?3, 1, ?4)
+                   ON CONFLICT(source_workflow, source_node, target_node) DO UPDATE SET
+                       transition_count = transition_count + 1,
+                       last_transition_at = ?4"#,
+                params![source_workflow, source_node, target_node, now],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn related_procedure_nodes(
+        &self,
+        source_workflow: &str,
+        seed_node: &str,
+        max_hops: u32,
+    ) -> Result<Vec<String>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"WITH RECURSIVE walk(node_id, depth) AS (
+                       SELECT ?2, 0
+                       UNION ALL
+                       SELECT e.target_node, walk.depth + 1
+                       FROM procedure_edges e
+                       JOIN walk ON e.source_node = walk.node_id
+                       WHERE e.source_workflow = ?1
+                         AND walk.depth < ?3
+                   )
+                   SELECT DISTINCT node_id FROM walk WHERE depth > 0"#,
+            )?;
+            let rows = stmt
+                .query_map(params![source_workflow, seed_node, max_hops], |row| {
+                    row.get::<_, String>(0)
+                })?
+                .filter_map(|r| r.ok())
+                .collect();
+            Ok(rows)
+        })
+    }
+
+    pub fn opened_paths_for_route(&self, route_log_id: &str) -> Result<Vec<String>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT DISTINCT path FROM tool_log WHERE route_log_id = ?1 AND path IS NOT NULL",
+            )?;
+            let paths = stmt
+                .query_map(params![route_log_id], |row| row.get(0))?
+                .collect::<rusqlite::Result<Vec<String>>>()?;
+            Ok(paths)
+        })
+    }
+
+    pub fn tool_log_stats_since(&self, since_ms: i64) -> Result<(usize, u64, f64, usize)> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT tool_name, tokens_saved, savings_pct FROM tool_log WHERE timestamp >= ?1",
+            )?;
+            let rows = stmt
+                .query_map(params![since_ms], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<i64>>(1)?,
+                        row.get::<_, Option<i64>>(2)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let mut tool_calls = 0usize;
+            let mut tokens_saved = 0u64;
+            let mut savings_pcts = Vec::new();
+            let mut inefficient_reads = 0usize;
+
+            for (name, saved, pct) in rows {
+                if BOUNDED_READ_TOOLS.contains(&name.as_str()) {
+                    tool_calls += 1;
+                }
+                if name == "cursor_read" {
+                    inefficient_reads += 1;
+                }
+                if let Some(s) = saved {
+                    tokens_saved += s.max(0) as u64;
+                }
+                if let Some(p) = pct {
+                    savings_pcts.push(p.max(0) as u8);
+                }
+            }
+
+            let avg_savings = if savings_pcts.is_empty() {
+                0.0
+            } else {
+                savings_pcts.iter().map(|p| *p as f64).sum::<f64>() / savings_pcts.len() as f64
+            };
+
+            Ok((tool_calls, tokens_saved, avg_savings, inefficient_reads))
+        })
+    }
+
+    pub fn daily_usage_since(&self, since_ms: i64) -> Result<Vec<DailyUsage>> {
+        self.with_conn(|conn| {
+            let mut days: std::collections::BTreeMap<String, DailyUsage> =
+                std::collections::BTreeMap::new();
+            let mut routes = conn.prepare(
+                "SELECT strftime('%Y-%m-%d', timestamp / 1000, 'unixepoch') AS day, COUNT(*), SUM(tokens_used),
+                        SUM(cache_hit), SUM(CASE WHEN must_apply_count > 0 THEN 1 ELSE 0 END)
+                 FROM retrieval_log WHERE timestamp >= ?1 AND phase <> 'upstream_call' GROUP BY day",
+            )?;
+            for row in routes.query_map(params![since_ms], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, i64>(3)?,
+                    r.get::<_, i64>(4)?,
+                ))
+            })? {
+                let (day, calls, tokens, cache_hits, constrained) = row?;
+                let entry = days.entry(day.clone()).or_insert_with(|| DailyUsage { day, ..Default::default() });
+                entry.route_calls = calls.max(0) as u64;
+                entry.routed_tokens = tokens.max(0) as u64;
+                entry.cache_hits = cache_hits.max(0) as u64;
+                entry.constrained_routes = constrained.max(0) as u64;
+            }
+            let mut bounded = conn.prepare(
+                "SELECT strftime('%Y-%m-%d', timestamp / 1000, 'unixepoch') AS day, SUM(tokens_saved)
+                 FROM tool_log WHERE timestamp >= ?1 AND tokens_saved IS NOT NULL GROUP BY day",
+            )?;
+            for row in bounded.query_map(params![since_ms], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+            })? {
+                let (day, saved) = row?;
+                let entry = days.entry(day.clone()).or_insert_with(|| DailyUsage { day, ..Default::default() });
+                entry.bounded_read_tokens_saved = saved.max(0) as u64;
+            }
+            let mut verify = conn.prepare(
+                "SELECT strftime('%Y-%m-%d', recorded_at / 1000, 'unixepoch') AS day,
+                        SUM(CASE WHEN exit_code = 0 THEN 1 ELSE 0 END), SUM(CASE WHEN exit_code <> 0 THEN 1 ELSE 0 END)
+                 FROM verify_outcomes WHERE recorded_at >= ?1 GROUP BY day",
+            )?;
+            for row in verify.query_map(params![since_ms], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
+            })? {
+                let (day, passed, failed) = row?;
+                let entry = days.entry(day.clone()).or_insert_with(|| DailyUsage { day, ..Default::default() });
+                entry.verify_passed = passed.max(0) as u64;
+                entry.verify_failed = failed.max(0) as u64;
+            }
+            Ok(days.into_values().collect())
+        })
+    }
+
+    pub fn latency_buckets_since(&self, since_ms: i64) -> Result<Vec<CountBucket>> {
+        const LABELS: [&str; 6] = [
+            "<50 ms",
+            "50–99 ms",
+            "100–249 ms",
+            "250–499 ms",
+            "500–999 ms",
+            "≥1 s",
+        ];
+        let rows: Vec<(i64, i64)> = self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT CASE WHEN latency_ms < 50 THEN 0 WHEN latency_ms < 100 THEN 1
+                             WHEN latency_ms < 250 THEN 2 WHEN latency_ms < 500 THEN 3
+                             WHEN latency_ms < 1000 THEN 4 ELSE 5 END AS bucket, COUNT(*)
+                 FROM retrieval_log WHERE timestamp >= ?1 AND phase <> 'upstream_call' GROUP BY bucket",
+            )?;
+            let rows = stmt
+                .query_map(params![since_ms], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        })?;
+        let mut buckets: Vec<CountBucket> = LABELS
+            .iter()
+            .map(|label| CountBucket {
+                label: (*label).to_string(),
+                count: 0,
+            })
+            .collect();
+        for (bucket, count) in rows {
+            if let Some(slot) = buckets.get_mut(bucket as usize) {
+                slot.count = count.max(0) as u64;
+            }
+        }
+        Ok(buckets)
+    }
+
+    pub fn tool_usage_since(&self, since_ms: i64) -> Result<Vec<ToolUsage>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT tool_name, COUNT(*), SUM(tokens_used), COALESCE(SUM(tokens_saved), 0)
+                 FROM tool_log WHERE timestamp >= ?1 GROUP BY tool_name ORDER BY COUNT(*) DESC LIMIT 10",
+            )?;
+            let rows = stmt
+                .query_map(params![since_ms], |r| {
+                    Ok(ToolUsage {
+                        tool_name: r.get(0)?,
+                        calls: r.get::<_, i64>(1)?.max(0) as u64,
+                        tokens_used: r.get::<_, i64>(2)?.max(0) as u64,
+                        tokens_saved: r.get::<_, i64>(3)?.max(0) as u64,
+                    })
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        })
+    }
+
+    pub fn verify_commands_since(&self, since_ms: i64) -> Result<Vec<VerifyCommand>> {
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT cmd, SUM(CASE WHEN exit_code = 0 THEN 1 ELSE 0 END), SUM(CASE WHEN exit_code <> 0 THEN 1 ELSE 0 END)
+                 FROM verify_outcomes WHERE recorded_at >= ?1 GROUP BY cmd ORDER BY COUNT(*) DESC LIMIT 8",
+            )?;
+            let rows = stmt
+                .query_map(params![since_ms], |r| {
+                    Ok(VerifyCommand {
+                        cmd: r.get(0)?,
+                        passed: r.get::<_, i64>(1)?.max(0) as u64,
+                        failed: r.get::<_, i64>(2)?.max(0) as u64,
+                    })
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        })
+    }
+
+    pub fn retrieval_stats_since(&self, since_ms: i64) -> Result<RetrievalStats> {
+        let mut stats = self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT phase, cache_hit, latency_ms, tokens_used, index_total, saved_pct, must_apply_count FROM retrieval_log WHERE timestamp >= ?1",
+            )?;
+            let rows = stmt
+                .query_map(params![since_ms], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)? != 0,
+                        row.get::<_, u64>(2)?,
+                        row.get::<_, i64>(3)? as usize,
+                        row.get::<_, Option<i64>>(4)?,
+                        row.get::<_, Option<i64>>(5)?,
+                        row.get::<_, Option<i64>>(6)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let mut route_calls = 0usize;
+            let mut upstream_calls = 0usize;
+            let mut cache_hits = 0usize;
+            let mut latencies = Vec::new();
+            let mut phase_counts: HashMap<String, usize> = HashMap::new();
+            let mut savings_pcts = Vec::new();
+            let mut total_saved_tokens = 0u64;
+            let mut routed_token_sum = 0u64;
+            let mut routed_token_rows = 0usize;
+            let mut routes_with_constraints = 0usize;
+            let mut total_must_apply = 0usize;
+
+            for (phase, cache_hit, latency, tokens_used, index_total, saved_pct, must_apply_count) in rows {
+                if phase == "upstream_call" {
+                    upstream_calls += 1;
+                } else {
+                    route_calls += 1;
+                    routed_token_sum += tokens_used as u64;
+                    routed_token_rows += 1;
+                    if let Some(pct) = saved_pct {
+                        savings_pcts.push(pct as u8);
+                        if let Some(index_n) = index_total {
+                            let index_n = index_n.max(0) as usize;
+                            let naive = index_n
+                                .saturating_mul(crate::route_briefing::NAIVE_TOKENS_PER_INDEXED_ITEM);
+                            let saved = naive.saturating_sub(tokens_used);
+                            total_saved_tokens += saved as u64;
+                        }
+                    }
+                    if let Some(n) = must_apply_count {
+                        let n = n.max(0) as usize;
+                        if n > 0 {
+                            routes_with_constraints += 1;
+                            total_must_apply += n;
+                        }
+                    }
+                    if cache_hit {
+                        cache_hits += 1;
+                    }
+                    latencies.push(latency);
+                }
+                *phase_counts.entry(phase).or_default() += 1;
+            }
+
+            let cache_hit_rate = if route_calls == 0 {
+                0.0
+            } else {
+                cache_hits as f64 / route_calls as f64
+            };
+            let avg_latency_ms = if latencies.is_empty() {
+                0.0
+            } else {
+                latencies.iter().sum::<u64>() as f64 / latencies.len() as f64
+            };
+            latencies.sort_unstable();
+            let p95_latency_ms = if latencies.is_empty() {
+                0
+            } else {
+                let idx = ((latencies.len() as f64 * 0.95).ceil() as usize)
+                    .saturating_sub(1)
+                    .min(latencies.len() - 1);
+                latencies[idx]
+            };
+            let avg_saved_pct = if savings_pcts.is_empty() {
+                0.0
+            } else {
+                savings_pcts.iter().map(|p| *p as f64).sum::<f64>() / savings_pcts.len() as f64
+            };
+            let avg_routed_tokens = if routed_token_rows == 0 {
+                0.0
+            } else {
+                routed_token_sum as f64 / routed_token_rows as f64
+            };
+
+            let mut phases: Vec<(String, usize)> = phase_counts.into_iter().collect();
+            phases.sort_by_key(|(_, count)| std::cmp::Reverse(*count));
+
+            Ok(RetrievalStats {
+                route_calls,
+                upstream_calls,
+                cache_hit_rate,
+                avg_latency_ms,
+                p95_latency_ms,
+                phases,
+                routes_with_savings: savings_pcts.len(),
+                avg_saved_pct,
+                total_saved_tokens,
+                avg_routed_tokens,
+                routes_with_constraints,
+                total_must_apply,
+                tool_calls: 0,
+                tool_tokens_saved: 0,
+                tool_avg_savings_pct: 0.0,
+                inefficient_read_events: 0,
+            })
+        })?;
+        let (tool_calls, tool_tokens_saved, tool_avg_savings_pct, inefficient_read_events) =
+            self.tool_log_stats_since(since_ms)?;
+        stats.tool_calls = tool_calls;
+        stats.tool_tokens_saved = tool_tokens_saved;
+        stats.tool_avg_savings_pct = tool_avg_savings_pct;
+        stats.inefficient_read_events = inefficient_read_events;
+        Ok(stats)
+    }
+
+    pub fn context_feedback_summary(&self, lowest_n: usize) -> Result<ContextFeedbackSummary> {
+        self.with_conn(|conn| {
+            let (items_tracked, total_useful, total_useless): (i64, i64, i64) = conn.query_row(
+                "SELECT COUNT(*), COALESCE(SUM(useful_count),0), COALESCE(SUM(useless_count),0) FROM context_weights",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )?;
+
+            let mut stmt = conn.prepare(
+                "SELECT item_id, weight, useful_count, useless_count FROM context_weights ORDER BY weight ASC LIMIT ?1",
+            )?;
+            let lowest_weight = stmt
+                .query_map(params![lowest_n as i64], |row| {
+                    Ok(WeightSnapshot {
+                        item_id: row.get(0)?,
+                        weight: row.get(1)?,
+                        useful_count: row.get(2)?,
+                        useless_count: row.get(3)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+
+            Ok(ContextFeedbackSummary {
+                items_tracked: items_tracked as usize,
+                total_useful,
+                total_useless,
+                lowest_weight,
+            })
+        })
+    }
+
+    pub fn record_context_feedback(&self, item_ids: &[String], useful: bool) -> Result<usize> {
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut updated = 0usize;
+        self.with_conn(|conn| {
+            for item_id in item_ids {
+                let (weight, useful_count, useless_count): (f64, i64, i64) = conn
+                    .query_row(
+                        "SELECT weight, useful_count, useless_count FROM context_weights WHERE item_id = ?1",
+                        params![item_id],
+                        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                    )
+                    .unwrap_or((1.0, 0, 0));
+
+                let (new_weight, new_useful, new_useless) = if useful {
+                    (weight + 0.05, useful_count + 1, useless_count)
+                } else {
+                    (weight - 0.05, useful_count, useless_count + 1)
+                };
+                let new_weight = new_weight.clamp(0.5, 1.5);
+
+                conn.execute(
+                    r#"INSERT INTO context_weights (item_id, weight, useful_count, useless_count, last_used_at)
+                       VALUES (?1,?2,?3,?4,?5)
+                       ON CONFLICT(item_id) DO UPDATE SET
+                         weight=excluded.weight,
+                         useful_count=excluded.useful_count,
+                         useless_count=excluded.useless_count,
+                         last_used_at=excluded.last_used_at"#,
+                    params![item_id, new_weight, new_useful, new_useless, now],
+                )?;
+                updated += 1;
+            }
+            Ok(())
+        })?;
+        Ok(updated)
+    }
+
+    pub fn load_context_weights(&self, ids: &[String]) -> Result<HashMap<String, f64>> {
+        if ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        self.with_conn(|conn| {
+            let mut map = HashMap::new();
+            for id in ids {
+                if let Ok(weight) = conn.query_row(
+                    "SELECT weight FROM context_weights WHERE item_id = ?1",
+                    params![id],
+                    |r| r.get::<_, f64>(0),
+                ) {
+                    map.insert(id.clone(), weight);
+                }
+            }
+            Ok(map)
+        })
+    }
+
+    pub fn load_retrieval_stats(&self, ids: &[String]) -> Result<HashMap<String, (u32, u32)>> {
+        if ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        self.with_conn(|conn| {
+            let mut map = HashMap::new();
+            for id in ids {
+                if let Ok((u, uu)) = conn.query_row(
+                    "SELECT useful_count, useless_count FROM context_weights WHERE item_id = ?1",
+                    params![id],
+                    |r| Ok((r.get::<_, u32>(0)?, r.get::<_, u32>(1)?)),
+                ) {
+                    map.insert(id.clone(), (u, uu));
+                }
+            }
+            Ok(map)
+        })
+    }
+
+    pub fn bm25_fast_path_eligible(&self, query: &str) -> Result<bool> {
+        Ok(self.bm25_prefilter(query)?.fast_path_eligible(query))
+    }
+
+    pub(crate) fn bm25_prefilter(&self, query: &str) -> Result<Bm25Prefilter> {
+        let item_bm25 = self
+            .bm25_search_items(query, BM25_ITEMS_TOP)
+            .unwrap_or_default();
+        let fact_bm25 = self
+            .bm25_search_facts(query, BM25_FACTS_TOP)
+            .unwrap_or_default();
+
+        let mut bm25_map = HashMap::new();
+        let mut bm25_max = 0.0f64;
+        for (id, score) in item_bm25.iter().chain(fact_bm25.iter()) {
+            bm25_max = bm25_max.max(score.abs());
+            bm25_map.insert(id.clone(), *score);
+        }
+
+        Ok(Bm25Prefilter {
+            item_ids: item_bm25.into_iter().map(|(id, _)| id).collect(),
+            memory_ids: fact_bm25.into_iter().map(|(id, _)| id).collect(),
+            bm25_map,
+            bm25_max,
+        })
+    }
+
+    pub(crate) fn score_items_with_bm25(
+        &self,
+        snapshot: &SearchIndexCache,
+        query: &str,
+        query_embedding: &[f32],
+        bm25: &Bm25Prefilter,
+        repo_root: Option<&str>,
+        tags: &[String],
+        boost_agents: bool,
+        bm25_only: bool,
+        phase: Option<&str>,
+        match_ctx: Option<&MatchContext<'_>>,
+        package_boosts: &[(String, f64)],
+        ann_settings: crate::ann::AnnSettings,
+    ) -> Result<(Vec<ScoredItem>, usize, usize)> {
+        let index_total = snapshot.indexed.len() + snapshot.memories.len();
+
+        let mut candidate_ids = bm25.item_ids.clone();
+        let mut candidates: Vec<&CachedRow> = Vec::new();
+        for id in &bm25.item_ids {
+            if let Some(&idx) = snapshot.indexed_by_id.get(id) {
+                candidates.push(&snapshot.indexed[idx]);
+            }
+        }
+        for id in &bm25.memory_ids {
+            if let Some(&idx) = snapshot.memories_by_id.get(id) {
+                candidates.push(&snapshot.memories[idx]);
+            }
+        }
+
+        // Build ranked lists for RRF (BM25 + ANN/HNSW).
+        let mut bm25_ranking: Vec<(String, f64)> = bm25
+            .bm25_map
+            .iter()
+            .map(|(id, s)| (id.clone(), *s))
+            .collect();
+        bm25_ranking.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        let mut ann_ranking: Vec<(String, f64)> = Vec::new();
+        if ann_settings.enabled && !bm25_only && !query_embedding.is_empty() {
+            if let Some(ann) = snapshot.ann.as_ref() {
+                if ann.is_active(ann_settings.min_index) {
+                    let filter = repo_root.map(|root| crate::ann::AnnFilter {
+                        repo_root: Some(root),
+                    });
+                    ann_ranking =
+                        ann.top_k_filtered(query_embedding, ann_settings.top_k, filter.as_ref());
+                    for (id, _) in &ann_ranking {
+                        if candidate_ids.insert(id.clone()) {
+                            if let Some(&idx) = snapshot.indexed_by_id.get(id) {
+                                candidates.push(&snapshot.indexed[idx]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // RRF over BM25 + ANN ranks (candidate prioritization for expansion only).
+        let rrf_lists: Vec<&[(String, f64)]> = {
+            let mut lists = Vec::new();
+            if !bm25_ranking.is_empty() {
+                lists.push(bm25_ranking.as_slice());
+            }
+            if !ann_ranking.is_empty() {
+                lists.push(ann_ranking.as_slice());
+            }
+            lists
+        };
+        let rrf_fused =
+            crate::retrieval_fusion::rrf_fuse(&rrf_lists, crate::retrieval_fusion::RRF_K);
+        for (id, _) in &rrf_fused {
+            if candidate_ids.insert(id.clone()) {
+                if let Some(&idx) = snapshot.indexed_by_id.get(id) {
+                    candidates.push(&snapshot.indexed[idx]);
+                } else if let Some(&idx) = snapshot.memories_by_id.get(id) {
+                    candidates.push(&snapshot.memories[idx]);
+                }
+            }
+        }
+
+        if candidates.len() < MIN_CANDIDATES {
+            let mut recent = scoped_fallback_rows(snapshot, repo_root);
+            for row in recent.drain(..) {
+                if candidate_ids.insert(row.id.clone()) {
+                    candidates.push(row);
+                }
+                if candidates.len() >= MIN_CANDIDATES {
+                    break;
+                }
+            }
+        }
+
+        const MAX_EXTRA_MEMORIES: usize = 12;
+        let mut included_ids: HashSet<String> = candidates.iter().map(|r| r.id.clone()).collect();
+
+        const MAX_PINNED_NEGATIVE: usize = 5;
+        let mut pinned_negative = 0usize;
+        for row in &snapshot.memories {
+            if pinned_negative >= MAX_PINNED_NEGATIVE {
+                break;
+            }
+            let polarity = memory_fact_meta(snapshot, row)
+                .and_then(|m| m.polarity.as_deref())
+                .or(row.polarity.as_deref());
+            if polarity == Some("negative") && included_ids.insert(row.id.clone()) {
+                candidates.push(row);
+                pinned_negative += 1;
+            }
+        }
+
+        let mut extra_memories: Vec<&CachedRow> = snapshot
+            .memories
+            .iter()
+            .filter(|row| {
+                if crate::workspace::is_low_signal_memory(&row.topic, row.source.as_deref()) {
+                    let lex = crate::retrieval::lexical_overlap_score(query, &row.topic, &row.text);
+                    let ent = crate::retrieval::entity_overlap_score(query, &row.topic, &row.text);
+                    lex >= 0.15 || ent >= 0.15
+                } else {
+                    true
+                }
+            })
+            .collect();
+        extra_memories.sort_by_key(|row| std::cmp::Reverse(row.updated_at));
+        for row in extra_memories.into_iter().take(MAX_EXTRA_MEMORIES) {
+            if included_ids.insert(row.id.clone()) {
+                candidates.push(row);
+            }
+        }
+
+        let candidate_count = candidates.len();
+        let candidate_ids: Vec<String> = candidates.iter().map(|r| r.id.clone()).collect();
+        let context_weights = self.load_context_weights(&candidate_ids)?;
+        let retrieval_stats = self.load_retrieval_stats(&candidate_ids)?;
+        let now_ms = chrono::Utc::now().timestamp_millis();
+
+        let cosine_sims: Vec<f64> = if bm25_only || query_embedding.is_empty() {
+            vec![0.0; candidate_count]
+        } else {
+            let emb_refs: Vec<Option<&[f32]>> = candidates
+                .iter()
+                .map(|row| row.embedding.as_deref())
+                .collect();
+            batch_dot_products(query_embedding, &emb_refs)
+        };
+
+        let mut scored = Vec::with_capacity(candidate_count);
+        for (row, cosine_sim) in candidates.into_iter().zip(cosine_sims) {
+            let item_type = ItemType::parse(&row.item_type).unwrap_or(ItemType::Rule);
+            let lexical = crate::retrieval::lexical_overlap_score(query, &row.topic, &row.text);
+            let entity = crate::retrieval::entity_overlap_score(query, &row.topic, &row.text);
+
+            let bm25_norm = bm25
+                .bm25_map
+                .get(&row.id)
+                .map(|s| {
+                    if bm25.bm25_max > 0.0 {
+                        s.abs() / bm25.bm25_max
+                    } else {
+                        0.0
+                    }
+                })
+                .unwrap_or(0.0);
+
+            // Final blend is unchanged so calibrated score deltas stay exact; RRF only
+            // expands the candidate set above.
+            let mut score = if bm25_only {
+                0.60 * bm25_norm + 0.25 * lexical + 0.15 * entity
+            } else {
+                0.50 * cosine_sim + 0.22 * bm25_norm + 0.18 * lexical + 0.10 * entity
+            };
+
+            if crate::retrieval_fusion::exact_symbol_match(query, &row.topic) {
+                score *= crate::retrieval_fusion::AST_SYMBOL_BOOST;
+            }
+
+            if matches!(item_type, ItemType::Skill | ItemType::Agent) && lexical >= 0.2 {
+                // Prefer name/description overlap over long body matches.
+                let topic_lex =
+                    crate::retrieval::lexical_overlap_score(query, &row.topic, &row.topic);
+                score += 0.10 * lexical + 0.08 * topic_lex;
+            }
+
+            if item_type == ItemType::Skill {
+                const SUPERVISOR_SKILLS: &[&str] = &["token-efficient-ops", "execution-supervisor"];
+                if SUPERVISOR_SKILLS.contains(&row.topic.as_str())
+                    && crate::retrieval::supervisor_query_strength(query) >= 0.35
+                    && crate::workspace::is_mcp_host_task(query)
+                {
+                    score += 0.18;
+                }
+            }
+
+            if matches!(
+                item_type,
+                ItemType::Skill | ItemType::Rule | ItemType::Agent
+            ) {
+                let pkg_boost =
+                    crate::packages::path_recommend_boost(&row.source_path, package_boosts);
+                if pkg_boost > 0.0 {
+                    score += pkg_boost;
+                }
+            }
+
+            if bm25_norm == 0.0 && lexical < 0.12 {
+                score *= 0.5;
+            }
+
+            if let Some(root) = repo_root {
+                if row.scope_key.as_deref() == Some(root) {
+                    score += 0.1;
+                }
+            }
+
+            if item_type == ItemType::Rule {
+                let path = row.source_path.as_str();
+                let is_project_rule = row.scope == "project"
+                    && repo_root.is_some_and(|r| row.scope_key.as_deref() == Some(r));
+                if is_project_rule {
+                    score += 0.20;
+                }
+                if row.scope == "global"
+                    && path.contains("/references/")
+                    && (path.contains("/skills/") || path.contains("/.agents/"))
+                {
+                    score -= 0.15;
+                }
+            }
+
+            let is_procedural = matches!(item_type, ItemType::Skill | ItemType::Agent);
+            let query_is_meta = crate::retrieval::is_conversational_or_meta(query);
+            let has_software_ctx = crate::retrieval::query_has_software_context(query);
+            let topic_affinity = if is_procedural {
+                crate::retrieval::skill_topic_affinity(query, &row.topic)
+            } else {
+                0.0
+            };
+            let has_query_affinity = !query_is_meta
+                && (topic_affinity > 0.0
+                    || (has_software_ctx
+                        && (lexical >= 0.15
+                            || bm25_norm > 0.05
+                            || (cosine_sim >= 0.65 && lexical >= 0.08))));
+
+            if is_procedural && !has_query_affinity {
+                score *= 0.2;
+            }
+
+            for tag in tags {
+                if row.topic.to_lowercase().contains(tag) || row.text.to_lowercase().contains(tag) {
+                    if !is_procedural || (has_query_affinity && topic_affinity > 0.0) {
+                        score += 0.15;
+                    }
+                    break;
+                }
+            }
+
+            if boost_agents && item_type == ItemType::Agent {
+                score += 0.10;
+            }
+
+            if let Some(phase) = phase {
+                if !is_procedural || (has_query_affinity && topic_affinity > 0.0) {
+                    score += phase_match_boost(phase, &row.topic, &row.text);
+                }
+            }
+
+            if let Some(weight) = context_weights.get(&row.id) {
+                score *= weight;
+            }
+
+            let mut apply_when_matched = false;
+            if item_type == ItemType::Memory {
+                let meta = memory_fact_meta(snapshot, row);
+                let source = meta.and_then(|m| m.source.as_deref());
+                let confidence = meta.map(|m| m.confidence).unwrap_or(row.confidence);
+                let apply_when = meta
+                    .and_then(|m| m.apply_when.as_deref())
+                    .or(row.apply_when.as_deref());
+                let polarity = meta
+                    .and_then(|m| m.polarity.as_deref())
+                    .or(row.polarity.as_deref());
+
+                if source == Some("user") || confidence >= 0.95 {
+                    score += 0.08;
+                }
+                if source == Some("observation") {
+                    score += 0.10;
+                }
+                if polarity == Some("negative") {
+                    score += 0.12;
+                }
+                score += memory_source_score_adjustment(source, &row.topic);
+                if let Some(ctx) = match_ctx {
+                    let conditions = parse_apply_when(apply_when);
+                    if matches_apply_when(&conditions, ctx) {
+                        score += 0.15;
+                        apply_when_matched = !conditions.is_empty();
+                    } else if !conditions.is_empty() {
+                        score *= 0.85;
+                    }
+                }
+
+                let (useful, useless) = retrieval_stats.get(&row.id).copied().unwrap_or((0, 0));
+                score *= feedback_multiplier(useful, useless);
+                score *= crate::memory_decay::ebbinghaus_multiplier(
+                    row.updated_at,
+                    confidence,
+                    useful,
+                    now_ms,
+                );
+
+                scored.push(ScoredItem {
+                    id: row.id.clone(),
+                    item_type,
+                    topic: row.topic.clone(),
+                    text: row.text.clone(),
+                    source_path: if row.source_path.is_empty() {
+                        None
+                    } else {
+                        Some(row.source_path.clone())
+                    },
+                    scope: row.scope.clone(),
+                    score,
+                    polarity: polarity.map(str::to_string),
+                    apply_when_matched,
+                    lexical,
+                    scope_key: row.scope_key.clone(),
+                });
+                continue;
+            }
+
+            scored.push(ScoredItem {
+                id: row.id.clone(),
+                item_type,
+                topic: row.topic.clone(),
+                text: row.text.clone(),
+                source_path: if row.source_path.is_empty() {
+                    None
+                } else {
+                    Some(row.source_path.clone())
+                },
+                scope: row.scope.clone(),
+                score,
+                polarity: row.polarity.clone(),
+                apply_when_matched,
+                lexical,
+                scope_key: row.scope_key.clone(),
+            });
+        }
+
+        scored.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        Ok((scored, candidate_count, index_total))
+    }
+
+    pub fn score_items(
+        &self,
+        query: &str,
+        query_embedding: &[f32],
+        repo_root: Option<&str>,
+        tags: &[String],
+        boost_agents: bool,
+        phase: Option<&str>,
+        match_ctx: Option<&MatchContext<'_>>,
+    ) -> Result<(Vec<ScoredItem>, usize, usize)> {
+        let snapshot = self.search_cache_snapshot()?;
+        let bm25 = self.bm25_prefilter(query)?;
+        self.score_items_with_bm25(
+            &snapshot,
+            query,
+            query_embedding,
+            &bm25,
+            repo_root,
+            tags,
+            boost_agents,
+            false,
+            phase,
+            match_ctx,
+            &[],
+            crate::ann::AnnSettings::default(),
+        )
+    }
+
+    pub fn insert_turn_telemetry(
+        &self,
+        outcome: &crate::telemetry::TurnTelemetryOutcome,
+        task_phase: Option<&str>,
+    ) -> Result<()> {
+        self.with_conn(|conn| {
+            conn.execute(
+                r#"INSERT INTO turn_telemetry 
+                   (id, session_id, organ, provider, model, prompt_tokens, completion_tokens,
+                    cache_read_tokens, cache_write_tokens, estimated_cost_usd, estimated_dollars_saved,
+                    cache_hit_pct, latency_ms, task_phase, created_at)
+                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)"#,
+                params![
+                    outcome.event_id,
+                    outcome.session_id,
+                    outcome.organ,
+                    outcome.provider,
+                    outcome.model,
+                    outcome.prompt_tokens as i64,
+                    outcome.completion_tokens as i64,
+                    outcome.cache_read_tokens as i64,
+                    outcome.cache_write_tokens as i64,
+                    outcome.estimated_cost_usd,
+                    outcome.estimated_dollars_saved,
+                    outcome.cache_hit_pct,
+                    0i64,
+                    task_phase,
+                    outcome.timestamp,
+                ],
+            )?;
+            Ok(())
+        })
+    }
+
+    pub fn query_turn_telemetry_summary(
+        &self,
+        lookback_days: u32,
+    ) -> Result<crate::telemetry::CacheSavingsSummary> {
+        let since_ms = chrono::Utc::now().timestamp_millis() - (lookback_days as i64 * 86_400_000);
+
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                r#"SELECT provider, model, prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens,
+                          estimated_cost_usd, estimated_dollars_saved
+                   FROM turn_telemetry
+                   WHERE created_at >= ?1"#,
+            )?;
+
+            let mut summary = crate::telemetry::CacheSavingsSummary::default();
+
+            let rows = stmt.query_map([since_ms], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)? as u64,
+                    row.get::<_, i64>(3)? as u64,
+                    row.get::<_, i64>(4)? as u64,
+                    row.get::<_, i64>(5)? as u64,
+                    row.get::<_, f64>(6)?,
+                    row.get::<_, f64>(7)?,
+                ))
+            })?;
+
+            for row in rows {
+                let (provider, model, prompt, comp, c_read, c_write, cost, saved) = row?;
+                summary.total_turns += 1;
+                summary.total_prompt_tokens += prompt;
+                summary.total_completion_tokens += comp;
+                summary.total_cache_read_tokens += c_read;
+                summary.total_cache_write_tokens += c_write;
+                summary.total_cost_usd += cost;
+                summary.total_dollars_saved += saved;
+
+                let p_entry = summary.by_provider.entry(provider.clone()).or_default();
+                p_entry.prompt_tokens += prompt;
+                p_entry.completion_tokens += comp;
+                p_entry.cache_read_tokens += c_read;
+                p_entry.cache_write_tokens += c_write;
+                p_entry.estimated_cost_usd += cost;
+                p_entry.estimated_dollars_saved += saved;
+
+                let m_entry = summary.by_model.entry(model.clone()).or_default();
+                m_entry.prompt_tokens += prompt;
+                m_entry.completion_tokens += comp;
+                m_entry.cache_read_tokens += c_read;
+                m_entry.cache_write_tokens += c_write;
+                m_entry.estimated_cost_usd += cost;
+                m_entry.estimated_dollars_saved += saved;
+            }
+
+            let total_prompt_side = summary.total_prompt_tokens + summary.total_cache_read_tokens;
+            if total_prompt_side > 0 {
+                summary.overall_cache_hit_pct = (summary.total_cache_read_tokens as f64 / total_prompt_side as f64) * 100.0;
+            }
+
+            Ok(summary)
+        })
+    }
+}
+
+fn memory_fact_meta<'a>(
+    snapshot: &'a SearchIndexCache,
+    row: &'a CachedRow,
+) -> Option<&'a CachedRow> {
+    snapshot.memories.iter().find(|m| {
+        m.topic == row.topic
+            && m.text == row.text
+            && m.scope == row.scope
+            && m.scope_key == row.scope_key
+    })
+}
+
+fn memory_source_score_adjustment(source: Option<&str>, topic: &str) -> f64 {
+    if crate::workspace::is_low_signal_memory(topic, source) {
+        // Digests/obs/auto-route should lose to real project facts in ranking.
+        return -0.35;
+    }
+    0.0
+}
+
+fn map_verify_outcome_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<VerifyOutcomeRow> {
+    Ok(VerifyOutcomeRow {
+        id: row.get(0)?,
+        route_log_id: row.get(1)?,
+        exit_code: row.get(2)?,
+        cause_tag: row.get(3)?,
+        verify_config_hash: row.get(4)?,
+        scenario_dir_hash: row.get(5)?,
+        cmd: row.get(6)?,
+        device_id: row.get(7)?,
+        recorded_at: row.get(8)?,
+        source: row.get(9)?,
+        code_hash: row.get(10)?,
+        head_sha: row.get(11)?,
+    })
+}
+
+fn scoped_fallback_rows<'a>(
+    snapshot: &'a SearchIndexCache,
+    repo_root: Option<&str>,
+) -> Vec<&'a CachedRow> {
+    let mut indices: Vec<usize> = Vec::new();
+    let mut seen = HashSet::new();
+
+    if let Some(root) = repo_root {
+        if let Some(scoped) = snapshot.scoped_indices.get(root) {
+            for &idx in scoped {
+                if seen.insert(idx) {
+                    indices.push(idx);
+                }
+            }
+        }
+    }
+    for &idx in &snapshot.global_indices {
+        if seen.insert(idx) {
+            indices.push(idx);
+        }
+    }
+    if indices.len() < FALLBACK_RECENT {
+        for idx in 0..snapshot.indexed.len() {
+            if seen.insert(idx) {
+                indices.push(idx);
+            }
+            if indices.len() >= FALLBACK_RECENT {
+                break;
+            }
+        }
+    }
+
+    let mut rows: Vec<&CachedRow> = indices.iter().map(|&i| &snapshot.indexed[i]).collect();
+    rows.sort_by_key(|row| std::cmp::Reverse(row.updated_at));
+    rows.truncate(FALLBACK_RECENT);
+    rows
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn upstream_calls_do_not_count_toward_route_latency_or_cache_rate() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = BrainStore::open(&dir.path().join("t.db")).unwrap();
+        let route = |id: &str, cache_hit: bool, latency_ms: u64| {
+            store
+                .insert_retrieval_log(
+                    id,
+                    "q",
+                    "implementing",
+                    "[]",
+                    400,
+                    false,
+                    cache_hit,
+                    latency_ms,
+                    Some(100),
+                    None,
+                    Some(0),
+                )
+                .unwrap()
+        };
+        route("r1", true, 100);
+        route("r2", false, 300);
+        store
+            .insert_retrieval_log(
+                "u1",
+                "upstream",
+                "upstream_call",
+                "[]",
+                50,
+                false,
+                false,
+                9000,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+
+        let stats = store.retrieval_stats_since(0).unwrap();
+        assert_eq!(stats.route_calls, 2);
+        assert_eq!(stats.upstream_calls, 1);
+        assert_eq!(stats.p95_latency_ms, 300);
+        assert!((stats.avg_latency_ms - 200.0).abs() < 1e-9);
+        assert!((stats.cache_hit_rate - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn prune_removes_stored_rules_that_are_not_rule_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = BrainStore::open(&dir.path().join("t.db")).unwrap();
+        for (topic, path) in [
+            ("fixture", "/p/docs/design.md"),
+            ("style", "/p/rules/style.mdc"),
+        ] {
+            store
+                .upsert_indexed_item(
+                    ItemType::Rule,
+                    topic,
+                    "text",
+                    path,
+                    "global",
+                    None,
+                    &content_hash(topic),
+                    None,
+                )
+                .unwrap();
+        }
+        assert_eq!(store.prune_noise_rule_rows().unwrap(), 1);
+        assert_eq!(store.prune_noise_rule_rows().unwrap(), 0);
+    }
+
+    #[test]
+    fn feedback_multiplier_demotes_repeatedly_useless_items_and_boosts_proven_ones() {
+        assert!((feedback_multiplier(0, 3) - 0.5).abs() < 1e-9);
+        assert!((feedback_multiplier(2, 3) - 1.0).abs() < 1e-9);
+        assert!((feedback_multiplier(3, 0) - 1.15).abs() < 1e-9);
+        assert!((feedback_multiplier(2, 0) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn dashboard_breakdowns_count_only_recorded_rows() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = BrainStore::open(&tmp.path().join("dashboard.db")).unwrap();
+        let at = 1_793_000_000_000i64;
+        store
+            .with_conn(|conn| {
+                conn.execute(
+                    "INSERT INTO retrieval_log (id, timestamp, query_hash, phase, items_returned, tokens_used, truncated, cache_hit, latency_ms, must_apply_count)
+                     VALUES ('r1', ?1, 'h', 'pre', '[]', 100, 0, 1, 40, 2)",
+                    params![at],
+                )?;
+                conn.execute(
+                    "INSERT INTO retrieval_log (id, timestamp, query_hash, phase, items_returned, tokens_used, truncated, cache_hit, latency_ms, must_apply_count)
+                     VALUES ('r2', ?1, 'h', 'pre', '[]', 300, 0, 0, 700, 0)",
+                    params![at],
+                )?;
+                conn.execute(
+                    "INSERT INTO retrieval_log (id, timestamp, query_hash, phase, items_returned, tokens_used, truncated, cache_hit, latency_ms, must_apply_count)
+                     VALUES ('r3', ?1, 'h', 'upstream_call', '[]', 999, 0, 0, 5, 0)",
+                    params![at],
+                )?;
+                conn.execute(
+                    "INSERT INTO tool_log (id, timestamp, tool_name, tokens_used, tokens_saved) VALUES ('t1', ?1, 'grep_search', 50, 30)",
+                    params![at],
+                )?;
+                conn.execute(
+                    "INSERT INTO verify_outcomes (id, exit_code, cmd, recorded_at) VALUES ('v1', 0, 'cargo test', ?1)",
+                    params![at],
+                )?;
+                conn.execute(
+                    "INSERT INTO verify_outcomes (id, exit_code, cmd, recorded_at) VALUES ('v2', 1, 'cargo test', ?1)",
+                    params![at],
+                )?;
+                Ok(())
+            })
+            .unwrap();
+
+        let daily = store.daily_usage_since(at - 1).unwrap();
+        assert_eq!(daily.len(), 1);
+        assert_eq!(daily[0].route_calls, 2);
+        assert_eq!(daily[0].cache_hits, 1);
+        assert_eq!(daily[0].constrained_routes, 1);
+        assert_eq!(daily[0].routed_tokens, 400);
+        assert_eq!(daily[0].bounded_read_tokens_saved, 30);
+        assert_eq!((daily[0].verify_passed, daily[0].verify_failed), (1, 1));
+
+        let latency = store.latency_buckets_since(at - 1).unwrap();
+        assert_eq!(latency.iter().map(|b| b.count).sum::<u64>(), 2);
+        assert_eq!(latency[0].count, 1);
+        assert_eq!(latency[4].count, 1);
+
+        let tools = store.tool_usage_since(at - 1).unwrap();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(
+            (tools[0].calls, tools[0].tokens_used, tools[0].tokens_saved),
+            (1, 50, 30)
+        );
+
+        let commands = store.verify_commands_since(at - 1).unwrap();
+        assert_eq!(commands.len(), 1);
+        assert_eq!((commands[0].passed, commands[0].failed), (1, 1));
+    }
+
+    #[test]
+    fn bm25_fast_path_requires_hits_and_strength() {
+        let weak = Bm25Prefilter {
+            item_ids: HashSet::from(["a".into()]),
+            memory_ids: HashSet::new(),
+            bm25_map: HashMap::from([("a".into(), -1.0)]),
+            bm25_max: 1.0,
+        };
+        assert!(!weak.fast_path_eligible("unrelated query"));
+        assert!(!weak.fast_path_eligible("grep before cat large log token efficient"));
+
+        let strong = Bm25Prefilter {
+            item_ids: HashSet::from(["a".into()]),
+            memory_ids: HashSet::new(),
+            bm25_map: HashMap::from([("a".into(), -4.0)]),
+            bm25_max: 4.0,
+        };
+        assert!(strong.fast_path_eligible("any query"));
+
+        let supervisor_medium = Bm25Prefilter {
+            item_ids: HashSet::from(["a".into()]),
+            memory_ids: HashSet::new(),
+            bm25_map: HashMap::from([("a".into(), -2.0)]),
+            bm25_max: 2.0,
+        };
+        assert!(supervisor_medium.fast_path_eligible("grep before cat large log token efficient"));
+    }
+
+    #[test]
+    fn low_signal_memory_penalized() {
+        assert!(memory_source_score_adjustment(Some("session_digest"), "session-digest-x") < 0.0);
+        assert!(memory_source_score_adjustment(None, "legacy-cursor-de") < 0.0);
+        assert_eq!(memory_source_score_adjustment(Some("user"), "routing"), 0.0);
+    }
+
+    #[test]
+    fn store_opens_in_wal_mode_so_readers_do_not_block_writers() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = BrainStore::open(&tmp.path().join("wal_brain.db")).unwrap();
+        let mode: String = store
+            .with_conn(|conn| Ok(conn.query_row("PRAGMA journal_mode", [], |row| row.get(0))?))
+            .unwrap();
+        assert_eq!(mode, "wal");
+    }
+
+    #[test]
+    fn concurrent_identical_stores_persist_one_active_fact() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = Arc::new(BrainStore::open(&tmp.path().join("race_brain.db")).unwrap());
+        let stored = std::thread::scope(|s| {
+            let handles: Vec<_> = (0..8)
+                .map(|_| {
+                    let store = Arc::clone(&store);
+                    s.spawn(move || {
+                        store
+                            .store_fact_full(
+                                "topic",
+                                "same fact",
+                                "global",
+                                None,
+                                0.9,
+                                "agent",
+                                "hash-same",
+                                &[0.1f32, 0.2],
+                                "positive",
+                                None,
+                                None,
+                            )
+                            .unwrap()
+                            .stored
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|h| h.join().unwrap())
+                .filter(|stored| *stored)
+                .count()
+        });
+        assert_eq!(stored, 1);
+        assert_eq!(store.count_active_facts().unwrap(), 1);
+    }
+
+    #[test]
+    fn test_turn_telemetry_persistence_and_summary() {
+        let tmp = tempfile::tempdir().unwrap();
+        let db_path = tmp.path().join("test_brain.db");
+        let store = BrainStore::open(&db_path).unwrap();
+
+        let outcome = crate::telemetry::TurnTelemetryOutcome {
+            event_id: "evt-test-1".into(),
+            timestamp: chrono::Utc::now().timestamp_millis(),
+            session_id: Some("sess-1".into()),
+            organ: "tekmor".into(),
+            provider: "anthropic".into(),
+            model: "claude-3-5-sonnet".into(),
+            prompt_tokens: 10_000,
+            completion_tokens: 2_000,
+            cache_read_tokens: 40_000,
+            cache_write_tokens: 5_000,
+            total_tokens: 57_000,
+            estimated_cost_usd: 0.15,
+            estimated_dollars_saved: 0.108,
+            cache_hit_pct: 80.0,
+        };
+
+        store
+            .insert_turn_telemetry(&outcome, Some("planning"))
+            .unwrap();
+
+        let summary = store.query_turn_telemetry_summary(30).unwrap();
+        assert_eq!(summary.total_turns, 1);
+        assert_eq!(summary.total_prompt_tokens, 10_000);
+        assert_eq!(summary.total_cache_read_tokens, 40_000);
+        assert_eq!(summary.overall_cache_hit_pct, 80.0);
+        assert_eq!(
+            summary.by_provider.get("anthropic").unwrap().prompt_tokens,
+            10_000
+        );
+        assert_eq!(
+            summary
+                .by_model
+                .get("claude-3-5-sonnet")
+                .unwrap()
+                .cache_read_tokens,
+            40_000
+        );
+    }
+
+    #[test]
+    fn test_looks_like_secret_detects_secrets() {
+        assert!(looks_like_secret("api_key: secret12345678901234567890"));
+        assert!(looks_like_secret("sk-1234567890123456789012"));
+        assert!(looks_like_secret("ghp_1234567890123456789012"));
+        assert!(looks_like_secret("-----BEGIN RSA PRIVATE KEY-----"));
+        assert!(looks_like_secret("do not commit .env files"));
+        assert!(!looks_like_secret("prefer bounded reads over cat"));
+        assert!(!looks_like_secret("use git log to inspect commits"));
+    }
+
+    #[test]
+    fn test_word_count_boundaries() {
+        assert_eq!(word_count(""), 0);
+        assert_eq!(word_count("   "), 0);
+        let fifty = (1..=50)
+            .map(|i| format!("w{i}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert_eq!(word_count(&fifty), 50);
+        let fifty_one = format!("{fifty} w51");
+        assert_eq!(word_count(&fifty_one), 51);
+    }
+}
+
+pub struct SearchRow {
+    pub id: String,
+    pub item_type: String,
+    pub topic: String,
+    pub text: String,
+    pub source_path: String,
+    pub scope: String,
+    pub scope_key: Option<String>,
+    pub embedding: Option<Vec<u8>>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FactTemporal {
+    pub valid_from: Option<i64>,
+    pub invalid_at: Option<i64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RecurringMemoryTopic {
+    pub topic: String,
+    pub scope: String,
+    pub scope_key: Option<String>,
+    pub fact_count: usize,
+    pub latest_fact: String,
+    pub negative_count: usize,
+    pub apply_when_tags: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RecallRow {
+    pub id: String,
+    pub topic: String,
+    pub tags: Vec<String>,
+    pub fact: String,
+    pub source: String,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub embedding: Option<Vec<f32>>,
+}
+
+pub struct VerifyOutcomeRow {
+    pub id: String,
+    pub route_log_id: Option<String>,
+    pub exit_code: i32,
+    pub cause_tag: Option<String>,
+    pub verify_config_hash: Option<String>,
+    pub scenario_dir_hash: Option<String>,
+    pub cmd: String,
+    pub device_id: Option<String>,
+    pub recorded_at: i64,
+    pub source: Option<String>,
+    pub code_hash: Option<String>,
+    pub head_sha: Option<String>,
+}
+
+pub struct StoreFactResult {
+    pub id: String,
+    pub stored: bool,
+    pub deduplicated: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TrajectoryRecord {
+    pub id: String,
+    pub workflow_id: String,
+    pub node_id: String,
+    pub outcome: String,
+    pub route_log_id: Option<String>,
+    pub task_kind: Option<String>,
+    pub notes: Option<String>,
+    pub recorded_at: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct ActiveFactSnapshot {
+    pub id: String,
+    pub fact: String,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SkillStagingRow {
+    pub id: String,
+    pub fact_id: String,
+    pub topic: String,
+    pub skill_name: String,
+    pub draft_path: String,
+    pub target_path: Option<String>,
+    pub status: String,
+    pub created_at: i64,
+    pub resolved_at: Option<i64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct GcCandidate {
+    pub id: String,
+    pub topic: String,
+    pub fact: String,
+    pub scope: String,
+    pub scope_key: Option<String>,
+    pub source: Option<String>,
+    pub confidence: f64,
+    pub polarity: Option<String>,
+    pub apply_when: Option<String>,
+    pub gc_kind: String,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct DailyUsage {
+    pub day: String,
+    pub route_calls: u64,
+    pub cache_hits: u64,
+    pub constrained_routes: u64,
+    pub routed_tokens: u64,
+    pub bounded_read_tokens_saved: u64,
+    pub verify_passed: u64,
+    pub verify_failed: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CountBucket {
+    pub label: String,
+    pub count: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ToolUsage {
+    pub tool_name: String,
+    pub calls: u64,
+    pub tokens_used: u64,
+    pub tokens_saved: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct VerifyCommand {
+    pub cmd: String,
+    pub passed: u64,
+    pub failed: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RetrievalStats {
+    pub route_calls: usize,
+    pub upstream_calls: usize,
+    pub cache_hit_rate: f64,
+    pub avg_latency_ms: f64,
+    pub p95_latency_ms: u64,
+    pub phases: Vec<(String, usize)>,
+    pub routes_with_savings: usize,
+    pub avg_saved_pct: f64,
+    pub total_saved_tokens: u64,
+    pub avg_routed_tokens: f64,
+    pub routes_with_constraints: usize,
+    pub total_must_apply: usize,
+    pub tool_calls: usize,
+    pub tool_tokens_saved: u64,
+    pub tool_avg_savings_pct: f64,
+    pub inefficient_read_events: usize,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ToolEventRecord {
+    pub timestamp: i64,
+    pub tool_name: String,
+    pub path: Option<String>,
+    #[serde(default)]
+    pub detail: Option<String>,
+    pub tokens_used: usize,
+    pub tokens_saved: Option<usize>,
+    pub savings_pct: Option<f64>,
+    pub must_apply_active: bool,
+    pub phase: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ToolTraceRow {
+    pub id: String,
+    pub tool_name: String,
+    pub path: Option<String>,
+    pub detail: Option<String>,
+    pub scope_key: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ContextFeedbackSummary {
+    pub items_tracked: usize,
+    pub total_useful: i64,
+    pub total_useless: i64,
+    pub lowest_weight: Vec<WeightSnapshot>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WeightSnapshot {
+    pub item_id: String,
+    pub weight: f64,
+    pub useful_count: i64,
+    pub useless_count: i64,
+}
+
+pub struct ConflictSnapshot {
+    pub id: String,
+    pub topic: String,
+    pub scope: String,
+    pub scope_key: Option<String>,
+    pub loser_id: String,
+    pub loser_fact: String,
+    pub winner_id: String,
+    pub winner_fact: String,
+    pub restored: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct RetrievalLogRow {
+    pub id: String,
+    pub query_hash: String,
+    pub phase: String,
+    pub items_json: String,
+    pub tokens_used: usize,
+    pub truncated: bool,
+    pub cache_hit: bool,
+    pub latency_ms: u64,
+    pub index_total: Option<usize>,
+    pub saved_pct: Option<u8>,
+    pub must_apply_count: Option<usize>,
+}
+
+fn map_retrieval_log_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RetrievalLogRow> {
+    Ok(RetrievalLogRow {
+        id: row.get(0)?,
+        query_hash: row.get(1)?,
+        phase: row.get(2)?,
+        items_json: row.get(3)?,
+        tokens_used: row.get::<_, i64>(4)? as usize,
+        truncated: row.get::<_, i64>(5)? != 0,
+        cache_hit: row.get::<_, i64>(6)? != 0,
+        latency_ms: row.get::<_, i64>(7)? as u64,
+        index_total: row.get::<_, Option<i64>>(8)?.map(|n| n.max(0) as usize),
+        saved_pct: row.get::<_, Option<i64>>(9)?.map(|n| n.clamp(0, 100) as u8),
+        must_apply_count: row.get::<_, Option<i64>>(10)?.map(|n| n.max(0) as usize),
+    })
+}
+
+fn phase_match_boost(phase: &str, topic: &str, text: &str) -> f64 {
+    if phase == "unknown" {
+        return 0.0;
+    }
+    let hay = format!("{} {}", topic, text).to_lowercase();
+    if hay.contains(phase) {
+        return 0.12;
+    }
+    let keywords: &[&str] = match phase {
+        "debugging" => &["debug", "fix", "error", "bug", "fail", "crash", "issue"],
+        "planning" => &["plan", "design", "architect", "roadmap", "spec", "version"],
+        "implementing" => &[
+            "implement",
+            "build",
+            "add",
+            "create",
+            "release",
+            "sync",
+            "mcp",
+        ],
+        "reviewing" => &["review", "pr", "audit", "lint", "checklist"],
+        _ => return 0.0,
+    };
+    if keywords.iter().any(|k| hay.contains(k)) {
+        0.12
+    } else {
+        0.0
+    }
+}
+
+pub fn bytes_to_f32(blob: &[u8]) -> Vec<f32> {
+    blob.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+        .collect()
+}
+
+pub fn normalize_fact(text: &str) -> String {
+    text.to_lowercase()
+        .chars()
+        .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+pub fn content_hash(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(normalize_fact(text).as_bytes()))
+}
+
+fn map_skill_staging_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SkillStagingRow> {
+    Ok(SkillStagingRow {
+        id: row.get(0)?,
+        fact_id: row.get(1)?,
+        topic: row.get(2)?,
+        skill_name: row.get(3)?,
+        draft_path: row.get(4)?,
+        target_path: row.get(5)?,
+        status: row.get(6)?,
+        created_at: row.get(7)?,
+        resolved_at: row.get(8)?,
+    })
+}
+
+pub fn word_count(text: &str) -> usize {
+    text.split_whitespace().count()
+}
+
+pub fn looks_like_secret(text: &str) -> bool {
+    static SECRET_PATTERNS: std::sync::LazyLock<regex::RegexSet> = std::sync::LazyLock::new(|| {
+        regex::RegexSet::new([
+            r"(?i)(api[_-]?key|secret|password|token)\s*[:=]\s*\S+",
+            r"sk-[a-zA-Z0-9]{20,}",
+            r"ghp_[a-zA-Z0-9]{20,}",
+            r"-----BEGIN (RSA |EC )?PRIVATE KEY-----",
+        ])
+        .unwrap()
+    });
+    SECRET_PATTERNS.is_match(text) || text.contains(".env") || text.contains(".pem")
+}
+
+/// Feedback multiplier from `report_context_useful` stats.
+///
+/// - If `useless_count >= 3` and exceeds `useful_count` by ≥2: penalty (0.5×).
+/// - If `useful_count >= 3` and `useless_count == 0`: modest boost (1.15×).
+/// - Otherwise: neutral (1.0×).
+#[must_use]
+fn feedback_multiplier(useful_count: u32, useless_count: u32) -> f64 {
+    let i_useless = i64::from(useless_count);
+    let i_useful = i64::from(useful_count);
+
+    if useless_count >= 3 && i_useless - i_useful >= 2 {
+        0.5
+    } else if useful_count >= 3 && useless_count == 0 {
+        1.15
+    } else {
+        1.0
+    }
+}

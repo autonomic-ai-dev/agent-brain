@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use agent_brain::config::Config;
-use agent_brain::engine::Engine;
-use agent_brain_graphify::cli::{run_cli, GraphifyCli};
-use agent_brain_graphify::rpc;
+use tekmor::config::Config;
+use tekmor::engine::Engine;
+use tekmor_graphify::cli::{run_cli, GraphifyCli};
+use tekmor_graphify::rpc;
 use anyhow::{bail, Result};
 
 fn main() -> Result<()> {
@@ -12,7 +12,7 @@ fn main() -> Result<()> {
     match args.first().map(String::as_str) {
         Some("rpc") => {
             let (Some(tool), Some(raw)) = (args.get(1), args.get(2)) else {
-                bail!("usage: agent-brain-graphify rpc <tool> <json-args>");
+                bail!("usage: tekmor-graphify rpc <tool> <json-args>");
             };
             rpc::run(tool, raw)
         }
@@ -38,7 +38,7 @@ fn main() -> Result<()> {
             };
             run_cli(&engine, cli)
         }
-        _ => bail!("usage: agent-brain graphify <enable|disable|status|ingest|run|query> ..."),
+        _ => bail!("usage: tekmor graphify <enable|disable|status|ingest|run|query> ..."),
     }
 }
 

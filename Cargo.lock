@@ -62,105 +62,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "agent-brain"
-version = "1.0.0-rc8"
-dependencies = [
- "age",
- "agent-brain-core",
- "anyhow",
- "chrono",
- "dirs",
- "fastembed",
- "glob",
- "keyring",
- "libc",
- "lru",
- "opendal",
- "rayon",
- "regex",
- "rmcp",
- "rusqlite",
- "schemars",
- "secrecy",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2",
- "tar",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "toml 0.8.23",
- "tracing",
- "tracing-subscriber",
- "tree-sitter",
- "tree-sitter-go",
- "tree-sitter-python",
- "tree-sitter-rust",
- "tree-sitter-typescript",
- "ureq 3.3.0",
- "uuid",
- "walkdir",
- "zstd",
-]
-
-[[package]]
-name = "agent-brain-bench"
-version = "1.0.0-rc5"
-dependencies = [
- "agent-brain",
- "agent-brain-graphify",
- "anyhow",
- "chrono",
- "serde",
- "serde_json",
- "tempfile",
- "tracing",
- "ureq 3.3.0",
-]
-
-[[package]]
-name = "agent-brain-core"
-version = "1.0.0-rc8"
-dependencies = [
- "schemars",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "agent-brain-extras"
-version = "1.0.0-rc8"
-dependencies = [
- "agent-brain",
- "anyhow",
- "chrono",
- "prost",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tonic",
- "tonic-build",
- "tracing",
-]
-
-[[package]]
-name = "agent-brain-graphify"
-version = "1.0.0-rc8"
-dependencies = [
- "agent-brain",
- "anyhow",
- "chrono",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
- "tracing",
- "uuid",
-]
-
-[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3943,6 +3844,105 @@ dependencies = [
  "filetime",
  "libc",
  "xattr",
+]
+
+[[package]]
+name = "tekmor"
+version = "1.0.0-rc8"
+dependencies = [
+ "age",
+ "anyhow",
+ "chrono",
+ "dirs",
+ "fastembed",
+ "glob",
+ "keyring",
+ "libc",
+ "lru",
+ "opendal",
+ "rayon",
+ "regex",
+ "rmcp",
+ "rusqlite",
+ "schemars",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
+ "tar",
+ "tekmor-core",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml 0.8.23",
+ "tracing",
+ "tracing-subscriber",
+ "tree-sitter",
+ "tree-sitter-go",
+ "tree-sitter-python",
+ "tree-sitter-rust",
+ "tree-sitter-typescript",
+ "ureq 3.3.0",
+ "uuid",
+ "walkdir",
+ "zstd",
+]
+
+[[package]]
+name = "tekmor-bench"
+version = "1.0.0-rc5"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "serde",
+ "serde_json",
+ "tekmor",
+ "tekmor-graphify",
+ "tempfile",
+ "tracing",
+ "ureq 3.3.0",
+]
+
+[[package]]
+name = "tekmor-core"
+version = "1.0.0-rc8"
+dependencies = [
+ "schemars",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "tekmor-extras"
+version = "1.0.0-rc8"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "prost",
+ "serde",
+ "serde_json",
+ "tekmor",
+ "tempfile",
+ "tokio",
+ "tonic",
+ "tonic-build",
+ "tracing",
+]
+
+[[package]]
+name = "tekmor-graphify"
+version = "1.0.0-rc8"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tekmor",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

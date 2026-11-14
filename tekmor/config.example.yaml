@@ -1,0 +1,43 @@
+auto_update:
+  enabled: true
+  interval_hours: 24  # package updates only; MCP checks are separate
+  packages:
+    enabled: true
+    # names: [ecc]   # omit or leave empty to update all installed packages
+  mcp:
+    enabled: true
+    repo: autonomic-ai-dev/agent-brain
+    bin_path: ~/.local/bin/tekmor
+    refresh_cursor: true
+    restart_after_update: true
+    recheck_interval_minutes: 15  # while serve runs; 0 = check only on MCP start
+    restart_idle_secs: 10
+    restart_max_wait_secs: 300
+    restart_min_delay_secs: 2
+
+# Optional graphify orchestration (v0.17+)
+# graphify:
+#   enabled: true
+#   graphify_bin: graphify
+#   default_query_budget: 1500
+
+# Optional upstream MCP federation (v0.8+)
+# upstream_mcp:
+#   enabled: true
+#   max_servers: 2
+#   suggest_limit: 2
+#   servers:
+#     - name: github
+#       command: npx
+#       args: ["-y", "@modelcontextprotocol/server-github"]
+#       env:
+#         GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"
+
+# Registry cache (embedded snapshot + optional remote sync)
+# registry:
+#   enabled: true
+#   remote_repo: autonomic-ai-dev/agent-registry
+#   remote_ref: master
+#   registry_subpath: ""
+#   sync_interval_hours: 24
+#   sync_on_doctor: true

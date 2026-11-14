@@ -1,17 +1,17 @@
 [package]
-name = "agent-brain-extras"
+name = "tekmor-extras"
 version = "1.0.0-rc8"
 edition = "2021"
-description = "agent-brain extension: dataset, digest, fixture, skills-sh, distill, and the gRPC bridge"
+description = "tekmor extension: dataset, digest, fixture, skills-sh, distill, and the gRPC bridge"
 license = "MIT"
 publish = false
 
 [[bin]]
-name = "agent-brain-extras"
+name = "tekmor-extras"
 path = "src/main.rs"
 
 [dependencies]
-agent-brain = { path = "../../agent-brain", features = ["extras"] }
+tekmor = { path = "../../tekmor", features = ["extras"] }
 anyhow = "1"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"

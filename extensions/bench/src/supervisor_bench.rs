@@ -1,6 +1,5 @@
 //! Execution supervisor efficiency benchmarks — skill recall, must_apply, token savings, latency.
 //!
-//! Run: `agent-brain bench --supervisor [--assert]`
 
 use std::sync::Arc;
 
@@ -9,14 +8,14 @@ use tempfile::TempDir;
 
 use crate::bench::percentiles;
 use crate::fixture::{seed_bench_fixture, BENCH_FIXTURE_SKILLS};
-use agent_brain::config::Config;
-use agent_brain::db::store::{content_hash, BrainStore};
-use agent_brain::embed::deterministic_embedding;
-use agent_brain::engine::{Engine, RouteRequest};
-use agent_brain::packages::install_bundled;
-use agent_brain::route_briefing::token_savings;
-use agent_brain::token_tools::{run_token_tools_bench, TokenToolsBenchReport};
-use agent_brain::types::RouteLimits;
+use tekmor::config::Config;
+use tekmor::db::store::{content_hash, BrainStore};
+use tekmor::embed::deterministic_embedding;
+use tekmor::engine::{Engine, RouteRequest};
+use tekmor::packages::install_bundled;
+use tekmor::route_briefing::token_savings;
+use tekmor::token_tools::{run_token_tools_bench, TokenToolsBenchReport};
+use tekmor::types::RouteLimits;
 
 pub const SUPERVISOR_SKILL_HIT_THRESHOLD: f64 = 1.0;
 pub const MUST_APPLY_HIT_THRESHOLD: f64 = 1.0;

@@ -1,0 +1,734 @@
+use std::fs;
+use std::io::{IsTerminal, Write};
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context, Result};
+use serde_json::{json, Value};
+
+use crate::host_install::{self, HostTarget};
+
+pub fn run(
+    target: HostTarget,
+    print_only: bool,
+    reload: bool,
+    verbose: bool,
+    quiet: bool,
+) -> Result<()> {
+    let exe = std::env::current_exe().context("resolve tekmor binary path")?;
+    let mcp_exe = if print_only {
+        exe.clone()
+    } else {
+        ensure_mcp_runnable_binary(&exe, !verbose)?
+    };
+    let snippet = mcp_server_entry(&mcp_exe);
+
+    if print_only {
+        match target {
+            HostTarget::VsCode { .. } => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "servers": { "tekmor": host_install::vscode_server_entry_public(&exe) }
+                    }))?
+                );
+            }
+            HostTarget::OpenCode { .. } => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&json!({
+                        "mcp": { "tekmor": host_install::opencode_server_entry_public(&exe) }
+                    }))?
+                );
+            }
+            HostTarget::Codex { .. } => {
+                println!("{}", host_install::codex_mcp_toml_block(&exe));
+            }
+            _ => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(
+                        &json!({ "mcpServers": { "tekmor": snippet } })
+                    )?
+                );
+            }
+        }
+        return Ok(());
+    }
+
+    if reload && !matches!(target, HostTarget::Cursor { .. } | HostTarget::All) && verbose {
+        eprintln!("Note: --reload only applies to Cursor MCP config.");
+    }
+
+    let is_tty = std::io::stdout().is_terminal() && !verbose && !quiet;
+
+    // Step 1: Binary check
+    if is_tty {
+        print!("  => [1/4] Preparing binary...\r");
+        let _ = std::io::stdout().flush();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if mcp_exe == exe {
+            if let Err(err) = crate::doctor::prepare_macos_release_binary(&exe) {
+                if verbose {
+                    eprintln!("Warning: macOS release binary check failed: {err}");
+                }
+            }
+        }
+    }
+    if !is_tty && !quiet && !verbose {
+        println!(" ✔ [1/4] Binary verified: {}", exe.display());
+    }
+
+    // Step 2: Host configuration
+    if is_tty {
+        print!("  => [2/4] Configuring host integrations...\r");
+        let _ = std::io::stdout().flush();
+    }
+    let paths = host_install::install_host(target, &mcp_exe, !verbose)?;
+    if verbose {
+        println!("tekmor MCP configured for {}", target.label());
+        println!("Binary: {}", exe.display());
+        if mcp_exe != exe {
+            println!(
+                "MCP spawn path: {} (signed copy for Cursor)",
+                mcp_exe.display()
+            );
+        }
+        for path in &paths {
+            println!("  {}", path.display());
+        }
+        println!();
+    } else if !is_tty && !quiet {
+        println!(" ✔ [2/4] Hosts configured ({})", target.label());
+    }
+
+    // Step 3: Default packages
+    if is_tty {
+        print!("  => [3/4] Syncing default packages...\r");
+        let _ = std::io::stdout().flush();
+    }
+    let mut pkg_count = 0;
+    if let Ok(config) = crate::config::Config::load() {
+        if let Ok(installed) = crate::packages::bootstrap_default_packages(&config) {
+            pkg_count = installed.len();
+            if verbose {
+                for pkg in &installed {
+                    println!(
+                        "Default package: installed '{}' from {}",
+                        pkg.name, pkg.source
+                    );
+                }
+            }
+        }
+    }
+    if !is_tty && !quiet && !verbose {
+        println!(" ✔ [3/4] Packages synced ({pkg_count} default packages)");
+    }
+
+    // Step 4: Memory warmup
+    if is_tty {
+        print!("  => [4/4] Ingesting memory & warming index...\r");
+        let _ = std::io::stdout().flush();
+    }
+    let (_indexed, sessions, total) = match run_post_install_warmup(!verbose) {
+        Ok(counts) => counts,
+        Err(err) => {
+            if verbose {
+                eprintln!("Warning: post-install index/session ingest: {err}");
+            }
+            (0, 0, 0)
+        }
+    };
+    if !is_tty && !quiet && !verbose {
+        println!(
+            " ✔ [4/4] Brain warmed ({} items, {} sessions)",
+            total, sessions
+        );
+    }
+
+    // Final verdict
+    if is_tty {
+        print!("\r\x1b[2K");
+        println!(
+            "✔ tekmor v{} installed successfully\n  • binary:  {}\n  • targets: {} (route gate active)\n  • memory:  {} items indexed · {} sessions ingested",
+            env!("CARGO_PKG_VERSION"),
+            exe.display(),
+            target.label(),
+            total,
+            sessions
+        );
+    } else if !quiet && !verbose {
+        println!(
+            "✔ tekmor v{} installed successfully (hosts: {}, index: {} items, {} sessions).",
+            env!("CARGO_PKG_VERSION"),
+            target.label(),
+            total,
+            sessions
+        );
+    }
+
+    if verbose {
+        match target {
+            HostTarget::Cursor { global: true } => print_cursor_next_steps(),
+            HostTarget::All => print_cursor_next_steps(),
+            _ => {}
+        }
+    }
+
+    Ok(())
+}
+
+/// User-facing label for sync_index / post_install_warmup counts.
+pub fn format_new_index_count(new_items: usize, total_items: usize) -> String {
+    format!("{new_items} new items ({total_items} total)")
+}
+
+/// Index skills/rules and ingest Cursor/OpenCode/Codex/Gemini session digests into brain.db.
+pub fn run_post_install_warmup(quiet: bool) -> Result<(usize, usize, usize)> {
+    let config = crate::config::Config::load()?;
+    config.ensure_dirs()?;
+    let engine = crate::engine::Engine::new(config)?;
+    let (indexed, sessions) = engine.post_install_warmup()?;
+    let total = engine.store.count_indexed_items()?;
+    if !quiet {
+        println!(
+            "Post-install brain: indexed {} · ingested {sessions} session digests (cursor/opencode/codex/gemini)",
+            format_new_index_count(indexed, total)
+        );
+    }
+    Ok((indexed, sessions, total))
+}
+
+fn print_cursor_next_steps() {
+    println!("Cursor next steps:");
+    println!("  1. Paste User Rules from ~/.tekmor/cursor-user-rules.mdc");
+    println!("     Optional mode: ~/.tekmor/cursor-tekmor-mode.mdc");
+    println!("     (Settings → Rules, Memories, and Commands → User Rules)");
+    println!("  2. Restart Cursor or toggle tekmor under Settings → MCP");
+    println!("  3. Confirm hooks under Settings → Hooks (route_task gate)");
+    println!("  4. Other hosts: tekmor mode paths");
+    println!("  5. After rebuilds or brew upgrade: tekmor install --global --reload");
+    println!();
+    println!("Other hosts: tekmor install --claude-desktop | --vscode | --claude-code | --opencode | --codex | --gemini | --antigravity [--global] | --all");
+}
+
+/// macOS MCP path: Homebrew Cellar blocks xattr/codesign — copy to ~/.local/bin (user-writable).
+pub fn ensure_mcp_runnable_binary(exe: &Path, quiet: bool) -> Result<PathBuf> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = quiet;
+        Ok(exe.to_path_buf())
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let canonical = fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
+        if !needs_mcp_binary_copy(&canonical) {
+            if let Err(err) = crate::doctor::prepare_macos_release_binary(&canonical) {
+                if !quiet {
+                    eprintln!(
+                        "Warning: macOS release binary check on {}: {err}",
+                        canonical.display()
+                    );
+                }
+            }
+            return Ok(canonical);
+        }
+
+        let dest = dirs::home_dir()
+            .context("home directory")?
+            .join(".local/bin/tekmor");
+        if let Some(parent) = dest.parent() {
+            fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+        }
+        fs::copy(&canonical, &dest)
+            .with_context(|| format!("copy MCP binary to {}", dest.display()))?;
+        crate::doctor::prepare_macos_release_binary(&dest).with_context(|| {
+            format!(
+                "MCP binary at {} must be Developer ID–signed at build (install does not re-sign)",
+                dest.display()
+            )
+        })?;
+        if !quiet {
+            println!(
+                "MCP binary: {} (copy of {} — Homebrew/cellar paths cannot be re-signed in place)",
+                dest.display(),
+                canonical.display()
+            );
+        }
+        Ok(dest)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn needs_mcp_binary_copy(path: &Path) -> bool {
+    if std::env::var("TEKMOR_SINGLE_BIN")
+        .map(|v| v != "0")
+        .unwrap_or(false)
+        || std::env::var("TEKMOR_NO_MCP_COPY")
+            .map(|v| v != "0")
+            .unwrap_or(false)
+    {
+        return false;
+    }
+    if crate::doctor::is_developer_id_signed(path)
+        && !crate::doctor::macos_has_quarantine_attrs(path)
+    {
+        return false;
+    }
+    is_homebrew_managed(path) || crate::doctor::macos_has_quarantine_attrs(path)
+}
+
+pub fn is_homebrew_managed(path: &Path) -> bool {
+    let s = path.to_string_lossy();
+    s.contains("/Cellar/") || s.contains("/opt/homebrew/") || s.contains("/usr/local/Cellar/")
+}
+
+/// Merge MCP config and optionally refresh Cursor hooks/rule (used by install + auto-update).
+pub fn configure_cursor(global: bool, exe: &Path, quiet: bool) -> Result<()> {
+    let mcp_exe = ensure_mcp_runnable_binary(exe, quiet)?;
+    let config_path = mcp_config_path(global)?;
+    if let Some(parent) = config_path.parent() {
+        fs::create_dir_all(parent).with_context(|| format!("create {}", parent.display()))?;
+    }
+
+    let merged = merge_mcp_config(&config_path, mcp_server_entry(&mcp_exe))?;
+    let pretty = serde_json::to_string_pretty(&merged)?;
+    fs::write(&config_path, format!("{pretty}\n"))
+        .with_context(|| format!("write MCP config to {}", config_path.display()))?;
+
+    if global {
+        install_cursor_hooks(quiet)?;
+        install_cursor_permissions(quiet)?;
+        install_cursor_user_rules_snippet(quiet)?;
+        host_install::install_tekmor_modes(true, quiet)?;
+    } else {
+        install_project_cursor_rules(quiet)?;
+    }
+
+    Ok(())
+}
+
+/// Cursor loads **project** rules from `<workspace>/.cursor/rules/*.mdc` only.
+pub fn install_cursor_user_rules_snippet(quiet: bool) -> Result<()> {
+    let home = dirs::home_dir().context("home directory")?;
+    let brain_home = home.join(".tekmor");
+    fs::create_dir_all(&brain_home).with_context(|| format!("create {}", brain_home.display()))?;
+    let path = brain_home.join("cursor-user-rules.mdc");
+    fs::write(&path, CURSOR_RULE).with_context(|| format!("write {}", path.display()))?;
+    let agstack_path = brain_home.join("cursor-agstack-rules.mdc");
+    fs::write(&agstack_path, host_install::AGSTACK_RULE)
+        .with_context(|| format!("write {}", agstack_path.display()))?;
+    if !quiet {
+        println!();
+        println!(
+            "Cursor User Rules (paste manually — Cursor does not load ~/.cursor/rules/ globally):"
+        );
+        println!("  File: {}", path.display());
+        println!("  agstack Rule File: {}", agstack_path.display());
+        println!("  Cursor → Settings → Rules, Memories, and Commands → User Rules → paste file contents");
+        println!("  Hooks in ~/.cursor/hooks.json are installed globally (route_task gate).");
+    }
+    Ok(())
+}
+
+/// Project-scoped Cursor rules (only when not using --global).
+pub fn install_project_cursor_rules(quiet: bool) -> Result<()> {
+    let cwd = std::env::current_dir().context("current working directory")?;
+    let root = crate::config::find_repo_root(&cwd).unwrap_or(cwd);
+    let rules_dir = root.join(".cursor").join("rules");
+    fs::create_dir_all(&rules_dir).with_context(|| format!("create {}", rules_dir.display()))?;
+
+    let rule_path = rules_dir.join("tekmor.mdc");
+    fs::write(&rule_path, CURSOR_RULE).with_context(|| format!("write {}", rule_path.display()))?;
+    let agstack_path = rules_dir.join("agstack.mdc");
+    fs::write(&agstack_path, host_install::AGSTACK_RULE)
+        .with_context(|| format!("write {}", agstack_path.display()))?;
+    let mode_path = rules_dir.join("tekmor-mode.mdc");
+    let mode_body = format!(
+        "---\ndescription: tekmor mode — short on-ramp for routed memory and skills\nalwaysApply: false\n---\n\n{}",
+        host_install::mode_snippet()
+    );
+    fs::write(&mode_path, &mode_body).with_context(|| format!("write {}", mode_path.display()))?;
+    if !quiet {
+        println!("Installed project Cursor rule at {}", rule_path.display());
+        println!(
+            "Installed project Cursor agstack rule at {}",
+            agstack_path.display()
+        );
+        println!("Installed project Cursor mode at {}", mode_path.display());
+    }
+    Ok(())
+}
+
+fn install_cursor_hooks(quiet: bool) -> Result<()> {
+    let home = dirs::home_dir().context("home directory")?;
+    let cursor_dir = home.join(".cursor");
+    let hooks_dir = cursor_dir.join("hooks").join("tekmor");
+    fs::create_dir_all(&hooks_dir).with_context(|| format!("create {}", hooks_dir.display()))?;
+
+    let script_path = hooks_dir.join("route_gate.py");
+    fs::write(&script_path, ROUTE_GATE_HOOK)
+        .with_context(|| format!("write {}", script_path.display()))?;
+    let wrapper_path = hooks_dir.join("route_gate_run.sh");
+    fs::write(&wrapper_path, ROUTE_GATE_RUN_SH)
+        .with_context(|| format!("write {}", wrapper_path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for path in [&script_path, &wrapper_path] {
+            let mut perms = fs::metadata(path)?.permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(path, perms)?;
+        }
+    }
+
+    let hooks_config = cursor_dir.join("hooks.json");
+    let merged = merge_hooks_config(&hooks_config, TEKMOR_HOOKS_JSON)?;
+    let pretty = serde_json::to_string_pretty(&merged)?;
+    fs::write(&hooks_config, format!("{pretty}\n"))
+        .with_context(|| format!("write hooks config to {}", hooks_config.display()))?;
+
+    if !command_exists("python3") {
+        eprintln!("Warning: python3 not found on PATH — route_gate hook requires python3");
+    }
+
+    if !quiet {
+        println!("Installed Cursor hooks at {}", hooks_config.display());
+    }
+    Ok(())
+}
+
+const TEKMOR_MCP_ALLOW: &str = "tekmor:*";
+
+fn install_cursor_permissions(quiet: bool) -> Result<()> {
+    let home = dirs::home_dir().context("home directory")?;
+    let cursor_dir = home.join(".cursor");
+    fs::create_dir_all(&cursor_dir).with_context(|| format!("create {}", cursor_dir.display()))?;
+
+    let path = cursor_dir.join("permissions.json");
+    let merged = merge_permissions_config(&path)?;
+    let pretty = serde_json::to_string_pretty(&merged)?;
+    fs::write(&path, format!("{pretty}\n"))
+        .with_context(|| format!("write permissions config to {}", path.display()))?;
+
+    if !quiet {
+        println!("Installed Cursor MCP allowlist at {}", path.display());
+        println!(
+            "  Added {TEKMOR_MCP_ALLOW} — CLI agents skip per-session MCP approval when Run Mode is enabled."
+        );
+    }
+    Ok(())
+}
+
+fn merge_permissions_config(path: &Path) -> Result<Value> {
+    let mut root = if path.exists() {
+        let raw = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+        serde_json::from_str(&raw).unwrap_or_else(|_| json!({}))
+    } else {
+        json!({})
+    };
+
+    if !root.is_object() {
+        root = json!({});
+    }
+
+    let existing = root
+        .get("mcpAllowlist")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let has_tekmor = existing.iter().any(|entry| {
+        entry
+            .as_str()
+            .map(|s| s.eq_ignore_ascii_case(TEKMOR_MCP_ALLOW))
+            .unwrap_or(false)
+    });
+
+    let mut mcp_allowlist = existing;
+    if !has_tekmor {
+        mcp_allowlist.push(json!(TEKMOR_MCP_ALLOW));
+    }
+
+    root["mcpAllowlist"] = json!(mcp_allowlist);
+    Ok(root)
+}
+
+fn command_exists(cmd: &str) -> bool {
+    std::process::Command::new(cmd)
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+fn merge_hooks_config(path: &Path, tekmor_fragment: &str) -> Result<Value> {
+    let fragment: Value =
+        serde_json::from_str(tekmor_fragment).context("parse tekmor hooks")?;
+    let fragment_hooks = fragment
+        .get("hooks")
+        .and_then(|v| v.as_object())
+        .context("tekmor hooks fragment missing hooks object")?;
+
+    let mut root = if path.exists() {
+        let raw = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+        serde_json::from_str(&raw).with_context(|| format!("parse {}", path.display()))?
+    } else {
+        json!({ "version": 1, "hooks": {} })
+    };
+
+    if root.get("version").is_none() {
+        root["version"] = json!(1);
+    }
+
+    let hooks = root
+        .as_object_mut()
+        .and_then(|o| o.get_mut("hooks"))
+        .and_then(|v| v.as_object_mut())
+        .context("hooks.json must contain a hooks object")?;
+
+    for (event, entries) in fragment_hooks {
+        let existing = hooks.entry(event.clone()).or_insert_with(|| json!([]));
+        let Some(arr) = existing.as_array_mut() else {
+            continue;
+        };
+        arr.retain(|entry| !is_tekmor_hook_entry(entry));
+        if let Some(new_entries) = entries.as_array() {
+            for entry in new_entries {
+                arr.push(entry.clone());
+            }
+        }
+    }
+
+    Ok(root)
+}
+
+fn is_tekmor_hook_entry(entry: &Value) -> bool {
+    entry
+        .get("command")
+        .and_then(|v| v.as_str())
+        .map(|cmd| {
+            cmd.contains("hooks/tekmor/route_gate.py")
+                || cmd.contains("hooks/tekmor/route_gate_run.sh")
+        })
+        .unwrap_or(false)
+}
+
+const ROUTE_GATE_HOOK: &str = include_str!("../hooks/route_gate.py");
+const ROUTE_GATE_RUN_SH: &str = include_str!("../hooks/route_gate_run.sh");
+
+const TEKMOR_HOOKS_JSON: &str = include_str!("../hooks/tekmor-hooks.json");
+
+const CURSOR_RULE: &str = r#"---
+description: Require tekmor MCP on every agent turn (route_task, store_memory)
+alwaysApply: true
+---
+
+# tekmor MCP (required)
+
+You have an MCP server named **tekmor**. You must use it — do not improvise routing from stale context.
+
+## Every user turn (before planning or editing)
+
+1. Call **`route_task`** with:
+   - `user_message`: the user's latest message (verbatim intent)
+   - `current_working_directory`: workspace root or cwd
+   - `open_files`: paths the user has open (if known)
+2. Treat the response as authoritative for this turn:
+   - Load **`recommended_skills`** and **`recommended_agents`** (use returned `path` values)
+   - Apply **`applicable_rules`** and **`must_apply`** to your plan
+   - Use **`relevant_memory`** for project conventions
+
+Do **not** skip `route_task`. Do **not** load skills/rules from guesswork when tekmor is available.
+
+## Task completion
+
+When a durable decision or convention is established, call **`store_memory`** once (max 50 words, no secrets).
+
+## Errors: obey valid gates; recover without bypass
+
+Judge the error before acting. **Do not disable the route gate** (`TEKMOR_ROUTE_HOOKS=0`) to work around a deny.
+
+### Permission denied (route gate / hook) — valid
+
+This means `route_task` has not cleared the gate for this turn. **Do not bypass.**
+
+1. Call **`route_task`** again (same turn), then retry the gated tool.
+2. If still denied, pick another **allowed** approach that still goes through the gate (e.g. brain tools listed after a successful route; CLI only for durable writes below).
+3. Never set `TEKMOR_ROUTE_HOOKS=0` for Permission denied.
+
+### Connection closed / Not connected / `-32000` / timeout — infrastructure
+
+1. **Retry the same tool 2–3 times** with short waits (~0.5–1s). Do not skip `route_task` or `store_memory` on the first failure.
+2. **Writes** (`store_memory`, …): after MCP retries fail, **do not drop the fact** — use CLI:
+   - `tekmor memory put --topic "…" --fact "…"`
+   - or `tekmor memory enqueue …` then `tekmor memory flush-pending` (`--watch` to keep retrying).
+3. **Reads**: after retries fail, use another approach (toggle/reload MCP; or host-native tools for that dig only). Tell the user context is reduced. Do **not** disable hooks unless the user explicitly asks.
+
+## User visibility (no need to expand MCP JSON)
+
+Each `route_task` writes a readable summary to **`~/.autonomic/memory/logs/last-route.md`**. The user can run **`tekmor briefing`** in a terminal or watch the MCP output panel for a one-line stderr summary. The JSON field **`briefing`** is a short one-liner; full detail is in the file.
+
+## macOS
+
+Linker-signed local builds are killed by taskgated when Cursor launches MCP. Use **`make release-macos`**, **`tekmor doctor --fix`**, or the GitHub release binary at `~/.local/bin/tekmor`.
+
+**Hooks enforce this:** Cursor blocks **tekmor MCP tools** until `route_task` succeeds each turn (default `brain_mcp` scope). Large native `Read` calls are blocked in favor of bounded brain tools.
+"#;
+
+pub fn mcp_config_path(global: bool) -> Result<PathBuf> {
+    if global {
+        let home = dirs::home_dir().context("home directory")?;
+        return Ok(home.join(".cursor").join("mcp.json"));
+    }
+    Ok(std::env::current_dir()?.join(".cursor").join("mcp.json"))
+}
+
+pub fn mcp_server_entry(exe: &Path) -> Value {
+    let build_id = format!(
+        "{}@{}",
+        env!("CARGO_PKG_VERSION"),
+        chrono::Utc::now().timestamp()
+    );
+    let cache_dir = crate::embed::default_cache_dir();
+    let gate_scope =
+        std::env::var("TEKMOR_ROUTE_GATE_SCOPE").unwrap_or_else(|_| "all".to_string());
+    let read_gate = std::env::var("TEKMOR_READ_GATE").unwrap_or_else(|_| "hard".to_string());
+    json!({
+        "command": exe.display().to_string(),
+        "args": ["serve"],
+        "env": {
+            "RUST_LOG": "tekmor=info",
+            "FASTEMBED_CACHE_DIR": cache_dir.display().to_string(),
+            "TEKMOR_BUILD": build_id,
+            "TEKMOR_ROUTE_GATE_SCOPE": gate_scope,
+            "TEKMOR_READ_GATE": read_gate
+        }
+    })
+}
+
+pub fn merge_mcp_config(path: &Path, mut server_entry: Value) -> Result<Value> {
+    let mut root = if path.exists() {
+        let raw = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+        serde_json::from_str(&raw).with_context(|| format!("parse {}", path.display()))?
+    } else {
+        json!({ "mcpServers": {} })
+    };
+
+    let servers = root
+        .as_object_mut()
+        .and_then(|o| o.get_mut("mcpServers"))
+        .and_then(|v| v.as_object_mut())
+        .context("mcp.json must contain an mcpServers object")?;
+
+    if let Some(existing) = servers.get("tekmor") {
+        if let Some(existing_env) = existing.get("env").and_then(|e| e.as_object()) {
+            if let Some(new_env) = server_entry.get_mut("env").and_then(|e| e.as_object_mut()) {
+                for (k, v) in existing_env {
+                    if k != "TEKMOR_BUILD" {
+                        new_env.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    servers.insert("tekmor".to_string(), server_entry);
+    Ok(root)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn cursor_rule_requires_route_task() {
+        assert!(CURSOR_RULE.contains("route_task"));
+        assert!(CURSOR_RULE.contains("alwaysApply: true"));
+        assert!(CURSOR_RULE.contains("Errors: obey valid gates; recover without bypass"));
+        assert!(CURSOR_RULE.contains("Never set `TEKMOR_ROUTE_HOOKS=0` for Permission denied"));
+        assert!(CURSOR_RULE.contains("memory flush-pending"));
+    }
+
+    #[test]
+    fn merges_hooks_without_clobbering_other_entries() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("hooks.json");
+        fs::write(
+            &path,
+            r#"{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [{ "command": "./hooks/custom.sh" }]
+  }
+}"#,
+        )
+        .unwrap();
+
+        let merged = merge_hooks_config(&path, TEKMOR_HOOKS_JSON).unwrap();
+        let text = serde_json::to_string_pretty(&merged).unwrap();
+        assert!(text.contains("custom.sh"));
+        assert!(text.contains("route_gate_run.sh"));
+        assert!(text.contains("beforeSubmitPrompt"));
+        assert!(text.contains("postToolUse"));
+        assert!(text.contains("beforeShellExecution"));
+    }
+
+    #[test]
+    fn merges_permissions_without_clobbering() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("permissions.json");
+        fs::write(
+            &path,
+            r#"{
+  "mcpAllowlist": ["github:*"],
+  "terminalAllowlist": ["git"]
+}"#,
+        )
+        .unwrap();
+
+        let merged = merge_permissions_config(&path).unwrap();
+        let text = serde_json::to_string_pretty(&merged).unwrap();
+        assert!(text.contains("github:*"));
+        assert!(text.contains("tekmor:*"));
+        assert!(text.contains("terminalAllowlist"));
+    }
+
+    #[test]
+    fn detects_homebrew_managed_paths() {
+        assert!(is_homebrew_managed(Path::new(
+            "/opt/homebrew/Cellar/tekmor/1.0.0-rc8/bin/tekmor"
+        )));
+        assert!(!is_homebrew_managed(Path::new(
+            "/Users/me/.local/bin/tekmor"
+        )));
+    }
+
+    #[test]
+    fn merges_into_existing_config() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("mcp.json");
+        fs::write(
+            &path,
+            r#"{
+  "mcpServers": {
+    "other": { "command": "other-mcp" }
+  }
+}"#,
+        )
+        .unwrap();
+        let merged = merge_mcp_config(
+            &path,
+            mcp_server_entry(Path::new("/usr/local/bin/tekmor")),
+        )
+        .unwrap();
+        let text = serde_json::to_string_pretty(&merged).unwrap();
+        assert!(text.contains("tekmor"));
+        assert!(text.contains("other-mcp"));
+    }
+}

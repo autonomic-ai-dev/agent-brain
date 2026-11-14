@@ -2,7 +2,7 @@ pub mod convert;
 pub mod server;
 
 pub mod pb {
-    tonic::include_proto!("agent_brain.v1");
+    tonic::include_proto!("tekmor.v1");
 }
 
 pub use server::serve;
@@ -10,7 +10,7 @@ pub use server::serve;
 #[cfg(test)]
 mod tests {
     use super::convert::{route_response_to_proto, task_kind_to_proto};
-    use agent_brain::types::{RouteTaskResponse, TaskKind};
+    use tekmor::types::{RouteTaskResponse, TaskKind};
 
     #[test]
     fn grpc_route_response_includes_bridge_fields() {

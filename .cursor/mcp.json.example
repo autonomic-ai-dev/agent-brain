@@ -1,10 +1,10 @@
 {
   "mcpServers": {
-    "agent-brain": {
-      "command": "agent-brain",
+    "tekmor": {
+      "command": "tekmor",
       "args": ["serve"],
       "env": {
-        "RUST_LOG": "agent_brain=info"
+        "RUST_LOG": "tekmor=info"
       }
     }
   }

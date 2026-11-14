@@ -13,13 +13,13 @@ Summary: Installs skill packages from GitHub into the brain home, records each o
 
 - `package-add-clone`: Clones a `owner/repo` source into its own directory.
   - Intent: Keep two repositories with the same name from sharing one checkout.
-  - Behaviour: `agent-brain package add <owner/repo>` clones into `packages/<owner>-<repo>`, lowercased. Re-adding an installed source pulls it instead of cloning.
+  - Behaviour: `tekmor package add <owner/repo>` clones into `packages/<owner>-<repo>`, lowercased. Re-adding an installed source pulls it instead of cloning.
   - Outcome: `package list` shows the name, source, commit, and path. `slavingia/skills` installs as `slavingia-skills`.
 - `package-remove-purge`: Removes a package and its indexed items.
-  - Behaviour: `agent-brain package remove <name>` deletes the registry entry, purges the indexed items under its install path, and deletes the directory.
+  - Behaviour: `tekmor package remove <name>` deletes the registry entry, purges the indexed items under its install path, and deletes the directory.
   - Outcome: The package is gone from `package list` and its skills no longer match `skill_search`.
 - `package-update`: Pulls installed packages to their latest ref.
-  - Behaviour: `agent-brain package update [name]` skips bundles and any directory that is not a git checkout.
+  - Behaviour: `tekmor package update [name]` skips bundles and any directory that is not a git checkout.
   - Outcome: The recorded commit changes to the pulled head.
 - `package-index-scope`: Tags indexed items with the package they came from.
   - Behaviour: The first path component under `packages/` becomes the item's package key, so the directory name is also the scope.
@@ -27,12 +27,14 @@ Summary: Installs skill packages from GitHub into the brain home, records each o
 
 ## Code
 
-- `agent-brain/src/packages/`
+- `tekmor/src/packages/`
   - Owns: package registry (`packages.json`), clone and update, curated aliases, bundles, and the `package_name` owner-repo naming.
+- `tekmor/registry`
+  - Owns: the bundled registry manifests (`manifest.json`, `packages.json`, `utilities.json`, `workflows.json`), workflow definitions, and the product and supervisor rule packs under it.
 
 ## How to get to it (user POV)
 
-- CLI: `agent-brain package add <owner/repo>`, `package list`, `package update`, `package remove <name>`
+- CLI: `tekmor package add <owner/repo>`, `package list`, `package update`, `package remove <name>`
 - MCP: `skill_search` and `skill_get` return skills from installed packages.
 
 ## Verification Suites (Targeted Test Commands)
@@ -54,7 +56,7 @@ Summary: Installs skill packages from GitHub into the brain home, records each o
 ## Gotchas
 
 - Installs made before the owner prefix keep their old names (for example `skills`). Remove and re-add them to get the new name.
-- The Homebrew binary at `/opt/homebrew/bin/agent-brain` must be rebuilt or reinstalled before `package add` uses the owner-prefixed name globally.
+- The Homebrew binary at `/opt/homebrew/bin/tekmor` must be rebuilt or reinstalled before `package add` uses the owner-prefixed name globally.
 - `package remove` deletes the checkout directory. Re-add to restore it.
 
 - Formatting pass (rustfmt, 2026-11-07): line breaks and spacing only, no behaviour change.

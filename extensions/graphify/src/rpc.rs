@@ -2,8 +2,8 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use agent_brain::config::Config;
-use agent_brain::engine::Engine;
+use tekmor::config::Config;
+use tekmor::engine::Engine;
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 

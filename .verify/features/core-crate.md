@@ -27,26 +27,26 @@ related:
   - Outcome: `memory_decay` tests pass.
 - `core-boundary`: The core crate depends on no storage, runtime, or IO crate.
   - Intent: Keep routing logic pure and testable without a database, daemon, or network.
-  - Behaviour: The normal dependency tree of `agent-brain-core` is checked against a denylist of IO and runtime crate names.
+  - Behaviour: The normal dependency tree of `tekmor-core` is checked against a denylist of IO and runtime crate names.
   - Outcome: `.verify/checks/core_boundary.sh` exits 0 and prints the holding message.
 
 - `route-file-context-types`: `FileContext` and `LessonRec` are optional fields of `RouteTaskResponse`.
-  - Behaviour: `crates/agent-brain-core/src/types.rs` defines both structs. `file_context` and `lessons` are omitted from the serialized response when empty.
+  - Behaviour: `crates/tekmor-core/src/types.rs` defines both structs. `file_context` and `lessons` are omitted from the serialized response when empty.
   - Outcome: Clients that ignore the fields see no change.
 
 ## Code
 
-- `agent-brain/crates/agent-brain-core`
+- `tekmor/crates/tekmor-core`
 
 ## How to get to it (user POV)
 
-- Run `agent-brain route_task` from any repository. The must-apply rules it returns come from `behavior_contract` in the core crate.
+- Run `tekmor route_task` from any repository. The must-apply rules it returns come from `behavior_contract` in the core crate.
 - Ranking and decomposition happen inside `route_task` when a query is served; there is no separate user command.
-- Developers reach the crate at `agent-brain/crates/agent-brain-core`. The `agent_brain::types` and other re-exported paths still resolve for existing callers.
+- Developers reach the crate at `tekmor/crates/tekmor-core`. The `tekmor::types` and other re-exported paths still resolve for existing callers.
 
 ## Verification Suites (Targeted Test Commands)
 
-- **Unit Tests:** `cargo test -p agent-brain-core`
+- **Unit Tests:** `cargo test -p tekmor-core`
 - **Static Check:** `.verify/checks/core_boundary.sh`
 - **Allowlisted Verification:** `.verify/run.sh` (runs the static check and the unit tests in its core stage)
 - **Preconditions:** Rust toolchain and the repository's locked dependencies. No service, daemon, or database is needed.
@@ -54,7 +54,7 @@ related:
 ### Verification Steps
 
 1. **core-unit-tests** (sub-features: core-routing-contract, core-retrieval-ranking, core-query-decomposition, core-memory-decay)
-   - Request: `cargo test -p agent-brain-core`
+   - Request: `cargo test -p tekmor-core`
    - Why: Proves each pure ranking, decay, decomposition, and contract behavior with its own test.
    - Expected: 11 passed, 0 failed.
    - Impact: A failure means routing logic changed behavior. Fix the cause; do not change the expectations.
@@ -68,6 +68,6 @@ related:
 
 - The boundary check is a denylist of crate names. A new IO crate that is not on the list will pass the check. Extend the list in `.verify/checks/core_boundary.sh` when a new IO dependency is added.
 - `commit_gate` reads stdin, so it stays in the adapter crate. It is not covered by the core boundary.
-- The re-exports in `src/lib.rs` keep the old `agent_brain::<module>` paths valid. Removing a re-export is a breaking change for any caller that uses the old path.
-- Version: 1.0.0-rc5, set in `agent-brain/crates/agent-brain-core/Cargo.toml`. See CHANGELOG.md for the release contents.
+- The re-exports in `src/lib.rs` keep the old `tekmor::<module>` paths valid. Removing a re-export is a breaking change for any caller that uses the old path.
+- Version: 1.0.0-rc5, set in `tekmor/crates/tekmor-core/Cargo.toml`. See CHANGELOG.md for the release contents.
 - `RouteTaskResponse.response_tokens` (2026-11-13) is optional and omitted when unset. The MCP handler fills it with the size of the whole serialized response; the engine leaves it `None`.

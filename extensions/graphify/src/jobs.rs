@@ -7,8 +7,8 @@ use std::time::Duration;
 use anyhow::{bail, Context, Result};
 use uuid::Uuid;
 
-use agent_brain::db::graph_store::GraphifyJobInsert;
-use agent_brain::engine::Engine;
+use tekmor::db::graph_store::GraphifyJobInsert;
+use tekmor::engine::Engine;
 
 use crate::ingest::ingest_repo;
 use crate::process::output_with_timeout;

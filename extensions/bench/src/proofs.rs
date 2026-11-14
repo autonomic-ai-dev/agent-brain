@@ -15,7 +15,7 @@ use crate::scale_bench::{assert_scale_bench_gate, run_ci_scale_bench, ScaleBench
 use crate::supervisor_bench::{
     assert_supervisor_bench_gate, run_supervisor_bench, SupervisorBenchReport,
 };
-use agent_brain::token_tools::{run_token_tools_bench, TokenToolsBenchReport};
+use tekmor::token_tools::{run_token_tools_bench, TokenToolsBenchReport};
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ProofReport {

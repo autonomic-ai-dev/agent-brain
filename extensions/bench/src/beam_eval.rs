@@ -8,11 +8,11 @@ use std::sync::Arc;
 use anyhow::{bail, Context, Result};
 
 use crate::eval::{run_ci_eval_seeded, seed_eval_fixture, EvalReport, SuiteResult};
-use agent_brain::db::store::{content_hash, BrainStore, FactTemporal};
-use agent_brain::embed::deterministic_embedding;
-use agent_brain::engine::{Engine, RouteRequest};
-use agent_brain::observation::{run_observations, ObservationConfig};
-use agent_brain::types::{ItemType, RouteLimits, RouteTaskResponse};
+use tekmor::db::store::{content_hash, BrainStore, FactTemporal};
+use tekmor::embed::deterministic_embedding;
+use tekmor::engine::{Engine, RouteRequest};
+use tekmor::observation::{run_observations, ObservationConfig};
+use tekmor::types::{ItemType, RouteLimits, RouteTaskResponse};
 
 pub const BEAM_THRESHOLD: f64 = 0.85;
 
@@ -277,7 +277,7 @@ fn run_must_apply_suite(engine: &Engine) -> Result<SuiteResult> {
 }
 
 fn run_observation_suite(engine: &Engine) -> Result<SuiteResult> {
-    let embedder = agent_brain::embed::Embedder::deterministic();
+    let embedder = tekmor::embed::Embedder::deterministic();
     let report = run_observations(
         &engine.store,
         &embedder,
@@ -740,7 +740,7 @@ struct CorpusSkill {
 
 fn seed_skill_corpus(
     store: &Arc<BrainStore>,
-    embedder: &agent_brain::embed::Embedder,
+    embedder: &tekmor::embed::Embedder,
 ) -> Result<()> {
     let raw = fs::read_to_string(skill_corpus_path())?;
     for line in raw.lines().filter(|line| !line.trim().is_empty()) {
@@ -763,9 +763,9 @@ fn seed_jsonl_fixture(store: &Arc<BrainStore>) -> Result<()> {
     upsert_skill(
         store,
         "beam-ci",
-        "BEAM eval harness runs proofs CI regression gates for agent-brain routing",
+        "BEAM eval harness runs proofs CI regression gates for tekmor routing",
     )?;
-    let ci_mem = "Always run agent-brain eval --beam in CI before merging routing changes";
+    let ci_mem = "Always run tekmor eval --beam in CI before merging routing changes";
     let emb = deterministic_embedding(ci_mem);
     store.store_fact(
         "ci-beam",
@@ -786,7 +786,7 @@ fn seed_jsonl_fixture(store: &Arc<BrainStore>) -> Result<()> {
     upsert_rule(
         store,
         "rust-test-policy",
-        "Run cargo test in agent-brain for Rust changes and failing test fixes",
+        "Run cargo test in tekmor for Rust changes and failing test fixes",
     )?;
     upsert_skill(
         store,
@@ -801,12 +801,12 @@ fn seed_jsonl_fixture(store: &Arc<BrainStore>) -> Result<()> {
     upsert_agent(
         store,
         "mcp-implementer",
-        "Implements MCP servers, route_task tools, and agent-brain handlers for IDE agents",
+        "Implements MCP servers, route_task tools, and tekmor handlers for IDE agents",
     )?;
     upsert_rule(
         store,
         "mcp-route-task",
-        "route_task MCP tool must be called before other agent-brain tools each turn",
+        "route_task MCP tool must be called before other tekmor tools each turn",
     )?;
     upsert_skill(
         store,
@@ -868,14 +868,14 @@ fn seed_escalation_fixture(store: &Arc<BrainStore>) -> Result<()> {
     upsert_skill(
         store,
         "beam-ci",
-        "BEAM eval harness runs proofs CI regression gates for agent-brain routing",
+        "BEAM eval harness runs proofs CI regression gates for tekmor routing",
     )?;
     upsert_agent(
         store,
         "ci-verifier",
         "Verifies BEAM proofs and eval --beam pass before merge",
     )?;
-    let mem = "Always run agent-brain eval --beam in CI before merging routing changes";
+    let mem = "Always run tekmor eval --beam in CI before merging routing changes";
     let emb = deterministic_embedding(mem);
     store.store_fact(
         "ci-beam",

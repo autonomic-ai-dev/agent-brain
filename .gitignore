@@ -12,4 +12,4 @@ target/
 *.db-*
 !docs/benchmarks/fixture-2k.db
 vectors.bin
-.agent_brain_test/
+.tekmor_test/

@@ -27,7 +27,7 @@ pub fn query_codebase(
     let graph_path = repo_root.join("graphify-out").join("graph.json");
     if !graph_path.is_file() {
         bail!(
-            "no graph at {} — run `agent-brain graphify enable` and build a graph first",
+            "no graph at {} — run `tekmor graphify enable` and build a graph first",
             graph_path.display()
         );
     }

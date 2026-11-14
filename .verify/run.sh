@@ -1,23 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# agent-brain verification suite entrypoint
-# Executed by `agent-brain verify -- .verify/run.sh`
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$DIR/.." && pwd)"
 
-echo "==> [agent-brain] Starting verification suite..."
+echo "==> [tekmor] Starting verification suite..."
 cd "$REPO_ROOT"
 
 echo "==> Verifying cargo check with zero warnings..."
-cargo check -p agent-brain
+cargo check -p tekmor
 
-echo "==> Verifying the agent-brain-core boundary..."
+echo "==> Verifying the tekmor-core boundary..."
 .verify/checks/core_boundary.sh
 
-echo "==> Running agent-brain-core unit tests..."
-cargo test -p agent-brain-core
+echo "==> Running tekmor-core unit tests..."
+cargo test -p tekmor-core
 
 echo "==> Running Playbook: Turn Telemetry & Cache Savings..."
 .verify/playbooks/verify_usage_telemetry.sh
@@ -34,4 +32,4 @@ echo "==> Running Playbook: Multi-Agent Enforcement & Interception..."
 echo "==> Running Playbook: Full Suite..."
 .verify/playbooks/verify_full_suite.sh
 
-echo "==> [agent-brain] Verification completed successfully (exit 0)."
+echo "==> [tekmor] Verification completed successfully (exit 0)."

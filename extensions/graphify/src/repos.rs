@@ -104,7 +104,7 @@ pub fn touch_ingest(home: &Path, repo_root: &Path, graph_mtime: Option<i64>) -> 
     let now = chrono::Utc::now().timestamp();
     let entry = reg.find_mut(&repo_str).with_context(|| {
         format!(
-            "repo {} is not graphify-enabled; run: agent-brain graphify enable --repo {}",
+            "repo {} is not graphify-enabled; run: tekmor graphify enable --repo {}",
             repo_str, repo_str
         )
     })?;
@@ -138,15 +138,15 @@ fn append_ingest_hook(repo_root: &Path) -> Result<()> {
     if !hook_path.exists() {
         return Ok(());
     }
-    let marker = "agent-brain graphify ingest";
+    let marker = "tekmor graphify ingest";
     let raw = fs::read_to_string(&hook_path)?;
     if raw.contains(marker) {
         return Ok(());
     }
     let line = r#"
-# agent-brain graphify ingest (appended by `agent-brain graphify enable`)
-if command -v agent-brain >/dev/null 2>&1; then
-  agent-brain graphify ingest --repo "$(git rev-parse --show-toplevel)" --trigger git_hook >/dev/null 2>&1 || true
+# tekmor graphify ingest (appended by `tekmor graphify enable`)
+if command -v tekmor >/dev/null 2>&1; then
+  tekmor graphify ingest --repo "$(git rev-parse --show-toplevel)" --trigger git_hook >/dev/null 2>&1 || true
 fi
 "#;
     fs::write(&hook_path, format!("{raw}{line}"))?;

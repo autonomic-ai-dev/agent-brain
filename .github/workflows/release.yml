@@ -6,17 +6,44 @@ on:
 
 permissions:
   contents: write
-  actions: write
 
 jobs:
-  run-pipeline:
-    name: Run release pipeline
+  check:
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    needs: check
+    uses: ./.github/workflows/reusable-build.yml
+    secrets: inherit
+
+  publish:
+    name: Publish release
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
 
-      - uses: aeswibon/pipeline-compose-run@v1.17.1
+      - name: Download build artifacts
+        uses: actions/download-artifact@v7
         with:
-          pipeline_file: .github/pipelines/release.yml
-          github_token: ${{ github.token }}
-          commit_status: false
+          pattern: tekmor-*
+          path: dist
+          merge-multiple: true
+
+      - name: Extract changelog release notes
+        shell: bash
+        run: |
+          chmod +x .github/scripts/changelog-extract.sh
+          .github/scripts/changelog-extract.sh "${{ github.ref_name }}" > release-notes.md
+          echo "--- Release notes ---"
+          cat release-notes.md
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: tekmor ${{ github.ref_name }}
+          body_path: release-notes.md
+          files: dist/*
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'alpha') }}

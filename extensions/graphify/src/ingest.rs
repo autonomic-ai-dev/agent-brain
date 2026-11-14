@@ -1,10 +1,10 @@
-use agent_brain::graphify::{CodeGraphEdgeRow, CodeGraphNodeRow};
+use tekmor::graphify::{CodeGraphEdgeRow, CodeGraphNodeRow};
 use std::fs;
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 
-use agent_brain::db::store::BrainStore;
+use tekmor::db::store::BrainStore;
 
 use crate::repos::touch_ingest;
 use crate::types::{node_id_str, GraphJson, GraphJsonEdge, GraphJsonNode, GraphifyAnalysis};

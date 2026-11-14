@@ -4,7 +4,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BIN="${AGENT_BRAIN_BIN:-$HOME/.local/bin/agent-brain}"
+BIN="${TEKMOR_BIN:-$HOME/.local/bin/tekmor}"
 
 if [[ -x "$BIN" ]]; then
   exec "$BIN" update --force --mcp-only

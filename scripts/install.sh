@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Install agent-brain MCP server and register it with Cursor.
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/autonomic-ai-dev/agent-brain/master/scripts/install.sh | bash
@@ -8,7 +7,7 @@
 #
 set -euo pipefail
 
-REPO="${AGENT_BRAIN_REPO:-autonomic-ai-dev/agent-brain}"
+REPO="${TEKMOR_REPO:-autonomic-ai-dev/agent-brain}"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 FROM_SOURCE=0
 GLOBAL=0
@@ -23,18 +22,18 @@ while [[ $# -gt 0 ]]; do
     --with-starter) WITH_STARTER=1; shift ;;
     -h|--help)
       cat <<'EOF'
-Install agent-brain for Cursor MCP.
+Install tekmor for Cursor MCP.
 
 Options:
   --from-source   Build with cargo instead of downloading a release binary
   --global        Write ~/.cursor/mcp.json (default: ./.cursor/mcp.json)
   --print-only    Print MCP config JSON without writing files
-  --with-starter  After install, run: agent-brain add @starter
+  --with-starter  After install, run: tekmor add @starter
   --help          Show this help
 
 Environment:
   INSTALL_DIR     Binary install location (default: ~/.local/bin)
-  AGENT_BRAIN_REPO  GitHub repo (default: autonomic-ai-dev/agent-brain)
+  TEKMOR_REPO  GitHub repo (default: autonomic-ai-dev/agent-brain)
 EOF
       exit 0
       ;;
@@ -55,7 +54,7 @@ detect_target() {
 
 artifact_name() {
   local target="$1"
-  echo "agent-brain-${target}"
+  echo "tekmor-${target}"
 }
 
 # Release binaries are Developer ID–signed at build. Install only clears quarantine
@@ -66,7 +65,7 @@ prepare_macos_release_binary() {
     return 0
   fi
   if ! command -v codesign >/dev/null 2>&1; then
-    echo "ERROR: macOS requires Xcode Command Line Tools to run agent-brain under Cursor." >&2
+    echo "ERROR: macOS requires Xcode Command Line Tools to run tekmor under Cursor." >&2
     echo "  xcode-select --install" >&2
     return 1
   fi
@@ -93,7 +92,7 @@ install_from_release() {
   if [[ "$target" == "unsupported" ]]; then
     echo "Unsupported platform for release install." >&2
     echo "Shipped artifacts: aarch64-apple-darwin only (for now)." >&2
-    echo "Use --from-source, or: make release-macos && cp target/release/agent-brain ~/.local/bin/" >&2
+    echo "Use --from-source, or: make release-macos && cp target/release/tekmor ~/.local/bin/" >&2
     exit 1
   fi
 
@@ -111,9 +110,9 @@ install_from_release() {
     exit 1
   fi
   chmod +x "$tmp"
-  mv "$tmp" "${INSTALL_DIR}/agent-brain"
-  prepare_macos_release_binary "${INSTALL_DIR}/agent-brain"
-  echo "Installed to ${INSTALL_DIR}/agent-brain"
+  mv "$tmp" "${INSTALL_DIR}/tekmor"
+  prepare_macos_release_binary "${INSTALL_DIR}/tekmor"
+  echo "Installed to ${INSTALL_DIR}/tekmor"
 }
 
 install_from_cargo() {
@@ -122,9 +121,9 @@ install_from_cargo() {
     exit 1
   fi
   echo "Building from source. Prefer: make release-macos (Developer ID–signs the binary)." >&2
-  cargo install --git "https://github.com/${REPO}" --locked --force agent-brain
+  cargo install --git "https://github.com/${REPO}" --locked --force tekmor
   local bin
-  bin="$(command -v agent-brain)"
+  bin="$(command -v tekmor)"
   # From-source is linker-signed unless the user signed separately — verify only.
   prepare_macos_release_binary "$bin" || {
     echo "Hint: plain cargo install is not Developer ID–signed. Run make release-macos and install that binary." >&2
@@ -155,10 +154,10 @@ main() {
   ensure_path
 
   local bin
-  if command -v agent-brain >/dev/null 2>&1; then
-    bin="$(command -v agent-brain)"
+  if command -v tekmor >/dev/null 2>&1; then
+    bin="$(command -v tekmor)"
   else
-    bin="${INSTALL_DIR}/agent-brain"
+    bin="${INSTALL_DIR}/tekmor"
   fi
 
   prepare_macos_release_binary "$bin"
@@ -172,21 +171,21 @@ main() {
 
   if [[ "$WITH_STARTER" -eq 1 && "$PRINT_ONLY" -eq 0 ]]; then
     echo "Installing starter skill pack (@starter) ..."
-    "$bin" add @starter || echo "Warning: starter pack install failed (network/git). Run: agent-brain add @starter" >&2
+    "$bin" add @starter || echo "Warning: starter pack install failed (network/git). Run: tekmor add @starter" >&2
   fi
 
   if [[ "$PRINT_ONLY" -eq 0 ]]; then
     echo ""
-    echo "✓ agent-brain installed"
+    echo "✓ tekmor installed"
     echo "  Route ~500 tokens from thousands of skills — hooks enforce routing."
     if [[ "$WITH_STARTER" -eq 1 ]]; then
       echo "  Starter pack (@starter) — see output above."
     else
-      echo "  Next: agent-brain add @starter"
+      echo "  Next: tekmor add @starter"
     fi
-    echo "  Then: restart Cursor · enable MCP · agent-brain onboarding"
+    echo "  Then: restart Cursor · enable MCP · tekmor onboarding"
     if [[ "$(uname -s)" == "Darwin" ]]; then
-      echo "  macOS: if MCP is blocked, run: agent-brain doctor --fix"
+      echo "  macOS: if MCP is blocked, run: tekmor doctor --fix"
     fi
   fi
 }

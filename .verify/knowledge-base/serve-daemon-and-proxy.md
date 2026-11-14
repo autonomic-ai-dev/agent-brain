@@ -6,26 +6,26 @@ feature: "[[../features/serve-daemon-and-proxy]]"
 
 ## What it does
 
-Every agent host session starts `agent-brain serve` as an MCP server. One of those processes is a stdio proxy. It forwards the host's requests to a shared daemon over a Unix socket. The daemon owns the brain database and the embedding model, and it runs background work once for all sessions.
+Every agent host session starts `tekmor serve` as an MCP server. One of those processes is a stdio proxy. It forwards the host's requests to a shared daemon over a Unix socket. The daemon owns the brain database and the embedding model, and it runs background work once for all sessions.
 
 ## How it works
 
-1. **Daemon.** `agent-brain serve --daemon` takes the serve lock, starts bootstrap and auto-update, writes `serve_meta`, runs auto-wire, and listens on the daemon socket. It also starts a check every 60 seconds that drops the embedding model after 10 minutes without use.
-2. **Proxy.** `agent-brain serve` without `--daemon` connects to the socket. If no daemon answers, it starts one and retries. After a daemon restart it replays the `initialize` handshake so the host session continues.
+1. **Daemon.** `tekmor serve --daemon` takes the serve lock, starts bootstrap and auto-update, writes `serve_meta`, runs auto-wire, and listens on the daemon socket. It also starts a check every 60 seconds that drops the embedding model after 10 minutes without use.
+2. **Proxy.** `tekmor serve` without `--daemon` connects to the socket. If no daemon answers, it starts one and retries. After a daemon restart it replays the `initialize` handshake so the host session continues.
 3. **Exit.** A proxy exits when its host closes stdin, and at each reconnect it exits if its parent process has changed. The daemon keeps running for other sessions.
 4. **Embedder.** The model loads on the first embed and stays resident until the idle check unloads it. The next embed reloads it, which takes a moment.
 
 ## Where the code is
 
-- `agent-brain/src/main.rs`: the `serve` branch, which chooses daemon or proxy.
-- `agent-brain/src/mcp/server.rs`: `run_proxy` and `serve_one_proxy_connection`.
-- `agent-brain/src/engine.rs`: `spawn_embedder_idle_unload`.
-- `agent-brain/src/embed.rs`: `Embedder::unload_if_idle`, `is_loaded`, and `IDLE_UNLOAD_AFTER`.
-- `agent-brain/src/daemon_watchdog.rs`: `DaemonActivity` implements `Default` by delegating to `new`, so the watchdog's activity tracker can be built with `Default::default()` as well as `new()`.
-- `agent-brain/tests/proxy_lifecycle.rs`: the regression test for proxy exit.
-- `agent-brain/src/mcp/server.rs`: the graph tools (`query_codebase`, `trigger_deep_analysis`, `graphify_job_status`) call the graphify extension through `graphify::rpc` instead of the in-process engine. The extension must be installed for them to work.
+- `tekmor/src/main.rs`: the `serve` branch, which chooses daemon or proxy.
+- `tekmor/src/mcp/server.rs`: `run_proxy` and `serve_one_proxy_connection`.
+- `tekmor/src/engine.rs`: `spawn_embedder_idle_unload`.
+- `tekmor/src/embed.rs`: `Embedder::unload_if_idle`, `is_loaded`, and `IDLE_UNLOAD_AFTER`.
+- `tekmor/src/daemon_watchdog.rs`: `DaemonActivity` implements `Default` by delegating to `new`, so the watchdog's activity tracker can be built with `Default::default()` as well as `new()`.
+- `tekmor/tests/proxy_lifecycle.rs`: the regression test for proxy exit.
+- `tekmor/src/mcp/server.rs`: the graph tools (`query_codebase`, `trigger_deep_analysis`, `graphify_job_status`) call the graphify extension through `graphify::rpc` instead of the in-process engine. The extension must be installed for them to work.
 - The feature map is [[../features/serve-daemon-and-proxy]].
 
 - Formatting pass (rustfmt, 2026-11-07): line breaks and spacing only, no behaviour change.
-- `agent-brain/src/mcp/sent_constraints.rs`: per-session record of `must_apply` entries already sent. `serve_mcp_over_io` builds one `BrainMcp` per connection, so a session behind the shared daemon never inherits another session's record (2026-11-13).
+- `tekmor/src/mcp/sent_constraints.rs`: per-session record of `must_apply` entries already sent. `serve_mcp_over_io` builds one `BrainMcp` per connection, so a session behind the shared daemon never inherits another session's record (2026-11-13).
 - The server instructions name the git and graph tools only when the client lists them. Under `mcp.tool_surface: core` the instructions no longer send agents to hidden tools.

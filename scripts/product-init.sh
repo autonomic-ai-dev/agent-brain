@@ -22,9 +22,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$BRAIN_ROOT" ]]; then
-  if command -v agent-brain >/dev/null 2>&1; then
-    BRAIN_ROOT="$(dirname "$(dirname "$(command -v agent-brain)")")"
-    # agent-brain binary may be in ~/.local/bin — fall back to sibling checkout
+  if command -v tekmor >/dev/null 2>&1; then
+    BRAIN_ROOT="$(dirname "$(dirname "$(command -v tekmor)")")"
     if [[ ! -f "$BRAIN_ROOT/docs/product/CONSTITUTION.template.md" ]]; then
       BRAIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
     fi
@@ -49,7 +48,7 @@ else
 fi
 
 if [[ ! -f "$DIR/.cursor/rules/product-layer.mdc" ]]; then
-  cp "$BRAIN_ROOT/agent-brain/registry/product-layer/.cursor/rules/product-layer.mdc" "$DIR/.cursor/rules/product-layer.mdc" 2>/dev/null || \
+  cp "$BRAIN_ROOT/tekmor/registry/product-layer/.cursor/rules/product-layer.mdc" "$DIR/.cursor/rules/product-layer.mdc" 2>/dev/null || \
   cat > "$DIR/.cursor/rules/product-layer.mdc" <<'RULEEOF'
 ---
 description: Product layer — constitution and feature spec drive implementation

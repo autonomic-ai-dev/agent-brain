@@ -1,4 +1,4 @@
-use agent_brain::global_workspace::{ensure_dirs, executions_dir, memory_dir};
+use tekmor::global_workspace::{ensure_dirs, executions_dir, memory_dir};
 use anyhow::{Context, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};

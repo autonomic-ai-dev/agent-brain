@@ -2,8 +2,8 @@ use std::io::Write;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use agent_brain::config::Config;
-use agent_brain::engine::Engine;
+use tekmor::config::Config;
+use tekmor::engine::Engine;
 use anyhow::{bail, Context, Result};
 
 mod dataset;
@@ -20,13 +20,13 @@ async fn main() -> Result<()> {
         Some("distill") => distill_cmd(&args),
         Some("digest") => digest(&args),
         Some("grpc") => serve_grpc(&args).await,
-        _ => bail!("usage: agent-brain <dataset|digest|distill|grpc> ..."),
+        _ => bail!("usage: tekmor <dataset|digest|distill|grpc> ..."),
     }
 }
 
 fn dataset(args: &[String]) -> Result<()> {
     let config = Config::load()?;
-    let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
+    let store = tekmor::db::store::BrainStore::open(&config.db_path)?;
     let sub = args.get(2).map(String::as_str).unwrap_or("help");
     match sub {
         "export" => {
@@ -66,9 +66,9 @@ fn dataset(args: &[String]) -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
         _ => {
-            eprintln!("Usage: agent-brain dataset export [--out PATH] [--min-confidence N] [--all-outcomes]");
-            eprintln!("       agent-brain dataset stats [--min-confidence N]");
-            eprintln!("       agent-brain dataset ingest-spine [--out PATH] [--executions-dir DIR] [--all-outcomes]");
+            eprintln!("Usage: tekmor dataset export [--out PATH] [--min-confidence N] [--all-outcomes]");
+            eprintln!("       tekmor dataset stats [--min-confidence N]");
+            eprintln!("       tekmor dataset ingest-spine [--out PATH] [--executions-dir DIR] [--all-outcomes]");
             std::process::exit(1);
         }
     }
@@ -84,7 +84,7 @@ fn distill_cmd(args: &[String]) -> Result<()> {
             .and_then(|v| v.parse::<f64>().ok())
             .unwrap_or(0.95);
         let dry_run = has_flag(&args, "--dry-run");
-        let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
+        let store = tekmor::db::store::BrainStore::open(&config.db_path)?;
         let stats = distill::cluster_and_summarize(&store, threshold, dry_run)?;
         println!("{}", serde_json::to_string_pretty(&stats)?);
     } else {
@@ -93,7 +93,7 @@ fn distill_cmd(args: &[String]) -> Result<()> {
         let out = flag_value(&args, "--out")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| std::path::PathBuf::from("ARCHITECTURE.md"));
-        let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
+        let store = tekmor::db::store::BrainStore::open(&config.db_path)?;
         let distilled = distill::distill(&store)?;
         distill::write_architecture_md(&distilled, &out)?;
         println!("Architecture written to {}", out.display());
@@ -104,7 +104,7 @@ fn distill_cmd(args: &[String]) -> Result<()> {
 async fn serve_grpc(args: &[String]) -> Result<()> {
     let sub = args.get(2).map(String::as_str).unwrap_or("serve");
     if sub != "serve" {
-        bail!("usage: agent-brain grpc serve [--addr HOST:PORT]");
+        bail!("usage: tekmor grpc serve [--addr HOST:PORT]");
     }
     let addr = flag_value(args, "--addr").unwrap_or_else(|| "127.0.0.1:7842".to_string());
     let addr: SocketAddr = addr.parse().context("invalid --addr")?;
@@ -117,7 +117,7 @@ async fn serve_grpc(args: &[String]) -> Result<()> {
         let total = engine.store.count_indexed_items().unwrap_or(0);
         tracing::info!(
             "indexed {}",
-            agent_brain::install::format_new_index_count(n, total)
+            tekmor::install::format_new_index_count(n, total)
         );
     }
     grpc::serve(engine, addr).await
@@ -136,11 +136,11 @@ fn has_flag(args: &[String], flag: &str) -> bool {
 
 fn digest(args: &[String]) -> Result<()> {
     if !args.iter().any(|a| a == "--weekly") {
-        eprintln!("Usage: agent-brain digest --weekly");
+        eprintln!("Usage: tekmor digest --weekly");
         std::process::exit(1);
     }
     let config = Config::load()?;
-    let store = agent_brain::db::store::BrainStore::open(&config.db_path)?;
+    let store = tekmor::db::store::BrainStore::open(&config.db_path)?;
     let digest = crate::operator_digest::weekly_digest(&store, 7)?;
     println!("{}", crate::operator_digest::format_weekly_digest(&digest));
     Ok(())

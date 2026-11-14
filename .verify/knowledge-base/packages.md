@@ -6,7 +6,7 @@ feature: "[[../features/packages]]"
 
 ## Owned code
 
-- `agent-brain/src/packages/`: package registry, clone, update, remove, and curated aliases.
+- `tekmor/src/packages/`: package registry, clone, update, remove, and curated aliases.
 
 ## Behaviour that matters
 
