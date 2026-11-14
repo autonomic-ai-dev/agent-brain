@@ -62,3 +62,8 @@ Token cost and "why now" are dropped for now. They come back with the budget mer
 The evidence socket is `EvidenceRecord` in `tekmor-core`. It holds the fields the receipt reads, and `is_run_for` decides whether a record proves a given head and code tree. The store row converts into it at the store boundary, so the receipt no longer depends on storage types.
 
 The bench proofs are not a second source yet. The bench baseline files under `.verify/baseline` record no code hash or head SHA, so they cannot satisfy `is_run_for`. A second source waits until bench records both. Adding a source then means adding a row mapping, with no change to the receipt.
+
+## Amendment 3: gate rule socket (H3-3)
+
+Gate rules implement `GateRule` in `tekmor-core` (`crates/tekmor-core/src/gate_rule.rs`). Each returns `Allow`, `Warn` or `Block`. `evaluate` returns the first block, otherwise the first warning, otherwise allow. Three gates use it: the command policy (`CommandRule`), the commit gate (`CommitRule`), and the route gate (`RouteRule`). The route rule reads its state at construction, so the input stays tool and command only.
+Not converted: the protected-changes check (`protected_changes` in `tekmor/src/receipt.rs`). It lists changed protected files in the receipt and never returns a block verdict, so it is a report, not a gate.

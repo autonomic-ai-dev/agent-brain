@@ -57,3 +57,7 @@ Version 1.0.0-rc5 (`tekmor/crates/tekmor-core/Cargo.toml`). See CHANGELOG.md for
 ## Evidence source (H3-2, ADR 0002)
 
 - Receipts read `EvidenceRecord` from `tekmor-core`, converted from store rows at the store boundary. Bench proofs are not a source until bench records a code hash and head SHA.
+
+## Gate rule socket (H3-3, ADR 0002)
+
+- Bash, commit and route gates return `GateVerdict` through `evaluate` in `tekmor-core`. A block from any gate beats a warning. The protected-changes check stays a receipt report.

@@ -3,6 +3,7 @@ use std::io::Read;
 use anyhow::Result;
 use serde::Deserialize;
 use serde_json::json;
+use tekmor_core::gate_rule::{evaluate, GateInput, GateRule, GateVerdict};
 
 const DENY_REASON: &str = "Commits must not skip git hooks. The comment guard runs in the pre-commit hook. Remove --no-verify, -n, and any core.hooksPath override, then commit again.";
 
@@ -289,18 +290,36 @@ fn push_word(tokens: &mut Vec<String>, word: &mut String, in_word: &mut bool) {
     }
 }
 
+pub struct CommitRule;
+
+impl GateRule for CommitRule {
+    fn check(&self, input: &GateInput<'_>) -> GateVerdict {
+        match input.command {
+            Some(command) if bypasses_git_hooks(command) => GateVerdict::Block(DENY_REASON.into()),
+            _ => GateVerdict::Allow,
+        }
+    }
+}
+
 pub fn run_commit_gate() -> Result<()> {
     let mut raw = String::new();
     std::io::stdin().read_to_string(&mut raw)?;
     let input: ToolUse = serde_json::from_str(&raw).unwrap_or_default();
-    if bypasses_git_hooks(&input.tool_input.command) {
+    let command = input.tool_input.command;
+    if let GateVerdict::Block(reason) = evaluate(
+        &[&CommitRule],
+        &GateInput {
+            tool: "Bash",
+            command: Some(&command),
+        },
+    ) {
         println!(
             "{}",
             json!({
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "deny",
-                    "permissionDecisionReason": DENY_REASON
+                    "permissionDecisionReason": reason
                 }
             })
         );
