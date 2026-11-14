@@ -1,7 +1,6 @@
 use std::fs;
 use std::path::Path;
 
-use crate::types::FileContext;
 
 const CODE_HEADING: &str = "## Code";
 const FILE_CONTEXT_LIMIT: usize = 5;
@@ -71,46 +70,6 @@ pub fn parse_verification_commands(text: &str) -> Vec<String> {
         }
     }
     commands
-}
-
-pub fn route_file_context(root: &Path, open_files: &[String]) -> Vec<FileContext> {
-    let features = load(&root.join(".verify/features"));
-    file_context(&features, open_files, |command| {
-        crate::verify::command_is_allowlisted(command, Some(root))
-    })
-}
-
-fn file_context(
-    features: &[FeatureMap],
-    open_files: &[String],
-    allowlisted: impl Fn(&str) -> bool,
-) -> Vec<FileContext> {
-    open_files
-        .iter()
-        .take(FILE_CONTEXT_LIMIT)
-        .map(|path| {
-            let owned = owners(features, path);
-            let chosen: Vec<&FeatureMap> = if owned.is_empty() {
-                nearest_owner(features, path)
-                    .and_then(|file| features.iter().find(|feature| feature.file == file))
-                    .into_iter()
-                    .collect()
-            } else {
-                owned
-            };
-            FileContext {
-                path: path.clone(),
-                features: chosen.iter().map(|feature| feature.file.clone()).collect(),
-                commands: chosen
-                    .iter()
-                    .flat_map(|feature| feature.commands.iter())
-                    .filter(|command| allowlisted(command))
-                    .take(FILE_CONTEXT_COMMANDS)
-                    .cloned()
-                    .collect(),
-            }
-        })
-        .collect()
 }
 
 fn is_code(path: &str) -> bool {
@@ -388,20 +347,4 @@ mod tests {
         assert_eq!(parse_verification_commands(text), ["cargo test a"]);
     }
 
-    #[test]
-    fn file_context_names_the_owner_and_only_allowlisted_commands() {
-        let mut owner = feature("gate.md", &["src/gate"]);
-        owner.commands = vec!["cargo test gate".into(), "rm -rf build".into()];
-        let context = file_context(&[owner], &["src/gate/a.rs".to_string()], |command| {
-            command.starts_with("cargo test")
-        });
-        assert_eq!(
-            context,
-            vec![FileContext {
-                path: "src/gate/a.rs".into(),
-                features: vec!["gate.md".into()],
-                commands: vec!["cargo test gate".into()],
-            }]
-        );
-    }
 }

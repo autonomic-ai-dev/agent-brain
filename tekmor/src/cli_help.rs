@@ -88,9 +88,6 @@ See README.md for the full guide.
 /// Print detailed help for `cmd`. Returns false if the command is unknown.
 pub fn print_command(cmd: &str) -> bool {
     let text = match cmd {
-        "recall" => tekmor::recall::USAGE,
-        "remember" => tekmor::remember::USAGE,
-        "import-corpus" => tekmor::remember::IMPORT_USAGE,
         "report" => "Usage:  tekmor report\n\nPrint the verify report by source.\n",
         "status" => "Usage:  tekmor status\n\nShow brain status for the current directory.\n",
         "bootstrap" => {

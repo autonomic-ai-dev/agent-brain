@@ -20,15 +20,9 @@ const NETWORK_CLIENT_MARKERS: [&str; 16] = [
     "\"fetch\",",
 ];
 
-const EXPECTED_NETWORK_FILES: [&str; 9] = [
-    "tekmor/src/auto_update.rs",
-    "tekmor/src/docs/fetch.rs",
+const EXPECTED_NETWORK_FILES: [&str; 3] = [
     "tekmor/src/extensions.rs",
-    "tekmor/src/mcp/server.rs",
-    "tekmor/src/packages/mod.rs",
     "tekmor/src/registry_sync.rs",
-    "tekmor/src/sync/cloud.rs",
-    "tekmor/src/sync/git.rs",
     "extensions/bench/src/skills_sh.rs",
 ];
 

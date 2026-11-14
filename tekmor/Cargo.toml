@@ -14,17 +14,6 @@ name = "tekmor"
 path = "src/main.rs"
 
 
-[features]
-default = []
-# Eval/bench/skills.sh/dataset/spine_ingest/distill/digest CLI + graphify/AST/gRPC.
-# Release/serve builds stay slim; CI and local proofs use `--features extras`.
-extras = [
-    "dep:tree-sitter",
-    "dep:tree-sitter-rust",
-    "dep:tree-sitter-typescript",
-    "dep:tree-sitter-python",
-    "dep:tree-sitter-go",
-]
 
 [dependencies]
 tekmor-core = { path = "crates/tekmor-core", version = "1.1.0-rc2" }
@@ -58,11 +47,6 @@ uuid = { version = "1", features = ["v4", "v7"] }
 walkdir = "2"
 zstd = "0.13"
 tempfile = "3"
-tree-sitter = { version = "0.24", optional = true }
-tree-sitter-rust = { version = "0.23.2", optional = true }
-tree-sitter-typescript = { version = "0.23.2", optional = true }
-tree-sitter-python = { version = "0.23.6", optional = true }
-tree-sitter-go = { version = "0.23.4", optional = true }
 rayon = "1.12.0"
 
 
