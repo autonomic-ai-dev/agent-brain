@@ -1,0 +1,493 @@
+{
+  "recall": {
+    "memory": {
+      "suite": "memory",
+      "cases": 7,
+      "passed": 6,
+      "recall_at_3": 0.8571428571428571,
+      "failures": [
+        {
+          "suite": "memory",
+          "query": "configure vitest for react testing",
+          "expected_topics": [
+            "testing-framework"
+          ],
+          "got_topics": [
+            "testing",
+            "testing",
+            "testing"
+          ]
+        }
+      ]
+    },
+    "skills": {
+      "suite": "skills",
+      "cases": 14,
+      "passed": 13,
+      "recall_at_3": 0.9285714285714286,
+      "failures": [
+        {
+          "suite": "skills",
+          "query": "write a new cursor agent skill SKILL.md",
+          "expected_topics": [
+            "writing-skills"
+          ],
+          "got_topics": [
+            "mcp-server-patterns"
+          ]
+        }
+      ]
+    },
+    "cases": 21,
+    "passed": 19,
+    "recall_at_3": 0.9047619047619048,
+    "threshold": 0.85,
+    "failures": [
+      {
+        "suite": "memory",
+        "query": "configure vitest for react testing",
+        "expected_topics": [
+          "testing-framework"
+        ],
+        "got_topics": [
+          "testing",
+          "testing",
+          "testing"
+        ]
+      },
+      {
+        "suite": "skills",
+        "query": "write a new cursor agent skill SKILL.md",
+        "expected_topics": [
+          "writing-skills"
+        ],
+        "got_topics": [
+          "mcp-server-patterns"
+        ]
+      }
+    ]
+  },
+  "temporal": {
+    "suite": "temporal",
+    "cases": 2,
+    "passed": 2,
+    "recall_at_3": 1.0,
+    "failures": []
+  },
+  "must_apply": {
+    "suite": "must_apply",
+    "cases": 2,
+    "passed": 2,
+    "recall_at_3": 1.0,
+    "failures": []
+  },
+  "observation": {
+    "suite": "observation",
+    "cases": 1,
+    "passed": 1,
+    "recall_at_3": 1.0,
+    "failures": []
+  },
+  "jsonl": {
+    "suite": "jsonl",
+    "cases": 58,
+    "passed": 27,
+    "recall_at_3": 0.46551724137931033,
+    "failures": [
+      {
+        "suite": "jsonl",
+        "query": "update the feature map for the new command",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "memory"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "refactor a long function into smaller ones",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "memory"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "summarize what changed in the last commit",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "memory"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "explain how the route cache works",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "agent",
+          "memory",
+          "rule"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "check the release checklist before tagging",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "memory"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "review the diff for comment slop",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "memory"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "how do I run the bench suite",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "rule",
+          "memory"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "write a changelog entry",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "memory"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "add a migration for a new table",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "agent",
+          "memory"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "plan the next sprint",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "memory"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "investigate a production error from logs",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "memory"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "check the installed hooks are healthy",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "memory"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "optimise a slow query",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "memory"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "commit and push the changes",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "memory",
+          "rule"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "create a pull request for these changes",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "rule",
+          "memory"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "review the open pull request for bugs",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "memory",
+          "rule"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "remove duplicated policy text from the agents file",
+        "expected_topics": [
+          "rule"
+        ],
+        "got_topics": [
+          "skill",
+          "agent",
+          "memory"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "check the diff for comments that were added",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "memory"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "bump the version and tag a release",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "memory"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "rebuild and reinstall the agent-brain binary",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "memory"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "add a database migration for a new column",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "memory"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "update the knowledge base for this feature",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "memory"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "measure the eval score before and after this change",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "rule",
+          "memory"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "run the bench eval and report per-case results",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "memory",
+          "rule"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "the pre-commit hook rejected my commit",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "memory"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "write a commit message for the staged changes",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "rule",
+          "memory"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "investigate why index counts changed after sync",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "memory"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "agents should not write under the home directory",
+        "expected_topics": [
+          "rule"
+        ],
+        "got_topics": [
+          "memory"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "explain how host hooks are installed",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "memory"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "the setup score is low, what should I change",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "rule",
+          "memory"
+        ]
+      },
+      {
+        "suite": "jsonl",
+        "query": "restore the stashed work in progress",
+        "expected_topics": [
+          "skill"
+        ],
+        "got_topics": [
+          "memory"
+        ]
+      }
+    ]
+  },
+  "transcript": {
+    "suite": "transcript",
+    "cases": 8,
+    "passed": 6,
+    "recall_at_3": 0.75,
+    "failures": [
+      {
+        "suite": "transcript",
+        "query": "lets complete the next phase of the orchestrator bridge",
+        "expected_topics": [
+          "skill",
+          "rule",
+          "agent"
+        ],
+        "got_topics": [
+          "memory"
+        ]
+      },
+      {
+        "suite": "transcript",
+        "query": "implement gRPC RoutingService for agent-orchestrator integration",
+        "expected_topics": [
+          "skill",
+          "agent"
+        ],
+        "got_topics": [
+          "skill",
+          "memory"
+        ]
+      }
+    ]
+  },
+  "task_scoped": {
+    "suite": "task_scoped",
+    "cases": 7,
+    "passed": 6,
+    "recall_at_3": 0.8571428571428571,
+    "failures": [
+      {
+        "suite": "task_scoped",
+        "query": "zzzz verification noop without indexed context",
+        "expected_topics": [
+          "task_kind=verification",
+          "escalate=Some(true)"
+        ],
+        "got_topics": [
+          "task_kind=Some(\"verification\")",
+          "escalate=false",
+          "confidence=0.76"
+        ]
+      }
+    ]
+  },
+  "escalation_signal": {
+    "suite": "escalation_signal",
+    "cases": 2,
+    "passed": 2,
+    "recall_at_3": 1.0,
+    "failures": []
+  },
+  "task_scoped_verification": {
+    "suite": "task_scoped_verification",
+    "cases": 2,
+    "passed": 2,
+    "recall_at_3": 1.0,
+    "failures": []
+  },
+  "overall_cases": 103,
+  "overall_passed": 67,
+  "overall_score": 0.6504854368932039,
+  "threshold": 0.85
+}
