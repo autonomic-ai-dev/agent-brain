@@ -6,6 +6,8 @@ use anyhow::Result;
 use serde::Deserialize;
 use serde_json::json;
 
+use tekmor_core::gate_rule::{evaluate, GateInput, GateRule, GateVerdict};
+
 use crate::command_rules::{self, Rule};
 use crate::commit_gate::{
     base_name, bypasses_git_hooks, command_start, shell_payload, split_segments, substitutions,
@@ -829,16 +831,27 @@ pub fn run_bash_gate() -> Result<()> {
         .or_else(|| std::env::current_dir().ok());
     let rules = command_rules::load(&command_rules::default_path())
         .unwrap_or_else(|_| command_rules::defaults());
-    match classify(&input.tool_input.command, root.as_deref(), &rules) {
-        Verdict::Allow => {}
-        Verdict::Warn(reason) => {
+    let command_rule = CommandRule {
+        root: root.as_deref(),
+        rules: &rules,
+    };
+    let command = input.tool_input.command;
+    match evaluate(
+        &[&command_rule],
+        &GateInput {
+            tool: "Bash",
+            command: Some(&command),
+        },
+    ) {
+        GateVerdict::Allow => {}
+        GateVerdict::Warn(reason) => {
             record_gate_event("bash-warn", &reason);
             println!(
                 "{}",
                 json!({ "systemMessage": format!("tekmor warning: {reason}") })
             )
         }
-        Verdict::Block(reason) => {
+        GateVerdict::Block(reason) => {
             record_gate_event("bash-block", &reason);
             println!(
                 "{}",
@@ -855,6 +868,24 @@ pub fn run_bash_gate() -> Result<()> {
         }
     }
     Ok(())
+}
+
+pub struct CommandRule<'a> {
+    pub root: Option<&'a Path>,
+    pub rules: &'a [Rule],
+}
+
+impl GateRule for CommandRule<'_> {
+    fn check(&self, input: &GateInput<'_>) -> GateVerdict {
+        let Some(command) = input.command else {
+            return GateVerdict::Allow;
+        };
+        match classify(command, self.root, self.rules) {
+            Verdict::Allow => GateVerdict::Allow,
+            Verdict::Warn(reason) => GateVerdict::Warn(reason),
+            Verdict::Block(reason) => GateVerdict::Block(reason),
+        }
+    }
 }
 
 fn record_gate_event(kind: &str, reason: &str) {

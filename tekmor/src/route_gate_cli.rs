@@ -4,7 +4,23 @@ use std::path::Path;
 use anyhow::Result;
 use serde_json::{json, Value};
 
+use tekmor_core::gate_rule::{evaluate, GateInput, GateRule, GateVerdict};
+
 use crate::route_gate_decision::{decide, Decision, GateState};
+
+pub struct RouteRule {
+    pub state: GateState,
+    pub now: f64,
+}
+
+impl GateRule for RouteRule {
+    fn check(&self, input: &GateInput<'_>) -> GateVerdict {
+        match decide(input.tool, &self.state, self.now) {
+            Decision::Allow | Decision::AllowWithoutRoute(_) => GateVerdict::Allow,
+            Decision::Deny => GateVerdict::Block("route_task has not run this turn".into()),
+        }
+    }
+}
 
 const SESSION_KEYS: [&str; 12] = [
     "conversation_id",
@@ -73,10 +89,17 @@ pub fn read_session_state(state_path: &Path, session: &str) -> GateState {
 }
 
 pub fn permission(event: &Value, state_path: &Path, now: f64) -> &'static str {
-    let state = read_session_state(state_path, &session_id(event));
-    match decide(tool_name(event), &state, now) {
-        Decision::Allow | Decision::AllowWithoutRoute(_) => "allow",
-        Decision::Deny => "deny",
+    let rule = RouteRule {
+        state: read_session_state(state_path, &session_id(event)),
+        now,
+    };
+    let input = GateInput {
+        tool: tool_name(event),
+        command: None,
+    };
+    match evaluate(&[&rule], &input) {
+        GateVerdict::Block(_) => "deny",
+        GateVerdict::Allow | GateVerdict::Warn(_) => "allow",
     }
 }
 

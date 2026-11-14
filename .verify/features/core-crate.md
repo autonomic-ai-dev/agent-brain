@@ -30,6 +30,9 @@ related:
   - Behaviour: The normal dependency tree of `tekmor-core` is checked against a denylist of IO and runtime crate names.
   - Outcome: `.verify/checks/core_boundary.sh` exits 0 and prints the holding message.
 
+- `gate-rule-socket`: One rule shape for the Bash, commit and route gates (H3-3, ADR 0002 amendment 3).
+  - Behaviour: `GateRule` and `evaluate` in `crates/tekmor-core/src/gate_rule.rs` return the first block, else the first warning, else allow. `CommandRule`, `CommitRule` and `RouteRule` adapt the three gates in the binary.
+  - Outcome: The bash gate, commit gate and route CLI output is unchanged. A new gate adds one adapter.
 - `evidence-record`: The evidence a receipt reads, and when a run proves a head and code tree (H3-2, ADR 0002 amendment 2).
   - Behaviour: `EvidenceRecord::is_run_for` in `crates/tekmor-core/src/evidence.rs` accepts only cli and orchestrator runs for the same head and code hash. The store converts rows into it.
   - Outcome: The receipt is unchanged for users. Bench proofs are not a source yet.
