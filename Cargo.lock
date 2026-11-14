@@ -3848,7 +3848,7 @@ dependencies = [
 
 [[package]]
 name = "tekmor"
-version = "1.1.0-rc1"
+version = "1.1.0-rc2"
 dependencies = [
  "age",
  "anyhow",
@@ -3906,7 +3906,7 @@ dependencies = [
 
 [[package]]
 name = "tekmor-core"
-version = "1.1.0-rc1"
+version = "1.1.0-rc2"
 dependencies = [
  "schemars",
  "serde",
