@@ -245,6 +245,10 @@ Summary: tekmor is the routing layer that every agent calls at turn start. Its C
   - Behaviour: `tekmor/src/dashboard.rs` labels the tile and the per-tool hint "upper bound", and the tile's note says it is not a measurement. The estimated-vs-naive wording is removed.
   - Outcome: No dashboard figure is presented as a measurement when it is an upper bound.
 
+- `upstream-tool-name-match`: An upstream tool is suggested only when the query matches its server or tool name (R-5).
+  - Behaviour: `score_tool` in `tekmor/src/upstream/suggest.rs` returns zero for a description-only match.
+  - Outcome: A code-audit query gets no Product Hunt tool. "search github issues" still suggests the GitHub tool.
+
 ## Code
 
 - `tekmor/src`
