@@ -24,6 +24,7 @@ pub mod db;
 pub mod docs;
 pub mod doctor;
 pub mod embed;
+pub mod evidence_reader;
 pub mod engine;
 pub mod extensions;
 pub mod gc;

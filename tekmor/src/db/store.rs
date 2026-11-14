@@ -3810,9 +3810,10 @@ impl From<VerifyOutcomeRow> for tekmor_core::evidence::EvidenceRecord {
             cmd: row.cmd,
             exit_code: row.exit_code,
             recorded_at: row.recorded_at,
-            source: row.source.unwrap_or_else(|| "cli".to_string()),
+            source: row.source,
             code_hash: row.code_hash,
             head_sha: row.head_sha,
+            verify_config_hash: row.verify_config_hash,
         }
     }
 }

@@ -61,3 +61,7 @@ Version 1.0.0-rc5 (`tekmor/crates/tekmor-core/Cargo.toml`). See CHANGELOG.md for
 ## Gate rule socket (H3-3, ADR 0002)
 
 - Bash, commit and route gates return `GateVerdict` through `evaluate` in `tekmor-core`. A block from any gate beats a warning. The protected-changes check stays a receipt report.
+
+## Evidence reader (H3-4, ADR 0002)
+
+- Verify-run queries go through `evidence_reader` (recent_runs, project_runs). Receipt and stop gate still differ on rows with a NULL source; see ADR 0002 amendment 4.

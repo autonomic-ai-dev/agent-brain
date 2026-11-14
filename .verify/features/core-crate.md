@@ -30,6 +30,9 @@ related:
   - Behaviour: The normal dependency tree of `tekmor-core` is checked against a denylist of IO and runtime crate names.
   - Outcome: `.verify/checks/core_boundary.sh` exits 0 and prints the holding message.
 
+- `evidence-reader`: One query layer for stored verify runs (H3-4, ADR 0002 amendment 4).
+  - Behaviour: `tekmor/src/evidence_reader.rs` (`recent_runs`, `project_runs`) returns `EvidenceRecord`s for receipt, stop gate, verify and suggest. `source` stays optional so each caller keeps its NULL-source behaviour.
+  - Outcome: Evidence queries live in one module. The stop gate and receipt still disagree on NULL-source rows (ADR 0002 amendment 4).
 - `gate-rule-socket`: One rule shape for the Bash, commit and route gates (H3-3, ADR 0002 amendment 3).
   - Behaviour: `GateRule` and `evaluate` in `crates/tekmor-core/src/gate_rule.rs` return the first block, else the first warning, else allow. `CommandRule`, `CommitRule` and `RouteRule` adapt the three gates in the binary.
   - Outcome: The bash gate, commit gate and route CLI output is unchanged. A new gate adds one adapter.

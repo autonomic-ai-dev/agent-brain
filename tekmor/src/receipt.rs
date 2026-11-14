@@ -6,6 +6,7 @@ use serde::Serialize;
 use tekmor_core::evidence::EvidenceRecord;
 
 use crate::db::store::BrainStore;
+use crate::evidence_reader;
 use crate::project_key;
 use crate::spec::{self, Requirement};
 use crate::verify;
@@ -73,7 +74,7 @@ pub fn build_receipt(
                 cmd: row.cmd.clone(),
                 exit_code: row.exit_code,
                 recorded_at: row.recorded_at,
-                source: row.source.clone(),
+                source: row.source.clone().unwrap_or_else(|| "cli".to_string()),
                 artifact: None,
             })
     });
@@ -180,11 +181,7 @@ pub fn receipt_for_project(store: &BrainStore, root: &Path) -> Result<Receipt> {
     let head = verify::git_head_sha(root);
     let code = verify::code_tree_hash(root);
     let rows = match project_key::project_key_if_known(root) {
-        Some(key) => store
-            .list_verify_outcomes_for_project(&key, RECEIPT_SCAN_LIMIT)?
-            .into_iter()
-            .map(EvidenceRecord::from)
-            .collect(),
+        Some(key) => evidence_reader::project_runs(store, &key, RECEIPT_SCAN_LIMIT)?,
         None => Vec::new(),
     };
     let mut receipt = build_receipt(&rows, head.as_deref(), code.as_deref());
@@ -383,9 +380,10 @@ mod tests {
             cmd: cmd.to_string(),
             exit_code: exit,
             recorded_at: 1_794_000_000_000,
-            source: source.unwrap_or("cli").to_string(),
+            source: source.map(str::to_string),
             code_hash: hash.map(str::to_string),
             head_sha: head.map(str::to_string),
+            verify_config_hash: None,
         }
     }
 

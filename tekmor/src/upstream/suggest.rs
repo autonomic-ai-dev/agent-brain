@@ -1,4 +1,5 @@
 use crate::db::store::BrainStore;
+use crate::evidence_reader;
 use crate::settings::UpstreamMcpSettings;
 use crate::types::SuggestedTool;
 use crate::upstream::{enabled_servers, IndexedUpstreamTool};
@@ -98,7 +99,7 @@ fn compute_historical_outcome_adjustments(
     store: &BrainStore,
 ) -> std::collections::HashMap<String, f64> {
     let mut adjustments = std::collections::HashMap::new();
-    let Ok(outcomes) = store.list_verify_outcomes(50) else {
+    let Ok(outcomes) = evidence_reader::recent_runs(store, 50) else {
         return adjustments;
     };
     if outcomes.is_empty() {
