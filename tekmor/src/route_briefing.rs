@@ -38,17 +38,6 @@ pub fn format_briefing(resp: &RouteTaskResponse) -> String {
             resp.must_apply.len()
         ));
     }
-    if !resp.suggested_native_tools.is_empty() {
-        let tools: Vec<_> = resp
-            .suggested_native_tools
-            .iter()
-            .map(|t| t.tool.as_str())
-            .collect();
-        out.push_str(&format!(
-            "**Token tools:** prefer {} before full Read/cat\n",
-            tools.join(", ")
-        ));
-    }
     if !resp.verified_recipes.is_empty() {
         let recipes: Vec<String> = resp
             .verified_recipes
@@ -183,15 +172,6 @@ pub fn format_summary_line(resp: &RouteTaskResponse) -> String {
         let topics = join_top_names(resp.must_apply.iter().map(|m| m.topic.as_str()), 2);
         format!(" · must_apply: {} [{topics}]", resp.must_apply.len())
     };
-    let native_tools = if resp.suggested_native_tools.is_empty() {
-        String::new()
-    } else {
-        let names = join_top_names(
-            resp.suggested_native_tools.iter().map(|t| t.tool.as_str()),
-            2,
-        );
-        format!(" · tools: [{names}]")
-    };
     let delegate_tools = if resp.suggested_tools.is_empty() {
         String::new()
     } else {
@@ -226,7 +206,7 @@ pub fn format_summary_line(resp: &RouteTaskResponse) -> String {
         .map(|s| format!(" · repo: {s}"))
         .unwrap_or_default();
     format!(
-        "phase={} · skills: {} [{skill_names}] · agents: {} [{agent_names}] · {} rules · {} memory · {}/{} tok{}{}{}{}{}{}{} · {}ms · log={} · {}",
+        "phase={} · skills: {} [{skill_names}] · agents: {} [{agent_names}] · {} rules · {} memory · {}/{} tok{}{}{}{}{}{} · {}ms · log={} · {}",
         resp.recommended_phase,
         resp.recommended_skills.len(),
         resp.recommended_agents.len(),
@@ -236,7 +216,6 @@ pub fn format_summary_line(resp: &RouteTaskResponse) -> String {
         resp.tokens_budget,
         savings.unwrap_or_default(),
         constraints,
-        native_tools,
         delegate_tools,
         recipes_str,
         read_gate,
@@ -316,10 +295,6 @@ pub fn publish_route_state(home: &Path, resp: &RouteTaskResponse) {
         obj.insert(
             "must_apply".into(),
             serde_json::to_value(&resp.must_apply).unwrap_or_default(),
-        );
-        obj.insert(
-            "suggested_native_tools".into(),
-            serde_json::to_value(&resp.suggested_native_tools).unwrap_or_default(),
         );
         obj.insert(
             "verified_recipes".into(),

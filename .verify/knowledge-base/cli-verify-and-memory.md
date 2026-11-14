@@ -230,3 +230,7 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 ## Stats removed (proof-core scope)
 
 - `tekmor stats` and `src/stats.rs` were removed, with `tests/agstack_usage.rs` and the stats route test. `doctor` and `onboarding` no longer print metrics. Notes above about stats describe the removed code.
+
+## Token tools and suggest-memory removed (proof-core scope)
+
+- The file-reading MCP tools (`file_summary`, `read_file_head`, `read_file_tail`, `grep_search`, `read_file`, `list_directory`, `find_files`) and `src/token_tools.rs` were removed. So was the native-tool suggestion in route responses, and `tekmor suggest-memory` with `src/suggest_memory.rs`. Notes above about these describe removed code.

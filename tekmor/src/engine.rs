@@ -980,12 +980,6 @@ impl Engine {
                 &self.store,
                 &settings.upstream_mcp,
             ));
-        resp.suggested_native_tools = crate::token_tools::suggest_native_token_tools(
-            user_message,
-            open_files,
-            &phase,
-            &resp.must_apply,
-        );
         resp.verified_recipes =
             crate::verify::suggest_verified_recipes(&self.store, user_message, project_key_opt, 3);
         resp.last_verification =

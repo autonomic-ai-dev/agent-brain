@@ -139,9 +139,6 @@ Summary: tekmor is the routing layer that every agent calls at turn start. Its C
 - `verification-from-checks-only`: Only `cli` and `orchestrator` runs count as verification.
   - Behaviour: `ran_a_check` in `src/verify.rs` gates `last_verification`, `suggest_verified_recipes`, and the success rate in `verify report`. Hook-observed shell commands are still stored but are not offered as recipes or reported as the last verification. A recipe needs a keyword match or execution intent; source alone no longer qualifies it.
   - Outcome: A route no longer recommends a past `git add` or `ls` as a "verified recipe".
-- `bounded-read-count`: The stats count only bounded-read tools as token-tool calls.
-  - Behaviour: `tool_log_stats_since` in `src/db/store.rs` counts `read_file_head`, `read_file_tail`, `grep_search`, and `file_summary`. Logged `bash`, `edit`, `write`, and `cursor_read` rows are excluded from the count.
-  - Outcome: "Token tools: N bounded-read calls" matches the reader rows in `tool_log`.
 - `suggested-tool-brief`: A suggested upstream tool carries a one-line description.
   - Behaviour: `brief` in `src/upstream/suggest.rs` keeps the first non-empty line of the tool description, cut to 160 characters. The full schema stays available through `get_mcp`.
   - Outcome: A route response no longer embeds multi-paragraph upstream tool descriptions.

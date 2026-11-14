@@ -396,40 +396,6 @@ async fn main() -> Result<()> {
                 }
             }
         }
-        "suggest-memory" => {
-            let config = Config::load()?;
-            let sub = args.get(2).map(String::as_str).unwrap_or("show");
-            match sub {
-                "approve" => {
-                    let engine = Arc::new(Engine::new(config)?);
-                    let report = tekmor::suggest_memory::approve_pending(&engine)?;
-                    println!("{}", serde_json::to_string_pretty(&report)?);
-                    if report.stored {
-                        let n = engine.bootstrap(None)?;
-                        println!("Stored negative memory (reindexed {n} items)");
-                    } else if report.deduplicated {
-                        println!("Already stored (deduplicated)");
-                    }
-                }
-                "reject" => {
-                    let config = Config::load()?;
-                    tekmor::suggest_memory::reject_pending(&config.home)?;
-                    println!("Dismissed pending memory suggestion");
-                }
-                _ => match tekmor::route_briefing::read_pending_memory_suggestion(
-                    &Config::load()?.home,
-                ) {
-                    Some(suggestion) => {
-                        println!("{}", serde_json::to_string_pretty(&suggestion)?);
-                        println!("\nApprove: tekmor suggest-memory approve");
-                    }
-                    None => {
-                        eprintln!("No memory suggestion pending.");
-                        std::process::exit(1);
-                    }
-                },
-            }
-        }
 
         "onboarding" => {
             let config = Config::load()?;

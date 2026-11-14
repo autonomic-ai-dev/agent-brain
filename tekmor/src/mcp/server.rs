@@ -55,9 +55,6 @@ impl BrainMcp {
         };
         resp.warnings
             .retain(|warning| sent.insert(format!("warning:{}", warning.topic)));
-        if !resp.suggested_native_tools.is_empty() && !sent.insert("native_tools".to_string()) {
-            resp.suggested_native_tools.clear();
-        }
         resp
     }
 
@@ -401,137 +398,6 @@ struct PromoteToSkillParams {
     topic: Option<String>,
     #[serde(default)]
     skill_name: Option<String>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct TokenToolPathParams {
-    path: String,
-    #[serde(default)]
-    current_working_directory: Option<String>,
-    #[serde(default)]
-    allow_blocked_paths: bool,
-    #[serde(default = "default_max_tokens")]
-    max_tokens: usize,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct ReadFileBoundedParams {
-    path: String,
-    #[serde(default)]
-    current_working_directory: Option<String>,
-    #[serde(default = "default_read_lines")]
-    lines: usize,
-    #[serde(default = "default_read_bytes")]
-    max_bytes: usize,
-    #[serde(default)]
-    allow_blocked_paths: bool,
-    #[serde(default = "default_max_tokens")]
-    max_tokens: usize,
-}
-
-fn default_read_lines() -> usize {
-    crate::token_tools::DEFAULT_MAX_LINES
-}
-
-fn default_read_bytes() -> usize {
-    crate::token_tools::DEFAULT_MAX_BYTES
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct GrepSearchParams {
-    #[serde(alias = "query")]
-    pattern: String,
-    #[serde(default = "default_grep_path")]
-    path: String,
-    #[serde(default)]
-    current_working_directory: Option<String>,
-    #[serde(default = "default_grep_matches")]
-    max_matches: usize,
-    #[serde(default)]
-    case_insensitive: bool,
-    #[serde(default)]
-    allow_blocked_paths: bool,
-    #[serde(default = "default_max_tokens")]
-    max_tokens: usize,
-}
-
-fn default_grep_path() -> String {
-    ".".to_string()
-}
-
-fn default_grep_matches() -> usize {
-    crate::token_tools::DEFAULT_GREP_MAX_MATCHES
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct ListDirectoryParams {
-    path: String,
-    #[serde(default)]
-    current_working_directory: Option<String>,
-    #[serde(default = "default_max_directory_entries")]
-    max_entries: usize,
-    #[serde(default)]
-    include_hidden: bool,
-    #[serde(default)]
-    allow_blocked_paths: bool,
-    #[serde(default = "default_max_tokens")]
-    max_tokens: usize,
-}
-
-fn default_max_directory_entries() -> usize {
-    100
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct FindFilesParams {
-    path: String,
-    #[serde(default)]
-    current_working_directory: Option<String>,
-    #[serde(default)]
-    pattern: Option<String>,
-    #[serde(default)]
-    extension: Option<String>,
-    #[serde(default = "default_find_depth")]
-    max_depth: usize,
-    #[serde(default = "default_find_matches")]
-    max_matches: usize,
-    #[serde(default)]
-    allow_blocked_paths: bool,
-    #[serde(default = "default_max_tokens")]
-    max_tokens: usize,
-}
-
-fn default_find_depth() -> usize {
-    10
-}
-
-fn default_find_matches() -> usize {
-    100
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-struct ReadFileParams {
-    path: String,
-    #[serde(default)]
-    current_working_directory: Option<String>,
-    #[serde(default = "default_start_line")]
-    start_line: usize,
-    #[serde(default = "default_end_line")]
-    end_line: usize,
-    #[serde(default = "default_read_bytes")]
-    max_bytes: usize,
-    #[serde(default)]
-    allow_blocked_paths: bool,
-    #[serde(default = "default_max_tokens")]
-    max_tokens: usize,
-}
-
-fn default_start_line() -> usize {
-    1
-}
-
-fn default_end_line() -> usize {
-    200
 }
 
 #[derive(Debug, Deserialize, JsonSchema, Default)]
@@ -1463,184 +1329,6 @@ impl BrainMcp {
     }
 
     #[tool(
-        description = "Token-efficient file metadata — bytes, line count, and a 5-line sample. Prefer over full Read/cat on unknown files."
-    )]
-    async fn file_summary(
-        &self,
-        params: Parameters<TokenToolPathParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.require_route("file_summary")?;
-        let _req = self.engine.mcp_activity.begin_request();
-        let p = params.0;
-        let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
-        let path = crate::token_tools::resolve_tool_path(&p.path, cwd.as_deref())
-            .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
-        let resp = crate::token_tools::file_summary(&path, p.allow_blocked_paths, p.max_tokens)
-            .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
-        self.engine.record_file_access("file_summary", &p.path);
-        self.log_token_tool("file_summary", Some(&p.path), &resp);
-        json_result(resp)
-    }
-
-    #[tool(
-        description = "Read the first N lines of a file (default 200, max bytes capped). Use before full file reads."
-    )]
-    async fn read_file_head(
-        &self,
-        params: Parameters<ReadFileBoundedParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.require_route("read_file_head")?;
-        let _req = self.engine.mcp_activity.begin_request();
-        let p = params.0;
-        let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
-        let path = crate::token_tools::resolve_tool_path(&p.path, cwd.as_deref())
-            .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
-        let resp = crate::token_tools::read_file_head(
-            &path,
-            p.lines,
-            p.max_bytes,
-            p.allow_blocked_paths,
-            p.max_tokens,
-        )
-        .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
-        self.engine.record_file_access("read_file_head", &p.path);
-        self.log_token_tool("read_file_head", Some(&p.path), &resp);
-        json_result(resp)
-    }
-
-    #[tool(
-        description = "Read the last N lines of a file (default 200, max bytes capped). Good for logs."
-    )]
-    async fn read_file_tail(
-        &self,
-        params: Parameters<ReadFileBoundedParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.require_route("read_file_tail")?;
-        let _req = self.engine.mcp_activity.begin_request();
-        let p = params.0;
-        let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
-        let path = crate::token_tools::resolve_tool_path(&p.path, cwd.as_deref())
-            .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
-        let resp = crate::token_tools::read_file_tail(
-            &path,
-            p.lines,
-            p.max_bytes,
-            p.allow_blocked_paths,
-            p.max_tokens,
-        )
-        .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
-        self.engine.record_file_access("read_file_tail", &p.path);
-        self.log_token_tool("read_file_tail", Some(&p.path), &resp);
-        json_result(resp)
-    }
-
-    #[tool(
-        description = "Search file or directory for a pattern (rg-style line output). Prefer over reading whole files to find a string."
-    )]
-    async fn grep_search(
-        &self,
-        params: Parameters<GrepSearchParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.require_route("grep_search")?;
-        let _req = self.engine.mcp_activity.begin_request();
-        let p = params.0;
-        let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
-        let path = crate::token_tools::resolve_tool_path(&p.path, cwd.as_deref())
-            .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
-        let resp = crate::token_tools::grep_search(
-            &p.pattern,
-            &path,
-            p.max_matches,
-            p.case_insensitive,
-            p.allow_blocked_paths,
-            p.max_tokens,
-        )
-        .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
-        self.engine.record_file_access("grep_search", &p.path);
-        self.log_grep_tool("grep_search", Some(&p.path), &resp);
-        json_result(resp)
-    }
-
-    #[tool(
-        description = "Read a specific line range from a file (1-indexed start_line to end_line). Token-bounded alternative to host cat/sed/awk."
-    )]
-    async fn read_file(
-        &self,
-        params: Parameters<ReadFileParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.require_route("read_file")?;
-        let _req = self.engine.mcp_activity.begin_request();
-        let p = params.0;
-        let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
-        let path = crate::token_tools::resolve_tool_path(&p.path, cwd.as_deref())
-            .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
-        let resp = crate::token_tools::read_file(
-            &path,
-            p.start_line,
-            p.end_line,
-            p.max_bytes,
-            p.allow_blocked_paths,
-            p.max_tokens,
-        )
-        .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
-        self.engine.record_file_access("read_file", &p.path);
-        self.log_token_tool("read_file", Some(&p.path), &resp);
-        json_result(resp)
-    }
-
-    #[tool(
-        description = "List files and subdirectories in a directory with types, sizes, and timestamps. Token-bounded alternative to host ls."
-    )]
-    async fn list_directory(
-        &self,
-        params: Parameters<ListDirectoryParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.require_route("list_directory")?;
-        let _req = self.engine.mcp_activity.begin_request();
-        let p = params.0;
-        let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
-        let path = crate::token_tools::resolve_tool_path(&p.path, cwd.as_deref())
-            .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
-        let resp = crate::token_tools::list_directory(
-            &path,
-            p.max_entries,
-            p.include_hidden,
-            p.allow_blocked_paths,
-            p.max_tokens,
-        )
-        .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
-        self.engine.record_file_access("list_directory", &p.path);
-        json_result(resp)
-    }
-
-    #[tool(
-        description = "Recursively find files matching name pattern, glob, or extension. Token-bounded alternative to host find."
-    )]
-    async fn find_files(
-        &self,
-        params: Parameters<FindFilesParams>,
-    ) -> Result<CallToolResult, McpError> {
-        self.require_route("find_files")?;
-        let _req = self.engine.mcp_activity.begin_request();
-        let p = params.0;
-        let cwd = self.resolve_cwd(p.current_working_directory.as_deref());
-        let path = crate::token_tools::resolve_tool_path(&p.path, cwd.as_deref())
-            .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
-        let resp = crate::token_tools::find_files(
-            &path,
-            p.pattern.as_deref(),
-            p.extension.as_deref(),
-            p.max_depth,
-            p.max_matches,
-            p.allow_blocked_paths,
-            p.max_tokens,
-        )
-        .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
-        self.engine.record_file_access("find_files", &p.path);
-        json_result(resp)
-    }
-
-    #[tool(
         description = "Deep codebase navigation via graphify graph. Call for unfamiliar code paths — not every turn."
     )]
     async fn query_codebase(
@@ -1720,57 +1408,6 @@ impl BrainMcp {
                 .map_err(|e| McpError::invalid_params(format!("{e}"), None))?;
         json_result(report)
     }
-
-    fn log_token_tool(
-        &self,
-        tool_name: &str,
-        path: Option<&str>,
-        resp: &crate::token_tools::TokenToolResponse,
-    ) {
-        let (must_apply_active, phase, route_log_id) =
-            route_context_from_state(&self.engine.config.home);
-        if let Err(err) = crate::observability::log_native_tool_use(
-            &self.engine.store,
-            crate::observability::NativeToolUse {
-                tool_name,
-                path,
-                tokens_used: resp.tokens_used,
-                tokens_saved: resp.tokens_saved_vs_full_read,
-                savings_pct: resp.savings_pct_vs_full_read,
-                must_apply_active,
-                phase: phase.as_deref(),
-                route_log_id: route_log_id.as_deref(),
-            },
-        ) {
-            tracing::warn!(error = %err, tool = tool_name, "tool_log write failed");
-        }
-    }
-
-    fn log_grep_tool(
-        &self,
-        tool_name: &str,
-        path: Option<&str>,
-        resp: &crate::token_tools::GrepResponse,
-    ) {
-        let (must_apply_active, phase, route_log_id) =
-            route_context_from_state(&self.engine.config.home);
-        if let Err(err) = crate::observability::log_native_tool_use(
-            &self.engine.store,
-            crate::observability::NativeToolUse {
-                tool_name,
-                path,
-                tokens_used: resp.tokens_used,
-                tokens_saved: resp.tokens_saved_vs_full_read,
-                savings_pct: resp.savings_pct_vs_full_read,
-                must_apply_active,
-                phase: phase.as_deref(),
-                route_log_id: route_log_id.as_deref(),
-            },
-        ) {
-            tracing::warn!(error = %err, tool = tool_name, "tool_log write failed");
-        }
-    }
-
     // ── KG Phase 2: symbol navigation tools ────────────────
 
     #[tool(
@@ -2074,10 +1711,6 @@ impl BrainMcp {
 
 const CORE_TOOLS: &[&str] = &[
     "route_task",
-    "read_file_head",
-    "read_file_tail",
-    "grep_search",
-    "file_summary",
     "verify_run",
     "store_memory",
     "skill_search",
@@ -2766,15 +2399,6 @@ mod tests {
         assert!(handshake.replay().is_empty());
     }
 
-    #[test]
-    fn grep_search_params_accept_query_alias_and_default_path() {
-        let params: GrepSearchParams =
-            serde_json::from_value(serde_json::json!({ "query": "needle" }))
-                .expect("query is accepted as the pattern");
-        assert_eq!(params.pattern, "needle");
-        assert_eq!(params.path, ".");
-    }
-    use crate::types::ItemType;
     use tempfile::TempDir;
 
     fn skill_test_server(dir: &TempDir, skills: &[IndexBatchItem]) -> BrainMcp {
@@ -3205,71 +2829,6 @@ mod tests {
         assert_eq!(catalog["organs"][0]["name"], "thesmos");
     }
 
-    #[tokio::test]
-    async fn route_task_anchors_active_cwd_for_subsequent_token_tool_calls() {
-        let dir = TempDir::new().expect("tempdir");
-        let server = skill_test_server(&dir, &[]);
-        let ws = TempDir::new().expect("workspace");
-        let file_path = ws.path().join("sample.txt");
-        std::fs::write(&file_path, "sample content line 1\nsample content line 2\n")
-            .expect("write sample file");
-
-        let route_res = server
-            .route_task(Parameters(RouteTaskParams {
-                user_message: "inspect workspace files".into(),
-                current_working_directory: Some(ws.path().display().to_string()),
-                open_files: vec![],
-                max_tokens: 500,
-                limits: RouteLimits::default(),
-                phase: None,
-                task_kind: None,
-            }))
-            .await;
-        assert!(route_res.is_ok(), "route_task must succeed");
-
-        let read_res = server
-            .read_file_head(Parameters(ReadFileBoundedParams {
-                path: "sample.txt".into(),
-                current_working_directory: None,
-                lines: 10,
-                max_bytes: 1024,
-                allow_blocked_paths: false,
-                max_tokens: 500,
-            }))
-            .await
-            .expect("read_file_head with relative path should resolve via active_cwd");
-        let read_body = json_body(read_res);
-        let content = read_body["content"].as_str().unwrap();
-        assert!(content.contains("sample content line 1"));
-
-        let summary_res = server
-            .file_summary(Parameters(TokenToolPathParams {
-                path: "sample.txt".into(),
-                current_working_directory: None,
-                allow_blocked_paths: false,
-                max_tokens: 500,
-            }))
-            .await
-            .expect("file_summary with relative path should resolve via active_cwd");
-        let summary_body = json_body(summary_res);
-        assert_eq!(summary_body["total_lines"], 2);
-
-        let list_res = server
-            .list_directory(Parameters(ListDirectoryParams {
-                path: ".".into(),
-                current_working_directory: None,
-                max_entries: 10,
-                include_hidden: false,
-                allow_blocked_paths: false,
-                max_tokens: 500,
-            }))
-            .await
-            .expect("list_directory with relative path should resolve via active_cwd");
-        let list_body = json_body(list_res);
-        let entries = list_body["entries"].as_array().unwrap();
-        assert!(entries.iter().any(|e| e["name"] == "sample.txt"));
-    }
-
     async fn route_body(server: &BrainMcp, cwd: &TempDir) -> serde_json::Value {
         let result = server
             .route_task(Parameters(RouteTaskParams {
@@ -3322,20 +2881,12 @@ mod tests {
                 topic: "mcp_contract".into(),
                 message: "contract".into(),
             }],
-            suggested_native_tools: vec![crate::types::SuggestedNativeTool {
-                tool: "grep_search".into(),
-                description: "search".into(),
-                rationale: "bounded".into(),
-                score: 1.0,
-            }],
             ..Default::default()
         };
         let first = server.once_per_session(route());
         assert_eq!(first.warnings.len(), 1);
-        assert_eq!(first.suggested_native_tools.len(), 1);
         let second = server.once_per_session(route());
         assert!(second.warnings.is_empty());
-        assert!(second.suggested_native_tools.is_empty());
     }
 
     #[test]
