@@ -210,3 +210,7 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 ## Route gate tool classification in Rust (R-15 step 1)
 
 - `classify_tool` mirrors the Python route gate name rules. It is pure and unused until the route-gate subcommand lands (ADR 0001).
+
+## Route gate decision in Rust (R-15 step 2, ADR 0001)
+
+- `decide` is pure: it takes tool name, route state and time. It is not called yet. Subcommand, state I/O and shadow mode come in step 3.
