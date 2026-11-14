@@ -33,3 +33,7 @@ Every agent host session starts `tekmor serve` as an MCP server. One of those pr
 ## Tool surface (H2-7)
 
 - `visible_tools` in `src/mcp/server.rs` filters `list_tools` by `mcp.tool_surface`. The router still holds every tool, so a hidden tool can still be called by name.
+
+## Context bundle dropped on core surface (R-8)
+
+- Under `mcp.tool_surface: core`, MCP `route_task` omits `context_bundle`. gRPC keeps it.

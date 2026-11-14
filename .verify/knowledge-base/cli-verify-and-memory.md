@@ -180,3 +180,7 @@ Verification evidence: the `verification` skill in agstack asks that runs go thr
 ## Retrieval stats dedupe is tested (R-17)
 
 - The dedupe is the pure function `memory_retrieval_stats` in `tekmor/src/engine.rs`, with a regression test.
+
+## Context bundle dropped on core surface (R-8)
+
+- Under `mcp.tool_surface: core`, `route_task` over MCP omits `context_bundle`. It duplicates top-level fields. The gRPC response keeps it, and the field can go after one release with no consumer.
