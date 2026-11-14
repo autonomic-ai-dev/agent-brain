@@ -2,8 +2,7 @@
 feature: ci-pipeline
 knowledge_base: "[[../knowledge-base/ci-pipeline]]"
 related:
-  - "[[cli-verify-and-memory]]"
-  - "[[bench-extension]]"
+  - "[[cli-proof]]"
 ---
 
 # ci-pipeline
@@ -14,7 +13,7 @@ Summary: GitHub Actions for tekmor. One CI workflow runs clippy, the Rust tests 
 
 - `ci-check`: One job that gates merges to master.
   - Intent: Give a single, plain place to see whether a change builds, lints and passes its tests.
-  - Behaviour: `.github/workflows/ci.yml` runs `cargo clippy` with warnings denied, `cargo test --release -p tekmor --features extras -- --test-threads=1`, and `python3 tekmor/hooks/test_route_gate.py`. It runs on push and pull request to master, and it is reusable by the release workflow.
+  - Behaviour: `.github/workflows/ci.yml` runs `cargo clippy` with warnings denied, and `cargo test --release -p tekmor -- --test-threads=1`. It runs on push and pull request to master, and it is reusable by the release workflow.
   - Outcome: A failing lint, test or hook test fails the workflow.
 - `ci-receipt`: A change's verified receipt, recorded by CI itself (H4-1, H4-2, ADR 0004).
   - Intent: Let a merge depend on evidence CI produced, not on a receipt the author made locally.

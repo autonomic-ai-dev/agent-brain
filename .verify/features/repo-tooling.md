@@ -2,7 +2,7 @@
 feature: repo-tooling
 knowledge_base: "[[../knowledge-base/repo-tooling]]"
 related:
-  - "[[cli-verify-and-memory]]"
+  - "[[cli-proof]]"
   - "[[ci-pipeline]]"
 ---
 
